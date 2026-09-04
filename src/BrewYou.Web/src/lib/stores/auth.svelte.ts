@@ -1,4 +1,5 @@
 import { api, setClientAuthToken } from '$lib/api/client';
+import { i18n, type LocaleCode } from '$lib/i18n/index.svelte';
 import type { UserDto } from '$lib/types/api';
 
 class AuthState {
@@ -22,6 +23,9 @@ class AuthState {
         setClientAuthToken(savedToken);
         try {
           this.user = await api.auth.me();
+          if (this.user.preferredLanguage) {
+            i18n.setLocale(this.user.preferredLanguage as LocaleCode);
+          }
           this.isLoading = false;
           return;
         } catch {
@@ -85,6 +89,9 @@ class AuthState {
     this.token = token;
     this.user = user;
     setClientAuthToken(token);
+    if (user.preferredLanguage) {
+      i18n.setLocale(user.preferredLanguage as LocaleCode);
+    }
     if (typeof window !== 'undefined') {
       localStorage.setItem('brewyou_token', token);
     }

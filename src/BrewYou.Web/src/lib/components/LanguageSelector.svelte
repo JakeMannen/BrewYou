@@ -1,12 +1,25 @@
 <script lang="ts">
   import { i18n, supportedLocales, type LocaleCode } from '$lib/i18n/index.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
+  import { api } from '$lib/api/client';
   import { Globe } from '@lucide/svelte';
 
   let isOpen = $state(false);
 
-  function selectLocale(code: LocaleCode) {
+  async function selectLocale(code: LocaleCode) {
     i18n.setLocale(code);
     isOpen = false;
+
+    if (auth.isAuthenticated) {
+      try {
+        const updated = await api.auth.updateLanguage(code);
+        if (auth.user) {
+          auth.user.preferredLanguage = updated.preferredLanguage;
+        }
+      } catch (err) {
+        console.warn('Could not save language preference to user profile:', err);
+      }
+    }
   }
 </script>
 

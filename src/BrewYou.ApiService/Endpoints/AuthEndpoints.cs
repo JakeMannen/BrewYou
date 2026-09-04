@@ -9,11 +9,12 @@ using Microsoft.Extensions.Options;
 
 namespace BrewYou.ApiService.Endpoints;
 
-public record RegisterRequest(string Email, string Password, string DisplayName);
+public record RegisterRequest(string Email, string Password, string DisplayName, string? PreferredLanguage = "en");
 public record LoginRequest(string Email, string Password);
 public record RefreshTokenRequest(string? RefreshToken);
+public record UpdateLanguageRequest(string Language);
 public record AuthResponse(string AccessToken, string RefreshToken, DateTime ExpiresAt, UserDto User);
-public record UserDto(string Id, string Email, string DisplayName);
+public record UserDto(string Id, string Email, string DisplayName, string PreferredLanguage);
 
 public static class AuthEndpoints
 {
@@ -44,7 +45,8 @@ public static class AuthEndpoints
             {
                 UserName = request.Email,
                 Email = request.Email,
-                DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? request.Email.Split('@')[0] : request.DisplayName
+                DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? request.Email.Split('@')[0] : request.DisplayName,
+                PreferredLanguage = string.IsNullOrWhiteSpace(request.PreferredLanguage) ? "en" : request.PreferredLanguage
             };
 
             var createResult = await userManager.CreateAsync(user, request.Password);
@@ -65,7 +67,7 @@ public static class AuthEndpoints
             SetRefreshTokenCookie(httpContext, refreshToken, user.RefreshTokenExpiryTime.Value);
 
             var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
-            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!);
+            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage);
 
             return Results.Ok(new AuthResponse(accessToken, refreshToken, expiresAt, userDto));
         })
@@ -98,7 +100,7 @@ public static class AuthEndpoints
             SetRefreshTokenCookie(httpContext, refreshToken, user.RefreshTokenExpiryTime.Value);
 
             var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
-            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!);
+            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage);
 
             return Results.Ok(new AuthResponse(accessToken, refreshToken, expiresAt, userDto));
         })
@@ -136,7 +138,7 @@ public static class AuthEndpoints
             SetRefreshTokenCookie(httpContext, newRefreshToken, user.RefreshTokenExpiryTime.Value);
 
             var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
-            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!);
+            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage);
 
             return Results.Ok(new AuthResponse(newAccessToken, newRefreshToken, expiresAt, userDto));
         })
@@ -160,10 +162,38 @@ public static class AuthEndpoints
                 return Results.NotFound();
             }
 
-            return Results.Ok(new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!));
+            return Results.Ok(new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage));
         })
         .RequireAuthorization()
         .WithName("GetCurrentUser")
+        .Produces<UserDto>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status401Unauthorized);
+
+        group.MapPut("/me/language", async (
+            [FromBody] UpdateLanguageRequest request,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> userManager) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Unauthorized();
+            }
+
+            var user = await userManager.FindByIdAsync(userId);
+            if (user == null)
+            {
+                return Results.NotFound();
+            }
+
+            var lang = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language.ToLower().Trim();
+            user.PreferredLanguage = lang;
+            await userManager.UpdateAsync(user);
+
+            return Results.Ok(new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage));
+        })
+        .RequireAuthorization()
+        .WithName("UpdateUserLanguage")
         .Produces<UserDto>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status401Unauthorized);
 

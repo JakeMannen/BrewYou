@@ -41,7 +41,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // 1. Register
         var email = $"testbrewer_{Guid.NewGuid():N}@example.com";
         var password = "SecurePassword123!";
-        var registerRequest = new RegisterRequest(email, password, "Head Brewer");
+        var registerRequest = new RegisterRequest(email, password, "Head Brewer", "sv");
 
         var regResponse = await _client.PostAsJsonAsync("/api/v1/auth/register", registerRequest);
         regResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -51,6 +51,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         authData!.AccessToken.Should().NotBeNullOrWhiteSpace();
         authData.User.Email.Should().Be(email);
         authData.User.DisplayName.Should().Be("Head Brewer");
+        authData.User.PreferredLanguage.Should().Be("sv");
 
         // 2. Duplicate registration returns 409 Conflict
         var dupResponse = await _client.PostAsJsonAsync("/api/v1/auth/register", registerRequest);
@@ -65,6 +66,19 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         authedRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authData.AccessToken);
         var meResponse = await _client.SendAsync(authedRequest);
         meResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var meUser = await meResponse.Content.ReadFromJsonAsync<UserDto>();
+        meUser!.PreferredLanguage.Should().Be("sv");
+
+        // 4b. Update language preference to "en"
+        using var updateLangReq = new HttpRequestMessage(HttpMethod.Put, "/api/v1/auth/me/language")
+        {
+            Content = JsonContent.Create(new UpdateLanguageRequest("en"))
+        };
+        updateLangReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authData.AccessToken);
+        var updateLangResponse = await _client.SendAsync(updateLangReq);
+        updateLangResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedUser = await updateLangResponse.Content.ReadFromJsonAsync<UserDto>();
+        updatedUser!.PreferredLanguage.Should().Be("en");
 
         // 5. Get seeded ingredients to form a recipe
         var ingredientsResponse = await _client.GetFromJsonAsync<List<IngredientDto>>("/api/v1/ingredients");

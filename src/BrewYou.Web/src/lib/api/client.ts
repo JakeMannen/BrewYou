@@ -86,6 +86,13 @@ export const api = {
       return request<UserDto>('/api/v1/auth/me');
     },
 
+    async updateLanguage(language: string): Promise<UserDto> {
+      return request<UserDto>('/api/v1/auth/me/language', {
+        method: 'PUT',
+        body: JSON.stringify({ language })
+      });
+    },
+
     async logout(): Promise<void> {
       return request<void>('/api/v1/auth/logout', { method: 'POST' });
     }

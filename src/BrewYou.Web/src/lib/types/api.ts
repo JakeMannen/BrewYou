@@ -94,6 +94,7 @@ export interface UserDto {
   id: string;
   email: string;
   displayName: string;
+  preferredLanguage: string;
 }
 
 export interface AuthResponse {
