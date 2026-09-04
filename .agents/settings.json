@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "BrewYou Project Agent Settings",
+  "project": {
+    "fileAccessPolicy": "deny_outside_workspace",
+    "internetAccessPolicy": "allow",
+    "sandboxMode": "auto",
+    "autoExecutionPolicy": "request-review",
+    "artifactReviewMode": "agent-decides"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "lint-checker": {
+    "enabled": false,
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npm run lint",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "safety-gate": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Pre-command safety check pass'"
+          }
+        ]
+      }
+    ]
+  }
+}
