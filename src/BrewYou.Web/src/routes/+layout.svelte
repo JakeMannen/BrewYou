@@ -2,6 +2,8 @@
   import './layout.css';
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { i18n, t } from '$lib/i18n/index.svelte';
+  import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import {
     Beer,
     BookOpen,
@@ -16,12 +18,13 @@
   let { children } = $props();
 
   onMount(() => {
+    i18n.init();
     auth.init();
   });
 </script>
 
 <svelte:head>
-  <title>BrewYou — Precision Homebrewing Companion</title>
+  <title>BrewYou — {t('home.tagline')}</title>
 </svelte:head>
 
 <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
@@ -42,43 +45,45 @@
           href="/"
           class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors"
         >
-          Dashboard
+          {t('nav.dashboard')}
         </a>
         <a
           href="/recipes"
           class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors flex items-center gap-1.5"
         >
           <BookOpen class="w-4 h-4" />
-          Recipes
+          {t('nav.recipes')}
         </a>
         <a
           href="/recipes/new"
           class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors flex items-center gap-1.5"
         >
           <PlusCircle class="w-4 h-4 text-amber-400" />
-          Formulator
+          {t('nav.formulator')}
         </a>
         <a
           href="/ingredients"
           class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors flex items-center gap-1.5"
         >
           <Layers class="w-4 h-4" />
-          Ingredients
+          {t('nav.ingredients')}
         </a>
       </nav>
 
-      <!-- Auth Controls -->
+      <!-- Right Controls: Language Selector & Auth -->
       <div class="flex items-center gap-3">
+        <LanguageSelector />
+
         {#if auth.isAuthenticated && auth.user}
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
             <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 rounded-full border border-slate-700 text-xs">
               <User class="w-3.5 h-3.5 text-amber-400" />
               <span class="text-slate-200 font-medium">{auth.user.displayName}</span>
             </div>
             <button
               onclick={() => auth.logout()}
-              class="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800/60 transition-colors"
-              title="Sign Out"
+              class="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800/60 transition-colors cursor-pointer"
+              title={t('nav.logout')}
             >
               <LogOut class="w-5 h-5" />
             </button>
@@ -90,14 +95,14 @@
               class="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1"
             >
               <LogIn class="w-4 h-4" />
-              <span>Log In</span>
+              <span>{t('nav.login')}</span>
             </a>
             <a
               href="/register"
               class="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition-colors flex items-center gap-1"
             >
               <UserPlus class="w-4 h-4" />
-              <span>Sign Up</span>
+              <span>{t('nav.signup')}</span>
             </a>
           </div>
         {/if}

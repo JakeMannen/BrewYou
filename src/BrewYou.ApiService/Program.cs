@@ -77,6 +77,14 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Localization (en, sv)
+builder.Services.AddLocalization();
+var supportedCultures = new[] { "en-US", "en", "sv-SE", "sv" };
+var localizationOptions = new RequestLocalizationOptions()
+    .SetDefaultCulture("en-US")
+    .AddSupportedCultures(supportedCultures)
+    .AddSupportedUICultures(supportedCultures);
+
 // OpenAPI & Documentation
 builder.Services.AddOpenApi();
 
@@ -84,6 +92,7 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
+app.UseRequestLocalization(localizationOptions);
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();

@@ -3,7 +3,8 @@
   import { api } from '$lib/api/client';
   import type { RecipeSummaryDto } from '$lib/types/api';
   import { srmToHexColor } from '$lib/calculators/brewing';
-  import { BookOpen, PlusCircle, Search, Beer, Calendar, Loader2 } from '@lucide/svelte';
+  import { t } from '$lib/i18n/index.svelte';
+  import { BookOpen, PlusCircle, Search, Beer, Loader2 } from '@lucide/svelte';
 
   let recipes = $state<RecipeSummaryDto[]>([]);
   let loading = $state(true);
@@ -36,10 +37,10 @@
     <div>
       <h1 class="text-2xl sm:text-3xl font-bold text-white flex items-center gap-2.5">
         <BookOpen class="w-7 h-7 text-amber-400" />
-        Recipe Library
+        {t('recipes.title')}
       </h1>
       <p class="text-sm text-slate-400 mt-1">
-        Browse your formulated craft batches and published community recipes.
+        {t('recipes.subtitle')}
       </p>
     </div>
 
@@ -48,7 +49,7 @@
       class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer self-start sm:self-auto"
     >
       <PlusCircle class="w-4 h-4" />
-      <span>New Recipe</span>
+      <span>{t('recipes.new_recipe')}</span>
     </a>
   </div>
 
@@ -57,7 +58,7 @@
     <Search class="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
     <input
       type="text"
-      placeholder="Search by recipe name or beer style..."
+      placeholder={t('recipes.search_placeholder')}
       bind:value={searchTerm}
       class="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
     />
@@ -67,7 +68,7 @@
   {#if loading}
     <div class="py-16 flex flex-col items-center justify-center text-slate-500 gap-3">
       <Loader2 class="w-8 h-8 animate-spin text-amber-400" />
-      <span class="text-sm">Loading recipes...</span>
+      <span class="text-sm">{t('common.loading')}</span>
     </div>
   {:else if error}
     <div class="p-4 rounded-xl bg-red-950/40 border border-red-800 text-red-300 text-sm">
@@ -79,15 +80,15 @@
         <Beer class="w-6 h-6" />
       </div>
       <div class="space-y-1">
-        <h3 class="text-base font-bold text-white">No recipes found</h3>
-        <p class="text-xs text-slate-500">Formulate your first craft batch with our live calculation engine.</p>
+        <h3 class="text-base font-bold text-white">{t('recipes.empty_title')}</h3>
+        <p class="text-xs text-slate-500">{t('recipes.empty_desc')}</p>
       </div>
       <a
         href="/recipes/new"
         class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition-colors"
       >
         <PlusCircle class="w-4 h-4" />
-        <span>Create Recipe</span>
+        <span>{t('recipes.create_first')}</span>
       </a>
     </div>
   {:else}

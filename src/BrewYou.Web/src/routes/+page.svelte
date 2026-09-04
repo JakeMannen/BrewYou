@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Beer, PlusCircle, BookOpen, Layers, ArrowRight, Sparkles, Gauge } from '@lucide/svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { t } from '$lib/i18n/index.svelte';
 </script>
 
 <div class="space-y-12">
@@ -9,13 +9,13 @@
     <div class="relative z-10 max-w-2xl space-y-4">
       <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold uppercase tracking-wider">
         <Sparkles class="w-3.5 h-3.5" />
-        Precision Homebrewing Engine
+        {t('home.tagline')}
       </div>
       <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-        Formulate, Calculate, and Master Your Craft Brews.
+        {t('home.hero_title')}
       </h1>
       <p class="text-slate-400 text-base sm:text-lg">
-        BrewYou combines real-time gravity, bitterness (Tinseth), and color (Morey) calculation engines with recipe design, brew day logging, and comprehensive ingredient catalogs.
+        {t('home.hero_desc')}
       </p>
 
       <div class="pt-4 flex flex-wrap items-center gap-4">
@@ -24,7 +24,7 @@
           class="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm sm:text-base flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02]"
         >
           <PlusCircle class="w-5 h-5" />
-          <span>Launch Recipe Formulator</span>
+          <span>{t('home.cta_formulator')}</span>
           <ArrowRight class="w-4 h-4 ml-1" />
         </a>
         <a
@@ -32,7 +32,7 @@
           class="px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-sm sm:text-base flex items-center gap-2 border border-slate-700 transition-colors"
         >
           <BookOpen class="w-5 h-5" />
-          <span>Recipe Library</span>
+          <span>{t('home.cta_library')}</span>
         </a>
       </div>
     </div>
@@ -44,9 +44,9 @@
       <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
         <Gauge class="w-5 h-5" />
       </div>
-      <h3 class="text-lg font-bold text-white">Live Calculation Engine</h3>
+      <h3 class="text-lg font-bold text-white">{t('home.feature_calc_title')}</h3>
       <p class="text-sm text-slate-400 leading-relaxed">
-        Real-time calculations for Original Gravity (OG), Final Gravity (FG), ABV, Tinseth IBU bitterness, and Morey SRM color palettes as you build your recipe.
+        {t('home.feature_calc_desc')}
       </p>
     </div>
 
@@ -54,9 +54,9 @@
       <div class="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
         <Layers class="w-5 h-5" />
       </div>
-      <h3 class="text-lg font-bold text-white">Curated Ingredient Catalog</h3>
+      <h3 class="text-lg font-bold text-white">{t('home.feature_cat_title')}</h3>
       <p class="text-sm text-slate-400 leading-relaxed">
-        Pre-seeded library of base malts, specialty grains, aroma/bittering hops with alpha acids, and attenuation-calibrated brewing yeast strains.
+        {t('home.feature_cat_desc')}
       </p>
     </div>
 
@@ -64,9 +64,9 @@
       <div class="w-10 h-10 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
         <Beer class="w-5 h-5" />
       </div>
-      <h3 class="text-lg font-bold text-white">Style Conformance</h3>
+      <h3 class="text-lg font-bold text-white">{t('home.feature_style_title')}</h3>
       <p class="text-sm text-slate-400 leading-relaxed">
-        Design recipes tailored to BJCP style targets: IPAs, Stouts, Saisons, Pale Ales, Lagers, and specialty fruit or spiced beers.
+        {t('home.feature_style_desc')}
       </p>
     </div>
   </section>

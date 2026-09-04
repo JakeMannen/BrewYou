@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import { Beer, UserPlus, AlertCircle } from '@lucide/svelte';
 
   let email = $state('');
@@ -28,8 +29,8 @@
       <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 mx-auto flex items-center justify-center text-amber-400">
         <Beer class="w-6 h-6" />
       </div>
-      <h1 class="text-2xl font-bold text-white">Join BrewYou</h1>
-      <p class="text-xs text-slate-400">Formulate and share craft brewing recipes</p>
+      <h1 class="text-2xl font-bold text-white">{t('auth.register_title')}</h1>
+      <p class="text-xs text-slate-400">{t('auth.register_subtitle')}</p>
     </div>
 
     {#if auth.error}
@@ -41,7 +42,7 @@
 
     <form onsubmit={handleSubmit} class="space-y-4">
       <div>
-        <label for="displayName" class="block text-xs font-medium text-slate-300 mb-1.5">Brewer Name</label>
+        <label for="displayName" class="block text-xs font-medium text-slate-300 mb-1.5">{t('auth.display_name')}</label>
         <input
           id="displayName"
           type="text"
@@ -52,7 +53,7 @@
       </div>
 
       <div>
-        <label for="email" class="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+        <label for="email" class="block text-xs font-medium text-slate-300 mb-1.5">{t('auth.email')}</label>
         <input
           id="email"
           type="email"
@@ -64,7 +65,7 @@
       </div>
 
       <div>
-        <label for="password" class="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
+        <label for="password" class="block text-xs font-medium text-slate-300 mb-1.5">{t('auth.password')}</label>
         <input
           id="password"
           type="password"
@@ -82,13 +83,13 @@
         class="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50 cursor-pointer"
       >
         <UserPlus class="w-4 h-4" />
-        <span>{submitting ? 'Creating Account...' : 'Create Account'}</span>
+        <span>{submitting ? t('auth.submitting_signup') : t('auth.signup_btn')}</span>
       </button>
     </form>
 
     <div class="text-center text-xs text-slate-500 pt-2">
-      Already have an account?{' '}
-      <a href="/login" class="text-amber-400 hover:underline font-medium">Sign in</a>
+      {t('auth.have_account')}{' '}
+      <a href="/login" class="text-amber-400 hover:underline font-medium">{t('auth.signin_link')}</a>
     </div>
   </div>
 </div>

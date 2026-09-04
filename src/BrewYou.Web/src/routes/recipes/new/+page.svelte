@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import {
     calculateBrewMetrics,
     srmToHexColor,
@@ -15,11 +16,8 @@
     Save,
     Sparkles,
     Gauge,
-    Droplet,
-    Flame,
     Layers,
     Info,
-    CheckCircle2,
     AlertCircle
   } from '@lucide/svelte';
 
@@ -140,7 +138,7 @@
       amount: type === 'Fermentable' ? 1.0 : type === 'Hop' ? 20 : 11.5,
       unit: type === 'Fermentable' ? 'kg' : 'g',
       durationMinutes: type === 'Hop' ? 15 : 60,
-      usage: type === 'Fermentable' ? 'Mash' : type === 'Hop' ? 'Boil' : 'Primary'
+      usage: (type === 'Fermentable' ? 'Mash' : type === 'Hop' ? 'Boil' : 'Primary') as IngredientUsage
     });
   }
 
@@ -190,10 +188,10 @@
     <div>
       <h1 class="text-2xl sm:text-3xl font-bold text-white flex items-center gap-2.5">
         <Sparkles class="w-7 h-7 text-amber-400" />
-        Recipe Formulator
+        {t('formulator.title')}
       </h1>
       <p class="text-sm text-slate-400 mt-1">
-        Design and calibrate your grain bill, hop schedule, and yeast profile with live telemetry.
+        {t('formulator.subtitle')}
       </p>
     </div>
 
@@ -204,7 +202,7 @@
         class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50 cursor-pointer"
       >
         <Save class="w-4 h-4" />
-        <span>{saving ? 'Saving...' : auth.isAuthenticated ? 'Save Recipe' : 'Sign In to Save'}</span>
+        <span>{saving ? t('formulator.saving') : auth.isAuthenticated ? t('formulator.save_recipe') : t('formulator.sign_in_to_save')}</span>
       </button>
     </div>
   </div>
@@ -220,48 +218,48 @@
   <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4 rounded-2xl bg-slate-900/80 border border-slate-800 sticky top-20 z-40 backdrop-blur shadow-xl">
     <!-- OG -->
     <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800/80 flex flex-col">
-      <span class="text-xs text-slate-400 font-medium">Original Gravity</span>
+      <span class="text-xs text-slate-400 font-medium">{t('metrics.og')}</span>
       <span class="text-xl sm:text-2xl font-mono font-bold text-amber-400 mt-1">
         {calculatedMetrics.originalGravity.toFixed(3)}
       </span>
-      <span class="text-[10px] text-slate-500 mt-0.5">Target pre-ferment</span>
+      <span class="text-[10px] text-slate-500 mt-0.5">{t('metrics.og_desc')}</span>
     </div>
 
     <!-- FG -->
     <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800/80 flex flex-col">
-      <span class="text-xs text-slate-400 font-medium">Final Gravity</span>
+      <span class="text-xs text-slate-400 font-medium">{t('metrics.fg')}</span>
       <span class="text-xl sm:text-2xl font-mono font-bold text-slate-200 mt-1">
         {calculatedMetrics.finalGravity.toFixed(3)}
       </span>
-      <span class="text-[10px] text-slate-500 mt-0.5">Estimated finish</span>
+      <span class="text-[10px] text-slate-500 mt-0.5">{t('metrics.fg_desc')}</span>
     </div>
 
     <!-- ABV -->
     <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800/80 flex flex-col">
-      <span class="text-xs text-slate-400 font-medium">Est. ABV</span>
+      <span class="text-xs text-slate-400 font-medium">{t('metrics.abv')}</span>
       <span class="text-xl sm:text-2xl font-mono font-bold text-emerald-400 mt-1">
         {calculatedMetrics.alcoholByVolume.toFixed(2)}%
       </span>
-      <span class="text-[10px] text-slate-500 mt-0.5">Alcohol by volume</span>
+      <span class="text-[10px] text-slate-500 mt-0.5">{t('metrics.abv_desc')}</span>
     </div>
 
     <!-- IBU -->
     <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800/80 flex flex-col">
-      <span class="text-xs text-slate-400 font-medium">Bitterness</span>
+      <span class="text-xs text-slate-400 font-medium">{t('metrics.ibu')}</span>
       <span class="text-xl sm:text-2xl font-mono font-bold text-sky-400 mt-1">
         {calculatedMetrics.bitternessIbu.toFixed(1)} <span class="text-xs font-normal text-slate-400">IBU</span>
       </span>
-      <span class="text-[10px] text-slate-500 mt-0.5">Tinseth method</span>
+      <span class="text-[10px] text-slate-500 mt-0.5">{t('metrics.ibu_desc')}</span>
     </div>
 
     <!-- SRM Color -->
     <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800/80 col-span-2 sm:col-span-1 flex items-center justify-between">
       <div>
-        <span class="text-xs text-slate-400 font-medium block">Color</span>
+        <span class="text-xs text-slate-400 font-medium block">{t('metrics.color')}</span>
         <span class="text-xl sm:text-2xl font-mono font-bold text-white mt-1 block">
           {calculatedMetrics.colorSrm.toFixed(1)} <span class="text-xs font-normal text-slate-400">SRM</span>
         </span>
-        <span class="text-[10px] text-slate-500">Morey formula</span>
+        <span class="text-[10px] text-slate-500">{t('metrics.color_desc')}</span>
       </div>
       <div
         class="w-9 h-9 rounded-xl border-2 border-slate-600 shadow-inner"
@@ -278,12 +276,12 @@
       <div class="p-6 rounded-2xl bg-slate-900/50 border border-slate-800 space-y-4">
         <h2 class="text-base font-bold text-white flex items-center gap-2">
           <Info class="w-4 h-4 text-amber-400" />
-          Recipe Overview
+          {t('formulator.recipe_overview')}
         </h2>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label for="recipe-name" class="block text-xs font-medium text-slate-400 mb-1.5">Recipe Name</label>
+            <label for="recipe-name" class="block text-xs font-medium text-slate-400 mb-1.5">{t('formulator.recipe_name')}</label>
             <input
               id="recipe-name"
               type="text"
@@ -293,7 +291,7 @@
           </div>
 
           <div>
-            <label for="beer-style" class="block text-xs font-medium text-slate-400 mb-1.5">Beer Style (BJCP)</label>
+            <label for="beer-style" class="block text-xs font-medium text-slate-400 mb-1.5">{t('formulator.beer_style')}</label>
             <input
               id="beer-style"
               type="text"
@@ -303,7 +301,7 @@
           </div>
 
           <div class="sm:col-span-2">
-            <label for="recipe-description" class="block text-xs font-medium text-slate-400 mb-1.5">Description & Brewer's Notes</label>
+            <label for="recipe-description" class="block text-xs font-medium text-slate-400 mb-1.5">{t('formulator.description')}</label>
             <textarea
               id="recipe-description"
               bind:value={description}
@@ -319,33 +317,33 @@
         <div class="flex items-center justify-between">
           <h2 class="text-base font-bold text-white flex items-center gap-2">
             <Layers class="w-4 h-4 text-amber-400" />
-            Ingredients Bill
+            {t('formulator.ingredients_bill')}
           </h2>
 
           <div class="flex items-center gap-2">
             <button
               onclick={() => addItem('Fermentable')}
-              class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 text-xs font-medium flex items-center gap-1 transition-colors"
+              class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
             >
-              <Plus class="w-3.5 h-3.5" /> +Grain
+              <Plus class="w-3.5 h-3.5" /> {t('formulator.add_grain')}
             </button>
             <button
               onclick={() => addItem('Hop')}
-              class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-medium flex items-center gap-1 transition-colors"
+              class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
             >
-              <Plus class="w-3.5 h-3.5" /> +Hop
+              <Plus class="w-3.5 h-3.5" /> {t('formulator.add_hop')}
             </button>
             <button
               onclick={() => addItem('Yeast')}
-              class="px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-medium flex items-center gap-1 transition-colors"
+              class="px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
             >
-              <Plus class="w-3.5 h-3.5" /> +Yeast
+              <Plus class="w-3.5 h-3.5" /> {t('formulator.add_yeast')}
             </button>
           </div>
         </div>
 
         {#if loadingIngredients}
-          <div class="py-8 text-center text-xs text-slate-500">Loading ingredient catalog...</div>
+          <div class="py-8 text-center text-xs text-slate-500">{t('common.loading')}</div>
         {:else}
           <div class="space-y-3">
             {#each items as item (item.id)}
@@ -390,7 +388,7 @@
 
                   <button
                     onclick={() => removeItem(item.id)}
-                    class="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-900 transition-colors"
+                    class="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-900 transition-colors cursor-pointer"
                   >
                     <Trash2 class="w-4 h-4" />
                   </button>
@@ -407,14 +405,14 @@
       <div class="p-6 rounded-2xl bg-slate-900/50 border border-slate-800 space-y-4">
         <h2 class="text-base font-bold text-white flex items-center gap-2">
           <Gauge class="w-4 h-4 text-amber-400" />
-          Batch Calibration
+          {t('formulator.batch_calibration')}
         </h2>
 
         <div class="space-y-4">
           <div>
             <div class="flex items-center justify-between text-xs font-medium text-slate-400 mb-1.5">
-              <span>Target Batch Size</span>
-              <span class="text-white font-mono">{batchSizeLiters} Liters</span>
+              <span>{t('formulator.batch_size')}</span>
+              <span class="text-white font-mono">{batchSizeLiters} {t('common.liters')}</span>
             </div>
             <input
               type="range"
@@ -428,8 +426,8 @@
 
           <div>
             <div class="flex items-center justify-between text-xs font-medium text-slate-400 mb-1.5">
-              <span>Boil Duration</span>
-              <span class="text-white font-mono">{boilTimeMinutes} Minutes</span>
+              <span>{t('formulator.boil_duration')}</span>
+              <span class="text-white font-mono">{boilTimeMinutes} {t('common.minutes')}</span>
             </div>
             <input
               type="range"
@@ -443,7 +441,7 @@
 
           <div>
             <div class="flex items-center justify-between text-xs font-medium text-slate-400 mb-1.5">
-              <span>Brewhouse Efficiency</span>
+              <span>{t('formulator.efficiency')}</span>
               <span class="text-white font-mono">{efficiencyPercent}%</span>
             </div>
             <input

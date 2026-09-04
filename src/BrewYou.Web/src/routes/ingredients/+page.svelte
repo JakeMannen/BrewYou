@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { IngredientDto, IngredientType } from '$lib/types/api';
-  import { Layers, Search, Wheat, Sparkles, Plus, Loader2 } from '@lucide/svelte';
+  import { Layers, Search, Loader2 } from '@lucide/svelte';
   import { srmToHexColor } from '$lib/calculators/brewing';
+  import { t } from '$lib/i18n/index.svelte';
 
   let ingredients = $state<IngredientDto[]>([]);
   let loading = $state(true);
@@ -44,10 +45,10 @@
     <div>
       <h1 class="text-2xl sm:text-3xl font-bold text-white flex items-center gap-2.5">
         <Layers class="w-7 h-7 text-amber-400" />
-        Ingredient Catalog
+        {t('ingredients.title')}
       </h1>
       <p class="text-sm text-slate-400 mt-1">
-        Browse calibrated fermentables, aroma & bittering hops, and yeast strains.
+        {t('ingredients.subtitle')}
       </p>
     </div>
   </div>
@@ -56,14 +57,30 @@
   <div class="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
     <!-- Type Filter Tabs -->
     <div class="flex items-center gap-1.5 p-1 bg-slate-950 rounded-lg border border-slate-800 text-xs w-full sm:w-auto overflow-x-auto">
-      {#each ['All', 'Fermentable', 'Hop', 'Yeast'] as type}
-        <button
-          onclick={() => onTypeChange(type)}
-          class="px-3 py-1.5 rounded-md font-medium transition-colors {selectedType === type ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}"
-        >
-          {type === 'All' ? 'All Ingredients' : `${type}s`}
-        </button>
-      {/each}
+      <button
+        onclick={() => onTypeChange('All')}
+        class="px-3 py-1.5 rounded-md font-medium transition-colors {selectedType === 'All' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}"
+      >
+        {t('ingredients.all_ingredients')}
+      </button>
+      <button
+        onclick={() => onTypeChange('Fermentable')}
+        class="px-3 py-1.5 rounded-md font-medium transition-colors {selectedType === 'Fermentable' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}"
+      >
+        {t('ingredients.fermentables')}
+      </button>
+      <button
+        onclick={() => onTypeChange('Hop')}
+        class="px-3 py-1.5 rounded-md font-medium transition-colors {selectedType === 'Hop' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}"
+      >
+        {t('ingredients.hops')}
+      </button>
+      <button
+        onclick={() => onTypeChange('Yeast')}
+        class="px-3 py-1.5 rounded-md font-medium transition-colors {selectedType === 'Yeast' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}"
+      >
+        {t('ingredients.yeasts')}
+      </button>
     </div>
 
     <!-- Search Bar -->
@@ -71,7 +88,7 @@
       <Search class="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
       <input
         type="text"
-        placeholder="Search ingredients..."
+        placeholder={t('ingredients.search_placeholder')}
         bind:value={searchTerm}
         oninput={onSearchInput}
         class="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
@@ -83,7 +100,7 @@
   {#if loading}
     <div class="py-16 flex flex-col items-center justify-center text-slate-500 gap-3">
       <Loader2 class="w-8 h-8 animate-spin text-amber-400" />
-      <span class="text-sm">Fetching catalog ingredients...</span>
+      <span class="text-sm">{t('common.loading')}</span>
     </div>
   {:else if error}
     <div class="p-4 rounded-xl bg-red-950/40 border border-red-800 text-red-300 text-sm">
@@ -91,7 +108,7 @@
     </div>
   {:else if ingredients.length === 0}
     <div class="py-12 text-center text-slate-500 text-sm bg-slate-900/30 rounded-xl border border-slate-800/60">
-      No ingredients match the selected criteria.
+      {t('ingredients.empty')}
     </div>
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -119,14 +136,14 @@
           <div class="pt-3 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-xs">
             {#if item.type === 'Fermentable'}
               <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/50">
-                <span class="text-slate-500 block text-[10px]">Potential</span>
+                <span class="text-slate-500 block text-[10px]">{t('ingredients.potential')}</span>
                 <span class="font-mono font-medium text-slate-200">
                   {item.potentialGravity ? item.potentialGravity.toFixed(3) : '1.037'}
                 </span>
               </div>
               <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/50 flex items-center justify-between">
                 <div>
-                  <span class="text-slate-500 block text-[10px]">Color</span>
+                  <span class="text-slate-500 block text-[10px]">{t('ingredients.color')}</span>
                   <span class="font-mono font-medium text-slate-200">{item.colorSrm ?? 0} SRM</span>
                 </div>
                 {#if item.colorSrm}
@@ -139,18 +156,18 @@
               </div>
             {:else if item.type === 'Hop'}
               <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/50">
-                <span class="text-slate-500 block text-[10px]">Alpha Acids</span>
+                <span class="text-slate-500 block text-[10px]">{t('ingredients.alpha_acids')}</span>
                 <span class="font-mono font-medium text-emerald-400">{item.alphaAcidPercent}%</span>
               </div>
               <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/50">
-                <span class="text-slate-500 block text-[10px]">Purpose</span>
+                <span class="text-slate-500 block text-[10px]">{t('ingredients.purpose')}</span>
                 <span class="font-medium text-slate-200">
-                  {(item.alphaAcidPercent ?? 0) > 10 ? 'Bittering / Dual' : 'Aroma / Flavor'}
+                  {(item.alphaAcidPercent ?? 0) > 10 ? t('ingredients.bittering_dual') : t('ingredients.aroma_flavor')}
                 </span>
               </div>
             {:else if item.type === 'Yeast'}
               <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/50 col-span-2">
-                <span class="text-slate-500 block text-[10px]">Typical Attenuation</span>
+                <span class="text-slate-500 block text-[10px]">{t('ingredients.attenuation')}</span>
                 <span class="font-mono font-medium text-sky-400">{item.attenuationPercent}%</span>
               </div>
             {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import { Beer, LogIn, AlertCircle } from '@lucide/svelte';
 
   let email = $state('');
@@ -27,8 +28,8 @@
       <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 mx-auto flex items-center justify-center text-amber-400">
         <Beer class="w-6 h-6" />
       </div>
-      <h1 class="text-2xl font-bold text-white">Sign In to BrewYou</h1>
-      <p class="text-xs text-slate-400">Access your saved formulations and brewing history</p>
+      <h1 class="text-2xl font-bold text-white">{t('auth.login_title')}</h1>
+      <p class="text-xs text-slate-400">{t('auth.login_subtitle')}</p>
     </div>
 
     {#if auth.error}
@@ -40,7 +41,7 @@
 
     <form onsubmit={handleSubmit} class="space-y-4">
       <div>
-        <label for="email" class="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+        <label for="email" class="block text-xs font-medium text-slate-300 mb-1.5">{t('auth.email')}</label>
         <input
           id="email"
           type="email"
@@ -52,7 +53,7 @@
       </div>
 
       <div>
-        <label for="password" class="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
+        <label for="password" class="block text-xs font-medium text-slate-300 mb-1.5">{t('auth.password')}</label>
         <input
           id="password"
           type="password"
@@ -69,13 +70,13 @@
         class="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50 cursor-pointer"
       >
         <LogIn class="w-4 h-4" />
-        <span>{submitting ? 'Signing In...' : 'Sign In'}</span>
+        <span>{submitting ? t('auth.submitting_signin') : t('auth.signin_btn')}</span>
       </button>
     </form>
 
     <div class="text-center text-xs text-slate-500 pt-2">
-      Don't have an account?{' '}
-      <a href="/register" class="text-amber-400 hover:underline font-medium">Create one now</a>
+      {t('auth.no_account')}{' '}
+      <a href="/register" class="text-amber-400 hover:underline font-medium">{t('auth.create_account_link')}</a>
     </div>
   </div>
 </div>
