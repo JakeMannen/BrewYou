@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BrewYou.ApiService/BrewYou.ApiService.csproj" />
+    <Project Path="src/BrewYou.AppHost/BrewYou.AppHost.csproj" />
+    <Project Path="src/BrewYou.ServiceDefaults/BrewYou.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BrewYou.ApiService.Tests/BrewYou.ApiService.Tests.csproj" />
+  </Folder>
+</Solution>
