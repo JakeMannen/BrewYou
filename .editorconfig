@@ -5,7 +5,7 @@ root = true
 [*]
 indent_style = space
 indent_size = 2
-end_of_line = crlf
+end_of_line = lf
 charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
@@ -26,7 +26,7 @@ indent_style = space
 tab_width = 4
 
 # New line preferences
-end_of_line = crlf
+end_of_line = lf
 insert_final_newline = false
 
 #### .NET Coding Conventions ####

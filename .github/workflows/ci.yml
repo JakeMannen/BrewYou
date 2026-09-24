@@ -26,11 +26,11 @@ jobs:
             tests/**/*.csproj
             BrewYou.slnx
 
-      - name: Verify Formatting
-        run: dotnet format BrewYou.slnx --verify-no-changes --verbosity normal
-
       - name: Restore Dependencies
         run: dotnet restore BrewYou.slnx
+
+      - name: Verify Formatting
+        run: dotnet format BrewYou.slnx --verify-no-changes --verbosity normal
 
       - name: Build Solution
         run: dotnet build BrewYou.slnx -c Release --no-restore
