@@ -29,7 +29,8 @@ public enum ThemePreference
 {
     Dark,
     Light,
-    System
+    System,
+    Botanical
 }
 
 public class ApplicationUser : IdentityUser

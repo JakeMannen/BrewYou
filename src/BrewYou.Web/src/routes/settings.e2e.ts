@@ -105,6 +105,15 @@ test.describe('Brewer Personalization Settings Page', () => {
 
 		await expect(html).toHaveClass(/dark/);
 		await expect(html).toHaveAttribute('data-theme', 'dark');
+
+		// Click Botanical theme radio card
+		const botanicalThemeBtn = page.locator('[data-testid="theme-card-botanical"]');
+		await botanicalThemeBtn.click();
+
+		await expect(html).toHaveClass(/dark/);
+		await expect(html).toHaveAttribute('data-theme', 'botanical');
+		const storedBotanical = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
+		expect(storedBotanical).toBe('botanical');
 	});
 
 	test('switches language between English and Swedish updating UI and document lang via dropdown', async ({

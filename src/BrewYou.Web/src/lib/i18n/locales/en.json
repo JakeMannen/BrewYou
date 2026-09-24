@@ -1414,6 +1414,8 @@
 			"theme_dark_desc": "Warm obsidian and glowing amber tones optimized for low-light brew sessions.",
 			"theme_light": "Pilsner Clean (Light)",
 			"theme_light_desc": "Artisanal linen, malt cream, and crisp contrast for bright brew days.",
+			"theme_botanical": "Botanical Moss (Green)",
+			"theme_botanical_desc": "Serene organic deep moss and fresh hop terroir aesthetic inspired by craft brewing botanicals.",
 			"theme_system": "System Match",
 			"theme_system_desc": "Automatically adapts to your operating system's color scheme."
 		},

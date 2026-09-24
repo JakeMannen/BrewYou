@@ -118,7 +118,7 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(classListMock.has('dark')).toBe(true);
 	});
 
-	it('explicitly sets theme to system, light, or dark', () => {
+	it('explicitly sets theme to system, light, dark, or botanical', () => {
 		theme.setTheme('light');
 		expect(theme.current).toBe('light');
 		expect(attributesMock['data-theme']).toBe('light');
@@ -127,9 +127,23 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(theme.current).toBe('dark');
 		expect(attributesMock['data-theme']).toBe('dark');
 
+		theme.setTheme('botanical');
+		expect(theme.current).toBe('botanical');
+		expect(attributesMock['data-theme']).toBe('botanical');
+		expect(classListMock.has('dark')).toBe(true);
+
 		theme.setTheme('system');
 		expect(theme.preference).toBe('system');
 		expect(theme.current).toBe('dark'); // system prefers dark in our mock
+	});
+
+	it('initializes with botanical preference if stored in localStorage', () => {
+		mockStorage.setItem('brewyou-theme', 'botanical');
+		theme.init();
+		expect(theme.preference).toBe('botanical');
+		expect(theme.current).toBe('botanical');
+		expect(classListMock.has('dark')).toBe(true);
+		expect(attributesMock['data-theme']).toBe('botanical');
 	});
 
 	it('responds to media query change and storage event', () => {

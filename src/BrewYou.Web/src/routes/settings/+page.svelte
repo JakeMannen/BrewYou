@@ -33,6 +33,7 @@
 		Sun,
 		Moon,
 		Monitor,
+		Leaf,
 		Check,
 		Save,
 		LogIn,
@@ -600,7 +601,7 @@
 					</div>
 
 					<div
-						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3"
+						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
 						role="radiogroup"
 						aria-label="Theme preference"
 					>
@@ -661,6 +662,36 @@
 							</div>
 							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
 								{t('settings.appearance.theme_light_desc')}
+							</div>
+						</button>
+
+						<!-- Botanical Moss Mode -->
+						<button
+							type="button"
+							role="radio"
+							aria-checked={settings.themePreference === 'Botanical'}
+							data-testid="theme-card-botanical"
+							onclick={() => updateTheme('Botanical')}
+							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+							'Botanical'
+								? 'border-[#8eb63b]/70 bg-[#8eb63b]/15 shadow-[0_0_15px_rgba(142,182,59,0.2)] ring-1 ring-[#8eb63b]'
+								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+						>
+							<div class="flex w-full items-center justify-between">
+								<div
+									class="flex h-8 w-8 items-center justify-center rounded-lg border border-[#8eb63b]/30 bg-[#131b15] text-[#8eb63b] shadow"
+								>
+									<Leaf class="h-4 w-4" />
+								</div>
+								{#if settings.themePreference === 'Botanical'}
+									<Check class="h-4 w-4 text-[#8eb63b]" />
+								{/if}
+							</div>
+							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+								{t('settings.appearance.theme_botanical')}
+							</div>
+							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('settings.appearance.theme_botanical_desc')}
 							</div>
 						</button>
 

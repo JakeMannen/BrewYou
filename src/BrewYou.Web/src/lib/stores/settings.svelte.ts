@@ -438,7 +438,12 @@ class SettingsState {
 			}
 
 			const savedTheme = localStorage.getItem('brewyou_theme_pref') as ThemePreference | null;
-			if (savedTheme === 'Dark' || savedTheme === 'Light' || savedTheme === 'System') {
+			if (
+				savedTheme === 'Dark' ||
+				savedTheme === 'Light' ||
+				savedTheme === 'System' ||
+				savedTheme === 'Botanical'
+			) {
 				this.themePreference = savedTheme;
 			}
 

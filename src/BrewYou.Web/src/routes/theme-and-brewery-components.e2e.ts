@@ -39,6 +39,20 @@ test.describe('Theme Switching & Persistence', () => {
 		await darkThemeBtn.click();
 		await expect(html).toHaveClass(/dark/);
 		await expect(html).toHaveAttribute('data-theme', 'dark');
+
+		// Switch to botanical theme
+		const botanicalThemeBtn = page.locator('[data-testid="theme-card-botanical"]');
+		await botanicalThemeBtn.click();
+		await expect(html).toHaveClass(/dark/);
+		await expect(html).toHaveAttribute('data-theme', 'botanical');
+		const storedBotanical = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
+		expect(storedBotanical).toBe('botanical');
+
+		// Reload page to verify persistence without FOUC
+		await page.reload();
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+		await expect(html).toHaveClass(/dark/);
+		await expect(html).toHaveAttribute('data-theme', 'botanical');
 	});
 });
 

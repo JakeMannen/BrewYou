@@ -54,7 +54,7 @@ The Interactive Dashboard serves as the central command center for your brewery.
 1. **View Brewery KPIs**: Navigate to the **Dashboard** (`/`) to check active batch counts, fermenter utilization, and system status at a glance.
 2. **Monitor Active Fermentations**: Inspect cellar cards to see fermentation stages, wort temperature, specific gravity, and days in vessel.
 3. **Log Measurements Quickly**: Click **Quick Log** (or the hydrometer icon) on any cellar card to record a new gravity or temperature reading.
-4. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from *Fermenting* to *Conditioning*) with a single click.
+4. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from _Fermenting_ to _Conditioning_) with a single click.
 5. **Follow the Operations Schedule**: Review the calendar feed for upcoming brew days, dry hopping windows, and packaging milestones.
 
 ### Multi-Rig Brewery Setup & Loss Profiles
@@ -70,7 +70,7 @@ BrewYou allows brewers to configure multiple distinct brewing rigs (such as a 5-
 
 ### Recipe Management & Recipe Formulator
 
-The Recipe Formulator is an interactive brewing formulation tool that calculates Original Gravity (OG), Final Gravity (FG), ABV, Bitterness (Tinseth IBU), Color (SRM/EBC), and BU:GU balance in real time. It features a dynamic craft beer glass visualization that reflects your wort's authentic SRM color and style-adaptive foam head. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges. You can manage base and specialty malts, physical ingredient forms (Pellet, Leaf, Plug for hops; Dry, Liquid, Slant, Culture for yeasts with selectable units in g, pkg, or ml), timed hop additions (Mash, First Wort, Boil, Aroma, Whirlpool, Dry Hop), yeasts, and water salts. It includes dedicated staged fermentation schedules (*Primary*, *Secondary*, *Ramp / Diacetyl Rest*, *Free Rise*, *Cold Crash*, *Conditioning*) with pre-configured style presets (*Standard Ale*, *Lager with D-Rest*, *Saison Free-Rise*, *NEIPA Juicy*), with full bidirectional BeerXML 1.0 and BeerJSON import and export support preserving ingredient forms and precise yeast amounts.
+The Recipe Formulator is an interactive brewing formulation tool that calculates Original Gravity (OG), Final Gravity (FG), ABV, Bitterness (Tinseth IBU), Color (SRM/EBC), and BU:GU balance in real time. It features a dynamic craft beer glass visualization that reflects your wort's authentic SRM color and style-adaptive foam head. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges. You can manage base and specialty malts, physical ingredient forms (Pellet, Leaf, Plug for hops; Dry, Liquid, Slant, Culture for yeasts with selectable units in g, pkg, or ml), timed hop additions (Mash, First Wort, Boil, Aroma, Whirlpool, Dry Hop), yeasts, and water salts. It includes dedicated staged fermentation schedules (_Primary_, _Secondary_, _Ramp / Diacetyl Rest_, _Free Rise_, _Cold Crash_, _Conditioning_) with pre-configured style presets (_Standard Ale_, _Lager with D-Rest_, _Saison Free-Rise_, _NEIPA Juicy_), with full bidirectional BeerXML 1.0 and BeerJSON import and export support preserving ingredient forms and precise yeast amounts.
 
 #### How to Use
 
@@ -86,7 +86,7 @@ The Recipe Formulator is an interactive brewing formulation tool that calculates
 
 ### Batch Tracking & Live Brew Day Execution
 
-Batch Tracking guides you through a structured 10-stage brewing lifecycle: *Planning*, *Preparation*, *Mashing*, *Lautering*, *Boiling*, *Cooling*, *Fermenting*, *Conditioning*, *Bottling / Kegging*, and *Completed*. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
+Batch Tracking guides you through a structured 10-stage brewing lifecycle: _Planning_, _Preparation_, _Mashing_, _Lautering_, _Boiling_, _Cooling_, _Fermenting_, _Conditioning_, _Bottling / Kegging_, and _Completed_. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
 
 #### How to Use
 
@@ -168,14 +168,14 @@ BrewYou provides secure identity and session management built on ASP.NET Core se
 
 ### Internationalization (i18n) & Personalization
 
-BrewYou offers comprehensive internationalization with 100% key parity between English (`en`) and Swedish (`sv`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a persistent light and dark theme switcher that respects system OS preferences.
+BrewYou offers comprehensive internationalization with 100% key parity between English (`en`) and Swedish (`sv`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a persistent theme system supporting **Modern Amber (Dark)**, **Pilsner Clean (Light)**, **Botanical Moss (Green)**, and **System OS Match**.
 
 #### How to Use
 
-1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (*European Metric*, *US Craft*, or *UK Traditional*).
+1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (_European Metric_, _US Craft_, or _UK Traditional_).
 2. **Switch Language**: Click the language selector (EN / SV) in the header or in **Settings ➔ Preferences** to toggle between English and Swedish instantly.
-3. **Switch Unit System & Presets**: Apply pre-configured regional presets (*European Metric*, *US Craft*, *UK Traditional*) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
-4. **Change Theme**: Click the theme toggle icon in the navigation bar to alternate between Light, Dark, or System default modes.
+3. **Switch Unit System & Presets**: Apply pre-configured regional presets (_European Metric_, _US Craft_, _UK Traditional_) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
+4. **Change Theme**: Select your preferred appearance in **Settings ➔ Appearance** between _Modern Amber (Dark)_, _Pilsner Clean (Light)_, _Botanical Moss (Green)_, or _System Match_.
 
 ---
 

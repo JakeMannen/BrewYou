@@ -30,6 +30,17 @@ public class UserPreferencesValidationTests
     }
 
     [Fact]
+    public async Task ValidatePreferences_BotanicalTheme_PassesValidation()
+    {
+        var request = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.Botanical
+        );
+
+        var result = await _preferencesValidator.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task ValidatePreferences_InvalidLanguage_FailsValidation()
     {
         var request = new UpdateUserPreferencesRequest(Language: "fr");

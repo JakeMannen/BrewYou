@@ -1,5 +1,5 @@
-export type ThemePreference = 'dark' | 'light' | 'system';
-export type ResolvedTheme = 'dark' | 'light';
+export type ThemePreference = 'dark' | 'light' | 'system' | 'botanical';
+export type ResolvedTheme = 'dark' | 'light' | 'botanical';
 
 const STORAGE_KEY = 'brewyou-theme';
 
@@ -15,7 +15,7 @@ class ThemeStore {
 		if (typeof window === 'undefined') return;
 
 		const saved = localStorage.getItem(STORAGE_KEY) as ThemePreference | null;
-		if (saved === 'dark' || saved === 'light' || saved === 'system') {
+		if (saved === 'dark' || saved === 'light' || saved === 'system' || saved === 'botanical') {
 			this.#preference = saved;
 		} else {
 			this.#preference = 'dark';
@@ -35,7 +35,12 @@ class ThemeStore {
 
 		window.addEventListener('storage', (e) => {
 			if (e.key === STORAGE_KEY && e.newValue) {
-				if (e.newValue === 'dark' || e.newValue === 'light' || e.newValue === 'system') {
+				if (
+					e.newValue === 'dark' ||
+					e.newValue === 'light' ||
+					e.newValue === 'system' ||
+					e.newValue === 'botanical'
+				) {
 					this.#preference = e.newValue as ThemePreference;
 					this.applyDocumentClass();
 				}
@@ -68,11 +73,12 @@ class ThemeStore {
 
 	private applyDocumentClass(): void {
 		if (typeof document === 'undefined') return;
-		const isDark = this.current === 'dark';
-		document.documentElement.classList.toggle('dark', isDark);
-		document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+		const resolved = this.current;
+		const isDarkOrBotanical = resolved === 'dark' || resolved === 'botanical';
+		document.documentElement.classList.toggle('dark', isDarkOrBotanical);
+		document.documentElement.setAttribute('data-theme', resolved);
 		if (document.documentElement.style) {
-			document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+			document.documentElement.style.colorScheme = isDarkOrBotanical ? 'dark' : 'light';
 		}
 	}
 }

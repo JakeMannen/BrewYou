@@ -1214,6 +1214,8 @@
 			"theme_dark_desc": "Varma obsidian- och bärnstenstoner anpassade för mörkare bryggmiljöer.",
 			"theme_light": "Pilsner Clean (Ljust)",
 			"theme_light_desc": "Hantverkslinne, maltkräm och skarp kontrast för ljusa bryggdagar.",
+			"theme_botanical": "Botanisk Mossa (Grönt)",
+			"theme_botanical_desc": "Harmonisk organisk djupmossa och humleterroir inspirerad av hantverksbryggningens botanik.",
 			"theme_system": "Systemets standard",
 			"theme_system_desc": "Anpassas automatiskt efter ditt operativsystems färgschema."
 		},

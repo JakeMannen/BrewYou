@@ -1,4 +1,12 @@
 @import 'tailwindcss';
+@import '@fontsource/plus-jakarta-sans/300.css';
+@import '@fontsource/plus-jakarta-sans/400.css';
+@import '@fontsource/plus-jakarta-sans/500.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/plus-jakarta-sans/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
 
 /* Tailwind v4 class-based dark mode configuration */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -17,6 +25,21 @@
 	--color-copper-600: #ea580c;
 	--color-copper-700: #c2410c;
 
+	/* Botanical Moss & Terroir Palette */
+	--color-moss-deepest: #0f1511;
+	--color-moss-canvas: #131b15;
+	--color-moss-surface: #18221b;
+	--color-moss-elevated: #1e2b22;
+	--color-moss-terroir: #343d2d;
+	--color-matcha-bright: #8eb63b;
+	--color-matcha-glow: #a3d248;
+	--color-ceramic-clay: #c59c6d;
+	--color-amber-roasted: #8f532b;
+	--color-bone-primary: #f4f3ee;
+	--color-bone-secondary: #e6e5dc;
+	--color-sage-muted: #a2ae9e;
+	--color-sage-dim: #707d6d;
+
 	/* Dynamic Theme Surface Tokens */
 	--color-surface-canvas: var(--canvas-bg);
 	--color-surface-panel: var(--panel-bg);
@@ -24,12 +47,19 @@
 	--color-surface-border: var(--border-micro);
 
 	/* Typography & Metric Monospaced font */
+	--font-sans:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
+	--font-display:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
 	--font-mono-numbers: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
 	/* Subtle Ambient Glow Shadows */
 	--shadow-amber-glow: 0 0 25px -4px rgba(245, 158, 11, 0.2);
 	--shadow-amber-glow-strong: 0 0 35px -2px rgba(245, 158, 11, 0.35);
 	--shadow-hops-glow: 0 0 25px -4px rgba(16, 185, 129, 0.22);
+	--shadow-matcha-glow: 0 0 25px -4px rgba(142, 182, 59, 0.25);
 }
 
 /* CSS Variables for Mode Swapping */
@@ -59,6 +89,25 @@
 	--text-secondary: #a1a1aa;
 	--text-muted: #71717a;
 	--ambient-glow: 0 0 30px -5px rgba(245, 158, 11, 0.15);
+}
+
+[data-theme='botanical'] {
+	/* Botanical Moss & Craft Terroir Green Theme */
+	--canvas-bg: #131b15;
+	--panel-bg: rgba(24, 34, 27, 0.85);
+	--panel-card: rgba(24, 34, 27, 0.7);
+	--elevated-bg: rgba(30, 43, 34, 0.85);
+	--border-micro: rgba(255, 255, 255, 0.09);
+	--border-active: rgba(142, 182, 59, 0.5);
+	--text-primary: #f4f3ee;
+	--text-secondary: #a2ae9e;
+	--text-muted: #707d6d;
+	--ambient-glow: 0 0 30px -5px rgba(142, 182, 59, 0.2);
+}
+
+[data-theme='botanical'] ::selection {
+	background-color: #8eb63b;
+	color: #0f1511;
 }
 
 html,
