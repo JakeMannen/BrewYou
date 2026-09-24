@@ -31,11 +31,11 @@ jobs:
             tests/**/*.csproj
             BrewYou.slnx
 
-      - name: Verify Formatting
-        run: dotnet format BrewYou.slnx --verify-no-changes --verbosity normal
-
       - name: Restore Dependencies
         run: dotnet restore BrewYou.slnx
+
+      - name: Verify Formatting
+        run: dotnet format BrewYou.slnx --verify-no-changes --verbosity normal
 
       - name: Build Solution
         run: dotnet build BrewYou.slnx -c Release --no-restore
@@ -104,8 +104,6 @@ jobs:
           extra_plugins: |
             @semantic-release/commit-analyzer
             @semantic-release/release-notes-generator
-            @semantic-release/changelog
-            @semantic-release/git
             @semantic-release/github
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
