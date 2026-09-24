@@ -1,73 +1,123 @@
 <script lang="ts">
-  import { Beer, PlusCircle, BookOpen, Layers, ArrowRight, Sparkles, Gauge } from '@lucide/svelte';
-  import { t } from '$lib/i18n/index.svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { t } from '$lib/i18n/index.svelte';
+	import { auth } from '$lib/stores/auth.svelte';
+	import { brewery } from '$lib/stores/brewery.svelte';
+	import { dashboard } from '$lib/stores/dashboard.svelte';
+	import type { BatchSummaryDto } from '$lib/types/api';
+	import DashboardHeader from '$lib/components/dashboard/DashboardHeader.svelte';
+	import ActiveCellarCards from '$lib/components/dashboard/ActiveCellarCards.svelte';
+	import IdleCellarState from '$lib/components/dashboard/IdleCellarState.svelte';
+	import BrewTasksWidget from '$lib/components/dashboard/BrewTasksWidget.svelte';
+	import EquipmentHealthWidget from '$lib/components/dashboard/EquipmentHealthWidget.svelte';
+	import LiveReadingFeedWidget from '$lib/components/dashboard/LiveReadingFeedWidget.svelte';
+	import QuickReadingModal from '$lib/components/dashboard/QuickReadingModal.svelte';
+	import AdvanceStageModal from '$lib/components/dashboard/AdvanceStageModal.svelte';
+	import { Loader2 } from '@lucide/svelte';
+
+	let readingModalOpen = $state(false);
+	let selectedBatchIdForReading = $state<string | null>(null);
+
+	let advanceModalOpen = $state(false);
+	let batchToAdvance = $state<BatchSummaryDto | null>(null);
+
+	onMount(() => {
+		dashboard.init();
+	});
+
+	onDestroy(() => {
+		dashboard.destroy();
+	});
+
+	// Re-load when user or active brewery setup changes
+	$effect(() => {
+		if (auth.isAuthenticated) {
+			void brewery.activeSetupId;
+			dashboard.loadDashboard();
+		}
+	});
+
+	function handleOpenReadingModal(batchId?: string) {
+		selectedBatchIdForReading = batchId ?? null;
+		readingModalOpen = true;
+	}
+
+	function handleCloseReadingModal() {
+		readingModalOpen = false;
+		selectedBatchIdForReading = null;
+	}
+
+	function handleOpenAdvanceModal(batch: BatchSummaryDto) {
+		batchToAdvance = batch;
+		advanceModalOpen = true;
+	}
+
+	function handleCloseAdvanceModal() {
+		advanceModalOpen = false;
+		batchToAdvance = null;
+	}
 </script>
 
-<div class="space-y-12">
-  <!-- Hero Section -->
-  <section class="relative rounded-2xl bg-gradient-to-br from-amber-500/10 via-slate-900 to-slate-900 border border-amber-500/20 p-8 sm:p-12 overflow-hidden shadow-2xl">
-    <div class="relative z-10 max-w-2xl space-y-4">
-      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold uppercase tracking-wider">
-        <Sparkles class="w-3.5 h-3.5" />
-        {t('home.tagline')}
-      </div>
-      <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-        {t('home.hero_title')}
-      </h1>
-      <p class="text-slate-400 text-base sm:text-lg">
-        {t('home.hero_desc')}
-      </p>
+<svelte:head>
+	<title>BrewYou — {t('dashboard.title')}</title>
+</svelte:head>
 
-      <div class="pt-4 flex flex-wrap items-center gap-4">
-        <a
-          href="/recipes/new"
-          class="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm sm:text-base flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02]"
-        >
-          <PlusCircle class="w-5 h-5" />
-          <span>{t('home.cta_formulator')}</span>
-          <ArrowRight class="w-4 h-4 ml-1" />
-        </a>
-        <a
-          href="/recipes"
-          class="px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-sm sm:text-base flex items-center gap-2 border border-slate-700 transition-colors"
-        >
-          <BookOpen class="w-5 h-5" />
-          <span>{t('home.cta_library')}</span>
-        </a>
-      </div>
-    </div>
-  </section>
+<div class="space-y-6 sm:space-y-8">
+	<!-- Top Command Header with KPIs and Quick Actions -->
+	<DashboardHeader onOpenReadingModal={() => handleOpenReadingModal()} />
 
-  <!-- Feature Pillars -->
-  <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
-    <div class="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/30 transition-colors space-y-3">
-      <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-        <Gauge class="w-5 h-5" />
-      </div>
-      <h3 class="text-lg font-bold text-white">{t('home.feature_calc_title')}</h3>
-      <p class="text-sm text-slate-400 leading-relaxed">
-        {t('home.feature_calc_desc')}
-      </p>
-    </div>
+	{#if dashboard.loading && dashboard.batches.length === 0}
+		<div class="flex items-center justify-center py-20">
+			<div class="flex items-center gap-3 text-zinc-600 dark:text-zinc-400">
+				<Loader2 class="h-6 w-6 animate-spin text-amber-500" />
+				<span class="text-sm font-medium">{t('common.loading')}</span>
+			</div>
+		</div>
+	{:else}
+		<!-- 2x2 Command Grid: Row 1 Cellar + Equipment | Row 2 Tasks + Live Reading Feed -->
+		<div class="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+			<!-- Row 1 Left: Active Fermentations / Cellar (8 cols) -->
+			<div class="order-1 flex flex-col lg:order-1 lg:col-span-8">
+				{#if dashboard.activeBatchCount > 0}
+					<ActiveCellarCards
+						batches={dashboard.activeBatches}
+						equipment={dashboard.equipment}
+						onLogReading={(id) => handleOpenReadingModal(id)}
+						onAdvanceStage={handleOpenAdvanceModal}
+					/>
+				{:else}
+					<IdleCellarState equipment={dashboard.equipment} />
+				{/if}
+			</div>
 
-    <div class="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/30 transition-colors space-y-3">
-      <div class="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-        <Layers class="w-5 h-5" />
-      </div>
-      <h3 class="text-lg font-bold text-white">{t('home.feature_cat_title')}</h3>
-      <p class="text-sm text-slate-400 leading-relaxed">
-        {t('home.feature_cat_desc')}
-      </p>
-    </div>
+			<!-- Row 1 Right: Equipment Readiness & Probes (4 cols) -->
+			<div class="order-3 flex flex-col lg:order-2 lg:col-span-4">
+				<EquipmentHealthWidget />
+			</div>
 
-    <div class="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/30 transition-colors space-y-3">
-      <div class="w-10 h-10 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
-        <Beer class="w-5 h-5" />
-      </div>
-      <h3 class="text-lg font-bold text-white">{t('home.feature_style_title')}</h3>
-      <p class="text-sm text-slate-400 leading-relaxed">
-        {t('home.feature_style_desc')}
-      </p>
-    </div>
-  </section>
+			<!-- Row 2 Left: Today's Tasks & Operations Schedule (8 cols) -->
+			<div class="order-2 flex flex-col lg:order-3 lg:col-span-8">
+				<BrewTasksWidget />
+			</div>
+
+			<!-- Row 2 Right: Live Telemetry Stream & Quick Calculators (4 cols) -->
+			<div class="order-4 flex flex-col lg:order-4 lg:col-span-4">
+				<LiveReadingFeedWidget />
+			</div>
+		</div>
+	{/if}
 </div>
+
+<!-- In-Dashboard Quick Modals -->
+<QuickReadingModal
+	bind:isOpen={readingModalOpen}
+	batches={dashboard.activeBatches}
+	initialBatchId={selectedBatchIdForReading}
+	onClose={handleCloseReadingModal}
+/>
+
+<AdvanceStageModal
+	bind:isOpen={advanceModalOpen}
+	batch={batchToAdvance}
+	onClose={handleCloseAdvanceModal}
+/>

@@ -1,0 +1,135 @@
+name: brewyou
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    container_name: brewyou-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-brewyou-db}
+      POSTGRES_USER: ${DB_USER:-brewyou}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-brewyou_dev_password}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - brewyou_pgdata:/var/lib/postgresql
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-brewyou} -d $${POSTGRES_DB:-brewyou-db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  apiservice:
+    build:
+      context: .
+      dockerfile: src/BrewYou.ApiService/Dockerfile
+    container_name: brewyou-apiservice
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "5000"
+      ConnectionStrings__brewyou-db: "Host=postgres;Port=5432;Database=${DB_NAME:-brewyou-db};Username=${DB_USER:-brewyou};Password=${DB_PASSWORD:-brewyou_dev_password}"
+      ConnectionStrings__mqtt: "tcp://mqtt:1883"
+      Jwt__SecretKey: "${JWT_SECRET:-SuperSecretBrewYouKey_AtLeast32BytesLong!}"
+      Jwt__Issuer: "BrewYou"
+      Jwt__Audience: "BrewYouApp"
+      Cors__AllowedOrigins__0: "http://localhost:3000"
+      Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
+    ports:
+      - "5000:5000"
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/alive || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  web:
+    build:
+      context: src/BrewYou.Web
+      dockerfile: Dockerfile
+    container_name: brewyou-web
+    restart: unless-stopped
+    depends_on:
+      apiservice:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      services__apiservice__http__0: "http://apiservice:5000"
+      PUBLIC_API_URL: "http://localhost:5000"
+    ports:
+      - "3000:3000"
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: brewyou-mqtt
+    restart: unless-stopped
+    profiles:
+      - mqtt
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - brewyou_mqttdata:/mosquitto/data
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t 'healthcheck' -E || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  pgadmin:
+    image: dpage/pgadmin4:9.15.0
+    container_name: brewyou-pgadmin
+    restart: unless-stopped
+    profiles:
+      - pgadmin
+      - tools
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@brewyou.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-brewyou_dev_password}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "127.0.0.1:5050:80"
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:80/misc/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  brewyou_pgdata:
+    name: brewyou_pgdata
+  brewyou_mqttdata:
+    name: brewyou_mqttdata
+
+networks:
+  brewyou-network:
+    name: brewyou-network
+    driver: bridge
+

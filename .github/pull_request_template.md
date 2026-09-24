@@ -20,12 +20,14 @@
 
 ## Verification & Testing
 <!-- Describe the tests you ran to verify your changes -->
-- [ ] Automated tests passing locally (`npm test` or equivalent)
-- [ ] Linter & type checks passing with zero errors
+- [ ] Every new feature is covered by unit and/or integration tests (mandatory)
+- [ ] Linting & .editorconfig rules enforced with zero warnings/errors (mandatory)
+- [ ] Automated tests passing locally (`dotnet test`, `npm test`, or equivalent)
 - [ ] Manual smoke test performed
 
 ## Pre-Merge Checklist
-- [ ] My code adheres to the project's [code standards](.agents/rules/code-standards.md)
+- [ ] All involved/relevant subagents were consulted during feature development
+- [ ] Code adheres to [.editorconfig](.editorconfig) formatting standards and [code standards](.agents/rules/code-standards.md)
 - [ ] I have maintained separation of concerns between frontend and backend
 - [ ] API changes maintain backwards compatibility or synchronize shared types
 - [ ] No secrets, credentials, or environment files are included in this PR

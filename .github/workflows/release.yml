@@ -1,0 +1,280 @@
+name: Release & Container Publishing
+
+on:
+  push:
+    branches:
+      - main
+      - next
+      - beta
+      - alpha
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-backend:
+    name: Backend Test Gate (.NET 10)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+          cache: true
+          cache-dependency-path: |
+            src/**/*.csproj
+            tests/**/*.csproj
+            BrewYou.slnx
+
+      - name: Verify Formatting
+        run: dotnet format BrewYou.slnx --verify-no-changes --verbosity normal
+
+      - name: Restore Dependencies
+        run: dotnet restore BrewYou.slnx
+
+      - name: Build Solution
+        run: dotnet build BrewYou.slnx -c Release --no-restore
+
+      - name: Run Backend Tests
+        run: |
+          dotnet test tests/BrewYou.ApiService.Tests/BrewYou.ApiService.Tests.csproj \
+            -c Release \
+            --no-build \
+            --logger "GitHubActions" \
+            --logger "trx;LogFileName=test-results.trx"
+
+  test-frontend:
+    name: Frontend Test Gate (SvelteKit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/BrewYou.Web
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: src/BrewYou.Web/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Linting
+        run: npm run lint
+
+      - name: Run Svelte Typecheck
+        run: npm run check
+
+      - name: Run Frontend Unit Tests
+        run: npm run test:unit -- --run
+
+  release:
+    name: Semantic Release & Changelog
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+      new_release_git_tag: ${{ steps.semantic.outputs.new_release_git_tag }}
+      new_release_channel: ${{ steps.semantic.outputs.new_release_channel }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/commit-analyzer
+            @semantic-release/release-notes-generator
+            @semantic-release/changelog
+            @semantic-release/git
+            @semantic-release/github
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+  docker-release:
+    name: Build & Store Docker Images
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: needs.release.outputs.new_release_published == 'true'
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout Tagged Release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.new_release_git_tag }}
+
+      - name: Set Lowercase Repository Name
+        id: repo-name
+        run: |
+          echo "owner_repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata (ApiService)
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ steps.repo-name.outputs.owner_repo }}/brewyou-apiservice
+          tags: |
+            type=raw,value=${{ needs.release.outputs.new_release_version }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ needs.release.outputs.new_release_channel }},enable=${{ needs.release.outputs.new_release_channel != '' }}
+            type=sha,prefix=sha-
+
+      - name: Build and Push ApiService Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/BrewYou.ApiService/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha,scope=apiservice
+          cache-to: type=gha,mode=max,scope=apiservice
+
+      - name: Extract Docker Metadata (Web)
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ steps.repo-name.outputs.owner_repo }}/brewyou-web
+          tags: |
+            type=raw,value=${{ needs.release.outputs.new_release_version }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ needs.release.outputs.new_release_channel }},enable=${{ needs.release.outputs.new_release_channel != '' }}
+            type=sha,prefix=sha-
+
+      - name: Build and Push Web Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: src/BrewYou.Web
+          file: src/BrewYou.Web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Package Release Assets (Image Archives & Compose File)
+        run: |
+          API_IMAGE="ghcr.io/${{ steps.repo-name.outputs.owner_repo }}/brewyou-apiservice:${{ needs.release.outputs.new_release_version }}"
+          WEB_IMAGE="ghcr.io/${{ steps.repo-name.outputs.owner_repo }}/brewyou-web:${{ needs.release.outputs.new_release_version }}"
+
+          docker pull "$API_IMAGE"
+          docker save "$API_IMAGE" | gzip > "brewyou-apiservice-${{ needs.release.outputs.new_release_version }}.tar.gz"
+
+          docker pull "$WEB_IMAGE"
+          docker save "$WEB_IMAGE" | gzip > "brewyou-web-${{ needs.release.outputs.new_release_version }}.tar.gz"
+
+          cat << 'EOF' > docker-compose.release.yml
+          name: brewyou
+          services:
+            postgres:
+              image: postgres:17-alpine
+              restart: unless-stopped
+              environment:
+                POSTGRES_DB: ${DB_NAME:-brewyou-db}
+                POSTGRES_USER: ${DB_USER:-brewyou}
+                POSTGRES_PASSWORD: ${DB_PASSWORD:-brewyou_dev_password}
+              ports:
+                - "127.0.0.1:5432:5432"
+              volumes:
+                - brewyou_pgdata:/var/lib/postgresql/data
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-brewyou} -d $${POSTGRES_DB:-brewyou-db}"]
+                interval: 5s
+                timeout: 5s
+                retries: 5
+                start_period: 10s
+
+            apiservice:
+              image: ghcr.io/${API_REPO}/brewyou-apiservice:${RELEASE_VERSION}
+              restart: unless-stopped
+              depends_on:
+                postgres:
+                  condition: service_healthy
+              environment:
+                ASPNETCORE_ENVIRONMENT: Production
+                ASPNETCORE_HTTP_PORTS: "5000"
+                ConnectionStrings__brewyou-db: "Host=postgres;Port=5432;Database=${DB_NAME:-brewyou-db};Username=${DB_USER:-brewyou};Password=${DB_PASSWORD:-brewyou_dev_password}"
+                Jwt__SecretKey: "${JWT_SECRET:-SuperSecretBrewYouKey_AtLeast32BytesLong!}"
+                Jwt__Issuer: "BrewYou"
+                Jwt__Audience: "BrewYouApp"
+                Cors__AllowedOrigins__0: "http://localhost:3000"
+                Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
+              ports:
+                - "5000:5000"
+              healthcheck:
+                test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/alive || exit 1"]
+                interval: 5s
+                timeout: 5s
+                retries: 5
+                start_period: 15s
+
+            web:
+              image: ghcr.io/${API_REPO}/brewyou-web:${RELEASE_VERSION}
+              restart: unless-stopped
+              depends_on:
+                apiservice:
+                  condition: service_healthy
+              environment:
+                PORT: "3000"
+                HOST: "0.0.0.0"
+                services__apiservice__http__0: "http://apiservice:5000"
+                PUBLIC_API_URL: "http://localhost:5000"
+              ports:
+                - "3000:3000"
+              healthcheck:
+                test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+                interval: 5s
+                timeout: 5s
+                retries: 5
+                start_period: 15s
+
+          volumes:
+            brewyou_pgdata:
+              name: brewyou_pgdata
+          EOF
+
+          sed -i "s|\${API_REPO}|${{ steps.repo-name.outputs.owner_repo }}|g" docker-compose.release.yml
+          sed -i "s|\${RELEASE_VERSION}|${{ needs.release.outputs.new_release_version }}|g" docker-compose.release.yml
+
+      - name: Attach Docker Artifacts to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.release.outputs.new_release_git_tag }}" \
+            "brewyou-apiservice-${{ needs.release.outputs.new_release_version }}.tar.gz" \
+            "brewyou-web-${{ needs.release.outputs.new_release_version }}.tar.gz" \
+            "docker-compose.release.yml" \
+            --clobber

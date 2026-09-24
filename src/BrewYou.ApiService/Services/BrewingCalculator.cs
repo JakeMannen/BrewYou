@@ -101,4 +101,75 @@ public static class BrewingCalculator
             ColorSrm: Math.Round((decimal)srm, 1)
         );
     }
+
+    /// <summary>
+    /// Calculates Alcohol by Volume (ABV) using standard linear formula for OG <= 1.060,
+    /// and the ASBC non-linear equation for high-gravity worts (OG > 1.060).
+    /// </summary>
+    public static decimal CalculateActualAbv(decimal measuredOg, decimal currentGravity)
+    {
+        if (measuredOg <= currentGravity || measuredOg <= 1.000m || currentGravity <= 0m)
+        {
+            return 0.0m;
+        }
+
+        if (measuredOg > 1.060m)
+        {
+            // ASBC Advanced Equation for High-Gravity Beers
+            // ABW = (76.08 * (OG - FG)) / (1.775 - OG)
+            // ABV = ABW * (FG / 0.794)
+            var abw = (76.08m * (measuredOg - currentGravity)) / (1.775m - measuredOg);
+            var abv = abw * (currentGravity / 0.794m);
+            return Math.Max(0.0m, Math.Round(abv, 2));
+        }
+
+        // Standard Linear Equation
+        var standardAbv = (measuredOg - currentGravity) * 131.25m;
+        return Math.Max(0.0m, Math.Round(standardAbv, 2));
+    }
+
+    /// <summary>
+    /// Calculates Apparent Attenuation (AA%) from Measured OG and Current Gravity.
+    /// </summary>
+    public static decimal CalculateApparentAttenuation(decimal measuredOg, decimal currentGravity)
+    {
+        if (measuredOg <= 1.000m || measuredOg <= currentGravity)
+        {
+            return 0.0m;
+        }
+
+        var attenuation = ((measuredOg - currentGravity) / (measuredOg - 1.000m)) * 100.0m;
+        return Math.Max(0.0m, Math.Round(attenuation, 1));
+    }
+
+    /// <summary>
+    /// Calculates Brewhouse Efficiency (%) based on wort volume, OG, and theoretical grain potential points.
+    /// </summary>
+    public static decimal CalculateBrewhouseEfficiency(decimal volumeLiters, decimal measuredOg, decimal totalPotentialPoints)
+    {
+        if (volumeLiters <= 0m || measuredOg <= 1.000m || totalPotentialPoints <= 0m)
+        {
+            return 0.0m;
+        }
+
+        var volumeGallons = volumeLiters * (decimal)LitersToGallons;
+        var yieldedPoints = (measuredOg - 1.000m) * 1000.0m * volumeGallons;
+        var efficiency = (yieldedPoints / totalPotentialPoints) * 100.0m;
+        return Math.Max(0.0m, Math.Round(efficiency, 1));
+    }
+
+    /// <summary>
+    /// Calculates Strike Water Temperature in Celsius based on thermodynamic heat capacity of malt.
+    /// </summary>
+    public static decimal CalculateStrikeWaterTemperature(
+        decimal targetMashTempC,
+        decimal grainTempC = 20.0m,
+        decimal liquorToGristRatio = 3.0m,
+        decimal tunLossC = 1.0m)
+    {
+        if (liquorToGristRatio <= 0m) liquorToGristRatio = 3.0m;
+
+        var strikeTemp = targetMashTempC + ((0.41m / liquorToGristRatio) * (targetMashTempC - grainTempC)) + tunLossC;
+        return Math.Round(strikeTemp, 1);
+    }
 }

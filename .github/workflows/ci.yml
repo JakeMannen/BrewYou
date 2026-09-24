@@ -1,69 +1,100 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, next, beta, alpha ]
+
+permissions:
+  contents: read
 
 jobs:
-  lint-and-typecheck:
-    name: Lint & Typecheck
+  backend-test:
+    name: Backend Test & Verification (.NET 10)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+          cache: true
+          cache-dependency-path: |
+            src/**/*.csproj
+            tests/**/*.csproj
+            BrewYou.slnx
 
-      - name: Install Dependencies
-        run: npm ci --prefer-offline || npm install
+      - name: Verify Formatting
+        run: dotnet format BrewYou.slnx --verify-no-changes --verbosity normal
 
-      - name: Run Linter
-        run: npm run lint --if-present
+      - name: Restore Dependencies
+        run: dotnet restore BrewYou.slnx
 
-      - name: Run Typecheck
-        run: npm run typecheck --if-present
+      - name: Build Solution
+        run: dotnet build BrewYou.slnx -c Release --no-restore
 
-  test:
-    name: Automated Tests
+      - name: Run Backend Tests
+        run: |
+          dotnet test tests/BrewYou.ApiService.Tests/BrewYou.ApiService.Tests.csproj \
+            -c Release \
+            --no-build \
+            --logger "GitHubActions" \
+            --logger "trx;LogFileName=test-results.trx"
+
+  frontend-test:
+    name: Frontend Test & Verification (SvelteKit)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/BrewYou.Web
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
+          cache-dependency-path: src/BrewYou.Web/package-lock.json
 
       - name: Install Dependencies
-        run: npm ci --prefer-offline || npm install
+        run: npm ci
 
-      - name: Run Test Suites
-        run: npm test --if-present
+      - name: Run Linting
+        run: npm run lint
 
-  build:
-    name: Build Verification
+      - name: Run Svelte Typecheck
+        run: npm run check
+
+      - name: Run Frontend Unit Tests
+        run: npm run test:unit -- --run
+
+  docker-verification:
+    name: Docker Build Verification
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck, test]
+    needs: [backend-test, frontend-test]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ApiService Docker Image (Dry Run)
+        uses: docker/build-push-action@v6
         with:
-          node-version: 20
-          cache: 'npm'
+          context: .
+          file: src/BrewYou.ApiService/Dockerfile
+          push: false
+          cache-from: type=gha,scope=apiservice
 
-      - name: Install Dependencies
-        run: npm ci --prefer-offline || npm install
-
-      - name: Build Packages
-        run: npm run build --if-present
+      - name: Build Web Docker Image (Dry Run)
+        uses: docker/build-push-action@v6
+        with:
+          context: src/BrewYou.Web
+          file: src/BrewYou.Web/Dockerfile
+          push: false
+          cache-from: type=gha,scope=web

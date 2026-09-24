@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Copyright>Copyright (c) 2026 BrewYou Contributors</Copyright>
+    <Authors>BrewYou Contributors</Authors>
+  </PropertyGroup>
+</Project>

@@ -1,4 +1,4 @@
-@BrewYou.ApiService_HostAddress = http://localhost:5033
+@BrewYou.ApiService_HostAddress = http://localhost:5000
 
 GET {{BrewYou.ApiService_HostAddress}}/weatherforecast/
 Accept: application/json
