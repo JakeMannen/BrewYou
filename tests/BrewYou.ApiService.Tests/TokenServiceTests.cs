@@ -1,9 +1,9 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using BrewYou.ApiService.Auth;
 using BrewYou.ApiService.Data.Entities;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace BrewYou.ApiService.Tests;
 

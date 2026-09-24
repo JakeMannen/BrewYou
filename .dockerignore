@@ -1,0 +1,15 @@
+**/.git
+**/.github
+**/.vscode
+**/.agents
+**/bin
+**/obj
+**/node_modules
+**/.svelte-kit
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+*.user
+*.suo
+BrewYou.sln.DotSettings.user

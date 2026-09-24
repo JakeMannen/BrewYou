@@ -1,6 +1,6 @@
 # Security Guidelines & Web Application Best Practices
 
-Security standards for frontend and backend development in BrewYou.
+Security standards for frontend and backend development in BrewYou, curated by the **Cybersecurity Expert**.
 
 ---
 

@@ -1,20 +1,68 @@
-using System.Security.Claims;
-using BrewYou.ApiService.Auth;
-using BrewYou.ApiService.Data;
+using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Data.Entities;
-using Microsoft.AspNetCore.Identity;
+using BrewYou.ApiService.Services;
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 namespace BrewYou.ApiService.Endpoints;
 
-public record RegisterRequest(string Email, string Password, string DisplayName, string? PreferredLanguage = "en");
+public record RegisterRequest(string Email, string Password, string DisplayName, string? PreferredLanguage = "en", VolumeUnit? PreferredVolumeUnit = VolumeUnit.Liters);
 public record LoginRequest(string Email, string Password);
+public record GoogleAuthRequest(string IdToken, string? PreferredLanguage = "en");
 public record RefreshTokenRequest(string? RefreshToken);
 public record UpdateLanguageRequest(string Language);
-public record AuthResponse(string AccessToken, string RefreshToken, DateTime ExpiresAt, UserDto User);
-public record UserDto(string Id, string Email, string DisplayName, string PreferredLanguage);
+public record UpdateVolumeUnitRequest(VolumeUnit VolumeUnit);
+
+public record UserPreferencesDto(
+    string Language,
+    VolumeUnit VolumeUnit,
+    WeightUnit WeightUnit,
+    TemperatureUnit TemperatureUnit,
+    GravityUnit GravityUnit,
+    ThemePreference Theme,
+    decimal DefaultBatchSizeLiters,
+    decimal DefaultEfficiencyPercent,
+    int DefaultBoilTimeMinutes,
+    string? MqttHost = null,
+    int? MqttPort = null,
+    string? MqttUsername = null,
+    string? MqttPassword = null,
+    string? MqttCertificate = null,
+    bool HasMqttPassword = false,
+    string? MqttTopicPrefix = "brewyou/equipment");
+
+public record UpdateUserPreferencesRequest(
+    string? Language = null,
+    VolumeUnit? VolumeUnit = null,
+    WeightUnit? WeightUnit = null,
+    TemperatureUnit? TemperatureUnit = null,
+    GravityUnit? GravityUnit = null,
+    ThemePreference? Theme = null,
+    decimal? DefaultBatchSizeLiters = null,
+    decimal? DefaultEfficiencyPercent = null,
+    int? DefaultBoilTimeMinutes = null,
+    string? MqttHost = null,
+    int? MqttPort = null,
+    string? MqttUsername = null,
+    string? MqttPassword = null,
+    string? MqttCertificate = null,
+    string? MqttTopicPrefix = null);
+
+public record UpdateProfileRequest(string DisplayName);
+
+public record AuthResponse(string AccessToken, string RefreshToken, DateTime ExpiresAt, UserDto User, bool IsNewUser = false);
+
+public record UserDto(
+    string Id,
+    string Email,
+    string DisplayName,
+    string PreferredLanguage,
+    VolumeUnit PreferredVolumeUnit,
+    DateTime CreatedAt,
+    UserPreferencesDto Preferences);
+
+public record MqttStatusResult(bool Configured, bool Connected, string? Host = null, int? Port = null, string? Error = null);
 
 public static class AuthEndpoints
 {
@@ -25,212 +73,302 @@ public static class AuthEndpoints
 
         group.MapPost("/register", async (
             [FromBody] RegisterRequest request,
-            UserManager<ApplicationUser> userManager,
-            ITokenService tokenService,
-            IOptions<JwtOptions> jwtOptions,
+            IValidator<RegisterRequest> validator,
+            IAuthService authService,
             HttpContext httpContext) =>
         {
-            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
             {
-                return Results.BadRequest(new { message = "Email and password are required." });
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Registration validation failed.", details));
             }
 
-            var existing = await userManager.FindByEmailAsync(request.Email);
-            if (existing != null)
+            var result = await authService.RegisterAsync(request, httpContext);
+            if (!result.Succeeded)
             {
-                return Results.Conflict(new { message = "User with this email already exists." });
+                if (result.ErrorCode == "EMAIL_CONFLICT")
+                {
+                    return Results.Conflict(ApiResponse.Fail("EMAIL_CONFLICT", result.ErrorMessage!));
+                }
+
+                var details = result.Details?.Select(d => new ApiErrorDetail("General", d));
+                return Results.BadRequest(ApiResponse.Fail("REGISTRATION_FAILED", result.ErrorMessage!, details));
             }
 
-            var user = new ApplicationUser
-            {
-                UserName = request.Email,
-                Email = request.Email,
-                DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? request.Email.Split('@')[0] : request.DisplayName,
-                PreferredLanguage = string.IsNullOrWhiteSpace(request.PreferredLanguage) ? "en" : request.PreferredLanguage
-            };
-
-            var createResult = await userManager.CreateAsync(user, request.Password);
-            if (!createResult.Succeeded)
-            {
-                var errors = createResult.Errors.Select(e => e.Description);
-                return Results.BadRequest(new { message = "Registration failed.", errors });
-            }
-
-            var accessToken = tokenService.GenerateAccessToken(user);
-            var refreshToken = tokenService.GenerateRefreshToken();
-            var refreshTokenDays = jwtOptions.Value.RefreshTokenExpirationDays;
-
-            user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(refreshTokenDays);
-            await userManager.UpdateAsync(user);
-
-            SetRefreshTokenCookie(httpContext, refreshToken, user.RefreshTokenExpiryTime.Value);
-
-            var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
-            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage);
-
-            return Results.Ok(new AuthResponse(accessToken, refreshToken, expiresAt, userDto));
+            return Results.Ok(ApiResponse<AuthResponse>.Ok(result.Response!));
         })
         .WithName("Register")
-        .Produces<AuthResponse>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status400BadRequest)
-        .Produces(StatusCodes.Status409Conflict);
+        .Produces<ApiResponse<AuthResponse>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         group.MapPost("/login", async (
             [FromBody] LoginRequest request,
-            UserManager<ApplicationUser> userManager,
-            ITokenService tokenService,
-            IOptions<JwtOptions> jwtOptions,
+            IValidator<LoginRequest> validator,
+            IAuthService authService,
             HttpContext httpContext) =>
         {
-            var user = await userManager.FindByEmailAsync(request.Email);
-            if (user == null || !await userManager.CheckPasswordAsync(user, request.Password))
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
             {
-                return Results.Unauthorized();
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Login validation failed.", details));
             }
 
-            var accessToken = tokenService.GenerateAccessToken(user);
-            var refreshToken = tokenService.GenerateRefreshToken();
-            var refreshTokenDays = jwtOptions.Value.RefreshTokenExpirationDays;
+            var result = await authService.LoginAsync(request, httpContext);
+            if (!result.Succeeded)
+            {
+                return Results.Json(ApiResponse.Fail("INVALID_CREDENTIALS", result.ErrorMessage!), statusCode: StatusCodes.Status401Unauthorized);
+            }
 
-            user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(refreshTokenDays);
-            await userManager.UpdateAsync(user);
-
-            SetRefreshTokenCookie(httpContext, refreshToken, user.RefreshTokenExpiryTime.Value);
-
-            var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
-            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage);
-
-            return Results.Ok(new AuthResponse(accessToken, refreshToken, expiresAt, userDto));
+            return Results.Ok(ApiResponse<AuthResponse>.Ok(result.Response!));
         })
         .WithName("Login")
-        .Produces<AuthResponse>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status401Unauthorized);
+        .Produces<ApiResponse<AuthResponse>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
+        group.MapPost("/google", async (
+            [FromBody] GoogleAuthRequest request,
+            IValidator<GoogleAuthRequest> validator,
+            IAuthService authService,
+            HttpContext httpContext) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Google auth request validation failed.", details));
+            }
+
+            var result = await authService.GoogleLoginAsync(request, httpContext);
+            if (!result.Succeeded)
+            {
+                if (result.ErrorCode == "INVALID_GOOGLE_TOKEN")
+                {
+                    return Results.Json(
+                        ApiResponse.Fail(result.ErrorCode, result.ErrorMessage!),
+                        statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                var details = result.Details?.Select(d => new ApiErrorDetail("General", d));
+                return Results.BadRequest(ApiResponse.Fail(result.ErrorCode ?? "AUTH_FAILED", result.ErrorMessage!, details));
+            }
+
+            return Results.Ok(ApiResponse<AuthResponse>.Ok(result.Response!));
+        })
+        .WithName("GoogleLogin")
+        .Produces<ApiResponse<AuthResponse>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
 
         group.MapPost("/refresh", async (
             [FromBody] RefreshTokenRequest? request,
-            UserManager<ApplicationUser> userManager,
-            ITokenService tokenService,
-            IOptions<JwtOptions> jwtOptions,
+            IAuthService authService,
             HttpContext httpContext) =>
         {
-            var refreshToken = request?.RefreshToken ?? httpContext.Request.Cookies["refreshToken"];
-            if (string.IsNullOrEmpty(refreshToken))
+            var result = await authService.RefreshTokenAsync(request?.RefreshToken, httpContext);
+            if (!result.Succeeded)
             {
-                return Results.Unauthorized();
+                return Results.Json(ApiResponse.Fail("INVALID_TOKEN", result.ErrorMessage!), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var user = await userManager.Users.FirstOrDefaultAsync(u => u.RefreshToken == refreshToken);
-            if (user == null || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
-            {
-                return Results.Unauthorized();
-            }
-
-            var newAccessToken = tokenService.GenerateAccessToken(user);
-            var newRefreshToken = tokenService.GenerateRefreshToken();
-            var refreshTokenDays = jwtOptions.Value.RefreshTokenExpirationDays;
-
-            user.RefreshToken = newRefreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(refreshTokenDays);
-            await userManager.UpdateAsync(user);
-
-            SetRefreshTokenCookie(httpContext, newRefreshToken, user.RefreshTokenExpiryTime.Value);
-
-            var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
-            var userDto = new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage);
-
-            return Results.Ok(new AuthResponse(newAccessToken, newRefreshToken, expiresAt, userDto));
+            return Results.Ok(ApiResponse<AuthResponse>.Ok(result.Response!));
         })
         .WithName("RefreshToken")
-        .Produces<AuthResponse>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status401Unauthorized);
+        .Produces<ApiResponse<AuthResponse>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
 
         group.MapGet("/me", async (
             ClaimsPrincipal principal,
-            UserManager<ApplicationUser> userManager) =>
+            IAuthService authService) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
             {
-                return Results.Unauthorized();
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var user = await userManager.FindByIdAsync(userId);
+            var user = await authService.GetCurrentUserAsync(userId);
             if (user == null)
             {
-                return Results.NotFound();
+                return Results.NotFound(ApiResponse.Fail("USER_NOT_FOUND", "User profile not found."));
             }
 
-            return Results.Ok(new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage));
+            return Results.Ok(ApiResponse<UserDto>.Ok(user));
         })
         .RequireAuthorization()
         .WithName("GetCurrentUser")
-        .Produces<UserDto>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status401Unauthorized);
+        .Produces<ApiResponse<UserDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
 
         group.MapPut("/me/language", async (
             [FromBody] UpdateLanguageRequest request,
             ClaimsPrincipal principal,
-            UserManager<ApplicationUser> userManager) =>
+            IAuthService authService) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
             {
-                return Results.Unauthorized();
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var user = await userManager.FindByIdAsync(userId);
+            var user = await authService.UpdateUserLanguageAsync(userId, request.Language);
             if (user == null)
             {
-                return Results.NotFound();
+                return Results.NotFound(ApiResponse.Fail("USER_NOT_FOUND", "User profile not found."));
             }
 
-            var lang = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language.ToLower().Trim();
-            user.PreferredLanguage = lang;
-            await userManager.UpdateAsync(user);
-
-            return Results.Ok(new UserDto(user.Id, user.Email!, user.DisplayName ?? user.UserName!, user.PreferredLanguage));
+            return Results.Ok(ApiResponse<UserDto>.Ok(user));
         })
         .RequireAuthorization()
         .WithName("UpdateUserLanguage")
-        .Produces<UserDto>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status401Unauthorized);
+        .Produces<ApiResponse<UserDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
+        group.MapPut("/me/volume-unit", async (
+            [FromBody] UpdateVolumeUnitRequest request,
+            IValidator<UpdateVolumeUnitRequest> validator,
+            ClaimsPrincipal principal,
+            IAuthService authService) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Volume unit validation failed.", details));
+            }
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var user = await authService.UpdateUserVolumeUnitAsync(userId, request.VolumeUnit);
+            if (user == null)
+            {
+                return Results.NotFound(ApiResponse.Fail("USER_NOT_FOUND", "User profile not found."));
+            }
+
+            return Results.Ok(ApiResponse<UserDto>.Ok(user));
+        })
+        .RequireAuthorization()
+        .WithName("UpdateUserVolumeUnit")
+        .Produces<ApiResponse<UserDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
+        group.MapPut("/me/preferences", async (
+            [FromBody] UpdateUserPreferencesRequest request,
+            IValidator<UpdateUserPreferencesRequest> validator,
+            ClaimsPrincipal principal,
+            IAuthService authService) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "User preferences validation failed.", details));
+            }
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var user = await authService.UpdateUserPreferencesAsync(userId, request);
+            if (user == null)
+            {
+                return Results.NotFound(ApiResponse.Fail("USER_NOT_FOUND", "User profile not found."));
+            }
+
+            return Results.Ok(ApiResponse<UserDto>.Ok(user));
+        })
+        .RequireAuthorization()
+        .WithName("UpdateUserPreferences")
+        .Produces<ApiResponse<UserDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
+        group.MapPut("/me/profile", async (
+            [FromBody] UpdateProfileRequest request,
+            IValidator<UpdateProfileRequest> validator,
+            ClaimsPrincipal principal,
+            IAuthService authService) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Profile update validation failed.", details));
+            }
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var user = await authService.UpdateUserProfileAsync(userId, request);
+            if (user == null)
+            {
+                return Results.NotFound(ApiResponse.Fail("USER_NOT_FOUND", "User profile not found."));
+            }
+
+            return Results.Ok(ApiResponse<UserDto>.Ok(user));
+        })
+        .RequireAuthorization()
+        .WithName("UpdateUserProfile")
+        .Produces<ApiResponse<UserDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
+        group.MapGet("/me/mqtt-status", async (
+            ClaimsPrincipal principal,
+            IAuthService authService,
+            [FromQuery] string? host,
+            [FromQuery] int? port) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            if (!string.IsNullOrEmpty(host) && host.Length > 255)
+            {
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Host length exceeds 255 characters."));
+            }
+
+            if (port.HasValue && (port.Value < 1 || port.Value > 65535))
+            {
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Port must be between 1 and 65535."));
+            }
+
+            var result = await authService.GetMqttStatusAsync(userId, host, port);
+            return Results.Ok(ApiResponse<MqttStatusResult>.Ok(result));
+        })
+        .RequireAuthorization()
+        .WithName("GetMqttStatus")
+        .Produces<ApiResponse<MqttStatusResult>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
 
         group.MapPost("/logout", async (
             ClaimsPrincipal principal,
-            UserManager<ApplicationUser> userManager,
+            IAuthService authService,
             HttpContext httpContext) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!string.IsNullOrEmpty(userId))
-            {
-                var user = await userManager.FindByIdAsync(userId);
-                if (user != null)
-                {
-                    user.RefreshToken = null;
-                    user.RefreshTokenExpiryTime = null;
-                    await userManager.UpdateAsync(user);
-                }
-            }
+            await authService.LogoutAsync(userId, httpContext);
 
-            httpContext.Response.Cookies.Delete("refreshToken");
-            return Results.Ok(new { message = "Logged out successfully." });
+            return Results.Ok(ApiResponse.Ok());
         })
         .WithName("Logout")
-        .Produces(StatusCodes.Status200OK);
+        .Produces<ApiResponse>(StatusCodes.Status200OK);
 
         return group;
-    }
-
-    private static void SetRefreshTokenCookie(HttpContext context, string token, DateTime expires)
-    {
-        context.Response.Cookies.Append("refreshToken", token, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = false, // Set to true in production with HTTPS
-            SameSite = SameSiteMode.Lax,
-            Expires = expires
-        });
     }
 }

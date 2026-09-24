@@ -23,7 +23,7 @@ The BrewYou repository strictly follows **GitHub Flow**:
    - Scopes: `frontend`, `backend`, `api`, `db`, `arch`, `test`, `ci`
 4. **Open a Pull Request Early**:
    - Open a PR as soon as work is ready for feedback or testing.
-   - Fill out all sections of [.github/pull_request_template.md](file:///c:/Users/jocke/AgentWorkspaces/BrewYou/.github/pull_request_template.md).
+   - Fill out all sections of [.github/pull_request_template.md](../../.github/pull_request_template.md).
 5. **Continuous Integration Gate**:
    - All automated CI checks (linting, typechecking, tests, build) must pass before a PR can be merged.
    - Address any review comments or failing tests on the branch.

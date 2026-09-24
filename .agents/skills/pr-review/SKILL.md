@@ -19,11 +19,15 @@ Use this skill to conduct a thorough code review on a pull request or local topi
   gh pr diff <pr-number>
   ```
 
-### 2. Automated Health Check
-Run project verification commands to ensure zero compiler warnings, lint failures, or test regressions:
+### 2. Automated Health & Format Check
+Run project verification commands to ensure zero compiler warnings, lint failures, format deviations, or test regressions:
 ```bash
-# Verify frontend and backend builds & tests
+# Verify .editorconfig formatting & static linting
+dotnet format --verify-no-changes
 npm run lint
+
+# Verify tests pass
+dotnet test
 npm test
 ```
 
@@ -31,24 +35,27 @@ npm test
 
 Evaluate the PR against the following dimensions:
 
-1. **Architectural Separation**:
+1. **Mandatory Linting & .editorconfig Enforcement**:
+   - Do all added and modified files strictly conform to [.editorconfig](../../../.editorconfig) formatting (indentation, line endings, trimmed whitespace, final newlines)?
+   - Are there zero compiler or linter warnings?
+2. **Architectural Separation**:
    - Are UI components free of direct database calls, server secrets, and raw business logic?
    - Do backend changes respect controller -> service -> repository boundaries?
-2. **API & Contract Parity**:
-   - If endpoints changed, are frontend DTOs/types and mock handlers (MSW) updated?
+3. **API & Contract Parity**:
+   - If endpoints changed, are frontend DTOs/types and mock handlers updated?
    - Is the uniform JSON envelope (`{ success, data }` / `{ success, error }`) maintained?
-3. **Security & Secrets**:
+4. **Security & Secrets**:
    - Are any passwords, tokens, API keys, or `.env` files present in the diff?
    - Are user inputs sanitized and parameterized?
-4. **Test Coverage**:
-   - Does new code include unit/integration tests?
+5. **Test Coverage**:
+   - Is every new feature covered by automated unit and/or integration tests?
    - Do all tests pass deterministically?
-5. **Git Hygiene**:
+6. **Git Hygiene**:
    - Are commits conventional and cleanly scoped (`feat(frontend): ...`, `fix(backend): ...`)?
 
 ### 4. Provide Feedback or Approval
 - If issues are detected, post constructive, actionable comments pointing directly to file and line numbers.
 - If all checks pass:
   ```bash
-  gh pr review --approve --body "LGTM! Verified tests pass, tier boundaries respected, and contracts match."
+  gh pr review --approve --body "LGTM! Verified tests pass, .editorconfig/linting clean, tier boundaries respected, and contracts match."
   ```

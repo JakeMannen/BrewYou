@@ -1,5 +1,5 @@
-using System.Security.Claims;
 using BrewYou.ApiService.Data.Entities;
+using System.Security.Claims;
 
 namespace BrewYou.ApiService.Auth;
 

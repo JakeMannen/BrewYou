@@ -39,4 +39,5 @@ public class RecipeIngredient
     public IngredientUsage Usage { get; set; } = IngredientUsage.Boil;
 
     public string? Notes { get; set; }
+    public string? Form { get; set; }
 }

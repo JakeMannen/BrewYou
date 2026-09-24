@@ -37,6 +37,11 @@ public class Ingredient
     /// </summary>
     public decimal? AttenuationPercent { get; set; }
 
+    /// <summary>
+    /// Physical form: Pellet, Plug, Leaf (hops); Liquid, Dry, Slant, Culture (yeast).
+    /// </summary>
+    public string? Form { get; set; }
+
     public string? Description { get; set; }
     public bool IsCatalogItem { get; set; } = true;
     public string? CreatedByUserId { get; set; }
