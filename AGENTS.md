@@ -65,7 +65,8 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 ### D. Planning & GitHub Flow
 
 - For cross-tier features, maintain an explicit plan before modifying code.
-- Adhere to **GitHub Flow**: branch from `main`, use conventional commits, verify locally, open PR using template, ensure CI passes, and squash-merge.
+- **Mandatory Branching Rule**: All new features and tasks **MUST** start from a new branch created from the latest remote `main` (`git fetch origin`, `git checkout main`, `git pull origin main`, or `git checkout -b <branch-name> origin/main`). Never commit new feature work directly to an outdated branch or `main`.
+- **Branch Naming & PR Rules**: All stated branch naming rules (`feat/<short-title>`, `fix/<short-title>`, etc.) and PR requirements (completing [.github/pull_request_template.md](.github/pull_request_template.md), passing CI gates, and squash-merging) strictly apply. Adhere to [git-workflow.md](.agents/rules/git-workflow.md) and [`github-flow`](.agents/skills/github-flow/SKILL.md).
 
 ### E. Execution Safety & Code Integrity
 
