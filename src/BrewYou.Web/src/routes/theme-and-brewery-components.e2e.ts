@@ -143,21 +143,24 @@ test.describe('Brand Logo & Light Mode Palette', () => {
 			await expect(logoDark).toBeVisible();
 			await expect(logoLight).toBeHidden();
 
-			// Toggle to light mode
-			const themeToggle = page.locator('[data-testid="theme-toggle-header"]');
-			if (await themeToggle.isVisible()) {
-				await themeToggle.click();
-				await expect(page.locator('html')).not.toHaveClass(/dark/);
+			// Switch to light mode
+			await page.evaluate(() => {
+				document.documentElement.classList.remove('dark');
+				document.documentElement.setAttribute('data-theme', 'light');
+			});
+			await expect(page.locator('html')).not.toHaveClass(/dark/);
 
-				// In light mode, light logo is visible and dark logo is hidden
-				await expect(logoLight).toBeVisible();
-				await expect(logoDark).toBeHidden();
+			// In light mode, light logo is visible and dark logo is hidden
+			await expect(logoLight).toBeVisible();
+			await expect(logoDark).toBeHidden();
 
-				// Toggle back to dark mode
-				await themeToggle.click();
-				await expect(logoDark).toBeVisible();
-				await expect(logoLight).toBeHidden();
-			}
+			// Switch back to dark mode
+			await page.evaluate(() => {
+				document.documentElement.classList.add('dark');
+				document.documentElement.setAttribute('data-theme', 'imperial-stout');
+			});
+			await expect(logoDark).toBeVisible();
+			await expect(logoLight).toBeHidden();
 		}
 	});
 

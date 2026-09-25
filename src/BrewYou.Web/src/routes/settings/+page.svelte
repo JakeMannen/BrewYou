@@ -400,17 +400,6 @@
 				{t('settings.subtitle')}
 			</p>
 		</div>
-
-		{#if auth.isAuthenticated}
-			<div class="flex items-center gap-2">
-				<span
-					class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
-				>
-					<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span>
-					{t('settings.profile.verified')}
-				</span>
-			</div>
-		{/if}
 	</div>
 
 	<!-- Guest Preview Notice (if unauthenticated) -->
