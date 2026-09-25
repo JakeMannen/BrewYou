@@ -8,9 +8,7 @@ test.describe('Brewer Personalization Settings Page', () => {
 		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
 	});
 
-	test('renders settings page with tabs, customization sections and live preview', async ({
-		page
-	}) => {
+	test('renders settings page with tabs and customization sections', async ({ page }) => {
 		// Header title
 		const heading = page.locator('h1');
 		await expect(heading).toBeVisible();
@@ -25,15 +23,6 @@ test.describe('Brewer Personalization Settings Page', () => {
 		await expect(page.getByRole('heading', { name: /Appearance|Utseende/i })).toBeVisible();
 		await expect(page.getByRole('heading', { name: /Language|Språk/i })).toBeVisible();
 		await expect(page.getByRole('heading', { name: /Brewery Units|Måttenheter/i })).toBeVisible();
-
-		// Live preview card is present on units tab
-		const livePreview = page.locator('[data-testid="settings-live-preview"]');
-		await expect(livePreview).toBeVisible();
-		await expect(page.locator('[data-testid="preview-batch"]')).toBeVisible();
-		await expect(page.locator('[data-testid="preview-malt"]')).toBeVisible();
-		await expect(page.locator('[data-testid="preview-hop"]')).toBeVisible();
-		await expect(page.locator('[data-testid="preview-temp"]')).toBeVisible();
-		await expect(page.locator('[data-testid="preview-gravity"]')).toBeVisible();
 
 		// Switch to Equipment Defaults tab and verify heading
 		await page.locator('[data-testid="tab-btn-defaults"]').click();
@@ -156,47 +145,57 @@ test.describe('Brewer Personalization Settings Page', () => {
 		await expect(page.locator('h1')).toHaveText('Brewer Settings');
 	});
 
-	test('toggles measurement units and dynamically updates the live conversion preview', async ({
+	test('toggles measurement units across metric, imperial, and alternative scales', async ({
 		page
 	}) => {
-		const previewBatch = page.locator('[data-testid="preview-batch"]');
-		const previewMalt = page.locator('[data-testid="preview-malt"]');
-		const previewHop = page.locator('[data-testid="preview-hop"]');
-		const previewTemp = page.locator('[data-testid="preview-temp"]');
-		const previewGravity = page.locator('[data-testid="preview-gravity"]');
+		const volLiters = page.locator('[data-testid="unit-volume-liters"]');
+		const volGallons = page.locator('[data-testid="unit-volume-gallons"]');
+		const weightMetric = page.locator('[data-testid="unit-weight-metric"]');
+		const weightImperial = page.locator('[data-testid="unit-weight-imperial"]');
+		const tempCelsius = page.locator('[data-testid="unit-temp-celsius"]');
+		const tempFahrenheit = page.locator('[data-testid="unit-temp-fahrenheit"]');
+		const gravSg = page.locator('[data-testid="unit-gravity-sg"]');
+		const gravPlato = page.locator('[data-testid="unit-gravity-plato"]');
+		const colorSrm = page.locator('[data-testid="unit-color-srm"]');
+		const colorEbc = page.locator('[data-testid="unit-color-ebc"]');
 
-		// Initial Metric defaults: 20.0 L, 5.50 kg, 85.0 g, 67.0 °C, 1.058
-		await expect(previewBatch).toContainText('20.0 L');
-		await expect(previewMalt).toContainText('5.50 kg');
-		await expect(previewHop).toContainText('85.0 g');
-		await expect(previewTemp).toContainText('67.0 °C');
-		await expect(previewGravity).toContainText('1.058');
+		// Initial Metric defaults
+		await expect(volLiters).toHaveAttribute('aria-checked', 'true');
+		await expect(volGallons).toHaveAttribute('aria-checked', 'false');
+		await expect(weightMetric).toHaveAttribute('aria-checked', 'true');
+		await expect(tempCelsius).toHaveAttribute('aria-checked', 'true');
+		await expect(gravSg).toHaveAttribute('aria-checked', 'true');
+		await expect(colorSrm).toHaveAttribute('aria-checked', 'true');
 
 		// Toggle Volume to US Gallons
-		await page.locator('[data-testid="unit-volume-gallons"]').click();
-		await expect(previewBatch).toContainText('5.3 gal');
+		await volGallons.click();
+		await expect(volGallons).toHaveAttribute('aria-checked', 'true');
+		await expect(volLiters).toHaveAttribute('aria-checked', 'false');
 
-		// Toggle Weight to Imperial (lb & oz)
-		await page.locator('[data-testid="unit-weight-imperial"]').click();
-		await expect(previewMalt).toContainText('12.13 lb');
-		await expect(previewHop).toContainText('3.0 oz');
+		// Toggle Weight to Imperial
+		await weightImperial.click();
+		await expect(weightImperial).toHaveAttribute('aria-checked', 'true');
+		await expect(weightMetric).toHaveAttribute('aria-checked', 'false');
 
 		// Toggle Temperature to Fahrenheit
-		await page.locator('[data-testid="unit-temp-fahrenheit"]').click();
-		await expect(previewTemp).toContainText('152.6 °F');
+		await tempFahrenheit.click();
+		await expect(tempFahrenheit).toHaveAttribute('aria-checked', 'true');
+		await expect(tempCelsius).toHaveAttribute('aria-checked', 'false');
 
 		// Toggle Gravity to Plato
-		await page.locator('[data-testid="unit-gravity-plato"]').click();
-		await expect(previewGravity).toContainText('14.3 °P');
+		await gravPlato.click();
+		await expect(gravPlato).toHaveAttribute('aria-checked', 'true');
+		await expect(gravSg).toHaveAttribute('aria-checked', 'false');
 
 		// Toggle Color to European EBC
-		const previewColor = page.locator('[data-testid="preview-color"]');
-		await page.locator('[data-testid="unit-color-ebc"]').click();
-		await expect(previewColor).toContainText('12.8 EBC');
+		await colorEbc.click();
+		await expect(colorEbc).toHaveAttribute('aria-checked', 'true');
+		await expect(colorSrm).toHaveAttribute('aria-checked', 'false');
 
 		// Toggle back to Metric Volume
-		await page.locator('[data-testid="unit-volume-liters"]').click();
-		await expect(previewBatch).toContainText('20.0 L');
+		await volLiters.click();
+		await expect(volLiters).toHaveAttribute('aria-checked', 'true');
+		await expect(volGallons).toHaveAttribute('aria-checked', 'false');
 	});
 
 	test('saves equipment defaults and maintains local persistence', async ({ page }) => {
@@ -250,7 +249,7 @@ test.describe('Brewer Personalization Settings Page', () => {
 		// Switch back to Display & Units tab (units is default, tab param deleted)
 		await page.locator('[data-testid="tab-btn-units"]').click();
 		await expect(page).not.toHaveURL(/tab=account/);
-		await expect(page.locator('[data-testid="settings-live-preview"]')).toBeVisible();
+		await expect(page.getByRole('heading', { name: /Brewery Units|Måttenheter/i })).toBeVisible();
 	});
 
 	test('navigates directly to hardware tab via hash link #connectivity', async ({ page }) => {

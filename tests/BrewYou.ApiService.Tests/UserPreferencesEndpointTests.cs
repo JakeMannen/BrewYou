@@ -45,7 +45,7 @@ public class UserPreferencesEndpointTests : IClassFixture<WebApplicationFactory<
         envelope.Data.Preferences.WeightUnit.Should().Be(WeightUnit.Metric);
         envelope.Data.Preferences.TemperatureUnit.Should().Be(TemperatureUnit.Celsius);
         envelope.Data.Preferences.GravityUnit.Should().Be(GravityUnit.SpecificGravity);
-        envelope.Data.Preferences.Theme.Should().Be(ThemePreference.Dark);
+        envelope.Data.Preferences.Theme.Should().Be(ThemePreference.ImperialStout);
         envelope.Data.Preferences.DefaultBatchSizeLiters.Should().Be(20.0m);
         envelope.Data.Preferences.DefaultEfficiencyPercent.Should().Be(75.0m);
         envelope.Data.Preferences.DefaultBoilTimeMinutes.Should().Be(60);

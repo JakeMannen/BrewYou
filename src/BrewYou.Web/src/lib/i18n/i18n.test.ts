@@ -117,18 +117,18 @@ describe('i18n Translation Engine', () => {
 
 	it('keeps theme names in English across English and Swedish locales', () => {
 		i18n.setLocale('en');
-		expect(t('settings.appearance.theme_imperial_stout')).toBe('Imperial Stout (Obsidian & Gold)');
-		expect(t('settings.appearance.theme_chocolate_porter')).toBe('Chocolate Porter (Mocha)');
-		expect(t('settings.appearance.theme_dark')).toBe('Modern Amber (Dark)');
-		expect(t('settings.appearance.theme_light')).toBe('Pilsner Clean (Light)');
-		expect(t('settings.appearance.theme_system')).toBe('System Match');
+		expect(t('settings.appearance.theme_imperial_stout')).toBe('Imperial Stout');
+		expect(t('settings.appearance.theme_chocolate_porter')).toBe('Chocolate Porter');
+		expect(t('settings.appearance.theme_obsidian')).toBe('Obsidian Ember');
+		expect(t('settings.appearance.theme_dark')).toBe('Modern Amber');
+		expect(t('settings.appearance.theme_light')).toBe('Pilsner Clean');
 
 		i18n.setLocale('sv');
-		expect(t('settings.appearance.theme_imperial_stout')).toBe('Imperial Stout (Obsidian & Gold)');
-		expect(t('settings.appearance.theme_chocolate_porter')).toBe('Chocolate Porter (Mocha)');
-		expect(t('settings.appearance.theme_dark')).toBe('Modern Amber (Dark)');
-		expect(t('settings.appearance.theme_light')).toBe('Pilsner Clean (Light)');
-		expect(t('settings.appearance.theme_system')).toBe('System Match');
+		expect(t('settings.appearance.theme_imperial_stout')).toBe('Imperial Stout');
+		expect(t('settings.appearance.theme_chocolate_porter')).toBe('Chocolate Porter');
+		expect(t('settings.appearance.theme_obsidian')).toBe('Obsidian Ember');
+		expect(t('settings.appearance.theme_dark')).toBe('Modern Amber');
+		expect(t('settings.appearance.theme_light')).toBe('Pilsner Clean');
 	});
 
 	it('translates sidebar sections and breadcrumb labels accurately in English and Swedish', () => {

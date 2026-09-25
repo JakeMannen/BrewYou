@@ -5,11 +5,11 @@ export type ResolvedTheme = 'dark' | 'light' | 'imperial-stout' | 'chocolate-por
 const STORAGE_KEY = 'brewyou-theme';
 
 class ThemeStore {
-	#preference = $state<ThemePreference>('dark');
-	#systemTheme = $state<ResolvedTheme>('dark');
+	#preference = $state<ThemePreference>('imperial-stout');
+	#systemTheme = $state<ResolvedTheme>('imperial-stout');
 
 	constructor() {
-		// Default to dark theme
+		// Default to imperial-stout theme
 	}
 
 	init(): void {
@@ -26,7 +26,7 @@ class ThemeStore {
 		) {
 			this.#preference = saved;
 		} else {
-			this.#preference = 'dark';
+			this.#preference = 'imperial-stout';
 		}
 
 		if (window.matchMedia) {

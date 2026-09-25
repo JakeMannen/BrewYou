@@ -264,13 +264,13 @@
 							<span class="hidden sm:inline">Chocolate Porter</span>
 						{:else if settings.themePreference === 'Obsidian' || theme.current === 'obsidian'}
 							<Flame class="h-4 w-4 text-[#ff5500]" />
-							<span class="hidden sm:inline">Obsidian Stout</span>
+							<span class="hidden sm:inline">Obsidian Ember</span>
 						{:else if settings.themePreference === 'Light' || theme.current === 'light'}
 							<Sun class="h-4 w-4 text-amber-500" />
-							<span class="hidden sm:inline">Light</span>
+							<span class="hidden sm:inline">Pilsner Clean</span>
 						{:else}
 							<Moon class="h-4 w-4 text-amber-400" />
-							<span class="hidden sm:inline">Dark</span>
+							<span class="hidden sm:inline">Modern Amber</span>
 						{/if}
 					</button>
 

@@ -245,7 +245,7 @@ class SettingsState {
 	carbonationUnit = $state<CarbonationUnit>('Volumes');
 	temperatureUnit = $state<TemperatureUnit>('Celsius');
 	gravityUnit = $state<GravityUnit>('SpecificGravity');
-	themePreference = $state<ThemePreference>('Dark');
+	themePreference = $state<ThemePreference>('ImperialStout');
 
 	bitternessFormula = $state<BitternessFormula>('Tinseth');
 	colorFormula = $state<ColorFormula>('Morey');
@@ -441,12 +441,13 @@ class SettingsState {
 			if (
 				savedTheme === 'Dark' ||
 				savedTheme === 'Light' ||
-				savedTheme === 'System' ||
 				savedTheme === 'ImperialStout' ||
 				savedTheme === 'ChocolatePorter' ||
 				savedTheme === 'Obsidian'
 			) {
 				this.themePreference = savedTheme;
+			} else {
+				this.themePreference = 'ImperialStout';
 			}
 
 			const savedBatch = localStorage.getItem('brewyou_default_batch_size');

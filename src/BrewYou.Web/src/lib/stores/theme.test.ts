@@ -85,12 +85,12 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		});
 	});
 
-	it('initializes with dark preference when no localStorage entry exists', () => {
+	it('initializes with imperial-stout preference when no localStorage entry exists', () => {
 		theme.init();
-		expect(theme.preference).toBe('dark');
-		expect(theme.current).toBe('dark');
+		expect(theme.preference).toBe('imperial-stout');
+		expect(theme.current).toBe('imperial-stout');
 		expect(classListMock.has('dark')).toBe(true);
-		expect(attributesMock['data-theme']).toBe('dark');
+		expect(attributesMock['data-theme']).toBe('imperial-stout');
 	});
 
 	it('initializes with stored preference if available in localStorage', () => {
