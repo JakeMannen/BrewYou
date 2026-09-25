@@ -707,6 +707,21 @@ class SettingsState {
 		}
 	}
 
+	cycleTheme(): void {
+		let next: ThemePreference;
+		if (this.themePreference === 'ImperialStout') {
+			next = 'Dark';
+		} else if (this.themePreference === 'Dark') {
+			next = 'Light';
+		} else {
+			next = 'ImperialStout';
+		}
+		this.setThemePreference(next);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ theme: next });
+		}
+	}
+
 	async setMqttSettings(
 		host: string,
 		port: number,

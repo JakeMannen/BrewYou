@@ -72,6 +72,18 @@ class ThemeStore {
 		this.setTheme(next);
 	}
 
+	cycle(): void {
+		let next: ThemePreference;
+		if (this.current === 'imperial-stout') {
+			next = 'dark';
+		} else if (this.current === 'dark') {
+			next = 'light';
+		} else {
+			next = 'imperial-stout';
+		}
+		this.setTheme(next);
+	}
+
 	private applyDocumentClass(): void {
 		if (typeof document === 'undefined') return;
 		const isDark = this.current === 'dark' || this.current === 'imperial-stout';

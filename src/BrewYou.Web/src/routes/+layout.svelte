@@ -19,7 +19,9 @@
 		X,
 		Wrench,
 		Calculator,
-		Settings
+		Settings,
+		Sun,
+		Moon
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { brewery } from '$lib/stores/brewery.svelte';
@@ -223,6 +225,37 @@
 
 				<!-- Header Right Controls -->
 				<div class="flex items-center gap-2 sm:gap-3">
+					<!-- Header Theme Quick Toggle -->
+					<button
+						type="button"
+						data-testid="theme-toggle-header"
+						onclick={() => settings.cycleTheme()}
+						class="flex h-10 items-center gap-2 rounded-xl border border-zinc-200/80 bg-zinc-100/80 px-3 text-xs font-semibold text-zinc-700 transition-all hover:bg-zinc-200 active:scale-95 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
+						title={settings.themePreference === 'ImperialStout' ||
+						theme.current === 'imperial-stout'
+							? t('settings.appearance.theme_imperial_stout')
+							: settings.themePreference === 'Light' || theme.current === 'light'
+								? t('settings.appearance.theme_light')
+								: t('settings.appearance.theme_dark')}
+						aria-label={settings.themePreference === 'ImperialStout' ||
+						theme.current === 'imperial-stout'
+							? t('settings.appearance.theme_imperial_stout')
+							: settings.themePreference === 'Light' || theme.current === 'light'
+								? t('settings.appearance.theme_light')
+								: t('settings.appearance.theme_dark')}
+					>
+						{#if settings.themePreference === 'ImperialStout' || theme.current === 'imperial-stout'}
+							<Beer class="h-4 w-4 text-amber-400" />
+							<span class="hidden sm:inline">Imperial Stout</span>
+						{:else if settings.themePreference === 'Light' || theme.current === 'light'}
+							<Sun class="h-4 w-4 text-amber-500" />
+							<span class="hidden sm:inline">Light</span>
+						{:else}
+							<Moon class="h-4 w-4 text-amber-400" />
+							<span class="hidden sm:inline">Dark</span>
+						{/if}
+					</button>
+
 					<!-- Mobile Drawer Toggle Button -->
 					<button
 						type="button"

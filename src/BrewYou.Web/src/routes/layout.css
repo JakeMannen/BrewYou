@@ -63,20 +63,46 @@
 
 :root[data-theme='imperial-stout'],
 .dark[data-theme='imperial-stout'] {
-	/* Imperial Stout: Luxury Roasted Obsidian & Luminous Champagne Gold */
-	--canvas-bg: #0e0d0f;
-	--panel-bg: rgba(22, 20, 25, 0.85);
-	--panel-card: rgba(27, 24, 31, 0.78);
-	--elevated-bg: #1e1b23;
-	--recessed-bg: #09080a;
-	--border-micro: rgba(245, 243, 238, 0.08);
-	--border-subtle: rgba(229, 192, 123, 0.16);
-	--border-active: rgba(229, 192, 123, 0.65);
-	--border-glow: 0 0 12px rgba(229, 192, 123, 0.3);
-	--text-primary: #f5f3ee;
-	--text-secondary: #a6a095;
-	--text-muted: #8e877b;
+	/* 1. Canvas & Surface Custom Properties */
+	--canvas-bg: #0a090b;
+	--panel-bg: rgba(20, 18, 23, 0.88);
+	--panel-card: rgba(26, 23, 31, 0.82);
+	--elevated-bg: #221e28;
+	--recessed-bg: #070608;
+
+	/* 2. Micro & Active Borders (Clearly visible metallic gold/bronze) */
+	--border-micro: rgba(229, 192, 123, 0.22);
+	--border-subtle: rgba(243, 210, 137, 0.35);
+	--border-active: rgba(243, 210, 137, 0.85);
+	--border-glow: 0 0 16px rgba(229, 192, 123, 0.45);
+
+	/* 3. Typography Tokens */
+	--text-primary: #f6f4ee;
+	--text-secondary: #aba394;
+	--text-muted: #8a8274;
 	--text-dim: #5c5549;
+
+	/* 4. Overriding Tailwind v4 Zinc Scale -> Rich Roasted Obsidian */
+	--color-zinc-950: #0a090b;
+	--color-zinc-900: #141216;
+	--color-zinc-800: #221e28;
+	--color-zinc-700: #332d3c;
+	--color-zinc-600: #554d41;
+	--color-zinc-500: #7d7465;
+	--color-zinc-400: #aba394;
+	--color-zinc-300: #cec7bc;
+	--color-zinc-200: #e5e0d7;
+	--color-zinc-100: #f6f4ee;
+
+	/* 5. Overriding Tailwind v4 Amber Scale -> Radiant Champagne & Royal Gold */
+	--color-amber-300: #fae8be;
+	--color-amber-400: #f3d289;
+	--color-amber-500: #e5c07b;
+	--color-amber-600: #d4af37;
+	--color-amber-700: #9e7a2b;
+	--color-amber-800: #6b501a;
+	--color-amber-900: #3d2c0b;
+	--color-amber-950: #1f1505;
 
 	/* Metallic accents: Champagne gold, amber & bronze */
 	--gold-champagne: #f3d289;
@@ -87,10 +113,11 @@
 	--copper-kettle: #c67d38;
 
 	/* Luxury ambient glow and elevation shadows */
-	--ambient-glow: 0 10px 40px -10px rgba(0, 0, 0, 0.8), 0 0 35px -5px rgba(229, 192, 123, 0.14);
+	--ambient-glow: 0 20px 50px -10px rgba(0, 0, 0, 0.9), 0 0 40px -5px rgba(229, 192, 123, 0.2);
 	--shadow-card-elevated:
-		0 20px 35px -10px rgba(0, 0, 0, 0.75), 0 1px 0 0 rgba(255, 255, 255, 0.06) inset;
-	--shadow-gold-halo: 0 0 24px -2px rgba(229, 192, 123, 0.4);
+		0 20px 40px -10px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(229, 192, 123, 0.2),
+		inset 0 1px 0 0 rgba(243, 210, 137, 0.22);
+	--shadow-gold-halo: 0 0 24px -2px rgba(229, 192, 123, 0.45);
 	--shadow-dial-well: inset 0 2px 8px rgba(0, 0, 0, 0.8);
 }
 
@@ -123,16 +150,33 @@ body {
 /* Tactile frosted glass & dial enhancements for Imperial Stout */
 [data-theme='imperial-stout'] .glass-panel {
 	background-color: var(--panel-bg);
+	border: 1px solid rgba(229, 192, 123, 0.2);
 	box-shadow:
-		0 16px 32px -8px rgba(0, 0, 0, 0.65),
-		inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+		0 16px 36px -8px rgba(0, 0, 0, 0.75),
+		inset 0 1px 0 0 rgba(243, 210, 137, 0.18);
 }
 
 [data-theme='imperial-stout'] .glass-card {
 	background-color: var(--panel-card);
+	border: 1px solid rgba(229, 192, 123, 0.18);
 	box-shadow:
-		0 12px 24px -6px rgba(0, 0, 0, 0.55),
-		inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+		0 12px 28px -6px rgba(0, 0, 0, 0.65),
+		inset 0 1px 0 0 rgba(243, 210, 137, 0.15);
+}
+
+[data-theme='imperial-stout'] header,
+[data-theme='imperial-stout'] #brewery-sidebar {
+	border-color: rgba(229, 192, 123, 0.2) !important;
+}
+
+[data-theme='imperial-stout'] body {
+	background-image: radial-gradient(
+		ellipse 80% 50% at 50% -10%,
+		rgba(229, 192, 123, 0.08),
+		transparent 75%
+	);
+	background-repeat: no-repeat;
+	background-attachment: fixed;
 }
 
 .stout-dial-glow {
