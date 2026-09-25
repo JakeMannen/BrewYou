@@ -300,7 +300,9 @@
 				>
 					<BookOpen class="h-5 w-5" />
 				</div>
-				<h1 class="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
+				<h1
+					class="font-editorial text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl dark:text-white"
+				>
 					{t('recipes.title')}
 				</h1>
 			</div>
@@ -400,28 +402,28 @@
 			</div>
 			<div class="mt-4 space-y-1">
 				{#if searchTerm.trim()}
-					<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-lg font-bold text-zinc-900 dark:text-white">
 						{t('recipes.empty_search_title')}
 					</h3>
 					<p class="text-xs text-zinc-500 dark:text-zinc-400">
 						{t('recipes.empty_search_desc', { query: searchTerm.trim() })}
 					</p>
 				{:else if activeTab === 'mine'}
-					<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-lg font-bold text-zinc-900 dark:text-white">
 						{t('recipes.empty_tab_mine_title')}
 					</h3>
 					<p class="text-xs text-zinc-500 dark:text-zinc-400">
 						{t('recipes.empty_tab_mine_desc')}
 					</p>
 				{:else if activeTab === 'shared'}
-					<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-lg font-bold text-zinc-900 dark:text-white">
 						{t('recipes.empty_tab_shared_title')}
 					</h3>
 					<p class="text-xs text-zinc-500 dark:text-zinc-400">
 						{t('recipes.empty_tab_shared_desc')}
 					</p>
 				{:else}
-					<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-lg font-bold text-zinc-900 dark:text-white">
 						{t('recipes.empty_tab_all_title')}
 					</h3>
 					<p class="text-xs text-zinc-500 dark:text-zinc-400">
@@ -442,25 +444,31 @@
 	{:else}
 		<div class="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
 			{#each filteredRecipes as recipe}
-				<article
-					class="glass-panel group relative flex flex-col justify-between rounded-2xl border border-zinc-200/80 p-5 transition-all duration-200 hover:border-amber-500/40 hover:shadow-lg dark:border-white/[0.08]"
-				>
-					<div class="space-y-2">
+				<article class="artisan-card group relative flex flex-col justify-between rounded-2xl p-5">
+					<div class="space-y-3">
 						<div
-							class="flex items-center justify-between gap-2 border-b border-zinc-200/60 pb-3 dark:border-white/5"
+							class="flex items-start justify-between gap-3 border-b border-zinc-200/60 pb-3.5 dark:border-white/5"
 						>
 							<div class="min-w-0 flex-1">
-								<div class="flex flex-wrap items-center gap-2">
-									<h3
-										class="truncate text-base leading-snug font-bold text-zinc-900 dark:text-white"
+								<a
+									href="/recipes/{recipe.id}"
+									class="block truncate font-editorial text-lg font-bold text-zinc-900 transition-colors group-hover:text-amber-600 dark:text-white dark:group-hover:text-amber-400"
+								>
+									{recipe.name}
+								</a>
+								<div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+									<span
+										class="inline-flex items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300"
 									>
-										{recipe.name}
-									</h3>
-									<span class="text-xs font-semibold text-amber-600 dark:text-amber-400">
 										{recipe.beerStyle}
 									</span>
+									<span
+										class="rounded-md border border-zinc-200/80 bg-zinc-100/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300"
+									>
+										{recipe.batchSizeLiters}L
+									</span>
 								</div>
-								<div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+								<div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
 									{#if isRecipeOwner(recipe)}
 										<span
 											class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-amber-700 uppercase dark:text-amber-400"
@@ -487,7 +495,7 @@
 									{/if}
 								</div>
 							</div>
-							<BeerGlass srm={recipe.colorSrm} size="sm" showLabel class="shrink-0 self-center" />
+							<BeerGlass srm={recipe.colorSrm} size="sm" showLabel class="shrink-0 self-start" />
 						</div>
 
 						{#if recipe.description}
@@ -497,33 +505,34 @@
 						{/if}
 					</div>
 
-					<!-- Specs Metrics Matrix -->
+					<!-- Specs Metrics Matrix with Tactile Brewhouse Stamps -->
 					<div
-						class="grid grid-cols-3 gap-2 border-t border-zinc-200/60 pt-3 text-center text-xs dark:border-white/5"
+						class="grid grid-cols-3 gap-2 border-t border-zinc-200/60 pt-3.5 text-center text-xs dark:border-white/5"
 					>
-						<div
-							class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-						>
-							<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400">ABV</span
+						<div class="tactile-pill">
+							<span
+								class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+								>ABV</span
 							>
-							<span class="font-mono font-bold text-emerald-600 dark:text-emerald-400"
+							<span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
 								>{recipe.alcoholByVolume}%</span
 							>
 						</div>
-						<div
-							class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-						>
-							<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400">IBU</span
+						<div class="tactile-pill">
+							<span
+								class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+								>IBU</span
 							>
-							<span class="font-mono font-bold text-sky-600 dark:text-sky-400"
+							<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
 								>{recipe.bitternessIbu}</span
 							>
 						</div>
-						<div
-							class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-						>
-							<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400">OG</span>
-							<span class="font-mono font-bold text-amber-600 dark:text-amber-400"
+						<div class="tactile-pill">
+							<span
+								class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+								>OG</span
+							>
+							<span class="font-mono text-xs font-bold text-copper-500 dark:text-copper-400"
 								>{formatNumber(recipe.originalGravity, 3)}</span
 							>
 						</div>
