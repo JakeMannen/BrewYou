@@ -438,7 +438,12 @@ class SettingsState {
 			}
 
 			const savedTheme = localStorage.getItem('brewyou_theme_pref') as ThemePreference | null;
-			if (savedTheme === 'Dark' || savedTheme === 'Light' || savedTheme === 'System') {
+			if (
+				savedTheme === 'Dark' ||
+				savedTheme === 'Light' ||
+				savedTheme === 'System' ||
+				savedTheme === 'ImperialStout'
+			) {
 				this.themePreference = savedTheme;
 			}
 
@@ -499,7 +504,9 @@ class SettingsState {
 		if (pref.gravityUnit) this.gravityUnit = pref.gravityUnit;
 		if (pref.theme) {
 			this.themePreference = pref.theme;
-			const clientTheme = pref.theme.toLowerCase() as ThemeStorePreference;
+			const clientTheme = (
+				pref.theme === 'ImperialStout' ? 'imperial-stout' : pref.theme.toLowerCase()
+			) as ThemeStorePreference;
 			theme.setTheme(clientTheme);
 		}
 		if (pref.defaultBatchSizeLiters) this.defaultBatchSize = pref.defaultBatchSizeLiters;
@@ -691,7 +698,9 @@ class SettingsState {
 
 	setThemePreference(themePref: ThemePreference): void {
 		this.themePreference = themePref;
-		const clientTheme = themePref.toLowerCase() as ThemeStorePreference;
+		const clientTheme = (
+			themePref === 'ImperialStout' ? 'imperial-stout' : themePref.toLowerCase()
+		) as ThemeStorePreference;
 		theme.setTheme(clientTheme);
 		if (browser) {
 			localStorage.setItem('brewyou_theme_pref', themePref);

@@ -61,6 +61,39 @@
 	--ambient-glow: 0 0 30px -5px rgba(245, 158, 11, 0.15);
 }
 
+:root[data-theme='imperial-stout'],
+.dark[data-theme='imperial-stout'] {
+	/* Imperial Stout: Luxury Roasted Obsidian & Luminous Champagne Gold */
+	--canvas-bg: #0e0d0f;
+	--panel-bg: rgba(22, 20, 25, 0.85);
+	--panel-card: rgba(27, 24, 31, 0.78);
+	--elevated-bg: #1e1b23;
+	--recessed-bg: #09080a;
+	--border-micro: rgba(245, 243, 238, 0.08);
+	--border-subtle: rgba(229, 192, 123, 0.16);
+	--border-active: rgba(229, 192, 123, 0.65);
+	--border-glow: 0 0 12px rgba(229, 192, 123, 0.3);
+	--text-primary: #f5f3ee;
+	--text-secondary: #a6a095;
+	--text-muted: #8e877b;
+	--text-dim: #5c5549;
+
+	/* Metallic accents: Champagne gold, amber & bronze */
+	--gold-champagne: #f3d289;
+	--gold-amber: #e5c07b;
+	--gold-burnished: #d4af37;
+	--bronze-deep: #8c6d3b;
+	--bronze-shadow: #3a2b16;
+	--copper-kettle: #c67d38;
+
+	/* Luxury ambient glow and elevation shadows */
+	--ambient-glow: 0 10px 40px -10px rgba(0, 0, 0, 0.8), 0 0 35px -5px rgba(229, 192, 123, 0.14);
+	--shadow-card-elevated:
+		0 20px 35px -10px rgba(0, 0, 0, 0.75), 0 1px 0 0 rgba(255, 255, 255, 0.06) inset;
+	--shadow-gold-halo: 0 0 24px -2px rgba(229, 192, 123, 0.4);
+	--shadow-dial-well: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
 html,
 body {
 	min-height: 100%;
@@ -85,6 +118,25 @@ body {
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
 	border: 1px solid var(--border-micro);
+}
+
+/* Tactile frosted glass & dial enhancements for Imperial Stout */
+[data-theme='imperial-stout'] .glass-panel {
+	background-color: var(--panel-bg);
+	box-shadow:
+		0 16px 32px -8px rgba(0, 0, 0, 0.65),
+		inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+}
+
+[data-theme='imperial-stout'] .glass-card {
+	background-color: var(--panel-card);
+	box-shadow:
+		0 12px 24px -6px rgba(0, 0, 0, 0.55),
+		inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+.stout-dial-glow {
+	filter: drop-shadow(0 0 10px rgba(229, 192, 123, 0.4));
 }
 
 /* Reduced motion accessibility */

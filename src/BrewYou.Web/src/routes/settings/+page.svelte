@@ -39,6 +39,7 @@
 		LogOut,
 		Sparkles,
 		Flame,
+		Beer,
 		CheckCircle2,
 		AlertCircle,
 		ChevronDown,
@@ -600,10 +601,40 @@
 					</div>
 
 					<div
-						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3"
+						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
 						role="radiogroup"
 						aria-label="Theme preference"
 					>
+						<!-- Imperial Stout Mode -->
+						<button
+							type="button"
+							role="radio"
+							aria-checked={settings.themePreference === 'ImperialStout'}
+							data-testid="theme-card-imperial-stout"
+							onclick={() => updateTheme('ImperialStout')}
+							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+							'ImperialStout'
+								? 'border-amber-400/80 bg-amber-500/10 shadow-[0_0_20px_rgba(243,210,137,0.25)] ring-1 ring-amber-400'
+								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+						>
+							<div class="flex w-full items-center justify-between">
+								<div
+									class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0e0d0f] text-[#f3d289] shadow ring-1 ring-[#e5c07b]/40"
+								>
+									<Beer class="h-4 w-4 text-[#f3d289]" />
+								</div>
+								{#if settings.themePreference === 'ImperialStout'}
+									<Check class="h-4 w-4 text-amber-400" />
+								{/if}
+							</div>
+							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+								{t('settings.appearance.theme_imperial_stout')}
+							</div>
+							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('settings.appearance.theme_imperial_stout_desc')}
+							</div>
+						</button>
+
 						<!-- Dark Mode -->
 						<button
 							type="button"

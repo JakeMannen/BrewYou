@@ -29,7 +29,8 @@ public enum ThemePreference
 {
     Dark,
     Light,
-    System
+    System,
+    ImperialStout
 }
 
 public class ApplicationUser : IdentityUser

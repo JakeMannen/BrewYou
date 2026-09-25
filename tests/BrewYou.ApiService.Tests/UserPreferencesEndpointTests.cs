@@ -98,6 +98,30 @@ public class UserPreferencesEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
+    public async Task UpdateUserPreferences_ImperialStoutTheme_PersistsAndReturnsTheme()
+    {
+        var (token, _) = await RegisterTestUserAsync("stout_pref");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var updateReq = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.ImperialStout
+        );
+
+        var putResponse = await _client.PutAsJsonAsync("/api/v1/auth/me/preferences", updateReq);
+        putResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var putEnvelope = await putResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+        putEnvelope!.Success.Should().BeTrue();
+        putEnvelope.Data!.Preferences.Theme.Should().Be(ThemePreference.ImperialStout);
+
+        // Verify persistence via GET /me
+        var getResponse = await _client.GetAsync("/api/v1/auth/me");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getEnvelope = await getResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+        getEnvelope!.Data!.Preferences.Theme.Should().Be(ThemePreference.ImperialStout);
+    }
+
+    [Fact]
     public async Task UpdateUserPreferences_WithMqttConnectivity_PersistsAndReturnsMqttSettings()
     {
         var (token, _) = await RegisterTestUserAsync("mqtt_pref");

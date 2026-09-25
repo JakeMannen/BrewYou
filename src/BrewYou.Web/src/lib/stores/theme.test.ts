@@ -118,7 +118,7 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(classListMock.has('dark')).toBe(true);
 	});
 
-	it('explicitly sets theme to system, light, or dark', () => {
+	it('explicitly sets theme to system, light, dark, or imperial-stout', () => {
 		theme.setTheme('light');
 		expect(theme.current).toBe('light');
 		expect(attributesMock['data-theme']).toBe('light');
@@ -126,6 +126,11 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		theme.setTheme('dark');
 		expect(theme.current).toBe('dark');
 		expect(attributesMock['data-theme']).toBe('dark');
+
+		theme.setTheme('imperial-stout');
+		expect(theme.current).toBe('imperial-stout');
+		expect(attributesMock['data-theme']).toBe('imperial-stout');
+		expect(classListMock.has('dark')).toBe(true);
 
 		theme.setTheme('system');
 		expect(theme.preference).toBe('system');
