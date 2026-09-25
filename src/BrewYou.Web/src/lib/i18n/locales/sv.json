@@ -961,6 +961,14 @@
 			"occupied_suffix": "— Upptaget"
 		},
 		"workspace": {
+			"brew_station_hud": "Bryggstations-HUD",
+			"brew_station_hud_desc": "Högkontrast-cockpit anpassad för ånga, stänk och avståndsläsning",
+			"exit_hud": "Lämna HUD",
+			"live_brewhouse_hud": "Brygghus-HUD",
+			"steam_friendly_mode": "Ång- & stänkläge",
+			"target_temp_hud": "Måltemperatur",
+			"quick_timer_control": "Timerkontroll",
+			"timer_complete": "Timer klar! Måltid uppnådd.",
 			"advance_stage": "Gå till nästa steg",
 			"advancing": "Uppdaterar...",
 			"advance_modal_title": "Gå vidare till {stage}",

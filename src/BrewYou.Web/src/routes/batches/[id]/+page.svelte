@@ -30,6 +30,7 @@
 	import StepTemperatureChart from '$lib/components/batches/StepTemperatureChart.svelte';
 	import LogStepTemperatureModal from '$lib/components/batches/LogStepTemperatureModal.svelte';
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
+	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
 	import {
@@ -49,7 +50,8 @@
 		Thermometer,
 		StepForward,
 		Clock,
-		Activity
+		Activity,
+		Maximize2
 	} from '@lucide/svelte';
 
 	let batch = $state<BatchDetailDto | null>(null);
@@ -77,6 +79,7 @@
 	let batchEquipmentReadings = $state<BatchEquipmentReadingDto[]>([]);
 	let showLogTempModal = $state(false);
 	let showDeleteBatchModal = $state(false);
+	let showBrewStationHud = $state(false);
 	let logTempStage = $state<BrewStage>('Mash');
 	let logTempMashStepId = $state<string | null>(null);
 	let selectedMashStepGraphId = $state<string | null>(null);
@@ -1022,6 +1025,19 @@
 
 			<!-- Advance Stage & Primary CTA -->
 			<div class="flex items-center gap-2.5 self-start sm:self-auto">
+				<!-- Brew Station HUD Button -->
+				<button
+					type="button"
+					data-testid="open-brew-station-hud-btn"
+					onclick={() => (showBrewStationHud = true)}
+					class="tactile-pill flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-700 transition-all hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-300"
+					title={t('batches.workspace.brew_station_hud')}
+				>
+					<Flame class="h-4 w-4 animate-pulse text-amber-500" />
+					<span class="hidden sm:inline">{t('batches.workspace.brew_station_hud')}</span>
+					<Maximize2 class="h-3.5 w-3.5 opacity-70" />
+				</button>
+
 				{#if batch.status !== 'Completed'}
 					<button
 						type="button"
@@ -1315,16 +1331,27 @@
 											{t('batches.workspace.mash_timer')}
 										</h2>
 									</div>
-									{#if currentSelectedMashStep}
-										<span
-											data-testid="active-step-order-badge"
-											class="rounded-md bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-amber-600 dark:text-amber-400"
+									<div class="flex items-center gap-2">
+										{#if currentSelectedMashStep}
+											<span
+												data-testid="active-step-order-badge"
+												class="rounded-md bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-amber-600 dark:text-amber-400"
+											>
+												{t('mash_profile.step_order_badge', {
+													order: currentSelectedMashStep.stepOrder
+												})}
+											</span>
+										{/if}
+										<button
+											type="button"
+											onclick={() => (showBrewStationHud = true)}
+											class="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+											title={t('batches.workspace.brew_station_hud')}
+											aria-label={t('batches.workspace.brew_station_hud')}
 										>
-											{t('mash_profile.step_order_badge', {
-												order: currentSelectedMashStep.stepOrder
-											})}
-										</span>
-									{/if}
+											<Maximize2 class="h-4 w-4" />
+										</button>
+									</div>
 								</div>
 
 								{#if currentSelectedMashStep}
@@ -1623,11 +1650,22 @@
 						class="glass-panel flex flex-col justify-between rounded-3xl border border-zinc-200/80 p-6 dark:border-white/10"
 					>
 						<div class="space-y-2">
-							<div class="flex items-center gap-2 text-amber-500">
-								<Flame class="h-5 w-5" />
-								<h2 class="text-base font-bold text-zinc-900 dark:text-white">
-									{t('batches.workspace.boil_timer')}
-								</h2>
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-2 text-amber-500">
+									<Flame class="h-5 w-5" />
+									<h2 class="text-base font-bold text-zinc-900 dark:text-white">
+										{t('batches.workspace.boil_timer')}
+									</h2>
+								</div>
+								<button
+									type="button"
+									onclick={() => (showBrewStationHud = true)}
+									class="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+									title={t('batches.workspace.brew_station_hud')}
+									aria-label={t('batches.workspace.brew_station_hud')}
+								>
+									<Maximize2 class="h-4 w-4" />
+								</button>
 							</div>
 							<p class="text-xs text-zinc-500 dark:text-zinc-400">
 								{t('batches.workspace.boil_timer_desc')}
@@ -2670,3 +2708,46 @@
 	onClose={() => (showDeleteBatchModal = false)}
 	onDeleted={() => goto('/batches')}
 />
+
+{#if batch}
+	<BrewStationHudModal
+		open={showBrewStationHud}
+		batchName={batch.name}
+		beerStyle={batch.beerStyle}
+		currentStage={batch.currentStage}
+		{timerRemainingSeconds}
+		{timerRunning}
+		targetTemperatureC={batch.currentStage === 'Mash'
+			? (currentSelectedMashStep?.targetTemperatureC ?? 65)
+			: batch.currentStage === 'Boil'
+				? 100
+				: batch.currentStage === 'Ferment'
+					? activeFermentationStepTargetTemp
+					: null}
+		currentTemperatureC={batchEquipmentReadings.length > 0
+			? batchEquipmentReadings[batchEquipmentReadings.length - 1].temperatureC
+			: (currentSelectedMashStep?.actualTemperatureC ?? null)}
+		activeStepName={batch.currentStage === 'Mash'
+			? currentSelectedMashStep?.name
+			: batch.currentStage === 'Boil'
+				? `Boil (${batch.boilTimeMinutes ?? 60}m)`
+				: batch.currentStage === 'Ferment'
+					? activeFermentationStep?.name
+					: null}
+		{activeMashStepIndex}
+		totalMashSteps={batch.mashSteps?.length}
+		onToggleTimer={() => {
+			if (timerRunning) {
+				pauseTimer();
+			} else {
+				startTimer();
+			}
+		}}
+		onResetTimer={resetTimer}
+		onAdjustTimer={(seconds) => {
+			timerRemainingSeconds = Math.max(0, timerRemainingSeconds + seconds);
+		}}
+		onAdvanceStep={batch.currentStage === 'Mash' ? handleAdvanceMashStep : undefined}
+		onClose={() => (showBrewStationHud = false)}
+	/>
+{/if}

@@ -380,6 +380,14 @@
 			"occupied_suffix": "— Occupied"
 		},
 		"workspace": {
+			"brew_station_hud": "Brew Station HUD",
+			"brew_station_hud_desc": "High-contrast brewhouse cockpit for steam and distance viewing",
+			"exit_hud": "Exit HUD",
+			"live_brewhouse_hud": "Brewhouse Command HUD",
+			"steam_friendly_mode": "Wet Hands & Steam Mode",
+			"target_temp_hud": "Target Temperature",
+			"quick_timer_control": "Timer Controls",
+			"timer_complete": "Timer Complete! Stage Target Reached.",
 			"advance_stage": "Advance Stage",
 			"advancing": "Advancing...",
 			"advance_modal_title": "Advance to {stage}",

@@ -88,11 +88,19 @@ The Recipe Atelier and Formulator is an interactive brewing formulation workspac
 
 Batch Tracking guides you through a structured 10-stage brewing lifecycle: *Planning*, *Preparation*, *Mashing*, *Lautering*, *Boiling*, *Cooling*, *Fermenting*, *Conditioning*, *Bottling / Kegging*, and *Completed*. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
 
+#### Brew Station HUD Mode
+
+For real-time brewhouse execution in high-steam or wet-hands environments, the **Brew Station HUD** modal transforms the cockpit into a high-visibility, full-screen tactical interface:
+- **Oversized Countdown Timer**: Gigantic typography legible from across the brewhouse.
+- **Wet-Hands Touch Targets**: Generously sized (64px+) action buttons for Play, Pause, Reset, and Step Advance, plus keyboard shortcuts (`Space` to toggle, `R` to reset, `Esc` to close).
+- **Target & Live Sensor Instrumentation**: At-a-glance target mash/boil temperatures alongside live IoT probe readings.
+
 #### How to Use
 
 1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe (which automatically previews and inherits the fermentation profile and pitch temperature), and assign available equipment.
-2. **Run Brew Day**:
+2. **Run Brew Day & Launch Brew Station HUD**:
    - Open the batch to launch the **Brew Day Cockpit** (`/batches/[id]`).
+   - Click the **Brew Station HUD** button in the header (or the expand icon on mash/boil timers) to enter full-screen high-contrast mode for hands-on brewing.
    - Follow the stage pipeline, starting timers for mash rests and boil additions.
    - Record pre-boil gravity and volume; if discrepancies occur, use the dynamic boil calculator to adjust boil duration or water additions.
 3. **Track Fermentation & Staged Profile**:
