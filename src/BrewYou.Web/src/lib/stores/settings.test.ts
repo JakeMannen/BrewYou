@@ -497,10 +497,34 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 		expect(mockStorage.getItem('brewyou_mqtt_host')).toBeNull();
 	});
 
+	it('updates theme preference to ChocolatePorter and synchronizes theme store', () => {
+		settings.setThemePreference('ChocolatePorter');
+		expect(settings.themePreference).toBe('ChocolatePorter');
+		expect(mockStorage.getItem('brewyou_theme_pref')).toBe('ChocolatePorter');
+		expect(theme.preference).toBe('chocolate-porter');
+	});
+
 	it('updates theme preference to Obsidian and synchronizes theme store', () => {
 		settings.setThemePreference('Obsidian');
 		expect(settings.themePreference).toBe('Obsidian');
 		expect(mockStorage.getItem('brewyou_theme_pref')).toBe('Obsidian');
 		expect(theme.preference).toBe('obsidian');
+	});
+
+	it('cycles theme through ImperialStout, ChocolatePorter, Obsidian, Dark, and Light', () => {
+		settings.setThemePreference('ImperialStout');
+		expect(settings.themePreference).toBe('ImperialStout');
+
+		settings.cycleTheme();
+		expect(settings.themePreference).toBe('ChocolatePorter');
+		expect(theme.preference).toBe('chocolate-porter');
+
+		settings.cycleTheme();
+		expect(settings.themePreference).toBe('Obsidian');
+		expect(theme.preference).toBe('obsidian');
+
+		settings.cycleTheme();
+		expect(settings.themePreference).toBe('Dark');
+		expect(theme.preference).toBe('dark');
 	});
 });

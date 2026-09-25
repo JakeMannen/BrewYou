@@ -30,6 +30,8 @@ public enum ThemePreference
     Dark,
     Light,
     System,
+    ImperialStout,
+    ChocolatePorter,
     Obsidian
 }
 

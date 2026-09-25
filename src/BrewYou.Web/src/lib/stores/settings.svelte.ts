@@ -442,6 +442,8 @@ class SettingsState {
 				savedTheme === 'Dark' ||
 				savedTheme === 'Light' ||
 				savedTheme === 'System' ||
+				savedTheme === 'ImperialStout' ||
+				savedTheme === 'ChocolatePorter' ||
 				savedTheme === 'Obsidian'
 			) {
 				this.themePreference = savedTheme;
@@ -504,7 +506,15 @@ class SettingsState {
 		if (pref.gravityUnit) this.gravityUnit = pref.gravityUnit;
 		if (pref.theme) {
 			this.themePreference = pref.theme;
-			const clientTheme = pref.theme.toLowerCase() as ThemeStorePreference;
+			const clientTheme = (
+				pref.theme === 'ImperialStout'
+					? 'imperial-stout'
+					: pref.theme === 'ChocolatePorter'
+						? 'chocolate-porter'
+						: pref.theme === 'Obsidian'
+							? 'obsidian'
+							: pref.theme.toLowerCase()
+			) as ThemeStorePreference;
 			theme.setTheme(clientTheme);
 		}
 		if (pref.defaultBatchSizeLiters) this.defaultBatchSize = pref.defaultBatchSizeLiters;
@@ -696,10 +706,37 @@ class SettingsState {
 
 	setThemePreference(themePref: ThemePreference): void {
 		this.themePreference = themePref;
-		const clientTheme = themePref.toLowerCase() as ThemeStorePreference;
+		const clientTheme = (
+			themePref === 'ImperialStout'
+				? 'imperial-stout'
+				: themePref === 'ChocolatePorter'
+					? 'chocolate-porter'
+					: themePref === 'Obsidian'
+						? 'obsidian'
+						: themePref.toLowerCase()
+		) as ThemeStorePreference;
 		theme.setTheme(clientTheme);
 		if (browser) {
 			localStorage.setItem('brewyou_theme_pref', themePref);
+		}
+	}
+
+	cycleTheme(): void {
+		let next: ThemePreference;
+		if (this.themePreference === 'ImperialStout') {
+			next = 'ChocolatePorter';
+		} else if (this.themePreference === 'ChocolatePorter') {
+			next = 'Obsidian';
+		} else if (this.themePreference === 'Obsidian') {
+			next = 'Dark';
+		} else if (this.themePreference === 'Dark') {
+			next = 'Light';
+		} else {
+			next = 'ImperialStout';
+		}
+		this.setThemePreference(next);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ theme: next });
 		}
 	}
 

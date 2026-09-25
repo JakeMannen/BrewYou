@@ -30,6 +30,39 @@ public class UserPreferencesValidationTests
     }
 
     [Fact]
+    public async Task ValidatePreferences_ImperialStoutTheme_PassesValidation()
+    {
+        var request = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.ImperialStout
+        );
+
+        var result = await _preferencesValidator.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidatePreferences_ChocolatePorterTheme_PassesValidation()
+    {
+        var request = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.ChocolatePorter
+        );
+
+        var result = await _preferencesValidator.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidatePreferences_ObsidianTheme_PassesValidation()
+    {
+        var request = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.Obsidian
+        );
+
+        var result = await _preferencesValidator.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task ValidatePreferences_InvalidLanguage_FailsValidation()
     {
         var request = new UpdateUserPreferencesRequest(Language: "fr");
@@ -180,16 +213,5 @@ public class UserPreferencesValidationTests
 
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == "MqttTopicPrefix");
-    }
-
-    [Fact]
-    public async Task ValidatePreferences_ObsidianTheme_PassesValidation()
-    {
-        var request = new UpdateUserPreferencesRequest(
-            Theme: ThemePreference.Obsidian
-        );
-
-        var result = await _preferencesValidator.ValidateAsync(request);
-        result.IsValid.Should().BeTrue();
     }
 }

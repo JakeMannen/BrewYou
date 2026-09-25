@@ -67,6 +67,7 @@ describe('i18n Translation Engine', () => {
 		expect(t('formulator.title_new')).toBe('Ny receptformulering');
 		expect(t('formulator.title_edit')).toBe('Redigera recept');
 		expect(t('formulator.update_recipe')).toBe('Uppdatera recept');
+		expect(t('dashboard.equipment_health')).toBe('Utrustning & Sensorer');
 	});
 
 	it('translates batch process brew stages accurately using authentic Swedish brewing terminology', () => {
@@ -104,7 +105,7 @@ describe('i18n Translation Engine', () => {
 		expect(t('batches.equipment.occupied_suffix')).toBe('— Occupied');
 
 		i18n.setLocale('sv');
-		expect(t('equipment.types.Boiler')).toBe('Bryggverk / Kokgryta');
+		expect(t('equipment.types.Boiler')).toBe('Bryggverk');
 		expect(t('equipment.types.Fermenter')).toBe('Jäskärl');
 		expect(t('equipment.types.Keg')).toBe('Fat');
 		expect(t('equipment.types.Other')).toBe('Övrigt');
@@ -112,6 +113,22 @@ describe('i18n Translation Engine', () => {
 		expect(t('equipment.occupied')).toBe('Upptaget');
 		expect(t('batches.equipment.in_use_suffix')).toBe('— I bruk');
 		expect(t('batches.equipment.occupied_suffix')).toBe('— Upptaget');
+	});
+
+	it('keeps theme names in English across English and Swedish locales', () => {
+		i18n.setLocale('en');
+		expect(t('settings.appearance.theme_imperial_stout')).toBe('Imperial Stout (Obsidian & Gold)');
+		expect(t('settings.appearance.theme_chocolate_porter')).toBe('Chocolate Porter (Mocha)');
+		expect(t('settings.appearance.theme_dark')).toBe('Modern Amber (Dark)');
+		expect(t('settings.appearance.theme_light')).toBe('Pilsner Clean (Light)');
+		expect(t('settings.appearance.theme_system')).toBe('System Match');
+
+		i18n.setLocale('sv');
+		expect(t('settings.appearance.theme_imperial_stout')).toBe('Imperial Stout (Obsidian & Gold)');
+		expect(t('settings.appearance.theme_chocolate_porter')).toBe('Chocolate Porter (Mocha)');
+		expect(t('settings.appearance.theme_dark')).toBe('Modern Amber (Dark)');
+		expect(t('settings.appearance.theme_light')).toBe('Pilsner Clean (Light)');
+		expect(t('settings.appearance.theme_system')).toBe('System Match');
 	});
 
 	it('translates sidebar sections and breadcrumb labels accurately in English and Swedish', () => {
