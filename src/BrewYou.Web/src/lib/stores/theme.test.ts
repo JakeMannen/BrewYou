@@ -85,12 +85,12 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		});
 	});
 
-	it('initializes with dark preference when no localStorage entry exists', () => {
+	it('initializes with imperial-stout preference when no localStorage entry exists', () => {
 		theme.init();
-		expect(theme.preference).toBe('dark');
-		expect(theme.current).toBe('dark');
+		expect(theme.preference).toBe('imperial-stout');
+		expect(theme.current).toBe('imperial-stout');
 		expect(classListMock.has('dark')).toBe(true);
-		expect(attributesMock['data-theme']).toBe('dark');
+		expect(attributesMock['data-theme']).toBe('imperial-stout');
 	});
 
 	it('initializes with stored preference if available in localStorage', () => {
@@ -122,10 +122,17 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		theme.setTheme('light');
 		expect(theme.current).toBe('light');
 		expect(attributesMock['data-theme']).toBe('light');
+		expect(classListMock.has('dark')).toBe(false);
 
 		theme.setTheme('dark');
 		expect(theme.current).toBe('dark');
 		expect(attributesMock['data-theme']).toBe('dark');
+		expect(classListMock.has('dark')).toBe(true);
+
+		theme.setTheme('obsidian');
+		expect(theme.current).toBe('obsidian');
+		expect(attributesMock['data-theme']).toBe('obsidian');
+		expect(classListMock.has('dark')).toBe(true);
 
 		theme.setTheme('imperial-stout');
 		expect(theme.current).toBe('imperial-stout');
@@ -142,12 +149,15 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(theme.current).toBe('dark'); // system prefers dark in our mock
 	});
 
-	it('cycles through imperial-stout, chocolate-porter, dark, and light', () => {
+	it('cycles through imperial-stout, chocolate-porter, obsidian, dark, and light', () => {
 		theme.setTheme('imperial-stout');
 		expect(theme.current).toBe('imperial-stout');
 
 		theme.cycle();
 		expect(theme.current).toBe('chocolate-porter');
+
+		theme.cycle();
+		expect(theme.current).toBe('obsidian');
 
 		theme.cycle();
 		expect(theme.current).toBe('dark');
@@ -166,6 +176,15 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(theme.current).toBe('chocolate-porter');
 		expect(classListMock.has('dark')).toBe(true);
 		expect(attributesMock['data-theme']).toBe('chocolate-porter');
+	});
+
+	it('initializes with obsidian preference if stored in localStorage', () => {
+		mockStorage.setItem('brewyou-theme', 'obsidian');
+		theme.init();
+		expect(theme.preference).toBe('obsidian');
+		expect(theme.current).toBe('obsidian');
+		expect(classListMock.has('dark')).toBe(true);
+		expect(attributesMock['data-theme']).toBe('obsidian');
 	});
 
 	it('responds to media query change and storage event', () => {

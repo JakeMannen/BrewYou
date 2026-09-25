@@ -7,13 +7,6 @@
 		settings,
 		toDisplayVolume,
 		fromDisplayVolume,
-		formatVolume,
-		formatGrainWeight,
-		formatHopWeight,
-		formatTemperature,
-		formatGravity,
-		formatColor,
-		formatCarbonation,
 		type ColorUnit,
 		type HopWeightUnit,
 		type GrainWeightUnit,
@@ -32,7 +25,6 @@
 		Sliders,
 		Sun,
 		Moon,
-		Monitor,
 		Check,
 		Save,
 		LogIn,
@@ -391,23 +383,6 @@
 		settings.applyPreset(preset);
 		defaultBatchSizeDisplay = toDisplayVolume(settings.defaultBatchSize, settings.volumeUnit);
 	}
-
-	// Dynamic live preview values
-	const sampleBatchLiters = 20.0;
-	const sampleMaltKg = 5.5;
-	const sampleHopGrams = 85.0;
-	const sampleMashTempC = 67.0;
-	const sampleOgSg = 1.058;
-	const sampleColorSrm = 6.5;
-	const sampleCarbVols = 2.45;
-
-	let previewBatch = $derived(formatVolume(sampleBatchLiters, settings.volumeUnit));
-	let previewMalt = $derived(formatGrainWeight(sampleMaltKg, settings.grainWeightUnit));
-	let previewHop = $derived(formatHopWeight(sampleHopGrams, settings.hopWeightUnit));
-	let previewTemp = $derived(formatTemperature(sampleMashTempC, settings.temperatureUnit));
-	let previewGravity = $derived(formatGravity(sampleOgSg, settings.gravityUnit));
-	let previewColor = $derived(formatColor(sampleColorSrm, settings.colorUnit));
-	let previewCarb = $derived(formatCarbonation(sampleCarbVols, settings.carbonationUnit));
 </script>
 
 <svelte:head>
@@ -425,17 +400,6 @@
 				{t('settings.subtitle')}
 			</p>
 		</div>
-
-		{#if auth.isAuthenticated}
-			<div class="flex items-center gap-2">
-				<span
-					class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
-				>
-					<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span>
-					{t('settings.profile.verified')}
-				</span>
-			</div>
-		{/if}
 	</div>
 
 	<!-- Guest Preview Notice (if unauthenticated) -->
@@ -558,1072 +522,941 @@
 
 	<!-- TAB PANEL 1: DISPLAY & UNITS -->
 	{#if activeTab === 'units'}
-		<div
-			id="panel-units"
-			role="tabpanel"
-			aria-labelledby="tab-units"
-			class="grid grid-cols-1 gap-8 lg:grid-cols-3"
-		>
-			<!-- Main Settings (2 cols) -->
-			<div class="space-y-8 lg:col-span-2">
-				<!-- Section: Appearance & UI Mode -->
-				<section
-					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
-					aria-labelledby="appearance-heading"
-				>
-					<div
-						class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
-					>
-						<div class="flex items-center gap-3">
-							<div
-								class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-							>
-								<Palette class="h-5 w-5" />
-							</div>
-							<div>
-								<div class="flex items-center gap-2">
-									<h2
-										id="appearance-heading"
-										class="text-base font-bold text-zinc-900 dark:text-white"
-									>
-										{t('settings.appearance.title')}
-									</h2>
-								</div>
-								<p class="text-xs text-zinc-500 dark:text-zinc-400">
-									{t('settings.appearance.desc')}
-								</p>
-							</div>
-						</div>
-						<span
-							class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
-						>
-							{t('settings.appearance.auto_save_hint')}
-						</span>
-					</div>
-
-					<div
-						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
-						role="radiogroup"
-						aria-label="Theme preference"
-					>
-						<!-- Imperial Stout Mode -->
-						<button
-							type="button"
-							role="radio"
-							aria-checked={settings.themePreference === 'ImperialStout'}
-							data-testid="theme-card-imperial-stout"
-							onclick={() => updateTheme('ImperialStout')}
-							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
-							'ImperialStout'
-								? 'border-amber-400/80 bg-amber-500/10 shadow-[0_0_20px_rgba(243,210,137,0.25)] ring-1 ring-amber-400'
-								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
-						>
-							<div class="flex w-full items-center justify-between">
-								<div
-									class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0e0d0f] text-[#f3d289] shadow ring-1 ring-[#e5c07b]/40"
-								>
-									<Beer class="h-4 w-4 text-[#f3d289]" />
-								</div>
-								{#if settings.themePreference === 'ImperialStout'}
-									<Check class="h-4 w-4 text-amber-400" />
-								{/if}
-							</div>
-							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
-								{t('settings.appearance.theme_imperial_stout')}
-							</div>
-							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('settings.appearance.theme_imperial_stout_desc')}
-							</div>
-						</button>
-
-						<!-- Chocolate Porter Mode -->
-						<button
-							type="button"
-							role="radio"
-							aria-checked={settings.themePreference === 'ChocolatePorter'}
-							data-testid="theme-card-chocolate-porter"
-							onclick={() => updateTheme('ChocolatePorter')}
-							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
-							'ChocolatePorter'
-								? 'border-[#c48b52]/80 bg-[#c48b52]/10 shadow-[0_0_20px_rgba(196,139,82,0.25)] ring-1 ring-[#c48b52]'
-								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
-						>
-							<div class="flex w-full items-center justify-between">
-								<div
-									class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#18110b] text-[#d49b5e] shadow ring-1 ring-[#c48b52]/40"
-								>
-									<Coffee class="h-4 w-4 text-[#d49b5e]" />
-								</div>
-								{#if settings.themePreference === 'ChocolatePorter'}
-									<Check class="h-4 w-4 text-[#d49b5e]" />
-								{/if}
-							</div>
-							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
-								{t('settings.appearance.theme_chocolate_porter')}
-							</div>
-							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('settings.appearance.theme_chocolate_porter_desc')}
-							</div>
-						</button>
-
-						<!-- Dark Mode -->
-						<button
-							type="button"
-							role="radio"
-							aria-checked={settings.themePreference === 'Dark'}
-							data-testid="theme-card-dark"
-							onclick={() => updateTheme('Dark')}
-							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
-							'Dark'
-								? 'border-amber-500/60 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500'
-								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
-						>
-							<div class="flex w-full items-center justify-between">
-								<div
-									class="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-amber-400 shadow"
-								>
-									<Moon class="h-4 w-4" />
-								</div>
-								{#if settings.themePreference === 'Dark'}
-									<Check class="h-4 w-4 text-amber-500 dark:text-amber-400" />
-								{/if}
-							</div>
-							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
-								{t('settings.appearance.theme_dark')}
-							</div>
-							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('settings.appearance.theme_dark_desc')}
-							</div>
-						</button>
-
-						<!-- Light Mode -->
-						<button
-							type="button"
-							role="radio"
-							aria-checked={settings.themePreference === 'Light'}
-							data-testid="theme-card-light"
-							onclick={() => updateTheme('Light')}
-							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
-							'Light'
-								? 'border-amber-500/60 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500'
-								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
-						>
-							<div class="flex w-full items-center justify-between">
-								<div
-									class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600 shadow"
-								>
-									<Sun class="h-4 w-4" />
-								</div>
-								{#if settings.themePreference === 'Light'}
-									<Check class="h-4 w-4 text-amber-500 dark:text-amber-400" />
-								{/if}
-							</div>
-							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
-								{t('settings.appearance.theme_light')}
-							</div>
-							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('settings.appearance.theme_light_desc')}
-							</div>
-						</button>
-
-						<!-- System Match -->
-						<button
-							type="button"
-							role="radio"
-							aria-checked={settings.themePreference === 'System'}
-							data-testid="theme-card-system"
-							onclick={() => updateTheme('System')}
-							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
-							'System'
-								? 'border-amber-500/60 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500'
-								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
-						>
-							<div class="flex w-full items-center justify-between">
-								<div
-									class="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-								>
-									<Monitor class="h-4 w-4" />
-								</div>
-								{#if settings.themePreference === 'System'}
-									<Check class="h-4 w-4 text-amber-500 dark:text-amber-400" />
-								{/if}
-							</div>
-							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
-								{t('settings.appearance.theme_system')}
-							</div>
-							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('settings.appearance.theme_system_desc')}
-							</div>
-						</button>
-					</div>
-				</section>
-
-				<!-- Section: Language & Regional -->
-				<section
-					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
-					aria-labelledby="language-heading"
-				>
-					<div
-						class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
-					>
-						<div class="flex items-center gap-3">
-							<div
-								class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-							>
-								<Globe class="h-5 w-5" />
-							</div>
-							<div>
-								<h2 id="language-heading" class="text-base font-bold text-zinc-900 dark:text-white">
-									{t('settings.language.title')}
-								</h2>
-								<p class="text-xs text-zinc-500 dark:text-zinc-400">
-									{t('settings.language.desc')}
-								</p>
-							</div>
-						</div>
-						<span
-							class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
-						>
-							{t('settings.language.auto_save_hint')}
-						</span>
-					</div>
-
-					<div class="mt-5 max-w-sm">
-						<label
-							for="language-select"
-							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-						>
-							{t('settings.language.title')}
-						</label>
-						<div class="relative mt-2">
-							<select
-								id="language-select"
-								data-testid="language-select"
-								value={i18n.locale}
-								onchange={(e) =>
-									updateLanguage((e.currentTarget as HTMLSelectElement).value as LocaleCode)}
-								class="h-11 w-full appearance-none rounded-xl border border-zinc-300 bg-zinc-50/50 px-4 pr-10 text-sm font-medium text-zinc-900 transition focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-amber-400 dark:focus:bg-zinc-900"
-							>
-								{#each supportedLocales as loc}
-									<option value={loc.code}>
-										{loc.flag}
-										{loc.label} ({loc.code === 'en' ? 'English' : 'Svenska'})
-									</option>
-								{/each}
-							</select>
-							<div
-								class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-zinc-400"
-							>
-								<ChevronDown class="h-4 w-4" />
-							</div>
-						</div>
-					</div>
-				</section>
-
-				<!-- Section: Brewery Units & Measurements -->
-				<section
-					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
-					aria-labelledby="units-heading"
-				>
-					<div
-						class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
-					>
-						<div class="flex items-center gap-3">
-							<div
-								class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-							>
-								<Scale class="h-5 w-5" />
-							</div>
-							<div>
-								<h2 id="units-heading" class="text-base font-bold text-zinc-900 dark:text-white">
-									{t('settings.units.title')}
-								</h2>
-								<p class="text-xs text-zinc-500 dark:text-zinc-400">
-									{t('settings.units.desc')}
-								</p>
-							</div>
-						</div>
-						<span
-							class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
-						>
-							{t('settings.units.auto_save_hint')}
-						</span>
-					</div>
-
-					<div class="mt-6 space-y-6">
-						<!-- Presets Toolbar -->
-						<div
-							class="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-4 dark:border-white/5 dark:bg-zinc-900/30"
-						>
-							<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-								<div>
-									<span
-										class="block text-xs font-bold tracking-wider text-zinc-700 uppercase dark:text-zinc-200"
-									>
-										{t('settings.presets.title')}
-									</span>
-									<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-										{t('settings.presets.desc')}
-									</p>
-								</div>
-								<div class="flex items-center gap-2">
-									<span
-										data-testid="active-preset-badge"
-										class="rounded-full px-2.5 py-0.5 text-[11px] font-semibold {activePreset ===
-										'Custom'
-											? 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-											: 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}"
-									>
-										{activePreset === 'Custom'
-											? t('settings.presets.custom_badge')
-											: t('settings.presets.active_preset', { name: activePreset })}
-									</span>
-								</div>
-							</div>
-							<div class="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-								<button
-									type="button"
-									data-testid="preset-european-metric"
-									onclick={() => handleApplyPreset('European Metric')}
-									class="flex flex-col items-start rounded-lg border p-2.5 text-left transition {activePreset ===
-									'European Metric'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-white/70 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70'}"
-								>
-									<div class="flex w-full items-center justify-between">
-										<span class="text-xs font-bold text-zinc-900 dark:text-white"
-											>{t('settings.presets.european_metric')}</span
-										>
-										{#if activePreset === 'European Metric'}
-											<Check class="h-3.5 w-3.5 text-amber-500" />
-										{/if}
-									</div>
-									<span class="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400"
-										>{t('settings.presets.european_metric_desc')}</span
-									>
-								</button>
-
-								<button
-									type="button"
-									data-testid="preset-us-craft"
-									onclick={() => handleApplyPreset('US Craft')}
-									class="flex flex-col items-start rounded-lg border p-2.5 text-left transition {activePreset ===
-									'US Craft'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-white/70 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70'}"
-								>
-									<div class="flex w-full items-center justify-between">
-										<span class="text-xs font-bold text-zinc-900 dark:text-white"
-											>{t('settings.presets.us_craft')}</span
-										>
-										{#if activePreset === 'US Craft'}
-											<Check class="h-3.5 w-3.5 text-amber-500" />
-										{/if}
-									</div>
-									<span class="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400"
-										>{t('settings.presets.us_craft_desc')}</span
-									>
-								</button>
-
-								<button
-									type="button"
-									data-testid="preset-uk-traditional"
-									onclick={() => handleApplyPreset('UK Traditional')}
-									class="flex flex-col items-start rounded-lg border p-2.5 text-left transition {activePreset ===
-									'UK Traditional'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-white/70 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70'}"
-								>
-									<div class="flex w-full items-center justify-between">
-										<span class="text-xs font-bold text-zinc-900 dark:text-white"
-											>{t('settings.presets.uk_traditional')}</span
-										>
-										{#if activePreset === 'UK Traditional'}
-											<Check class="h-3.5 w-3.5 text-amber-500" />
-										{/if}
-									</div>
-									<span class="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400"
-										>{t('settings.presets.uk_traditional_desc')}</span
-									>
-								</button>
-							</div>
-						</div>
-
-						<!-- Volume -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.units.volume')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.volumeUnit === 'Liters'}
-									data-testid="unit-volume-liters"
-									onclick={() => updateVolumeUnit('Liters')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.volumeUnit ===
-									'Liters'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.volume_liters')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.volume_liters_desc')}
-										</div>
-									</div>
-									{#if settings.volumeUnit === 'Liters'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.volumeUnit === 'Gallons'}
-									data-testid="unit-volume-gallons"
-									onclick={() => updateVolumeUnit('Gallons')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.volumeUnit ===
-									'Gallons'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.volume_gallons')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.volume_gallons_desc')}
-										</div>
-									</div>
-									{#if settings.volumeUnit === 'Gallons'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-							</div>
-						</div>
-
-						<!-- Weight Units (Composite) -->
-						<div>
-							<div class="flex items-center justify-between">
-								<span
-									class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-								>
-									{t('settings.units.weight')}
-								</span>
-							</div>
-
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.weightUnit === 'Metric'}
-									data-testid="unit-weight-metric"
-									onclick={() => {
-										updateGrainWeightUnit('kg');
-										updateHopWeightUnit('g');
-									}}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.weightUnit ===
-									'Metric'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.weight_metric')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.weight_metric_desc')}
-										</div>
-									</div>
-									{#if settings.weightUnit === 'Metric'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.weightUnit === 'Imperial'}
-									data-testid="unit-weight-imperial"
-									onclick={() => {
-										updateGrainWeightUnit('lb');
-										updateHopWeightUnit('oz');
-									}}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.weightUnit ===
-									'Imperial'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.weight_imperial')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.weight_imperial_desc')}
-										</div>
-									</div>
-									{#if settings.weightUnit === 'Imperial'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-							</div>
-
-							<!-- Fine-Grained Weight Breakdown (Grain vs Hop) -->
-							<div
-								class="mt-4 grid grid-cols-1 gap-4 rounded-xl border border-zinc-200/60 bg-zinc-50/40 p-3.5 sm:grid-cols-2 dark:border-white/5 dark:bg-zinc-900/20"
-							>
-								<div>
-									<span class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
-										{t('settings.units.grain_weight')}
-									</span>
-									<div class="mt-1.5 flex gap-2">
-										<button
-											type="button"
-											onclick={() => updateGrainWeightUnit('kg')}
-											class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.grainWeightUnit ===
-											'kg'
-												? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
-												: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
-										>
-											{t('settings.units.grain_kg')}
-										</button>
-										<button
-											type="button"
-											onclick={() => updateGrainWeightUnit('lb')}
-											class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.grainWeightUnit ===
-											'lb'
-												? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
-												: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
-										>
-											{t('settings.units.grain_lb')}
-										</button>
-									</div>
-								</div>
-
-								<div>
-									<span class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
-										{t('settings.units.hop_weight')}
-									</span>
-									<div class="mt-1.5 flex gap-2">
-										<button
-											type="button"
-											onclick={() => updateHopWeightUnit('g')}
-											class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.hopWeightUnit ===
-											'g'
-												? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
-												: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
-										>
-											{t('settings.units.hop_g')}
-										</button>
-										<button
-											type="button"
-											onclick={() => updateHopWeightUnit('oz')}
-											class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.hopWeightUnit ===
-											'oz'
-												? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
-												: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
-										>
-											{t('settings.units.hop_oz')}
-										</button>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Color Scale -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.units.color')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.colorUnit === 'EBC'}
-									data-testid="unit-color-ebc"
-									onclick={() => updateColorUnit('EBC')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.colorUnit ===
-									'EBC'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.color_ebc')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.color_ebc_desc')}
-										</div>
-									</div>
-									{#if settings.colorUnit === 'EBC'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.colorUnit === 'SRM'}
-									data-testid="unit-color-srm"
-									onclick={() => updateColorUnit('SRM')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.colorUnit ===
-									'SRM'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.color_srm')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.color_srm_desc')}
-										</div>
-									</div>
-									{#if settings.colorUnit === 'SRM'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-							</div>
-						</div>
-
-						<!-- Carbonation Unit -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.units.carbonation')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.carbonationUnit === 'Volumes'}
-									data-testid="unit-carb-volumes"
-									onclick={() => updateCarbonationUnit('Volumes')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.carbonationUnit ===
-									'Volumes'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.carbonation_volumes')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.carbonation_volumes_desc')}
-										</div>
-									</div>
-									{#if settings.carbonationUnit === 'Volumes'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.carbonationUnit === 'GramsPerLiter'}
-									data-testid="unit-carb-gl"
-									onclick={() => updateCarbonationUnit('GramsPerLiter')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.carbonationUnit ===
-									'GramsPerLiter'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.carbonation_g_l')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.carbonation_g_l_desc')}
-										</div>
-									</div>
-									{#if settings.carbonationUnit === 'GramsPerLiter'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-							</div>
-						</div>
-
-						<!-- Temperature -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.units.temperature')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.temperatureUnit === 'Celsius'}
-									data-testid="unit-temp-celsius"
-									onclick={() => updateTemperatureUnit('Celsius')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.temperatureUnit ===
-									'Celsius'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.temperature_celsius')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.temperature_celsius_desc')}
-										</div>
-									</div>
-									{#if settings.temperatureUnit === 'Celsius'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.temperatureUnit === 'Fahrenheit'}
-									data-testid="unit-temp-fahrenheit"
-									onclick={() => updateTemperatureUnit('Fahrenheit')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.temperatureUnit ===
-									'Fahrenheit'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.temperature_fahrenheit')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.temperature_fahrenheit_desc')}
-										</div>
-									</div>
-									{#if settings.temperatureUnit === 'Fahrenheit'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-							</div>
-						</div>
-
-						<!-- Gravity -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.units.gravity')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.gravityUnit === 'SpecificGravity'}
-									data-testid="unit-gravity-sg"
-									onclick={() => updateGravityUnit('SpecificGravity')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.gravityUnit ===
-									'SpecificGravity'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.gravity_sg')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.gravity_sg_desc')}
-										</div>
-									</div>
-									{#if settings.gravityUnit === 'SpecificGravity'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									role="radio"
-									aria-checked={settings.gravityUnit === 'Plato'}
-									data-testid="unit-gravity-plato"
-									onclick={() => updateGravityUnit('Plato')}
-									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.gravityUnit ===
-									'Plato'
-										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-								>
-									<div>
-										<div class="text-xs font-bold text-zinc-900 dark:text-white">
-											{t('settings.units.gravity_plato')}
-										</div>
-										<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('settings.units.gravity_plato_desc')}
-										</div>
-									</div>
-									{#if settings.gravityUnit === 'Plato'}
-										<Check class="h-4 w-4 text-amber-500" />
-									{/if}
-								</button>
-							</div>
-						</div>
-					</div>
-				</section>
-
-				<!-- Section: Brewing Calculation Models (Formulas) -->
-				<section
-					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
-					aria-labelledby="formulas-heading"
-				>
-					<div
-						class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
-					>
-						<div class="flex items-center gap-3">
-							<div
-								class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-							>
-								<Sparkles class="h-5 w-5" />
-							</div>
-							<div>
-								<h2 id="formulas-heading" class="text-base font-bold text-zinc-900 dark:text-white">
-									{t('settings.formulas.title')}
-								</h2>
-								<p class="text-xs text-zinc-500 dark:text-zinc-400">
-									{t('settings.formulas.desc')}
-								</p>
-							</div>
-						</div>
-						<span
-							class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
-						>
-							{t('settings.formulas.auto_save_hint')}
-						</span>
-					</div>
-
-					<div class="mt-6 space-y-6">
-						<!-- Bitterness Formula -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.formulas.bitterness')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup">
-								{#each ['Tinseth', 'Rager', 'Daniels'] as const as form}
-									<button
-										type="button"
-										role="radio"
-										aria-checked={settings.bitternessFormula === form}
-										data-testid="formula-bitterness-{form.toLowerCase()}"
-										onclick={() => updateBitternessFormula(form)}
-										class="flex items-start justify-between rounded-xl border p-3 text-left transition {settings.bitternessFormula ===
-										form
-											? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-											: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-									>
-										<div>
-											<div class="text-xs font-bold text-zinc-900 dark:text-white">
-												{t(`settings.formulas.bitterness_${form.toLowerCase()}`)}
-											</div>
-										</div>
-										{#if settings.bitternessFormula === form}
-											<Check class="h-4 w-4 text-amber-500" />
-										{/if}
-									</button>
-								{/each}
-							</div>
-						</div>
-
-						<!-- Color Formula -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.formulas.color')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup">
-								{#each ['Morey', 'Mosher', 'Daniels'] as const as form}
-									<button
-										type="button"
-										role="radio"
-										aria-checked={settings.colorFormula === form}
-										data-testid="formula-color-{form.toLowerCase()}"
-										onclick={() => updateColorFormula(form)}
-										class="flex items-start justify-between rounded-xl border p-3 text-left transition {settings.colorFormula ===
-										form
-											? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-											: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-									>
-										<div>
-											<div class="text-xs font-bold text-zinc-900 dark:text-white">
-												{t(`settings.formulas.color_${form.toLowerCase()}`)}
-											</div>
-										</div>
-										{#if settings.colorFormula === form}
-											<Check class="h-4 w-4 text-amber-500" />
-										{/if}
-									</button>
-								{/each}
-							</div>
-						</div>
-
-						<!-- ABV Formula -->
-						<div>
-							<span
-								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-							>
-								{t('settings.formulas.abv')}
-							</span>
-							<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
-								{#each ['Linear', 'Advanced'] as const as form}
-									<button
-										type="button"
-										role="radio"
-										aria-checked={settings.abvFormula === form}
-										data-testid="formula-abv-{form.toLowerCase()}"
-										onclick={() => updateAbvFormula(form)}
-										class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.abvFormula ===
-										form
-											? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
-											: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
-									>
-										<div>
-											<div class="text-xs font-bold text-zinc-900 dark:text-white">
-												{t(`settings.formulas.abv_${form.toLowerCase()}`)}
-											</div>
-										</div>
-										{#if settings.abvFormula === form}
-											<Check class="h-4 w-4 text-amber-500" />
-										{/if}
-									</button>
-								{/each}
-							</div>
-						</div>
-					</div>
-				</section>
-			</div>
-
-			<!-- Right Column: Interactive Live Preview (1 col) -->
-			<div class="space-y-6">
-				<!-- Live Interactive Preview Card -->
+		<div id="panel-units" role="tabpanel" aria-labelledby="tab-units" class="space-y-8">
+			<!-- Section: Appearance & UI Mode -->
+			<section
+				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+				aria-labelledby="appearance-heading"
+			>
 				<div
-					class="glass-panel sticky top-20 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-500/10 p-5 shadow-lg dark:border-amber-500/20"
-					data-testid="settings-live-preview"
+					class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
 				>
-					<div class="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-						<Flame class="h-5 w-5 animate-pulse" />
-						<h3 class="text-xs font-bold tracking-wider uppercase">
-							{t('settings.units.preview_title')}
-						</h3>
-					</div>
-					<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-						{t('settings.units.preview_desc')}
-					</p>
-
-					<!-- Recipe Simulation Preview Box -->
-					<div
-						class="mt-4 rounded-xl border border-zinc-200/80 bg-zinc-100/80 p-4 dark:border-white/10 dark:bg-zinc-900/80"
-					>
+					<div class="flex items-center gap-3">
 						<div
-							class="flex items-center justify-between border-b border-zinc-200/60 pb-2 dark:border-white/5"
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
 						>
-							<span class="text-xs font-bold text-zinc-900 dark:text-white"
-								>Citra Sunshine Hazy IPA</span
-							>
-							<span
-								class="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
-							>
-								BJCP 21A
-							</span>
+							<Palette class="h-5 w-5" />
 						</div>
-
-						<div class="mt-3 space-y-2.5 text-xs">
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_batch')}</span
+						<div>
+							<div class="flex items-center gap-2">
+								<h2
+									id="appearance-heading"
+									class="text-base font-bold text-zinc-900 dark:text-white"
 								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-batch"
-								>
-									{previewBatch}
-								</span>
+									{t('settings.appearance.title')}
+								</h2>
 							</div>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.appearance.desc')}
+							</p>
+						</div>
+					</div>
+					<span
+						class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
+					>
+						{t('settings.appearance.auto_save_hint')}
+					</span>
+				</div>
 
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_malt')}</span
-								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-malt"
-								>
-									{previewMalt}
-								</span>
+				<div
+					class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+					role="radiogroup"
+					aria-label="Theme preference"
+				>
+					<!-- Imperial Stout Mode -->
+					<button
+						type="button"
+						role="radio"
+						aria-checked={settings.themePreference === 'ImperialStout'}
+						data-testid="theme-card-imperial-stout"
+						onclick={() => updateTheme('ImperialStout')}
+						class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+						'ImperialStout'
+							? 'border-amber-400/80 bg-amber-500/10 shadow-[0_0_20px_rgba(243,210,137,0.25)] ring-1 ring-amber-400'
+							: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+					>
+						<div class="flex w-full items-center justify-between">
+							<div
+								class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0e0d0f] text-[#f3d289] shadow ring-1 ring-[#e5c07b]/40"
+							>
+								<Beer class="h-4 w-4 text-[#f3d289]" />
 							</div>
+							{#if settings.themePreference === 'ImperialStout'}
+								<Check class="h-4 w-4 text-amber-400" />
+							{/if}
+						</div>
+						<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+							{t('settings.appearance.theme_imperial_stout')}
+						</div>
+						<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.appearance.theme_imperial_stout_desc')}
+						</div>
+					</button>
 
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_hop')}</span
-								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-hop"
-								>
-									{previewHop}
-								</span>
+					<!-- Chocolate Porter Mode -->
+					<button
+						type="button"
+						role="radio"
+						aria-checked={settings.themePreference === 'ChocolatePorter'}
+						data-testid="theme-card-chocolate-porter"
+						onclick={() => updateTheme('ChocolatePorter')}
+						class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+						'ChocolatePorter'
+							? 'border-[#c48b52]/80 bg-[#c48b52]/10 shadow-[0_0_20px_rgba(196,139,82,0.25)] ring-1 ring-[#c48b52]'
+							: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+					>
+						<div class="flex w-full items-center justify-between">
+							<div
+								class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#18110b] text-[#d49b5e] shadow ring-1 ring-[#c48b52]/40"
+							>
+								<Coffee class="h-4 w-4 text-[#d49b5e]" />
 							</div>
+							{#if settings.themePreference === 'ChocolatePorter'}
+								<Check class="h-4 w-4 text-[#d49b5e]" />
+							{/if}
+						</div>
+						<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+							{t('settings.appearance.theme_chocolate_porter')}
+						</div>
+						<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.appearance.theme_chocolate_porter_desc')}
+						</div>
+					</button>
 
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_mash')}</span
-								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-temp"
-								>
-									{previewTemp}
-								</span>
+					<!-- Obsidian Stout Mode -->
+					<button
+						type="button"
+						role="radio"
+						aria-checked={settings.themePreference === 'Obsidian'}
+						data-testid="theme-card-obsidian"
+						onclick={() => updateTheme('Obsidian')}
+						class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+						'Obsidian'
+							? 'border-[#ff5500]/70 bg-[#ff5500]/10 shadow-[0_0_20px_rgba(255,85,0,0.22)] ring-1 ring-[#ff5500]'
+							: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+					>
+						<div class="flex w-full items-center justify-between">
+							<div
+								class="flex h-8 w-8 items-center justify-center rounded-lg border border-[#ff5500]/40 bg-[#0b0c0e] text-[#ff5500] shadow-[0_0_12px_rgba(255,85,0,0.35)]"
+							>
+								<Flame class="h-4 w-4" />
 							</div>
+							{#if settings.themePreference === 'Obsidian'}
+								<Check class="h-4 w-4 text-[#ff5500]" />
+							{/if}
+						</div>
+						<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+							{t('settings.appearance.theme_obsidian')}
+						</div>
+						<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.appearance.theme_obsidian_desc')}
+						</div>
+					</button>
 
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_og')}</span
-								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-gravity"
-								>
-									{previewGravity}
-								</span>
+					<!-- Dark Mode -->
+					<button
+						type="button"
+						role="radio"
+						aria-checked={settings.themePreference === 'Dark'}
+						data-testid="theme-card-dark"
+						onclick={() => updateTheme('Dark')}
+						class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+						'Dark'
+							? 'border-amber-500/60 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500'
+							: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+					>
+						<div class="flex w-full items-center justify-between">
+							<div
+								class="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-amber-400 shadow"
+							>
+								<Moon class="h-4 w-4" />
 							</div>
+							{#if settings.themePreference === 'Dark'}
+								<Check class="h-4 w-4 text-amber-500 dark:text-amber-400" />
+							{/if}
+						</div>
+						<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+							{t('settings.appearance.theme_dark')}
+						</div>
+						<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.appearance.theme_dark_desc')}
+						</div>
+					</button>
 
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_color')}</span
-								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-color"
-								>
-									{previewColor}
-								</span>
+					<!-- Light Mode -->
+					<button
+						type="button"
+						role="radio"
+						aria-checked={settings.themePreference === 'Light'}
+						data-testid="theme-card-light"
+						onclick={() => updateTheme('Light')}
+						class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+						'Light'
+							? 'border-amber-500/60 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500'
+							: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+					>
+						<div class="flex w-full items-center justify-between">
+							<div
+								class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600 shadow"
+							>
+								<Sun class="h-4 w-4" />
 							</div>
+							{#if settings.themePreference === 'Light'}
+								<Check class="h-4 w-4 text-amber-500 dark:text-amber-400" />
+							{/if}
+						</div>
+						<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+							{t('settings.appearance.theme_light')}
+						</div>
+						<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.appearance.theme_light_desc')}
+						</div>
+					</button>
+				</div>
+			</section>
 
-							<div class="flex items-center justify-between">
-								<span class="text-zinc-500 dark:text-zinc-400"
-									>{t('settings.units.preview_carb')}</span
-								>
-								<span
-									class="font-mono font-bold text-zinc-900 dark:text-zinc-100"
-									data-testid="preview-carbonation"
-								>
-									{previewCarb}
-								</span>
-							</div>
+			<!-- Section: Language & Regional -->
+			<section
+				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+				aria-labelledby="language-heading"
+			>
+				<div
+					class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+				>
+					<div class="flex items-center gap-3">
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<Globe class="h-5 w-5" />
+						</div>
+						<div>
+							<h2 id="language-heading" class="text-base font-bold text-zinc-900 dark:text-white">
+								{t('settings.language.title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.language.desc')}
+							</p>
+						</div>
+					</div>
+					<span
+						class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
+					>
+						{t('settings.language.auto_save_hint')}
+					</span>
+				</div>
+
+				<div class="mt-5 max-w-sm">
+					<label
+						for="language-select"
+						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+					>
+						{t('settings.language.title')}
+					</label>
+					<div class="relative mt-2">
+						<select
+							id="language-select"
+							data-testid="language-select"
+							value={i18n.locale}
+							onchange={(e) =>
+								updateLanguage((e.currentTarget as HTMLSelectElement).value as LocaleCode)}
+							class="h-11 w-full appearance-none rounded-xl border border-zinc-300 bg-zinc-50/50 px-4 pr-10 text-sm font-medium text-zinc-900 transition focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-amber-400 dark:focus:bg-zinc-900"
+						>
+							{#each supportedLocales as loc}
+								<option value={loc.code}>
+									{loc.flag}
+									{loc.label} ({loc.code === 'en' ? 'English' : 'Svenska'})
+								</option>
+							{/each}
+						</select>
+						<div
+							class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-zinc-400"
+						>
+							<ChevronDown class="h-4 w-4" />
 						</div>
 					</div>
 				</div>
-			</div>
+			</section>
+
+			<!-- Section: Brewery Units & Measurements -->
+			<section
+				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+				aria-labelledby="units-heading"
+			>
+				<div
+					class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+				>
+					<div class="flex items-center gap-3">
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<Scale class="h-5 w-5" />
+						</div>
+						<div>
+							<h2 id="units-heading" class="text-base font-bold text-zinc-900 dark:text-white">
+								{t('settings.units.title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.units.desc')}
+							</p>
+						</div>
+					</div>
+					<span
+						class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
+					>
+						{t('settings.units.auto_save_hint')}
+					</span>
+				</div>
+
+				<div class="mt-6 space-y-6">
+					<!-- Presets Toolbar -->
+					<div
+						class="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-4 dark:border-white/5 dark:bg-zinc-900/30"
+					>
+						<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+							<div>
+								<span
+									class="block text-xs font-bold tracking-wider text-zinc-700 uppercase dark:text-zinc-200"
+								>
+									{t('settings.presets.title')}
+								</span>
+								<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('settings.presets.desc')}
+								</p>
+							</div>
+							<div class="flex items-center gap-2">
+								<span
+									data-testid="active-preset-badge"
+									class="rounded-full px-2.5 py-0.5 text-[11px] font-semibold {activePreset ===
+									'Custom'
+										? 'border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+										: 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}"
+								>
+									{activePreset === 'Custom'
+										? t('settings.presets.custom_badge')
+										: t('settings.presets.active_preset', { name: activePreset })}
+								</span>
+							</div>
+						</div>
+						<div class="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+							<button
+								type="button"
+								data-testid="preset-european-metric"
+								onclick={() => handleApplyPreset('European Metric')}
+								class="flex flex-col items-start rounded-lg border p-2.5 text-left transition {activePreset ===
+								'European Metric'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-white/70 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70'}"
+							>
+								<div class="flex w-full items-center justify-between">
+									<span class="text-xs font-bold text-zinc-900 dark:text-white"
+										>{t('settings.presets.european_metric')}</span
+									>
+									{#if activePreset === 'European Metric'}
+										<Check class="h-3.5 w-3.5 text-amber-500" />
+									{/if}
+								</div>
+								<span class="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400"
+									>{t('settings.presets.european_metric_desc')}</span
+								>
+							</button>
+
+							<button
+								type="button"
+								data-testid="preset-us-craft"
+								onclick={() => handleApplyPreset('US Craft')}
+								class="flex flex-col items-start rounded-lg border p-2.5 text-left transition {activePreset ===
+								'US Craft'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-white/70 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70'}"
+							>
+								<div class="flex w-full items-center justify-between">
+									<span class="text-xs font-bold text-zinc-900 dark:text-white"
+										>{t('settings.presets.us_craft')}</span
+									>
+									{#if activePreset === 'US Craft'}
+										<Check class="h-3.5 w-3.5 text-amber-500" />
+									{/if}
+								</div>
+								<span class="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400"
+									>{t('settings.presets.us_craft_desc')}</span
+								>
+							</button>
+
+							<button
+								type="button"
+								data-testid="preset-uk-traditional"
+								onclick={() => handleApplyPreset('UK Traditional')}
+								class="flex flex-col items-start rounded-lg border p-2.5 text-left transition {activePreset ===
+								'UK Traditional'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-white/70 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40 dark:hover:bg-zinc-800/70'}"
+							>
+								<div class="flex w-full items-center justify-between">
+									<span class="text-xs font-bold text-zinc-900 dark:text-white"
+										>{t('settings.presets.uk_traditional')}</span
+									>
+									{#if activePreset === 'UK Traditional'}
+										<Check class="h-3.5 w-3.5 text-amber-500" />
+									{/if}
+								</div>
+								<span class="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400"
+									>{t('settings.presets.uk_traditional_desc')}</span
+								>
+							</button>
+						</div>
+					</div>
+
+					<!-- Volume -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.units.volume')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.volumeUnit === 'Liters'}
+								data-testid="unit-volume-liters"
+								onclick={() => updateVolumeUnit('Liters')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.volumeUnit ===
+								'Liters'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.volume_liters')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.volume_liters_desc')}
+									</div>
+								</div>
+								{#if settings.volumeUnit === 'Liters'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.volumeUnit === 'Gallons'}
+								data-testid="unit-volume-gallons"
+								onclick={() => updateVolumeUnit('Gallons')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.volumeUnit ===
+								'Gallons'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.volume_gallons')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.volume_gallons_desc')}
+									</div>
+								</div>
+								{#if settings.volumeUnit === 'Gallons'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					<!-- Weight Units (Composite) -->
+					<div>
+						<div class="flex items-center justify-between">
+							<span
+								class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+							>
+								{t('settings.units.weight')}
+							</span>
+						</div>
+
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.weightUnit === 'Metric'}
+								data-testid="unit-weight-metric"
+								onclick={() => {
+									updateGrainWeightUnit('kg');
+									updateHopWeightUnit('g');
+								}}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.weightUnit ===
+								'Metric'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.weight_metric')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.weight_metric_desc')}
+									</div>
+								</div>
+								{#if settings.weightUnit === 'Metric'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.weightUnit === 'Imperial'}
+								data-testid="unit-weight-imperial"
+								onclick={() => {
+									updateGrainWeightUnit('lb');
+									updateHopWeightUnit('oz');
+								}}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.weightUnit ===
+								'Imperial'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.weight_imperial')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.weight_imperial_desc')}
+									</div>
+								</div>
+								{#if settings.weightUnit === 'Imperial'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+						</div>
+
+						<!-- Fine-Grained Weight Breakdown (Grain vs Hop) -->
+						<div
+							class="mt-4 grid grid-cols-1 gap-4 rounded-xl border border-zinc-200/60 bg-zinc-50/40 p-3.5 sm:grid-cols-2 dark:border-white/5 dark:bg-zinc-900/20"
+						>
+							<div>
+								<span class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+									{t('settings.units.grain_weight')}
+								</span>
+								<div class="mt-1.5 flex gap-2">
+									<button
+										type="button"
+										onclick={() => updateGrainWeightUnit('kg')}
+										class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.grainWeightUnit ===
+										'kg'
+											? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
+											: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
+									>
+										{t('settings.units.grain_kg')}
+									</button>
+									<button
+										type="button"
+										onclick={() => updateGrainWeightUnit('lb')}
+										class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.grainWeightUnit ===
+										'lb'
+											? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
+											: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
+									>
+										{t('settings.units.grain_lb')}
+									</button>
+								</div>
+							</div>
+
+							<div>
+								<span class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+									{t('settings.units.hop_weight')}
+								</span>
+								<div class="mt-1.5 flex gap-2">
+									<button
+										type="button"
+										onclick={() => updateHopWeightUnit('g')}
+										class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.hopWeightUnit ===
+										'g'
+											? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
+											: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
+									>
+										{t('settings.units.hop_g')}
+									</button>
+									<button
+										type="button"
+										onclick={() => updateHopWeightUnit('oz')}
+										class="flex-1 rounded-lg border py-1.5 text-center text-xs font-bold transition {settings.hopWeightUnit ===
+										'oz'
+											? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
+											: 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-300'}"
+									>
+										{t('settings.units.hop_oz')}
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Color Scale -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.units.color')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.colorUnit === 'EBC'}
+								data-testid="unit-color-ebc"
+								onclick={() => updateColorUnit('EBC')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.colorUnit ===
+								'EBC'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.color_ebc')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.color_ebc_desc')}
+									</div>
+								</div>
+								{#if settings.colorUnit === 'EBC'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.colorUnit === 'SRM'}
+								data-testid="unit-color-srm"
+								onclick={() => updateColorUnit('SRM')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.colorUnit ===
+								'SRM'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.color_srm')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.color_srm_desc')}
+									</div>
+								</div>
+								{#if settings.colorUnit === 'SRM'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					<!-- Carbonation Unit -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.units.carbonation')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.carbonationUnit === 'Volumes'}
+								data-testid="unit-carb-volumes"
+								onclick={() => updateCarbonationUnit('Volumes')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.carbonationUnit ===
+								'Volumes'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.carbonation_volumes')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.carbonation_volumes_desc')}
+									</div>
+								</div>
+								{#if settings.carbonationUnit === 'Volumes'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.carbonationUnit === 'GramsPerLiter'}
+								data-testid="unit-carb-gl"
+								onclick={() => updateCarbonationUnit('GramsPerLiter')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.carbonationUnit ===
+								'GramsPerLiter'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.carbonation_g_l')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.carbonation_g_l_desc')}
+									</div>
+								</div>
+								{#if settings.carbonationUnit === 'GramsPerLiter'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					<!-- Temperature -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.units.temperature')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.temperatureUnit === 'Celsius'}
+								data-testid="unit-temp-celsius"
+								onclick={() => updateTemperatureUnit('Celsius')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.temperatureUnit ===
+								'Celsius'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.temperature_celsius')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.temperature_celsius_desc')}
+									</div>
+								</div>
+								{#if settings.temperatureUnit === 'Celsius'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.temperatureUnit === 'Fahrenheit'}
+								data-testid="unit-temp-fahrenheit"
+								onclick={() => updateTemperatureUnit('Fahrenheit')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.temperatureUnit ===
+								'Fahrenheit'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.temperature_fahrenheit')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.temperature_fahrenheit_desc')}
+									</div>
+								</div>
+								{#if settings.temperatureUnit === 'Fahrenheit'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					<!-- Gravity -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.units.gravity')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.gravityUnit === 'SpecificGravity'}
+								data-testid="unit-gravity-sg"
+								onclick={() => updateGravityUnit('SpecificGravity')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.gravityUnit ===
+								'SpecificGravity'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.gravity_sg')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.gravity_sg_desc')}
+									</div>
+								</div>
+								{#if settings.gravityUnit === 'SpecificGravity'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+
+							<button
+								type="button"
+								role="radio"
+								aria-checked={settings.gravityUnit === 'Plato'}
+								data-testid="unit-gravity-plato"
+								onclick={() => updateGravityUnit('Plato')}
+								class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.gravityUnit ===
+								'Plato'
+									? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+									: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+							>
+								<div>
+									<div class="text-xs font-bold text-zinc-900 dark:text-white">
+										{t('settings.units.gravity_plato')}
+									</div>
+									<div class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.units.gravity_plato_desc')}
+									</div>
+								</div>
+								{#if settings.gravityUnit === 'Plato'}
+									<Check class="h-4 w-4 text-amber-500" />
+								{/if}
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- Section: Brewing Calculation Models (Formulas) -->
+			<section
+				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+				aria-labelledby="formulas-heading"
+			>
+				<div
+					class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+				>
+					<div class="flex items-center gap-3">
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<Sparkles class="h-5 w-5" />
+						</div>
+						<div>
+							<h2 id="formulas-heading" class="text-base font-bold text-zinc-900 dark:text-white">
+								{t('settings.formulas.title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.formulas.desc')}
+							</p>
+						</div>
+					</div>
+					<span
+						class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400"
+					>
+						{t('settings.formulas.auto_save_hint')}
+					</span>
+				</div>
+
+				<div class="mt-6 space-y-6">
+					<!-- Bitterness Formula -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.formulas.bitterness')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup">
+							{#each ['Tinseth', 'Rager', 'Daniels'] as const as form}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={settings.bitternessFormula === form}
+									data-testid="formula-bitterness-{form.toLowerCase()}"
+									onclick={() => updateBitternessFormula(form)}
+									class="flex items-start justify-between rounded-xl border p-3 text-left transition {settings.bitternessFormula ===
+									form
+										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+								>
+									<div>
+										<div class="text-xs font-bold text-zinc-900 dark:text-white">
+											{t(`settings.formulas.bitterness_${form.toLowerCase()}`)}
+										</div>
+									</div>
+									{#if settings.bitternessFormula === form}
+										<Check class="h-4 w-4 text-amber-500" />
+									{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<!-- Color Formula -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.formulas.color')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup">
+							{#each ['Morey', 'Mosher', 'Daniels'] as const as form}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={settings.colorFormula === form}
+									data-testid="formula-color-{form.toLowerCase()}"
+									onclick={() => updateColorFormula(form)}
+									class="flex items-start justify-between rounded-xl border p-3 text-left transition {settings.colorFormula ===
+									form
+										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+								>
+									<div>
+										<div class="text-xs font-bold text-zinc-900 dark:text-white">
+											{t(`settings.formulas.color_${form.toLowerCase()}`)}
+										</div>
+									</div>
+									{#if settings.colorFormula === form}
+										<Check class="h-4 w-4 text-amber-500" />
+									{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<!-- ABV Formula -->
+					<div>
+						<span
+							class="block text-xs font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+						>
+							{t('settings.formulas.abv')}
+						</span>
+						<div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup">
+							{#each ['Linear', 'Advanced'] as const as form}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={settings.abvFormula === form}
+									data-testid="formula-abv-{form.toLowerCase()}"
+									onclick={() => updateAbvFormula(form)}
+									class="flex items-start justify-between rounded-xl border p-3.5 text-left transition {settings.abvFormula ===
+									form
+										? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500'
+										: 'border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40'}"
+								>
+									<div>
+										<div class="text-xs font-bold text-zinc-900 dark:text-white">
+											{t(`settings.formulas.abv_${form.toLowerCase()}`)}
+										</div>
+									</div>
+									{#if settings.abvFormula === form}
+										<Check class="h-4 w-4 text-amber-500" />
+									{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+			</section>
 		</div>
 	{/if}
 

@@ -1,3 +1,12 @@
+@import '@fontsource/plus-jakarta-sans/300.css';
+@import '@fontsource/plus-jakarta-sans/400.css';
+@import '@fontsource/plus-jakarta-sans/500.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/plus-jakarta-sans/700.css';
+@import '@fontsource/plus-jakarta-sans/800.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
 @import 'tailwindcss';
 
 /* Tailwind v4 class-based dark mode configuration */
@@ -24,12 +33,20 @@
 	--color-surface-border: var(--border-micro);
 
 	/* Typography & Metric Monospaced font */
+	--font-sans:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
+	--font-display:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
 	--font-mono-numbers: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
 	/* Subtle Ambient Glow Shadows */
 	--shadow-amber-glow: 0 0 25px -4px rgba(245, 158, 11, 0.2);
 	--shadow-amber-glow-strong: 0 0 35px -2px rgba(245, 158, 11, 0.35);
 	--shadow-hops-glow: 0 0 25px -4px rgba(16, 185, 129, 0.22);
+	--shadow-ember-glow: 0 0 25px -4px rgba(255, 85, 0, 0.35);
+	--shadow-ember-glow-strong: 0 0 40px -2px rgba(255, 85, 0, 0.55);
 }
 
 /* CSS Variables for Mode Swapping */
@@ -124,12 +141,34 @@
 html,
 body {
 	min-height: 100%;
+	font-family:
+		'Plus Jakarta Sans',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		Roboto,
+		sans-serif;
 	background-color: var(--canvas-bg);
 	color: var(--text-primary);
 	overflow-x: hidden;
 	transition:
 		background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
 		color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family:
+		'Plus Jakarta Sans',
+		system-ui,
+		-apple-system,
+		sans-serif;
+	letter-spacing: -0.015em;
 }
 
 /* Frosted glass utility classes */
@@ -279,6 +318,97 @@ body {
 [data-theme='chocolate-porter'] h2,
 [data-theme='chocolate-porter'] h3 {
 	font-family: 'Playfair Display', 'Cormorant Garamond', 'Georgia', serif;
+}
+
+:root[data-theme='obsidian'],
+.dark[data-theme='obsidian'] {
+	/* 1. Canvas & Surface Custom Properties */
+	--canvas-bg: #0b0c0e;
+	--panel-bg: rgba(18, 19, 24, 0.9);
+	--panel-card: rgba(18, 20, 26, 0.78);
+	--elevated-bg: #181a21;
+	--recessed-bg: #070809;
+
+	/* 2. Micro & Active Borders (Electric Ember Flame) */
+	--border-micro: rgba(255, 255, 255, 0.08);
+	--border-subtle: rgba(255, 85, 0, 0.35);
+	--border-active: rgba(255, 85, 0, 0.9);
+	--border-glow: 0 0 16px rgba(255, 85, 0, 0.45);
+
+	/* 3. Typography Tokens */
+	--text-primary: #fbfbfc;
+	--text-secondary: #9ca3af;
+	--text-muted: #6b7280;
+	--text-dim: #374151;
+
+	/* 4. Overriding Tailwind v4 Zinc Scale -> Cold Obsidian Charcoal */
+	--color-zinc-950: #08090a;
+	--color-zinc-900: #0f1014;
+	--color-zinc-800: #17181f;
+	--color-zinc-700: #232530;
+	--color-zinc-600: #3b3e4d;
+	--color-zinc-500: #6b7082;
+	--color-zinc-400: #9da2b3;
+	--color-zinc-300: #c8ccd6;
+	--color-zinc-200: #e2e4eb;
+	--color-zinc-100: #f1f2f6;
+	--color-zinc-50: #fafafc;
+
+	/* 5. Overriding Tailwind v4 Amber Scale -> Electric Ember Flame */
+	--color-amber-300: #ffaa66;
+	--color-amber-400: #ff7722;
+	--color-amber-450: #ff5e00;
+	--color-amber-500: #ff5500;
+	--color-amber-600: #e04600;
+	--color-amber-700: #b33600;
+	--color-amber-800: #8c2b00;
+	--color-amber-900: #661f00;
+	--color-amber-950: #331000;
+
+	/* Ambient Glow Shadows & Elevation */
+	--ambient-glow: 0 20px 50px -10px rgba(0, 0, 0, 0.9), 0 0 35px -3px rgba(255, 85, 0, 0.28);
+	--shadow-amber-glow: 0 0 25px -4px rgba(255, 85, 0, 0.35);
+	--shadow-amber-glow-strong: 0 0 40px -2px rgba(255, 85, 0, 0.55);
+	--shadow-card-elevated:
+		0 20px 40px -10px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 85, 0, 0.2),
+		inset 0 1px 0 0 rgba(255, 119, 34, 0.18);
+	--shadow-dial-well: inset 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+
+[data-theme='obsidian'] ::selection {
+	background-color: #ff5500 !important;
+	color: #0b0c0e !important;
+}
+
+[data-theme='obsidian'] .glass-panel {
+	background-color: var(--panel-bg);
+	border: 1px solid rgba(255, 85, 0, 0.2);
+	box-shadow:
+		0 16px 36px -8px rgba(0, 0, 0, 0.75),
+		inset 0 1px 0 0 rgba(255, 119, 34, 0.16);
+}
+
+[data-theme='obsidian'] .glass-card {
+	background-color: var(--panel-card);
+	border: 1px solid rgba(255, 85, 0, 0.18);
+	box-shadow:
+		0 12px 28px -6px rgba(0, 0, 0, 0.65),
+		inset 0 1px 0 0 rgba(255, 119, 34, 0.14);
+}
+
+[data-theme='obsidian'] header,
+[data-theme='obsidian'] #brewery-sidebar {
+	border-color: rgba(255, 85, 0, 0.2) !important;
+}
+
+[data-theme='obsidian'] body {
+	background-image: radial-gradient(
+		ellipse 80% 50% at 50% -10%,
+		rgba(255, 85, 0, 0.08),
+		transparent 75%
+	);
+	background-repeat: no-repeat;
+	background-attachment: fixed;
 }
 
 .stout-dial-glow {

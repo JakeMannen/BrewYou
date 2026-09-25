@@ -31,7 +31,8 @@ public enum ThemePreference
     Light,
     System,
     ImperialStout,
-    ChocolatePorter
+    ChocolatePorter,
+    Obsidian
 }
 
 public class ApplicationUser : IdentityUser
@@ -44,7 +45,7 @@ public class ApplicationUser : IdentityUser
     public WeightUnit PreferredWeightUnit { get; set; } = WeightUnit.Metric;
     public TemperatureUnit PreferredTemperatureUnit { get; set; } = TemperatureUnit.Celsius;
     public GravityUnit PreferredGravityUnit { get; set; } = GravityUnit.SpecificGravity;
-    public ThemePreference PreferredTheme { get; set; } = ThemePreference.Dark;
+    public ThemePreference PreferredTheme { get; set; } = ThemePreference.ImperialStout;
     public decimal DefaultBatchSizeLiters { get; set; } = 20.0m;
     public decimal DefaultEfficiencyPercent { get; set; } = 75.0m;
     public int DefaultBoilTimeMinutes { get; set; } = 60;

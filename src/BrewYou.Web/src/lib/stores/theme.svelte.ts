@@ -1,14 +1,15 @@
-export type ThemePreference = 'dark' | 'light' | 'system' | 'imperial-stout' | 'chocolate-porter';
-export type ResolvedTheme = 'dark' | 'light' | 'imperial-stout' | 'chocolate-porter';
+export type ThemePreference =
+	'dark' | 'light' | 'system' | 'imperial-stout' | 'chocolate-porter' | 'obsidian';
+export type ResolvedTheme = 'dark' | 'light' | 'imperial-stout' | 'chocolate-porter' | 'obsidian';
 
 const STORAGE_KEY = 'brewyou-theme';
 
 class ThemeStore {
-	#preference = $state<ThemePreference>('dark');
-	#systemTheme = $state<ResolvedTheme>('dark');
+	#preference = $state<ThemePreference>('imperial-stout');
+	#systemTheme = $state<ResolvedTheme>('imperial-stout');
 
 	constructor() {
-		// Default to dark theme
+		// Default to imperial-stout theme
 	}
 
 	init(): void {
@@ -20,11 +21,12 @@ class ThemeStore {
 			saved === 'light' ||
 			saved === 'system' ||
 			saved === 'imperial-stout' ||
-			saved === 'chocolate-porter'
+			saved === 'chocolate-porter' ||
+			saved === 'obsidian'
 		) {
 			this.#preference = saved;
 		} else {
-			this.#preference = 'dark';
+			this.#preference = 'imperial-stout';
 		}
 
 		if (window.matchMedia) {
@@ -46,7 +48,8 @@ class ThemeStore {
 					e.newValue === 'light' ||
 					e.newValue === 'system' ||
 					e.newValue === 'imperial-stout' ||
-					e.newValue === 'chocolate-porter'
+					e.newValue === 'chocolate-porter' ||
+					e.newValue === 'obsidian'
 				) {
 					this.#preference = e.newValue as ThemePreference;
 					this.applyDocumentClass();
@@ -77,7 +80,8 @@ class ThemeStore {
 		const next: ThemePreference =
 			this.current === 'dark' ||
 			this.current === 'imperial-stout' ||
-			this.current === 'chocolate-porter'
+			this.current === 'chocolate-porter' ||
+			this.current === 'obsidian'
 				? 'light'
 				: 'dark';
 		this.setTheme(next);
@@ -88,6 +92,8 @@ class ThemeStore {
 		if (this.current === 'imperial-stout') {
 			next = 'chocolate-porter';
 		} else if (this.current === 'chocolate-porter') {
+			next = 'obsidian';
+		} else if (this.current === 'obsidian') {
 			next = 'dark';
 		} else if (this.current === 'dark') {
 			next = 'light';
@@ -102,7 +108,8 @@ class ThemeStore {
 		const isDark =
 			this.current === 'dark' ||
 			this.current === 'imperial-stout' ||
-			this.current === 'chocolate-porter';
+			this.current === 'chocolate-porter' ||
+			this.current === 'obsidian';
 		document.documentElement.classList.toggle('dark', isDark);
 		document.documentElement.setAttribute('data-theme', this.current);
 		if (document.documentElement.style) {

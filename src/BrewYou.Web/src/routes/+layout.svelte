@@ -19,10 +19,7 @@
 		X,
 		Wrench,
 		Calculator,
-		Settings,
-		Sun,
-		Moon,
-		Coffee
+		Settings
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { brewery } from '$lib/stores/brewery.svelte';
@@ -226,45 +223,34 @@
 
 				<!-- Header Right Controls -->
 				<div class="flex items-center gap-2 sm:gap-3">
-					<!-- Header Theme Quick Toggle -->
-					<button
-						type="button"
-						data-testid="theme-toggle-header"
-						onclick={() => settings.cycleTheme()}
-						class="flex h-10 items-center gap-2 rounded-xl border border-zinc-200/80 bg-zinc-100/80 px-3 text-xs font-semibold text-zinc-700 transition-all hover:bg-zinc-200 active:scale-95 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
-						title={settings.themePreference === 'ImperialStout' ||
-						theme.current === 'imperial-stout'
-							? t('settings.appearance.theme_imperial_stout')
-							: settings.themePreference === 'ChocolatePorter' ||
-								  theme.current === 'chocolate-porter'
-								? t('settings.appearance.theme_chocolate_porter')
-								: settings.themePreference === 'Light' || theme.current === 'light'
-									? t('settings.appearance.theme_light')
-									: t('settings.appearance.theme_dark')}
-						aria-label={settings.themePreference === 'ImperialStout' ||
-						theme.current === 'imperial-stout'
-							? t('settings.appearance.theme_imperial_stout')
-							: settings.themePreference === 'ChocolatePorter' ||
-								  theme.current === 'chocolate-porter'
-								? t('settings.appearance.theme_chocolate_porter')
-								: settings.themePreference === 'Light' || theme.current === 'light'
-									? t('settings.appearance.theme_light')
-									: t('settings.appearance.theme_dark')}
-					>
-						{#if settings.themePreference === 'ImperialStout' || theme.current === 'imperial-stout'}
-							<Beer class="h-4 w-4 text-amber-400" />
-							<span class="hidden sm:inline">Imperial Stout</span>
-						{:else if settings.themePreference === 'ChocolatePorter' || theme.current === 'chocolate-porter'}
-							<Coffee class="h-4 w-4 text-[#d49b5e]" />
-							<span class="hidden sm:inline">Chocolate Porter</span>
-						{:else if settings.themePreference === 'Light' || theme.current === 'light'}
-							<Sun class="h-4 w-4 text-amber-500" />
-							<span class="hidden sm:inline">Light</span>
-						{:else}
-							<Moon class="h-4 w-4 text-amber-400" />
-							<span class="hidden sm:inline">Dark</span>
-						{/if}
-					</button>
+					{#if auth.isAuthenticated && auth.user}
+						<div
+							data-testid="header-user-info"
+							class="flex h-10 items-center gap-2 rounded-xl border border-zinc-200/80 bg-zinc-100/80 px-2.5 text-xs font-semibold text-zinc-700 transition-all sm:px-3 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-200"
+						>
+							<div
+								class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/20 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
+							>
+								{(auth.user.displayName || auth.user.email).slice(0, 2).toUpperCase()}
+							</div>
+							<span
+								class="max-w-[100px] truncate text-zinc-900 sm:max-w-[160px] dark:text-zinc-100"
+								title={auth.user.displayName || auth.user.email}
+							>
+								{auth.user.displayName || auth.user.email}
+							</span>
+							<button
+								type="button"
+								onclick={() => auth.logout()}
+								class="ml-1 rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-red-500 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+								title={t('nav.logout')}
+								aria-label={t('nav.logout')}
+								data-testid="header-logout-btn"
+							>
+								<LogOut class="h-3.5 w-3.5" />
+							</button>
+						</div>
+					{/if}
 
 					<!-- Mobile Drawer Toggle Button -->
 					<button

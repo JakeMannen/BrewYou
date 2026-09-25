@@ -248,7 +248,8 @@ export type VolumeUnit = 'Liters' | 'Gallons';
 export type WeightUnit = 'Metric' | 'Imperial';
 export type TemperatureUnit = 'Celsius' | 'Fahrenheit';
 export type GravityUnit = 'SpecificGravity' | 'Plato';
-export type ThemePreference = 'Dark' | 'Light' | 'System' | 'ImperialStout' | 'ChocolatePorter';
+export type ThemePreference =
+	'Dark' | 'Light' | 'System' | 'ImperialStout' | 'ChocolatePorter' | 'Obsidian';
 
 export interface UserPreferencesDto {
 	language: string;

@@ -52,6 +52,17 @@ public class UserPreferencesValidationTests
     }
 
     [Fact]
+    public async Task ValidatePreferences_ObsidianTheme_PassesValidation()
+    {
+        var request = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.Obsidian
+        );
+
+        var result = await _preferencesValidator.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task ValidatePreferences_InvalidLanguage_FailsValidation()
     {
         var request = new UpdateUserPreferencesRequest(Language: "fr");

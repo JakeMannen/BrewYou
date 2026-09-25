@@ -45,7 +45,7 @@ public class UserPreferencesEndpointTests : IClassFixture<WebApplicationFactory<
         envelope.Data.Preferences.WeightUnit.Should().Be(WeightUnit.Metric);
         envelope.Data.Preferences.TemperatureUnit.Should().Be(TemperatureUnit.Celsius);
         envelope.Data.Preferences.GravityUnit.Should().Be(GravityUnit.SpecificGravity);
-        envelope.Data.Preferences.Theme.Should().Be(ThemePreference.Dark);
+        envelope.Data.Preferences.Theme.Should().Be(ThemePreference.ImperialStout);
         envelope.Data.Preferences.DefaultBatchSizeLiters.Should().Be(20.0m);
         envelope.Data.Preferences.DefaultEfficiencyPercent.Should().Be(75.0m);
         envelope.Data.Preferences.DefaultBoilTimeMinutes.Should().Be(60);
@@ -143,6 +143,30 @@ public class UserPreferencesEndpointTests : IClassFixture<WebApplicationFactory<
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var getEnvelope = await getResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
         getEnvelope!.Data!.Preferences.Theme.Should().Be(ThemePreference.ChocolatePorter);
+    }
+
+    [Fact]
+    public async Task UpdateUserPreferences_ObsidianTheme_PersistsAndReturnsTheme()
+    {
+        var (token, _) = await RegisterTestUserAsync("obsidian_pref");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var updateReq = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.Obsidian
+        );
+
+        var putResponse = await _client.PutAsJsonAsync("/api/v1/auth/me/preferences", updateReq);
+        putResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var putEnvelope = await putResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+        putEnvelope!.Success.Should().BeTrue();
+        putEnvelope.Data!.Preferences.Theme.Should().Be(ThemePreference.Obsidian);
+
+        // Verify persistence via GET /me
+        var getResponse = await _client.GetAsync("/api/v1/auth/me");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getEnvelope = await getResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+        getEnvelope!.Data!.Preferences.Theme.Should().Be(ThemePreference.Obsidian);
     }
 
     [Fact]
