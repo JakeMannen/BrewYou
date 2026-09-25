@@ -1,4 +1,3 @@
-@import 'tailwindcss';
 @import '@fontsource/plus-jakarta-sans/300.css';
 @import '@fontsource/plus-jakarta-sans/400.css';
 @import '@fontsource/plus-jakarta-sans/500.css';
@@ -7,6 +6,7 @@
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
 @import '@fontsource/jetbrains-mono/600.css';
+@import 'tailwindcss';
 
 /* Tailwind v4 class-based dark mode configuration */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -93,32 +93,79 @@
 
 [data-theme='botanical'] {
 	/* Botanical Moss & Craft Terroir Green Theme */
-	--canvas-bg: #131b15;
-	--panel-bg: rgba(24, 34, 27, 0.85);
-	--panel-card: rgba(24, 34, 27, 0.7);
-	--elevated-bg: rgba(30, 43, 34, 0.85);
-	--border-micro: rgba(255, 255, 255, 0.09);
-	--border-active: rgba(142, 182, 59, 0.5);
+	--canvas-bg: #111813;
+	--panel-bg: rgba(20, 30, 23, 0.9);
+	--panel-card: rgba(24, 36, 27, 0.78);
+	--elevated-bg: rgba(30, 46, 34, 0.9);
+	--border-micro: rgba(180, 210, 175, 0.14);
+	--border-active: rgba(142, 182, 59, 0.6);
 	--text-primary: #f4f3ee;
 	--text-secondary: #a2ae9e;
-	--text-muted: #707d6d;
-	--ambient-glow: 0 0 30px -5px rgba(142, 182, 59, 0.2);
+	--text-muted: #748371;
+	--ambient-glow: 0 0 35px -4px rgba(142, 182, 59, 0.28);
+
+	/* Transform Amber accents into Botanical Matcha & Fresh Hop Green */
+	--color-amber-300: #c0ea65;
+	--color-amber-400: #a3d248;
+	--color-amber-450: #8eb63b;
+	--color-amber-500: #8eb63b;
+	--color-amber-600: #72962a;
+	--color-amber-700: #57751f;
+
+	/* Transform Zinc neutrals into Forest Moss & Slate */
+	--color-zinc-950: #0b110d;
+	--color-zinc-900: #131c15;
+	--color-zinc-800: #1b281f;
+	--color-zinc-700: #27392c;
+	--color-zinc-600: #496351;
+	--color-zinc-500: #6f8877;
+	--color-zinc-400: #9cb1a3;
+	--color-zinc-300: #c6d6cc;
+	--color-zinc-200: #dfeae3;
+	--color-zinc-100: #eef5f1;
+	--color-zinc-50: #f6faf8;
+
+	/* Glow shadows shifted to green */
+	--shadow-amber-glow: 0 0 25px -4px rgba(142, 182, 59, 0.28);
+	--shadow-amber-glow-strong: 0 0 35px -2px rgba(142, 182, 59, 0.45);
 }
 
 [data-theme='botanical'] ::selection {
-	background-color: #8eb63b;
-	color: #0f1511;
+	background-color: #8eb63b !important;
+	color: #0f1511 !important;
 }
 
 html,
 body {
 	min-height: 100%;
+	font-family:
+		'Plus Jakarta Sans',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		Roboto,
+		sans-serif;
 	background-color: var(--canvas-bg);
 	color: var(--text-primary);
 	overflow-x: hidden;
 	transition:
 		background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
 		color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family:
+		'Plus Jakarta Sans',
+		system-ui,
+		-apple-system,
+		sans-serif;
+	letter-spacing: -0.015em;
 }
 
 /* Frosted glass utility classes */
