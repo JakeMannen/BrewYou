@@ -1754,7 +1754,7 @@
 		"batch_milestone_coldcrash": "{batch}: Påbörja kallkrasch",
 		"batch_milestone_fg": "{batch}: Kontrollera slutdensitet",
 		"no_tasks_due": "Inga väntande uppgifter eller milstolpar idag!",
-		"equipment_health": "Utrustningsstatus & Givare",
+		"equipment_health": "Utrustning & Sensorer",
 		"vessels_ready": "Tillgängliga kärl",
 		"probes_online": "IoT-givare aktiva",
 		"probes_offline": "Manuell loggning",

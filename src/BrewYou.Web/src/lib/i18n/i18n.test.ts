@@ -67,6 +67,7 @@ describe('i18n Translation Engine', () => {
 		expect(t('formulator.title_new')).toBe('Ny receptformulering');
 		expect(t('formulator.title_edit')).toBe('Redigera recept');
 		expect(t('formulator.update_recipe')).toBe('Uppdatera recept');
+		expect(t('dashboard.equipment_health')).toBe('Utrustning & Sensorer');
 	});
 
 	it('translates batch process brew stages accurately using authentic Swedish brewing terminology', () => {
