@@ -442,7 +442,8 @@ class SettingsState {
 				savedTheme === 'Dark' ||
 				savedTheme === 'Light' ||
 				savedTheme === 'System' ||
-				savedTheme === 'ImperialStout'
+				savedTheme === 'ImperialStout' ||
+				savedTheme === 'ChocolatePorter'
 			) {
 				this.themePreference = savedTheme;
 			}
@@ -505,7 +506,11 @@ class SettingsState {
 		if (pref.theme) {
 			this.themePreference = pref.theme;
 			const clientTheme = (
-				pref.theme === 'ImperialStout' ? 'imperial-stout' : pref.theme.toLowerCase()
+				pref.theme === 'ImperialStout'
+					? 'imperial-stout'
+					: pref.theme === 'ChocolatePorter'
+						? 'chocolate-porter'
+						: pref.theme.toLowerCase()
 			) as ThemeStorePreference;
 			theme.setTheme(clientTheme);
 		}
@@ -699,7 +704,11 @@ class SettingsState {
 	setThemePreference(themePref: ThemePreference): void {
 		this.themePreference = themePref;
 		const clientTheme = (
-			themePref === 'ImperialStout' ? 'imperial-stout' : themePref.toLowerCase()
+			themePref === 'ImperialStout'
+				? 'imperial-stout'
+				: themePref === 'ChocolatePorter'
+					? 'chocolate-porter'
+					: themePref.toLowerCase()
 		) as ThemeStorePreference;
 		theme.setTheme(clientTheme);
 		if (browser) {
@@ -710,6 +719,8 @@ class SettingsState {
 	cycleTheme(): void {
 		let next: ThemePreference;
 		if (this.themePreference === 'ImperialStout') {
+			next = 'ChocolatePorter';
+		} else if (this.themePreference === 'ChocolatePorter') {
 			next = 'Dark';
 		} else if (this.themePreference === 'Dark') {
 			next = 'Light';

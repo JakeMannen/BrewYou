@@ -21,7 +21,8 @@
 		Calculator,
 		Settings,
 		Sun,
-		Moon
+		Moon,
+		Coffee
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { brewery } from '$lib/stores/brewery.svelte';
@@ -234,19 +235,28 @@
 						title={settings.themePreference === 'ImperialStout' ||
 						theme.current === 'imperial-stout'
 							? t('settings.appearance.theme_imperial_stout')
-							: settings.themePreference === 'Light' || theme.current === 'light'
-								? t('settings.appearance.theme_light')
-								: t('settings.appearance.theme_dark')}
+							: settings.themePreference === 'ChocolatePorter' ||
+								  theme.current === 'chocolate-porter'
+								? t('settings.appearance.theme_chocolate_porter')
+								: settings.themePreference === 'Light' || theme.current === 'light'
+									? t('settings.appearance.theme_light')
+									: t('settings.appearance.theme_dark')}
 						aria-label={settings.themePreference === 'ImperialStout' ||
 						theme.current === 'imperial-stout'
 							? t('settings.appearance.theme_imperial_stout')
-							: settings.themePreference === 'Light' || theme.current === 'light'
-								? t('settings.appearance.theme_light')
-								: t('settings.appearance.theme_dark')}
+							: settings.themePreference === 'ChocolatePorter' ||
+								  theme.current === 'chocolate-porter'
+								? t('settings.appearance.theme_chocolate_porter')
+								: settings.themePreference === 'Light' || theme.current === 'light'
+									? t('settings.appearance.theme_light')
+									: t('settings.appearance.theme_dark')}
 					>
 						{#if settings.themePreference === 'ImperialStout' || theme.current === 'imperial-stout'}
 							<Beer class="h-4 w-4 text-amber-400" />
 							<span class="hidden sm:inline">Imperial Stout</span>
+						{:else if settings.themePreference === 'ChocolatePorter' || theme.current === 'chocolate-porter'}
+							<Coffee class="h-4 w-4 text-[#d49b5e]" />
+							<span class="hidden sm:inline">Chocolate Porter</span>
 						{:else if settings.themePreference === 'Light' || theme.current === 'light'}
 							<Sun class="h-4 w-4 text-amber-500" />
 							<span class="hidden sm:inline">Light</span>

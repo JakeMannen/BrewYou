@@ -6,11 +6,21 @@
 		<meta name="text-scale" content="scale" />
 		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 		<link rel="apple-touch-icon" href="/favicon.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap"
+			rel="stylesheet"
+		/>
 		<script>
 			(function () {
 				try {
 					var pref = localStorage.getItem('brewyou-theme');
-					if (pref === 'imperial-stout') {
+					if (pref === 'chocolate-porter') {
+						document.documentElement.classList.add('dark');
+						document.documentElement.setAttribute('data-theme', 'chocolate-porter');
+						document.documentElement.style.colorScheme = 'dark';
+					} else if (pref === 'imperial-stout') {
 						document.documentElement.classList.add('dark');
 						document.documentElement.setAttribute('data-theme', 'imperial-stout');
 						document.documentElement.style.colorScheme = 'dark';

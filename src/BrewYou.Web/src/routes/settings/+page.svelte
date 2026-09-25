@@ -40,6 +40,7 @@
 		Sparkles,
 		Flame,
 		Beer,
+		Coffee,
 		CheckCircle2,
 		AlertCircle,
 		ChevronDown,
@@ -601,7 +602,7 @@
 					</div>
 
 					<div
-						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
 						role="radiogroup"
 						aria-label="Theme preference"
 					>
@@ -632,6 +633,36 @@
 							</div>
 							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
 								{t('settings.appearance.theme_imperial_stout_desc')}
+							</div>
+						</button>
+
+						<!-- Chocolate Porter Mode -->
+						<button
+							type="button"
+							role="radio"
+							aria-checked={settings.themePreference === 'ChocolatePorter'}
+							data-testid="theme-card-chocolate-porter"
+							onclick={() => updateTheme('ChocolatePorter')}
+							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+							'ChocolatePorter'
+								? 'border-[#c48b52]/80 bg-[#c48b52]/10 shadow-[0_0_20px_rgba(196,139,82,0.25)] ring-1 ring-[#c48b52]'
+								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+						>
+							<div class="flex w-full items-center justify-between">
+								<div
+									class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#18110b] text-[#d49b5e] shadow ring-1 ring-[#c48b52]/40"
+								>
+									<Coffee class="h-4 w-4 text-[#d49b5e]" />
+								</div>
+								{#if settings.themePreference === 'ChocolatePorter'}
+									<Check class="h-4 w-4 text-[#d49b5e]" />
+								{/if}
+							</div>
+							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+								{t('settings.appearance.theme_chocolate_porter')}
+							</div>
+							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('settings.appearance.theme_chocolate_porter_desc')}
 							</div>
 						</button>
 

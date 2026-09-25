@@ -179,6 +179,108 @@ body {
 	background-attachment: fixed;
 }
 
+:root[data-theme='chocolate-porter'],
+.dark[data-theme='chocolate-porter'] {
+	/* 1. Canvas & Surface Custom Properties */
+	--canvas-bg: #120c08;
+	--panel-bg: rgba(28, 19, 14, 0.88);
+	--panel-card: rgba(34, 23, 17, 0.82);
+	--elevated-bg: #2d1e16;
+	--recessed-bg: #0c0805;
+
+	/* 2. Micro & Active Borders (Warm Bronze & Caramel Crema) */
+	--border-micro: rgba(196, 139, 82, 0.18);
+	--border-subtle: rgba(212, 155, 94, 0.38);
+	--border-active: rgba(212, 155, 94, 0.85);
+	--border-glow: 0 0 16px rgba(196, 139, 82, 0.4);
+
+	/* 3. Typography Tokens */
+	--text-primary: #fbf7f2;
+	--text-secondary: #bfa593;
+	--text-muted: #998170;
+	--text-dim: #5e4537;
+
+	/* 4. Overriding Tailwind v4 Zinc Scale -> Warm Roasted Mocha */
+	--color-zinc-950: #120c08;
+	--color-zinc-900: #1c130e;
+	--color-zinc-800: #2a1c15;
+	--color-zinc-700: #3d2b21;
+	--color-zinc-600: #5e4537;
+	--color-zinc-500: #7d6150;
+	--color-zinc-400: #bfa593;
+	--color-zinc-300: #d8c6b7;
+	--color-zinc-200: #ebe1d7;
+	--color-zinc-100: #fbf7f2;
+
+	/* 5. Overriding Tailwind v4 Amber Scale -> Golden Caramel & Crema */
+	--color-amber-300: #eddcc5;
+	--color-amber-400: #e0a96d;
+	--color-amber-450: #d49b5e;
+	--color-amber-500: #d49b5e;
+	--color-amber-600: #c48b52;
+	--color-amber-700: #b27438;
+	--color-amber-800: #8c5525;
+	--color-amber-900: #683b16;
+	--color-amber-950: #261204;
+
+	/* Specific Roasted Accents */
+	--crema-froth: #fbf7f2;
+	--crema-gold: #d49b5e;
+	--caramel-amber: #c48b52;
+	--oak-charred: #3d2b21;
+	--espresso-noir: #120c08;
+
+	/* Ambient Warm Glow & Elevation Shadows */
+	--ambient-glow: 0 20px 50px -10px rgba(0, 0, 0, 0.9), 0 0 35px -5px rgba(196, 139, 82, 0.18);
+	--shadow-card-elevated:
+		0 20px 40px -10px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(196, 139, 82, 0.2),
+		inset 0 1px 0 0 rgba(224, 169, 109, 0.18);
+	--shadow-crema-halo: 0 0 22px -2px rgba(196, 139, 82, 0.45);
+	--shadow-dial-well: inset 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+
+[data-theme='chocolate-porter'] ::selection {
+	background-color: #d49b5e !important;
+	color: #120c08 !important;
+}
+
+[data-theme='chocolate-porter'] .glass-panel {
+	background-color: var(--panel-bg);
+	border: 1px solid rgba(196, 139, 82, 0.2);
+	box-shadow:
+		0 16px 36px -8px rgba(0, 0, 0, 0.75),
+		inset 0 1px 0 0 rgba(224, 169, 109, 0.16);
+}
+
+[data-theme='chocolate-porter'] .glass-card {
+	background-color: var(--panel-card);
+	border: 1px solid rgba(196, 139, 82, 0.18);
+	box-shadow:
+		0 12px 28px -6px rgba(0, 0, 0, 0.65),
+		inset 0 1px 0 0 rgba(224, 169, 109, 0.14);
+}
+
+[data-theme='chocolate-porter'] header,
+[data-theme='chocolate-porter'] #brewery-sidebar {
+	border-color: rgba(196, 139, 82, 0.18) !important;
+}
+
+[data-theme='chocolate-porter'] body {
+	background-image: radial-gradient(
+		ellipse 80% 50% at 50% -10%,
+		rgba(196, 139, 82, 0.09),
+		transparent 75%
+	);
+	background-repeat: no-repeat;
+	background-attachment: fixed;
+}
+
+[data-theme='chocolate-porter'] h1,
+[data-theme='chocolate-porter'] h2,
+[data-theme='chocolate-porter'] h3 {
+	font-family: 'Playfair Display', 'Cormorant Garamond', 'Georgia', serif;
+}
+
 .stout-dial-glow {
 	filter: drop-shadow(0 0 10px rgba(229, 192, 123, 0.4));
 }

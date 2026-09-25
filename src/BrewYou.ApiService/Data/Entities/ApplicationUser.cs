@@ -30,7 +30,8 @@ public enum ThemePreference
     Dark,
     Light,
     System,
-    ImperialStout
+    ImperialStout,
+    ChocolatePorter
 }
 
 public class ApplicationUser : IdentityUser

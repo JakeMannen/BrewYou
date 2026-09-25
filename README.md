@@ -168,14 +168,14 @@ BrewYou provides secure identity and session management built on ASP.NET Core se
 
 ### Internationalization (i18n) & Personalization
 
-BrewYou offers comprehensive internationalization with 100% key parity between English (`en`) and Swedish (`sv`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a rich persistent theme system featuring the flagship **Imperial Stout** (luxury roasted obsidian & glowing champagne gold), **Modern Amber** (dark), **Pilsner Clean** (light), and **System Match** modes.
+BrewYou offers comprehensive internationalization with 100% key parity between English (`en`) and Swedish (`sv`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a rich persistent theme system featuring the flagship **Imperial Stout** (luxury roasted obsidian & glowing champagne gold), **Chocolate Porter** (warm velvety mocha, roasted malt & golden crema), **Modern Amber** (dark), **Pilsner Clean** (light), and **System Match** modes.
 
 #### How to Use
 
 1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (*European Metric*, *US Craft*, or *UK Traditional*).
 2. **Switch Language**: Click the language selector (EN / SV) in the header or in **Settings ➔ Preferences** to toggle between English and Swedish instantly.
 3. **Switch Unit System & Presets**: Apply pre-configured regional presets (*European Metric*, *US Craft*, *UK Traditional*) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
-4. **Change Theme**: Select your preferred aesthetic in **Settings ➔ Appearance** between **Imperial Stout (Obsidian & Gold)**, **Modern Amber (Dark)**, **Pilsner Clean (Light)**, or **System Match**.
+4. **Change Theme**: Select your preferred aesthetic in **Settings ➔ Appearance** between **Imperial Stout (Obsidian & Gold)**, **Chocolate Porter (Mocha & Crema)**, **Modern Amber (Dark)**, **Pilsner Clean (Light)**, or **System Match**.
 
 ---
 

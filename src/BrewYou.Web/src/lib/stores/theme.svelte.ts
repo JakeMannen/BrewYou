@@ -1,5 +1,5 @@
-export type ThemePreference = 'dark' | 'light' | 'system' | 'imperial-stout';
-export type ResolvedTheme = 'dark' | 'light' | 'imperial-stout';
+export type ThemePreference = 'dark' | 'light' | 'system' | 'imperial-stout' | 'chocolate-porter';
+export type ResolvedTheme = 'dark' | 'light' | 'imperial-stout' | 'chocolate-porter';
 
 const STORAGE_KEY = 'brewyou-theme';
 
@@ -15,7 +15,13 @@ class ThemeStore {
 		if (typeof window === 'undefined') return;
 
 		const saved = localStorage.getItem(STORAGE_KEY) as ThemePreference | null;
-		if (saved === 'dark' || saved === 'light' || saved === 'system' || saved === 'imperial-stout') {
+		if (
+			saved === 'dark' ||
+			saved === 'light' ||
+			saved === 'system' ||
+			saved === 'imperial-stout' ||
+			saved === 'chocolate-porter'
+		) {
 			this.#preference = saved;
 		} else {
 			this.#preference = 'dark';
@@ -39,7 +45,8 @@ class ThemeStore {
 					e.newValue === 'dark' ||
 					e.newValue === 'light' ||
 					e.newValue === 'system' ||
-					e.newValue === 'imperial-stout'
+					e.newValue === 'imperial-stout' ||
+					e.newValue === 'chocolate-porter'
 				) {
 					this.#preference = e.newValue as ThemePreference;
 					this.applyDocumentClass();
@@ -68,13 +75,19 @@ class ThemeStore {
 
 	toggle(): void {
 		const next: ThemePreference =
-			this.current === 'dark' || this.current === 'imperial-stout' ? 'light' : 'dark';
+			this.current === 'dark' ||
+			this.current === 'imperial-stout' ||
+			this.current === 'chocolate-porter'
+				? 'light'
+				: 'dark';
 		this.setTheme(next);
 	}
 
 	cycle(): void {
 		let next: ThemePreference;
 		if (this.current === 'imperial-stout') {
+			next = 'chocolate-porter';
+		} else if (this.current === 'chocolate-porter') {
 			next = 'dark';
 		} else if (this.current === 'dark') {
 			next = 'light';
@@ -86,7 +99,10 @@ class ThemeStore {
 
 	private applyDocumentClass(): void {
 		if (typeof document === 'undefined') return;
-		const isDark = this.current === 'dark' || this.current === 'imperial-stout';
+		const isDark =
+			this.current === 'dark' ||
+			this.current === 'imperial-stout' ||
+			this.current === 'chocolate-porter';
 		document.documentElement.classList.toggle('dark', isDark);
 		document.documentElement.setAttribute('data-theme', this.current);
 		if (document.documentElement.style) {
