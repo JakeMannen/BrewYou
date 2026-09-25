@@ -118,7 +118,7 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(classListMock.has('dark')).toBe(true);
 	});
 
-	it('explicitly sets theme to system, light, or dark', () => {
+	it('explicitly sets theme to system, light, dark, imperial-stout, or chocolate-porter', () => {
 		theme.setTheme('light');
 		expect(theme.current).toBe('light');
 		expect(attributesMock['data-theme']).toBe('light');
@@ -127,9 +127,45 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(theme.current).toBe('dark');
 		expect(attributesMock['data-theme']).toBe('dark');
 
+		theme.setTheme('imperial-stout');
+		expect(theme.current).toBe('imperial-stout');
+		expect(attributesMock['data-theme']).toBe('imperial-stout');
+		expect(classListMock.has('dark')).toBe(true);
+
+		theme.setTheme('chocolate-porter');
+		expect(theme.current).toBe('chocolate-porter');
+		expect(attributesMock['data-theme']).toBe('chocolate-porter');
+		expect(classListMock.has('dark')).toBe(true);
+
 		theme.setTheme('system');
 		expect(theme.preference).toBe('system');
 		expect(theme.current).toBe('dark'); // system prefers dark in our mock
+	});
+
+	it('cycles through imperial-stout, chocolate-porter, dark, and light', () => {
+		theme.setTheme('imperial-stout');
+		expect(theme.current).toBe('imperial-stout');
+
+		theme.cycle();
+		expect(theme.current).toBe('chocolate-porter');
+
+		theme.cycle();
+		expect(theme.current).toBe('dark');
+
+		theme.cycle();
+		expect(theme.current).toBe('light');
+
+		theme.cycle();
+		expect(theme.current).toBe('imperial-stout');
+	});
+
+	it('initializes with chocolate-porter preference if stored in localStorage', () => {
+		mockStorage.setItem('brewyou-theme', 'chocolate-porter');
+		theme.init();
+		expect(theme.preference).toBe('chocolate-porter');
+		expect(theme.current).toBe('chocolate-porter');
+		expect(classListMock.has('dark')).toBe(true);
+		expect(attributesMock['data-theme']).toBe('chocolate-porter');
 	});
 
 	it('responds to media query change and storage event', () => {

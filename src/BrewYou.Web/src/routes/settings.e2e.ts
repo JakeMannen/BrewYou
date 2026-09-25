@@ -84,7 +84,9 @@ test.describe('Brewer Personalization Settings Page', () => {
 		await expect(drawer).toBeHidden();
 	});
 
-	test('switches theme to Light and Dark via settings cards', async ({ page }) => {
+	test('switches theme across Light, Imperial Stout, Chocolate Porter, and Dark via settings cards', async ({
+		page
+	}) => {
 		const html = page.locator('html');
 
 		// Click Light theme radio card
@@ -96,8 +98,26 @@ test.describe('Brewer Personalization Settings Page', () => {
 		await expect(html).toHaveAttribute('data-theme', 'light');
 
 		// Verify stored theme in localStorage
-		const storedTheme = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
+		let storedTheme = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
 		expect(storedTheme).toBe('light');
+
+		// Click Imperial Stout theme radio card
+		const stoutThemeBtn = page.locator('[data-testid="theme-card-imperial-stout"]');
+		await stoutThemeBtn.click();
+
+		await expect(html).toHaveClass(/dark/);
+		await expect(html).toHaveAttribute('data-theme', 'imperial-stout');
+		storedTheme = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
+		expect(storedTheme).toBe('imperial-stout');
+
+		// Click Chocolate Porter theme radio card
+		const porterThemeBtn = page.locator('[data-testid="theme-card-chocolate-porter"]');
+		await porterThemeBtn.click();
+
+		await expect(html).toHaveClass(/dark/);
+		await expect(html).toHaveAttribute('data-theme', 'chocolate-porter');
+		storedTheme = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
+		expect(storedTheme).toBe('chocolate-porter');
 
 		// Click Dark theme radio card
 		const darkThemeBtn = page.locator('[data-testid="theme-card-dark"]');
