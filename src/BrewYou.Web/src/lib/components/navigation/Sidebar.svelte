@@ -279,8 +279,8 @@
 					: 'h-10 gap-3 px-3 text-sm'} {isRouteActive(page.url.pathname, '/settings')
 					? 'border border-amber-500/30 bg-amber-500/10 font-semibold text-amber-600 shadow-[inset_0_0_12px_rgba(245,158,11,0.1)] dark:text-amber-400'
 					: 'text-zinc-600 hover:bg-zinc-200/60 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/60 dark:hover:text-white'}"
-				title={t('settings.title')}
-				aria-label={t('settings.title')}
+				title={t('nav.settings')}
+				aria-label={t('nav.settings')}
 				data-testid="sidebar-settings-link"
 			>
 				<Settings
@@ -289,7 +289,7 @@
 						: ''}"
 				/>
 				{#if !collapsed}
-					<span class="truncate">{t('settings.title')}</span>
+					<span class="truncate">{t('nav.settings')}</span>
 				{/if}
 			</a>
 		{/if}

@@ -31,7 +31,7 @@ test.describe('Brewer Personalization Settings Page', () => {
 		).toBeVisible();
 	});
 
-	test('navigates to settings page when clicking cog icon below username in sidebar on desktop', async ({
+	test('navigates to settings page when clicking settings link in sidebar on desktop', async ({
 		page
 	}) => {
 		const viewport = page.viewportSize();
@@ -42,7 +42,7 @@ test.describe('Brewer Personalization Settings Page', () => {
 		await page.goto('/');
 		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
 
-		// Click the cog icon button located below the user profile
+		// Click the settings link located in the sidebar footer
 		const settingsCog = page.locator('[data-testid="sidebar-settings-link"]');
 		await expect(settingsCog).toBeVisible();
 		await settingsCog.click();
