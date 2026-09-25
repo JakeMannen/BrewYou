@@ -1214,6 +1214,8 @@
 			"theme_dark_desc": "Varma obsidian- och bärnstenstoner anpassade för mörkare bryggmiljöer.",
 			"theme_light": "Pilsner Clean (Ljust)",
 			"theme_light_desc": "Hantverkslinne, maltkräm och skarp kontrast för ljusa bryggdagar.",
+			"theme_obsidian": "Obsidian Stout (Glöd)",
+			"theme_obsidian_desc": "Ultradjupt matt noir med glödande elektriska bärnstensaccenter, inspirerat av mörkrostat malt och vedeldade bryggpannor.",
 			"theme_system": "Systemets standard",
 			"theme_system_desc": "Anpassas automatiskt efter ditt operativsystems färgschema."
 		},

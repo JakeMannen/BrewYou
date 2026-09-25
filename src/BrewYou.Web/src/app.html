@@ -10,10 +10,11 @@
 			(function () {
 				try {
 					var pref = localStorage.getItem('brewyou-theme');
-					var isDark = pref ? pref === 'dark' : true;
-					if (isDark) {
+					var isDarkOrObsidian = pref ? pref === 'dark' || pref === 'obsidian' : true;
+					var resolved = pref === 'obsidian' ? 'obsidian' : pref === 'light' ? 'light' : 'dark';
+					if (isDarkOrObsidian) {
 						document.documentElement.classList.add('dark');
-						document.documentElement.setAttribute('data-theme', 'dark');
+						document.documentElement.setAttribute('data-theme', resolved);
 						document.documentElement.style.colorScheme = 'dark';
 					} else {
 						document.documentElement.classList.remove('dark');

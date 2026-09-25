@@ -37,6 +37,7 @@ import {
 	volumesToGramsPerLiter
 } from './settings.svelte';
 import { auth } from './auth.svelte';
+import { theme } from './theme.svelte';
 import { api } from '$lib/api/client';
 
 describe('Volume Unit Conversion Helpers', () => {
@@ -494,5 +495,12 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 		settings.clearMqttSettings();
 		expect(settings.mqttHost).toBe('');
 		expect(mockStorage.getItem('brewyou_mqtt_host')).toBeNull();
+	});
+
+	it('updates theme preference to Obsidian and synchronizes theme store', () => {
+		settings.setThemePreference('Obsidian');
+		expect(settings.themePreference).toBe('Obsidian');
+		expect(mockStorage.getItem('brewyou_theme_pref')).toBe('Obsidian');
+		expect(theme.preference).toBe('obsidian');
 	});
 });

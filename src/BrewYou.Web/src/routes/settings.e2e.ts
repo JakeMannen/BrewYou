@@ -99,6 +99,16 @@ test.describe('Brewer Personalization Settings Page', () => {
 		const storedTheme = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
 		expect(storedTheme).toBe('light');
 
+		// Click Obsidian theme radio card
+		const obsidianThemeBtn = page.locator('[data-testid="theme-card-obsidian"]');
+		await obsidianThemeBtn.click();
+
+		await expect(html).toHaveClass(/dark/);
+		await expect(html).toHaveAttribute('data-theme', 'obsidian');
+
+		const storedObsidian = await page.evaluate(() => localStorage.getItem('brewyou-theme'));
+		expect(storedObsidian).toBe('obsidian');
+
 		// Click Dark theme radio card
 		const darkThemeBtn = page.locator('[data-testid="theme-card-dark"]');
 		await darkThemeBtn.click();

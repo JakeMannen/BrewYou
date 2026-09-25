@@ -181,4 +181,15 @@ public class UserPreferencesValidationTests
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == "MqttTopicPrefix");
     }
+
+    [Fact]
+    public async Task ValidatePreferences_ObsidianTheme_PassesValidation()
+    {
+        var request = new UpdateUserPreferencesRequest(
+            Theme: ThemePreference.Obsidian
+        );
+
+        var result = await _preferencesValidator.ValidateAsync(request);
+        result.IsValid.Should().BeTrue();
+    }
 }

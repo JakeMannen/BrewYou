@@ -1414,6 +1414,8 @@
 			"theme_dark_desc": "Warm obsidian and glowing amber tones optimized for low-light brew sessions.",
 			"theme_light": "Pilsner Clean (Light)",
 			"theme_light_desc": "Artisanal linen, malt cream, and crisp contrast for bright brew days.",
+			"theme_obsidian": "Obsidian Stout (Ember)",
+			"theme_obsidian_desc": "Ultra-deep matte noir with glowing electric ember orange accents, inspired by kiln-roasted malt and wood-fired kettles.",
 			"theme_system": "System Match",
 			"theme_system_desc": "Automatically adapts to your operating system's color scheme."
 		},

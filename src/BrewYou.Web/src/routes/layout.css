@@ -1,3 +1,12 @@
+@import '@fontsource/plus-jakarta-sans/300.css';
+@import '@fontsource/plus-jakarta-sans/400.css';
+@import '@fontsource/plus-jakarta-sans/500.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/plus-jakarta-sans/700.css';
+@import '@fontsource/plus-jakarta-sans/800.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
 @import 'tailwindcss';
 
 /* Tailwind v4 class-based dark mode configuration */
@@ -24,12 +33,20 @@
 	--color-surface-border: var(--border-micro);
 
 	/* Typography & Metric Monospaced font */
+	--font-sans:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
+	--font-display:
+		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
 	--font-mono-numbers: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
 	/* Subtle Ambient Glow Shadows */
 	--shadow-amber-glow: 0 0 25px -4px rgba(245, 158, 11, 0.2);
 	--shadow-amber-glow-strong: 0 0 35px -2px rgba(245, 158, 11, 0.35);
 	--shadow-hops-glow: 0 0 25px -4px rgba(16, 185, 129, 0.22);
+	--shadow-ember-glow: 0 0 25px -4px rgba(255, 85, 0, 0.35);
+	--shadow-ember-glow-strong: 0 0 40px -2px rgba(255, 85, 0, 0.55);
 }
 
 /* CSS Variables for Mode Swapping */
@@ -61,15 +78,81 @@
 	--ambient-glow: 0 0 30px -5px rgba(245, 158, 11, 0.15);
 }
 
+[data-theme='obsidian'] {
+	/* Obsidian Stout & Kettle Ember Flame Theme */
+	--canvas-bg: #0b0c0e;
+	--panel-bg: rgba(18, 19, 24, 0.9);
+	--panel-card: rgba(18, 20, 26, 0.78);
+	--elevated-bg: #181a21;
+	--border-micro: rgba(255, 255, 255, 0.08);
+	--border-active: rgba(255, 85, 0, 0.9);
+	--text-primary: #fbfbfc;
+	--text-secondary: #9ca3af;
+	--text-muted: #52525b;
+	--ambient-glow: 0 0 35px -3px rgba(255, 85, 0, 0.28);
+
+	/* Transform Amber accents into Electric Ember Flame */
+	--color-amber-300: #ffaa66;
+	--color-amber-400: #ff7722;
+	--color-amber-450: #ff5e00;
+	--color-amber-500: #ff5500;
+	--color-amber-600: #e04600;
+	--color-amber-700: #b33600;
+
+	/* Transform Zinc neutrals into Cold Obsidian Charcoal */
+	--color-zinc-950: #08090a;
+	--color-zinc-900: #0f1014;
+	--color-zinc-800: #17181f;
+	--color-zinc-700: #232530;
+	--color-zinc-600: #3b3e4d;
+	--color-zinc-500: #6b7082;
+	--color-zinc-400: #9da2b3;
+	--color-zinc-300: #c8ccd6;
+	--color-zinc-200: #e2e4eb;
+	--color-zinc-100: #f1f2f6;
+	--color-zinc-50: #fafafc;
+
+	/* Glow shadows shifted to ember flame */
+	--shadow-amber-glow: 0 0 25px -4px rgba(255, 85, 0, 0.35);
+	--shadow-amber-glow-strong: 0 0 40px -2px rgba(255, 85, 0, 0.55);
+}
+
+[data-theme='obsidian'] ::selection {
+	background-color: #ff5500 !important;
+	color: #0b0c0e !important;
+}
+
 html,
 body {
 	min-height: 100%;
+	font-family:
+		'Plus Jakarta Sans',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		Roboto,
+		sans-serif;
 	background-color: var(--canvas-bg);
 	color: var(--text-primary);
 	overflow-x: hidden;
 	transition:
 		background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
 		color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family:
+		'Plus Jakarta Sans',
+		system-ui,
+		-apple-system,
+		sans-serif;
+	letter-spacing: -0.015em;
 }
 
 /* Frosted glass utility classes */

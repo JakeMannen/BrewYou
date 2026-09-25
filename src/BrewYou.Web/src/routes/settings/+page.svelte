@@ -600,7 +600,7 @@
 					</div>
 
 					<div
-						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3"
+						class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
 						role="radiogroup"
 						aria-label="Theme preference"
 					>
@@ -661,6 +661,36 @@
 							</div>
 							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
 								{t('settings.appearance.theme_light_desc')}
+							</div>
+						</button>
+
+						<!-- Obsidian Stout Mode -->
+						<button
+							type="button"
+							role="radio"
+							aria-checked={settings.themePreference === 'Obsidian'}
+							data-testid="theme-card-obsidian"
+							onclick={() => updateTheme('Obsidian')}
+							class="group relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all {settings.themePreference ===
+							'Obsidian'
+								? 'border-[#ff5500]/70 bg-[#ff5500]/10 shadow-[0_0_20px_rgba(255,85,0,0.22)] ring-1 ring-[#ff5500]'
+								: 'border-zinc-200/80 bg-zinc-100/50 hover:border-zinc-300 dark:border-white/5 dark:bg-zinc-900/40 dark:hover:border-white/10'}"
+						>
+							<div class="flex w-full items-center justify-between">
+								<div
+									class="flex h-8 w-8 items-center justify-center rounded-lg border border-[#ff5500]/40 bg-[#0b0c0e] text-[#ff5500] shadow-[0_0_12px_rgba(255,85,0,0.35)]"
+								>
+									<Flame class="h-4 w-4" />
+								</div>
+								{#if settings.themePreference === 'Obsidian'}
+									<Check class="h-4 w-4 text-[#ff5500]" />
+								{/if}
+							</div>
+							<div class="mt-3 text-xs font-semibold text-zinc-900 dark:text-white">
+								{t('settings.appearance.theme_obsidian')}
+							</div>
+							<div class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('settings.appearance.theme_obsidian_desc')}
 							</div>
 						</button>
 

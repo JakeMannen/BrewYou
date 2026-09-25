@@ -118,18 +118,34 @@ describe('Theme Store (theme.svelte.ts)', () => {
 		expect(classListMock.has('dark')).toBe(true);
 	});
 
-	it('explicitly sets theme to system, light, or dark', () => {
+	it('explicitly sets theme to system, light, dark, or obsidian', () => {
 		theme.setTheme('light');
 		expect(theme.current).toBe('light');
 		expect(attributesMock['data-theme']).toBe('light');
+		expect(classListMock.has('dark')).toBe(false);
 
 		theme.setTheme('dark');
 		expect(theme.current).toBe('dark');
 		expect(attributesMock['data-theme']).toBe('dark');
+		expect(classListMock.has('dark')).toBe(true);
+
+		theme.setTheme('obsidian');
+		expect(theme.current).toBe('obsidian');
+		expect(attributesMock['data-theme']).toBe('obsidian');
+		expect(classListMock.has('dark')).toBe(true);
 
 		theme.setTheme('system');
 		expect(theme.preference).toBe('system');
 		expect(theme.current).toBe('dark'); // system prefers dark in our mock
+	});
+
+	it('initializes with obsidian preference if stored in localStorage', () => {
+		mockStorage.setItem('brewyou-theme', 'obsidian');
+		theme.init();
+		expect(theme.preference).toBe('obsidian');
+		expect(theme.current).toBe('obsidian');
+		expect(classListMock.has('dark')).toBe(true);
+		expect(attributesMock['data-theme']).toBe('obsidian');
 	});
 
 	it('responds to media query change and storage event', () => {
