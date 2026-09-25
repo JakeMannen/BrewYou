@@ -283,6 +283,13 @@
 			"bottling": "Tappning",
 			"aroma": "Arom"
 		},
+		"hop_timeline_title": "Tidslinje för humlegivor & kok",
+		"total_bitterness": "Total beska: {ibu} IBU",
+		"phase_bittering": "Bitterhumle",
+		"phase_flavor": "Smakhumle",
+		"phase_aroma": "Aromhumle",
+		"phase_whirlpool": "Whirlpool",
+		"phase_dry_hop": "Torrhumling",
 		"forms": {
 			"pellet": "Pellets",
 			"leaf": "Kottar",
@@ -1611,7 +1618,15 @@
 		"step_order_badge": "Steg {order}",
 		"type_infusion": "Infusion",
 		"type_temperature": "Temperatur",
-		"type_decoction": "Dekoktion"
+		"type_decoction": "Dekoktion",
+		"enzymatic_profile": "Enzymatisk restprofil",
+		"zone_protein": "Syra- & proteinrast",
+		"zone_beta_glucan": "Beta-glukanrast",
+		"zone_beta_amylase": "Beta-amylas (Torr & krispig / Maltos)",
+		"zone_balanced": "Balanserad försockring",
+		"zone_alpha_amylase": "Alfa-amylas (Fyllig kropp / Dextriner)",
+		"zone_mash_out": "Utmäskning (Enzymstopp)",
+		"total_mash_time": "Total mäskning: {minutes} min"
 	},
 	"calculations": {
 		"title": "Bryggberäkningar",
@@ -1654,6 +1669,15 @@
 				"slaked_lime": "Släckt kalk (Ca(OH)₂)",
 				"chalk": "Kritpulver / Kalciumkarbonat (CaCO₃)"
 			}
+		},
+		"water_balance": {
+			"title": "Sulfat/Klorid-balans",
+			"ratio_label": "SO₄²⁻ : Cl⁻-förhållande",
+			"very_malty": "Mycket maltig & fyllig",
+			"malty": "Maltfokuserad",
+			"balanced": "Balanserad",
+			"bitter": "Krispig / Beskafokuserad",
+			"very_bitter": "Mycket besk & torr"
 		},
 		"strike_water": {
 			"title": "Inmäskningstemperatur",
@@ -1799,6 +1823,8 @@
 		"type_freerise": "Fri temperaturökning",
 		"type_coldcrash": "Cold Crash",
 		"type_conditioning": "Konditionering",
-		"days": "dagar"
+		"days": "dagar",
+		"timeline_title": "Tidslinje för jäsningssteg",
+		"total_fermentation_time": "Total jästid: {days} dagar"
 	}
 }

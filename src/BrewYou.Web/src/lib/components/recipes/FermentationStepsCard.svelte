@@ -3,6 +3,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { Plus, Trash2, ArrowUp, ArrowDown, Thermometer, Clock, Activity } from '@lucide/svelte';
+	import FermentationTimelineVisualizer from '$lib/components/brewery/FermentationTimelineVisualizer.svelte';
 
 	export interface FormFermentationStepItem {
 		id: string;
@@ -60,12 +61,12 @@
 	>
 		<div class="flex items-center gap-3">
 			<div
-				class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 text-cyan-600 dark:text-cyan-400"
+				class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-hops-500/20 to-emerald-600/20 text-hops-600 dark:text-hops-400"
 			>
 				<Activity class="h-5 w-5" />
 			</div>
 			<div>
-				<h3 class="font-display font-bold text-zinc-900 dark:text-white">
+				<h3 class="font-editorial text-lg font-bold text-zinc-900 dark:text-white">
 					{t('fermentation_profile.title')}
 				</h3>
 				<p class="text-xs text-zinc-500 dark:text-zinc-400">
@@ -110,13 +111,20 @@
 			<button
 				type="button"
 				onclick={onAddStep}
-				class="flex cursor-pointer items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-cyan-500 active:scale-95"
+				class="flex cursor-pointer items-center gap-1.5 rounded-lg bg-hops-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-hops-500 active:scale-95"
 			>
 				<Plus class="h-3.5 w-3.5" />
 				<span>{t('fermentation_profile.add_step')}</span>
 			</button>
 		</div>
 	</div>
+
+	<!-- Interactive Fermentation Stage Timeline Visualizer -->
+	{#if steps.length > 0}
+		<div class="px-4 pt-4 sm:px-6 sm:pt-6">
+			<FermentationTimelineVisualizer {steps} />
+		</div>
+	{/if}
 
 	<!-- Step List -->
 	<div class="divide-y divide-zinc-200/60 p-4 sm:p-6 dark:divide-zinc-800/60">
