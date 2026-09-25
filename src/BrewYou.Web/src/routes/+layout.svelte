@@ -223,6 +223,35 @@
 
 				<!-- Header Right Controls -->
 				<div class="flex items-center gap-2 sm:gap-3">
+					{#if auth.isAuthenticated && auth.user}
+						<div
+							data-testid="header-user-info"
+							class="flex h-10 items-center gap-2 rounded-xl border border-zinc-200/80 bg-zinc-100/80 px-2.5 text-xs font-semibold text-zinc-700 transition-all sm:px-3 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-200"
+						>
+							<div
+								class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/20 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
+							>
+								{(auth.user.displayName || auth.user.email).slice(0, 2).toUpperCase()}
+							</div>
+							<span
+								class="max-w-[100px] truncate text-zinc-900 sm:max-w-[160px] dark:text-zinc-100"
+								title={auth.user.displayName || auth.user.email}
+							>
+								{auth.user.displayName || auth.user.email}
+							</span>
+							<button
+								type="button"
+								onclick={() => auth.logout()}
+								class="ml-1 rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-red-500 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+								title={t('nav.logout')}
+								aria-label={t('nav.logout')}
+								data-testid="header-logout-btn"
+							>
+								<LogOut class="h-3.5 w-3.5" />
+							</button>
+						</div>
+					{/if}
+
 					<!-- Mobile Drawer Toggle Button -->
 					<button
 						type="button"

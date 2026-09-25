@@ -12,7 +12,6 @@
 		Layers,
 		Wrench,
 		Calculator,
-		LogOut,
 		PanelLeftClose,
 		PanelLeftOpen,
 		Settings
@@ -267,68 +266,32 @@
 		</nav>
 	</div>
 
-	<!-- Bottom Section: Profile & Collapse Toggle -->
+	<!-- Bottom Section: Settings & Collapse Toggle -->
 	<div class="flex flex-col gap-2 border-t border-zinc-200/80 p-3 sm:p-4 dark:border-white/[0.08]">
-		<!-- User Profile or Auth Links -->
+		<!-- Settings link -->
 		{#if auth.isAuthenticated && auth.user}
-			<div
-				class="flex flex-col gap-1.5 rounded-xl border border-zinc-200/60 bg-zinc-100/70 p-2 dark:border-white/5 dark:bg-zinc-900/60"
+			<a
+				href="/settings"
+				onclick={handleLinkClick}
+				aria-current={isRouteActive(page.url.pathname, '/settings') ? 'page' : undefined}
+				class="flex items-center rounded-xl transition-all duration-150 {collapsed
+					? 'h-10 w-10 justify-center self-center'
+					: 'h-10 gap-3 px-3 text-sm'} {isRouteActive(page.url.pathname, '/settings')
+					? 'border border-amber-500/30 bg-amber-500/10 font-semibold text-amber-600 shadow-[inset_0_0_12px_rgba(245,158,11,0.1)] dark:text-amber-400'
+					: 'text-zinc-600 hover:bg-zinc-200/60 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/60 dark:hover:text-white'}"
+				title={t('settings.title')}
+				aria-label={t('settings.title')}
+				data-testid="sidebar-settings-link"
 			>
-				<div class="flex items-center {collapsed ? 'justify-center' : 'justify-between'}">
-					<div class="flex items-center gap-2.5 overflow-hidden">
-						<div
-							class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/20 font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
-						>
-							{(auth.user.displayName || auth.user.email).slice(0, 2).toUpperCase()}
-						</div>
-						{#if !collapsed}
-							<div class="flex flex-col overflow-hidden">
-								<span
-									class="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100"
-									title={auth.user.displayName || auth.user.email}
-								>
-									{auth.user.displayName || auth.user.email}
-								</span>
-								<span class="truncate text-[10px] text-zinc-500 dark:text-zinc-400">
-									{auth.user.email}
-								</span>
-							</div>
-						{/if}
-					</div>
-
-					{#if !collapsed}
-						<button
-							type="button"
-							onclick={() => auth.logout()}
-							class="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-red-500 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-							title={t('nav.logout')}
-							aria-label={t('nav.logout')}
-						>
-							<LogOut class="h-4 w-4" />
-						</button>
-					{/if}
-				</div>
-
-				<!-- Settings link: strictly a cog icon below the username -->
-				<div class="flex items-center {collapsed ? 'justify-center' : 'justify-start pl-10.5'}">
-					<a
-						href="/settings"
-						onclick={handleLinkClick}
-						aria-current={isRouteActive(page.url.pathname, '/settings') ? 'page' : undefined}
-						class="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-200/80 hover:text-amber-600 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-amber-400 {isRouteActive(
-							page.url.pathname,
-							'/settings'
-						)
-							? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-							: ''}"
-						title={t('settings.title')}
-						aria-label={t('settings.title')}
-						data-testid="sidebar-settings-link"
-					>
-						<Settings class="h-4 w-4" />
-					</a>
-				</div>
-			</div>
+				<Settings
+					class="h-4 w-4 flex-shrink-0 {isRouteActive(page.url.pathname, '/settings')
+						? 'text-amber-500 dark:text-amber-400'
+						: ''}"
+				/>
+				{#if !collapsed}
+					<span class="truncate">{t('settings.title')}</span>
+				{/if}
+			</a>
 		{/if}
 
 		<!-- Desktop Collapse Toggle Button -->
