@@ -270,6 +270,17 @@ h6 {
 	--elevated-bg: #2d1e16;
 	--recessed-bg: #0c0805;
 
+	/* 90-Degree Zero Radius Tokens */
+	--radius: 0px;
+	--radius-xs: 0px;
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
+	--radius-xl: 0px;
+	--radius-2xl: 0px;
+	--radius-3xl: 0px;
+	--radius-4xl: 0px;
+
 	/* 2. Micro & Active Borders (Warm Bronze & Caramel Crema) */
 	--border-micro: rgba(196, 139, 82, 0.18);
 	--border-subtle: rgba(212, 155, 94, 0.38);
@@ -372,6 +383,17 @@ h6 {
 	--elevated-bg: #181a21;
 	--recessed-bg: #070809;
 
+	/* 90-Degree Zero Radius Tokens */
+	--radius: 0px;
+	--radius-xs: 0px;
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
+	--radius-xl: 0px;
+	--radius-2xl: 0px;
+	--radius-3xl: 0px;
+	--radius-4xl: 0px;
+
 	/* 2. Micro & Active Borders (Electric Ember Flame) */
 	--border-micro: rgba(255, 255, 255, 0.08);
 	--border-subtle: rgba(255, 85, 0, 0.35);
@@ -452,6 +474,59 @@ h6 {
 	);
 	background-repeat: no-repeat;
 	background-attachment: fixed;
+}
+
+/* 90-Degree Sharp Borders for Chocolate Porter & Obsidian Ember Themes */
+:is([data-theme='chocolate-porter'], [data-theme='obsidian']) {
+	/* Cards, Panels, Modals & Visualizers */
+	.glass-panel,
+	.glass-card,
+	.artisan-card,
+	[role='dialog'],
+	dialog,
+	.modal-box,
+
+	/* Banners, Headers & Status Notices */
+	header.glass-panel,
+	aside,
+	[role='alert'],
+	[role='status'],
+	[data-testid*='banner'],
+
+	/* Badges, Pills & Telemetry Stamps */
+	.tactile-pill,
+	[class*='badge'],
+	[data-testid*='badge'],
+	[data-testid*='pill'] {
+		border-radius: 0 !important;
+	}
+
+	/* Card, panel, and banner elements with explicit Tailwind rounded classes */
+	.glass-panel[class*='rounded-'],
+	.glass-card[class*='rounded-'],
+	.artisan-card[class*='rounded-'],
+	header[class*='rounded-'],
+	aside[class*='rounded-'],
+	[role='alert'][class*='rounded-'],
+	[role='status'][class*='rounded-'],
+	[role='dialog'][class*='rounded-'],
+	div[class*='rounded-3xl'],
+	div[class*='rounded-2xl'],
+	div[class*='rounded-xl']:not(:has(input, select, textarea)) {
+		border-radius: 0 !important;
+	}
+
+	/* Badges, chips, and pills using rounded-full or rounded-md with horizontal padding */
+	span[class*='rounded-full']:not(.h-1\.5):not(.h-2):not(.w-1\.5):not(.w-2):not(.animate-ping),
+	div[class*='rounded-full']:not(.h-1\.5):not(.h-2):not(.w-1\.5):not(.w-2):not(.h-8):not(.h-9):not(
+			.w-8
+		):not(.w-9):not(.animate-ping),
+	span[class*='rounded-md'][class*='px-'],
+	span[class*='rounded-lg'][class*='px-'],
+	div[class*='rounded-md'][class*='px-'],
+	div[class*='rounded-lg'][class*='px-'] {
+		border-radius: 0 !important;
+	}
 }
 
 .stout-dial-glow {
