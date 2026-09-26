@@ -4,11 +4,11 @@
 @import '@fontsource/plus-jakarta-sans/600.css';
 @import '@fontsource/plus-jakarta-sans/700.css';
 @import '@fontsource/plus-jakarta-sans/800.css';
-@import '@fontsource/playfair-display/400.css';
-@import '@fontsource/playfair-display/500.css';
-@import '@fontsource/playfair-display/600.css';
-@import '@fontsource/playfair-display/700.css';
-@import '@fontsource/playfair-display/700-italic.css';
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/500.css';
+@import '@fontsource/outfit/600.css';
+@import '@fontsource/outfit/700.css';
+@import '@fontsource/outfit/800.css';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
 @import '@fontsource/jetbrains-mono/600.css';
@@ -42,9 +42,12 @@
 		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
 		sans-serif;
 	--font-display:
-		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
 		sans-serif;
-	--font-editorial: 'Playfair Display', 'Cormorant Garamond', 'Georgia', serif;
+	--font-editorial:
+		'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 	--font-mono-numbers: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
 	/* Subtle Ambient Glow Shadows */
@@ -357,7 +360,7 @@ h6 {
 [data-theme='chocolate-porter'] h1,
 [data-theme='chocolate-porter'] h2,
 [data-theme='chocolate-porter'] h3 {
-	font-family: 'Playfair Display', 'Cormorant Garamond', 'Georgia', serif;
+	font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
 }
 
 :root[data-theme='obsidian'],
