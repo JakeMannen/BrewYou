@@ -178,7 +178,9 @@
 				>
 					<Layers class="h-5 w-5" />
 				</div>
-				<h1 class="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
+				<h1
+					class="font-editorial text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl dark:text-white"
+				>
 					{t('ingredients.title')}
 				</h1>
 			</div>
@@ -187,11 +189,11 @@
 			</p>
 		</div>
 
-		<div>
+		<div class="flex flex-wrap items-center gap-3 self-start sm:self-auto">
 			<button
 				type="button"
 				onclick={() => (modalOpen = true)}
-				class="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-xs font-bold text-zinc-950 shadow-md transition-all hover:from-amber-400 hover:to-amber-500 active:scale-98 sm:text-sm"
+				class="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-sm font-bold text-zinc-950 shadow-md transition-all hover:from-amber-400 hover:to-amber-500 active:scale-[0.98]"
 			>
 				<Plus class="h-4 w-4 stroke-[2.5]" />
 				<span>{t('ingredients.add_ingredient')}</span>
@@ -201,7 +203,7 @@
 
 	<!-- Filters & Search Toolbar -->
 	<div
-		class="glass-panel flex flex-col items-stretch justify-between gap-4 rounded-xl border border-zinc-200/80 p-3 sm:flex-row sm:items-center dark:border-white/[0.08]"
+		class="glass-panel flex flex-col items-stretch justify-between gap-4 rounded-2xl border border-zinc-200/80 p-3 sm:flex-row sm:items-center dark:border-white/[0.08]"
 	>
 		<!-- Type Filter Tabs & In-Stock Toggle -->
 		<div class="flex flex-wrap items-center gap-2">

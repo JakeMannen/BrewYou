@@ -91,15 +91,17 @@
 		<div>
 			<div class="flex items-center gap-2.5">
 				<div
-					class="flex h-9 w-9 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+					class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-500"
 				>
 					<Calculator class="h-5 w-5" />
 				</div>
-				<h1 class="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
+				<h1
+					class="font-editorial text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl dark:text-white"
+				>
 					{t('calculations.title')}
 				</h1>
 			</div>
-			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+			<p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
 				{t('calculations.subtitle')}
 			</p>
 		</div>
