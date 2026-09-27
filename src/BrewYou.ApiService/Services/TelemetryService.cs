@@ -61,6 +61,8 @@ public class TelemetryService : ITelemetryService
 
         var normalizedToken = token.Trim();
         var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.ConnectionToken == normalizedToken);
 
         if (equipment == null)
@@ -165,6 +167,8 @@ public class TelemetryService : ITelemetryService
         }
 
         var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == equipmentId);
 
         if (equipment == null)
@@ -317,7 +321,9 @@ public class TelemetryService : ITelemetryService
     public async Task<TelemetryPollResult> TestPollAsync(Guid equipmentId, string userId)
     {
         var equipment = await _db.Equipment.AsNoTracking()
-            .FirstOrDefaultAsync(e => e.Id == equipmentId && e.UserId == userId);
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == equipmentId && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)))));
 
         if (equipment == null)
         {
@@ -330,6 +336,8 @@ public class TelemetryService : ITelemetryService
     public async Task<TelemetryPollResult> PollEquipmentAsync(Guid equipmentId)
     {
         var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == equipmentId);
 
         if (equipment == null)
@@ -694,6 +702,22 @@ public class TelemetryService : ITelemetryService
             reading.MetricsJson
         );
         _broadcastService.BroadcastEquipmentReading(equipment.UserId, equipmentUpdate);
+
+        if (equipment.BrewerySetup != null)
+        {
+            if (equipment.BrewerySetup.UserId != equipment.UserId)
+            {
+                _broadcastService.BroadcastEquipmentReading(equipment.BrewerySetup.UserId, equipmentUpdate);
+            }
+
+            foreach (var member in equipment.BrewerySetup.Members)
+            {
+                if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
+                {
+                    _broadcastService.BroadcastEquipmentReading(member.UserId, equipmentUpdate);
+                }
+            }
+        }
 
         // 2. Broadcast to Batch Telemetry stream if associated with an active batch
         if (!reading.BatchId.HasValue)

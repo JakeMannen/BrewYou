@@ -174,6 +174,11 @@ public static class EquipmentEndpoints
             }
 
             var (result, created, errorMessage) = await equipmentService.CreateEquipmentAsync(request, userId);
+            if (result == EquipmentAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "Viewers cannot create equipment."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (result == EquipmentAccessResult.NotFound)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Brewery setup not found."));
@@ -195,6 +200,7 @@ public static class EquipmentEndpoints
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status201Created)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
         .Produces<ApiResponse>(StatusCodes.Status409Conflict)
         .Produces<ApiResponse>(StatusCodes.Status422UnprocessableEntity);
@@ -220,6 +226,11 @@ public static class EquipmentEndpoints
             }
 
             var (result, updated, errorMessage) = await equipmentService.UpdateEquipmentAsync(id, request, userId);
+            if (result == EquipmentAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "Viewers cannot edit equipment."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (result == EquipmentAccessResult.NotFound)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Equipment not found."));
@@ -241,6 +252,7 @@ public static class EquipmentEndpoints
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
         .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
@@ -256,6 +268,11 @@ public static class EquipmentEndpoints
             }
 
             var result = await equipmentService.DeleteEquipmentAsync(id, userId);
+            if (result == EquipmentAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", "Viewers cannot delete equipment."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (result == EquipmentAccessResult.NotFound)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Equipment not found."));

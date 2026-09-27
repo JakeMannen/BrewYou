@@ -50,4 +50,6 @@ public class BrewerySetup
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<Equipment> Equipment { get; set; } = new List<Equipment>();
+    public ICollection<BreweryMember> Members { get; set; } = new List<BreweryMember>();
+    public ICollection<BreweryInvite> Invites { get; set; } = new List<BreweryInvite>();
 }

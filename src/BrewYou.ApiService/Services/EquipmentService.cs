@@ -32,7 +32,10 @@ public class EquipmentService : IEquipmentService
     {
         var userUnit = await GetUserPreferredUnitAsync(userId);
 
-        var query = _db.Equipment.AsNoTracking().Where(e => e.UserId == userId);
+        var query = _db.Equipment.AsNoTracking()
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .Where(e => e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))));
 
         if (setupId.HasValue)
         {
@@ -63,7 +66,11 @@ public class EquipmentService : IEquipmentService
             .Take(limit)
             .ToListAsync();
 
-        var items = entities.Select(ToDto).ToList();
+        var items = entities.Select(e =>
+        {
+            var isOwner = e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+            return ToDto(e, isOwner);
+        }).ToList();
 
         var pagination = new PaginationMeta(page, limit, total, totalPages);
         return (items, pagination);
@@ -72,14 +79,17 @@ public class EquipmentService : IEquipmentService
     public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment)> GetEquipmentByIdAsync(Guid id, string userId)
     {
         var entity = await _db.Equipment.AsNoTracking()
-            .FirstOrDefaultAsync(e => e.Id == id && e.UserId == userId);
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == id && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId)))));
 
         if (entity == null)
         {
             return (EquipmentAccessResult.NotFound, null);
         }
 
-        return (EquipmentAccessResult.Success, ToDto(entity));
+        var isOwner = entity.UserId == userId || (entity.BrewerySetup != null && (entity.BrewerySetup.UserId == userId || entity.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+        return (EquipmentAccessResult.Success, ToDto(entity, isOwner));
     }
 
     public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> CreateEquipmentAsync(
@@ -125,17 +135,26 @@ public class EquipmentService : IEquipmentService
         }
         else
         {
-            targetSetup = await _db.BrewerySetups.FirstOrDefaultAsync(s => s.Id == targetSetupId && s.UserId == userId);
+            targetSetup = await _db.BrewerySetups
+                .Include(s => s.Members)
+                .FirstOrDefaultAsync(s => s.Id == targetSetupId && (s.UserId == userId || s.Members.Any(m => m.UserId == userId)));
+
             if (targetSetup == null)
             {
                 return (EquipmentAccessResult.NotFound, null, "Brewery setup not found.");
+            }
+
+            var isOwner = targetSetup.UserId == userId || targetSetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner);
+            var isBrewer = targetSetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+            if (!isOwner && !isBrewer)
+            {
+                return (EquipmentAccessResult.Forbidden, null, "Viewers cannot create equipment.");
             }
         }
 
         var normalizedName = NormalizeEquipmentName(request.Name);
         var nameLower = normalizedName.ToLower();
         var isDuplicate = await _db.Equipment.AnyAsync(e =>
-            e.UserId == userId &&
             e.BrewerySetupId == targetSetupId &&
             e.Name.ToLower() == nameLower);
 
@@ -225,17 +244,32 @@ public class EquipmentService : IEquipmentService
         Guid id, UpdateEquipmentRequest request, string userId)
     {
         var equipment = await _db.Equipment
-            .FirstOrDefaultAsync(e => e.Id == id && e.UserId == userId);
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == id);
 
         if (equipment == null)
         {
             return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
         }
 
+        var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
+        if (!isMember)
+        {
+            return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
+        }
+
+        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "Viewers cannot edit equipment in this brewery setup.");
+        }
+
         var targetSetupId = request.BrewerySetupId ?? equipment.BrewerySetupId;
         if (request.BrewerySetupId.HasValue && request.BrewerySetupId.Value != equipment.BrewerySetupId)
         {
-            var setupExists = await _db.BrewerySetups.AnyAsync(s => s.Id == request.BrewerySetupId.Value && s.UserId == userId);
+            var setupExists = await _db.BrewerySetups.AnyAsync(s => s.Id == request.BrewerySetupId.Value && (s.UserId == userId || s.Members.Any(m => m.UserId == userId && m.Role != BreweryRole.Viewer)));
             if (!setupExists)
             {
                 return (EquipmentAccessResult.NotFound, null, "Brewery setup not found.");
@@ -246,7 +280,6 @@ public class EquipmentService : IEquipmentService
         var normalizedName = NormalizeEquipmentName(request.Name);
         var nameLower = normalizedName.ToLower();
         var isDuplicate = await _db.Equipment.AnyAsync(e =>
-            e.UserId == userId &&
             e.BrewerySetupId == targetSetupId &&
             e.Id != id &&
             e.Name.ToLower() == nameLower);
@@ -311,18 +344,32 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.DuplicateName, null, "An equipment item with this name already exists in this brewery setup.");
         }
 
-        _logger.LogInformation("Equipment {EquipmentId} updated for user {UserId}", equipment.Id, userId);
-        return (EquipmentAccessResult.Success, ToDto(equipment), null);
+        _logger.LogInformation("Equipment {EquipmentId} updated by user {UserId}", equipment.Id, userId);
+        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
     }
 
     public async Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId)
     {
         var equipment = await _db.Equipment
-            .FirstOrDefaultAsync(e => e.Id == id && e.UserId == userId);
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == id);
 
         if (equipment == null)
         {
             return EquipmentAccessResult.NotFound;
+        }
+
+        var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
+        if (!isMember)
+        {
+            return EquipmentAccessResult.NotFound;
+        }
+
+        var isOwnerOrCreator = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+        if (!isOwnerOrCreator)
+        {
+            return EquipmentAccessResult.Forbidden;
         }
 
         // Decouple from any batches using this equipment
@@ -341,23 +388,25 @@ public class EquipmentService : IEquipmentService
         _db.Equipment.Remove(equipment);
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation("Equipment {EquipmentId} deleted for user {UserId}", id, userId);
+        _logger.LogInformation("Equipment {EquipmentId} deleted by user {UserId}", id, userId);
         return EquipmentAccessResult.Success;
     }
 
     public async Task<(EquipmentAccessResult Result, List<EquipmentActiveBatchDto>? Batches)> GetActiveBatchesForEquipmentAsync(
         Guid equipmentId, string userId)
     {
-        var equipmentExists = await _db.Equipment.AsNoTracking()
-            .AnyAsync(e => e.Id == equipmentId && e.UserId == userId);
+        var equipment = await _db.Equipment.AsNoTracking()
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == equipmentId && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId)))));
 
-        if (!equipmentExists)
+        if (equipment == null)
         {
             return (EquipmentAccessResult.NotFound, null);
         }
 
         var activeBatches = await _db.Batches.AsNoTracking()
-            .Where(b => b.UserId == userId &&
+            .Where(b => (b.UserId == userId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
                         (b.BoilerId == equipmentId || b.FermenterId == equipmentId || b.PackagingVesselId == equipmentId) &&
                         b.Status != BatchStatus.Completed &&
                         b.Status != BatchStatus.Archived)
@@ -408,7 +457,7 @@ public class EquipmentService : IEquipmentService
         _ => capacity
     };
 
-    private static EquipmentDto ToDto(Equipment e)
+    private static EquipmentDto ToDto(Equipment e, bool isOwner = true)
     {
         var fillPercentage = e.CapacityLiters > 0
             ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
@@ -433,8 +482,8 @@ public class EquipmentService : IEquipmentService
             e.CurrentTemperatureC,
             e.TemperatureUpdatedAt,
             e.ConnectionType,
-            e.ConnectionToken,
-            SanitizeConfigJson(e.ConnectionConfigJson),
+            isOwner ? e.ConnectionToken : null,
+            isOwner ? SanitizeConfigJson(e.ConnectionConfigJson) : null,
             e.Description,
             e.Notes,
             e.CreatedAt,
@@ -515,11 +564,25 @@ public class EquipmentService : IEquipmentService
         Guid id, string userId)
     {
         var equipment = await _db.Equipment
-            .FirstOrDefaultAsync(e => e.Id == id && e.UserId == userId);
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == id);
 
         if (equipment == null)
         {
             return (EquipmentAccessResult.NotFound, null, null);
+        }
+
+        var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
+        if (!isMember)
+        {
+            return (EquipmentAccessResult.NotFound, null, null);
+        }
+
+        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+        if (!isOwner)
+        {
+            return (EquipmentAccessResult.Forbidden, null, null);
         }
 
         var newToken = GenerateConnectionToken();
@@ -529,7 +592,7 @@ public class EquipmentService : IEquipmentService
         await _db.SaveChangesAsync();
         _logger.LogInformation("Connection token regenerated for equipment {EquipmentId} by user {UserId}", id, userId);
 
-        return (EquipmentAccessResult.Success, ToDto(equipment), newToken);
+        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner: true), newToken);
     }
 
     public static string GenerateConnectionToken()

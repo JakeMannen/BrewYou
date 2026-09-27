@@ -17,6 +17,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<RecipeIngredient> RecipeIngredients => Set<RecipeIngredient>();
     public DbSet<Equipment> Equipment => Set<Equipment>();
     public DbSet<BrewerySetup> BrewerySetups => Set<BrewerySetup>();
+    public DbSet<BreweryMember> BreweryMembers => Set<BreweryMember>();
+    public DbSet<BreweryInvite> BreweryInvites => Set<BreweryInvite>();
     public DbSet<Batch> Batches => Set<Batch>();
     public DbSet<BatchReading> BatchReadings => Set<BatchReading>();
     public DbSet<BatchIngredient> BatchIngredients => Set<BatchIngredient>();
@@ -66,6 +68,45 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(s => new { s.UserId, s.IsDefault })
                   .HasFilter("\"IsDefault\" = TRUE")
                   .IsUnique();
+        });
+
+        builder.Entity<BreweryMember>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.Role).HasConversion<string>().HasMaxLength(20).IsRequired();
+
+            entity.HasOne(m => m.BrewerySetup)
+                  .WithMany(s => s.Members)
+                  .HasForeignKey(m => m.BrewerySetupId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(m => m.User)
+                  .WithMany(u => u.BreweryMemberships)
+                  .HasForeignKey(m => m.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(m => new { m.BrewerySetupId, m.UserId }).IsUnique();
+        });
+
+        builder.Entity<BreweryInvite>(entity =>
+        {
+            entity.HasKey(i => i.Id);
+            entity.Property(i => i.InvitedEmail).HasMaxLength(256).IsRequired();
+            entity.Property(i => i.InviteCode).HasMaxLength(128).IsRequired();
+            entity.Property(i => i.Role).HasConversion<string>().HasMaxLength(20).IsRequired();
+
+            entity.HasOne(i => i.BrewerySetup)
+                  .WithMany(s => s.Invites)
+                  .HasForeignKey(i => i.BrewerySetupId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(i => i.InvitedByUser)
+                  .WithMany()
+                  .HasForeignKey(i => i.InvitedByUserId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(i => i.InviteCode).IsUnique();
+            entity.HasIndex(i => new { i.BrewerySetupId, i.InvitedEmail });
         });
 
         builder.Entity<Recipe>(entity =>

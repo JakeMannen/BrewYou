@@ -3,6 +3,11 @@ import type {
 	ApiResponse,
 	AuthResponse,
 	BrewerySetupDto,
+	BreweryMemberDto,
+	BreweryInviteDto,
+	InviteMemberRequest,
+	UpdateMemberRoleRequest,
+	AcceptInviteRequest,
 	CalculateRecipeRequest,
 	CalculateRecipeResponse,
 	CreateBrewerySetupRequest,
@@ -550,6 +555,68 @@ export const api = {
 			return request<BrewerySetupDto>(`/api/v1/brewery-setups/${id}/set-default`, {
 				method: 'POST'
 			});
+		}
+	},
+
+	breweryCollaboration: {
+		async getMembers(setupId: string): Promise<BreweryMemberDto[]> {
+			return request<BreweryMemberDto[]>(`/api/v1/brewery-setups/${setupId}/members`);
+		},
+
+		async getPendingInvites(setupId: string): Promise<BreweryInviteDto[]> {
+			return request<BreweryInviteDto[]>(`/api/v1/brewery-setups/${setupId}/invites`);
+		},
+
+		async inviteMember(setupId: string, req: InviteMemberRequest): Promise<BreweryInviteDto> {
+			return request<BreweryInviteDto>(`/api/v1/brewery-setups/${setupId}/invites`, {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async revokeInvite(setupId: string, inviteId: string): Promise<void> {
+			return request<void>(`/api/v1/brewery-setups/${setupId}/invites/${inviteId}`, {
+				method: 'DELETE'
+			});
+		},
+
+		async updateMemberRole(
+			setupId: string,
+			targetUserId: string,
+			req: UpdateMemberRoleRequest
+		): Promise<BreweryMemberDto> {
+			return request<BreweryMemberDto>(
+				`/api/v1/brewery-setups/${setupId}/members/${targetUserId}`,
+				{
+					method: 'PATCH',
+					body: JSON.stringify(req)
+				}
+			);
+		},
+
+		async removeMember(setupId: string, targetUserId: string): Promise<void> {
+			return request<void>(`/api/v1/brewery-setups/${setupId}/members/${targetUserId}`, {
+				method: 'DELETE'
+			});
+		},
+
+		async leaveBrewery(setupId: string): Promise<void> {
+			return request<void>(`/api/v1/brewery-setups/${setupId}/leave`, {
+				method: 'POST'
+			});
+		},
+
+		async acceptInvite(req: AcceptInviteRequest): Promise<BrewerySetupDto> {
+			return request<BrewerySetupDto>('/api/v1/brewery-setups/invites/accept', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async validateInvite(code: string): Promise<BreweryInviteDto> {
+			return request<BreweryInviteDto>(
+				`/api/v1/brewery-setups/invites/validate?code=${encodeURIComponent(code)}`
+			);
 		}
 	},
 
