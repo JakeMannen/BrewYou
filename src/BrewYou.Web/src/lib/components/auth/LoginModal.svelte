@@ -73,7 +73,9 @@
 	}
 
 	function toggleLanguage() {
-		const nextLocale: LocaleCode = i18n.locale === 'en' ? 'sv' : 'en';
+		const codes: LocaleCode[] = ['en', 'sv', 'de', 'fr', 'es'];
+		const idx = codes.indexOf(i18n.locale);
+		const nextLocale = codes[(idx + 1) % codes.length];
 		i18n.setLocale(nextLocale);
 	}
 
@@ -156,7 +158,7 @@
 				onclick={toggleLanguage}
 				data-testid="auth-lang-switcher"
 				class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200/80 bg-zinc-100/80 px-2.5 py-1 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:bg-zinc-800"
-				title={i18n.locale === 'en' ? 'Växla till Svenska' : 'Switch to English'}
+				title={t('settings.language.select_label')}
 			>
 				<Globe class="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />
 				<span class="uppercase">{i18n.locale}</span>

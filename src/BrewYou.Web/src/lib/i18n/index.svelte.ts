@@ -1,7 +1,10 @@
+import de from './locales/de.json';
 import en from './locales/en.json';
+import es from './locales/es.json';
+import fr from './locales/fr.json';
 import sv from './locales/sv.json';
 
-export type LocaleCode = 'en' | 'sv';
+export type LocaleCode = 'en' | 'sv' | 'de' | 'fr' | 'es';
 
 export interface LocaleOption {
 	code: LocaleCode;
@@ -11,12 +14,18 @@ export interface LocaleOption {
 
 export const supportedLocales: LocaleOption[] = [
 	{ code: 'en', label: 'English', flag: '🇬🇧' },
-	{ code: 'sv', label: 'Svenska', flag: '🇸🇪' }
+	{ code: 'sv', label: 'Svenska', flag: '🇸🇪' },
+	{ code: 'de', label: 'Deutsch', flag: '🇩🇪' },
+	{ code: 'fr', label: 'Français', flag: '🇫🇷' },
+	{ code: 'es', label: 'Español', flag: '🇪🇸' }
 ];
 
 const dictionaries: Record<string, Record<string, unknown>> = {
 	en,
-	sv
+	sv,
+	de,
+	fr,
+	es
 };
 
 class I18nStore {

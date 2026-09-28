@@ -1,4 +1,5 @@
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace BrewYou.ApiService.Data;
@@ -37,9 +38,7 @@ public static class DbSeeder
             {
                 foreach (var user in usersWithoutSetups)
                 {
-                    var defaultName = user.PreferredLanguage?.StartsWith("sv", StringComparison.OrdinalIgnoreCase) == true
-                        ? "Mitt bryggeri"
-                        : "My brewery";
+                    var defaultName = BrewerySetupService.GetDefaultBreweryName(user.PreferredLanguage);
 
                     db.BrewerySetups.Add(new BrewerySetup
                     {

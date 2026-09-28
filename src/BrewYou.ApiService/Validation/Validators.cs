@@ -583,14 +583,14 @@ public class UpdateVolumeUnitRequestValidator : AbstractValidator<UpdateVolumeUn
 
 public class UpdateUserPreferencesRequestValidator : AbstractValidator<UpdateUserPreferencesRequest>
 {
-    private static readonly string[] ValidLanguages = ["en", "sv"];
+    private static readonly string[] ValidLanguages = ["en", "sv", "de", "fr", "es"];
 
     public UpdateUserPreferencesRequestValidator()
     {
         RuleFor(x => x.Language)
             .Must(lang => ValidLanguages.Contains(lang!.ToLower().Trim()))
             .When(x => !string.IsNullOrWhiteSpace(x.Language))
-            .WithMessage("Language must be one of the supported codes: 'en', 'sv'.");
+            .WithMessage("Language must be one of the supported codes: 'en', 'sv', 'de', 'fr', 'es'.");
 
         RuleFor(x => x.VolumeUnit)
             .IsInEnum()

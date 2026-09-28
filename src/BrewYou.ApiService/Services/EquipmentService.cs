@@ -114,9 +114,7 @@ public class EquipmentService : IEquipmentService
             if (targetSetup == null)
             {
                 var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
-                var defaultName = user?.PreferredLanguage?.StartsWith("sv", StringComparison.OrdinalIgnoreCase) == true
-                    ? "Mitt bryggeri"
-                    : "My brewery";
+                var defaultName = BrewerySetupService.GetDefaultBreweryName(user?.PreferredLanguage);
 
                 targetSetup = new BrewerySetup
                 {

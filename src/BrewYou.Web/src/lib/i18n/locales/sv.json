@@ -929,7 +929,7 @@
 			"submitting": "Startar batch...",
 			"stock_warning": {
 				"title": "Ta bort batch",
-				"desc": "Bekräfta borttagning av {name}",
+				"desc": "Vissa ingredienser som krävs för denna batch överstiger ditt registrerade lager. Du kan avbryta för att fylla på eller fortsätta ändå.",
 				"ingredient": "Råvara",
 				"required": "Krävs",
 				"in_stock": "I lager",
@@ -1240,7 +1240,10 @@
 			"desc": "Välj önskat språk för applikationen.",
 			"auto_save_hint": "Ändringar sparas direkt",
 			"en": "English",
-			"sv": "Svenska"
+			"sv": "Svenska",
+			"de": "Deutsch",
+			"fr": "Français",
+			"es": "Español"
 		},
 		"presets": {
 			"title": "Måttenhetsprofiler",
@@ -1358,13 +1361,13 @@
 			"certificate_help": "Klistra in ditt CA- eller klientcertifikat i PEM-format för krypterade TLS-anslutningar.",
 			"topic_prefix": "Ämnesprefix (Topic prefix)",
 			"topic_prefix_placeholder": "t.ex. brewyou/telemetry",
-			"topic_prefix_help": "Rotprefix för publicerade MQTT-ämnen.",
+			"topic_prefix_help": "Basprefix för MQTT-ämnen som används för att föreslå telemetriämnen (t.ex. brewyou/equipment/{device}/telemetry).",
 			"save": "Spara anslutningsinställningar",
 			"saving": "Sparar anslutningar...",
 			"saved_toast": "Anslutningsinställningarna har sparats!",
 			"error_toast": "Kunde inte spara anslutningsinställningarna. Försök igen.",
 			"status_configured": "Konfigurerad ({host}:{port})",
-			"status_configured_disconnected": "Konfigurerad (Frånkopplad)",
+			"status_configured_disconnected": "Konfigurerad ({host}:{port}) - Frånkopplad",
 			"status_not_configured": "Inte konfigurerad",
 			"test_connection": "Testa anslutning",
 			"testing": "Testar anslutning...",
