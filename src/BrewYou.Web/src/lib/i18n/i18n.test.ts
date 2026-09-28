@@ -282,6 +282,53 @@ describe('i18n Translation Engine', () => {
 		expect(t('batches.equipment.capacity', { liters: 30 })).toBe('Capacidad: 30 L');
 	});
 
+	it('translates brewery collaboration and membership roles accurately across all locales', () => {
+		i18n.setLocale('en');
+		expect(t('brewery.collaboration')).toBe('Collaboration & Members');
+		expect(t('brewery.role_owner')).toBe('Co-Owner');
+		expect(t('brewery.role_brewer')).toBe('Brewer');
+		expect(t('brewery.role_viewer')).toBe('Viewer');
+		expect(t('brewery.accept_invite_subtitle', { name: 'Acme', role: 'Brewer' })).toBe(
+			'You have been invited to join "Acme" as a Brewer.'
+		);
+
+		i18n.setLocale('sv');
+		expect(t('brewery.collaboration')).toBe('Samarbete & medlemmar');
+		expect(t('brewery.role_owner')).toBe('Medägare');
+		expect(t('brewery.role_brewer')).toBe('Bryggare');
+		expect(t('brewery.role_viewer')).toBe('Åskådare');
+		expect(t('brewery.accept_invite_subtitle', { name: 'Acme', role: 'Bryggare' })).toBe(
+			'Du har bjudits in att gå med i "Acme" som Bryggare.'
+		);
+
+		i18n.setLocale('de');
+		expect(t('brewery.collaboration')).toBe('Zusammenarbeit & Mitglieder');
+		expect(t('brewery.role_owner')).toBe('Miteigentümer');
+		expect(t('brewery.role_brewer')).toBe('Brauer');
+		expect(t('brewery.role_viewer')).toBe('Beobachter');
+		expect(t('brewery.accept_invite_subtitle', { name: 'Acme', role: 'Brauer' })).toBe(
+			'Sie wurden eingeladen, „Acme“ als Brauer beizutreten.'
+		);
+
+		i18n.setLocale('fr');
+		expect(t('brewery.collaboration')).toBe('Collaboration & Membres');
+		expect(t('brewery.role_owner')).toBe('Co-propriétaire');
+		expect(t('brewery.role_brewer')).toBe('Brasseur');
+		expect(t('brewery.role_viewer')).toBe('Observateur');
+		expect(t('brewery.accept_invite_subtitle', { name: 'Acme', role: 'Brasseur' })).toBe(
+			'Vous avez été invité à rejoindre « Acme » en tant que Brasseur.'
+		);
+
+		i18n.setLocale('es');
+		expect(t('brewery.collaboration')).toBe('Colaboración y miembros');
+		expect(t('brewery.role_owner')).toBe('Copropietario');
+		expect(t('brewery.role_brewer')).toBe('Cervecero');
+		expect(t('brewery.role_viewer')).toBe('Observador');
+		expect(t('brewery.accept_invite_subtitle', { name: 'Acme', role: 'Cervecero' })).toBe(
+			'Has sido invitado a unirte a "Acme" como Cervecero.'
+		);
+	});
+
 	it('falls back to English when a key is absent', () => {
 		i18n.setLocale('de');
 		expect(t('nonexistent.key')).toBe('nonexistent.key');
