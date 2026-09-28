@@ -133,6 +133,11 @@ public static class TelemetryEndpoints
             }
 
             var (result, updated, _) = await equipmentService.RegenerateConnectionTokenAsync(id, userId);
+            if (result == EquipmentAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", "Only an owner can regenerate connection tokens."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (result == EquipmentAccessResult.NotFound || updated == null)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Equipment not found."));
@@ -143,6 +148,7 @@ public static class TelemetryEndpoints
         .WithName("RegenerateEquipmentConnectionToken")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
 
         authGroup.MapPost("/{id:guid}/test-poll", async (

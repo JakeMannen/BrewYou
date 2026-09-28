@@ -417,6 +417,43 @@ export const SUBTYPE_DESCRIPTIONS: Record<EquipmentSubtype, string> = {
 	Other: 'Generic container or vessel'
 };
 
+export type BreweryRole = 'Owner' | 'Brewer' | 'Viewer';
+
+export interface BreweryMemberDto {
+	id: string;
+	userId: string;
+	email?: string | null;
+	displayName?: string | null;
+	role: BreweryRole;
+	joinedAt: string;
+	isPrimaryOwner?: boolean;
+}
+
+export interface BreweryInviteDto {
+	id: string;
+	brewerySetupId: string;
+	setupName: string;
+	invitedEmail: string;
+	inviteCode: string;
+	role: BreweryRole;
+	invitedByName?: string | null;
+	createdAt: string;
+	expiresAt: string;
+}
+
+export interface InviteMemberRequest {
+	email: string;
+	role?: BreweryRole;
+}
+
+export interface UpdateMemberRoleRequest {
+	role: BreweryRole;
+}
+
+export interface AcceptInviteRequest {
+	code: string;
+}
+
 export interface BrewerySetupDto {
 	id: string;
 	name: string;
@@ -432,6 +469,9 @@ export interface BrewerySetupDto {
 	defaultPackagingLossLiters: number;
 	createdAt: string;
 	updatedAt: string;
+	currentUserRole?: BreweryRole;
+	memberCount?: number;
+	isOwner?: boolean;
 }
 
 export interface CreateBrewerySetupRequest {

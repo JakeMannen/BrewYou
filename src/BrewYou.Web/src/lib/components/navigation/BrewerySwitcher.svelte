@@ -11,8 +11,11 @@
 		Trash2,
 		Plus,
 		X,
-		AlertCircle
+		AlertCircle,
+		Users
 	} from '@lucide/svelte';
+	import BreweryMembersModal from '$lib/components/brewery/BreweryMembersModal.svelte';
+	import { portal } from '$lib/utils/portal';
 
 	let {
 		collapsed = false,
@@ -41,6 +44,10 @@
 	let deleteTargetId = $state<string | null>(null);
 	let deleteTarget = $derived(brewery.setups.find((s) => s.id === deleteTargetId));
 
+	// Members modal state
+	let showMembersModal = $state(false);
+	let membersModalTarget = $state<BrewerySetup | null>(null);
+
 	function toggleDropdown() {
 		isOpen = !isOpen;
 	}
@@ -59,10 +66,19 @@
 				showRenameModal = false;
 			} else if (showDeleteModal) {
 				showDeleteModal = false;
+			} else if (showMembersModal) {
+				showMembersModal = false;
 			} else if (isOpen) {
 				isOpen = false;
 			}
 		}
+	}
+
+	function openMembersModal(s: BrewerySetup, e: MouseEvent) {
+		e.stopPropagation();
+		membersModalTarget = s;
+		showMembersModal = true;
+		isOpen = false;
 	}
 
 	function handleOutsideClick(event: MouseEvent) {
@@ -258,32 +274,54 @@
 								<span class="h-3.5 w-3.5 flex-shrink-0"></span>
 							{/if}
 							<span class="truncate">{setup.name}</span>
+							{#if (setup.memberCount ?? 1) > 1 || !setup.isOwner}
+								<span
+									class="inline-flex flex-shrink-0 items-center gap-0.5 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 dark:bg-blue-400/10 dark:text-blue-400"
+									title={setup.currentUserRole ?? t('brewery.role_badge_brewer')}
+								>
+									<Users class="h-2.5 w-2.5" />
+									{setup.currentUserRole ?? t('brewery.role_badge_brewer')}
+								</span>
+							{/if}
 						</button>
 
-						<!-- Item Actions: Rename & Delete -->
+						<!-- Item Actions: Members, Rename & Delete -->
 						<div class="flex items-center gap-1 opacity-80 group-hover:opacity-100">
 							<button
 								type="button"
-								onclick={(e) => openRenameModal(setup, e)}
-								class="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-200/70 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-200"
-								title="{t('brewery.rename_brewery')}: {setup.name}"
-								aria-label="{t('brewery.rename_brewery')}: {setup.name}"
-								data-testid="rename-brewery-btn-{setup.id}"
+								onclick={(e) => openMembersModal(setup, e)}
+								class="rounded-md p-1 text-zinc-400 transition-colors hover:bg-blue-500/10 hover:text-blue-600 dark:text-zinc-500 dark:hover:bg-blue-500/20 dark:hover:text-blue-400"
+								title="{t('brewery.manage_members')}: {setup.name}"
+								aria-label="{t('brewery.manage_members')}: {setup.name}"
+								data-testid="members-brewery-btn-{setup.id}"
 							>
-								<Pencil class="h-3 w-3" />
+								<Users class="h-3 w-3" />
 							</button>
 
-							{#if brewery.canDelete}
+							{#if setup.isOwner ?? true}
 								<button
 									type="button"
-									onclick={(e) => openDeleteModal(setup, e)}
-									class="rounded-md p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 dark:text-zinc-500 dark:hover:bg-red-500/20 dark:hover:text-red-400"
-									title="{t('brewery.delete_brewery')}: {setup.name}"
-									aria-label="{t('brewery.delete_brewery')}: {setup.name}"
-									data-testid="delete-brewery-btn-{setup.id}"
+									onclick={(e) => openRenameModal(setup, e)}
+									class="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-200/70 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-200"
+									title="{t('brewery.rename_brewery')}: {setup.name}"
+									aria-label="{t('brewery.rename_brewery')}: {setup.name}"
+									data-testid="rename-brewery-btn-{setup.id}"
 								>
-									<Trash2 class="h-3 w-3" />
+									<Pencil class="h-3 w-3" />
 								</button>
+
+								{#if brewery.canDelete}
+									<button
+										type="button"
+										onclick={(e) => openDeleteModal(setup, e)}
+										class="rounded-md p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 dark:text-zinc-500 dark:hover:bg-red-500/20 dark:hover:text-red-400"
+										title="{t('brewery.delete_brewery')}: {setup.name}"
+										aria-label="{t('brewery.delete_brewery')}: {setup.name}"
+										data-testid="delete-brewery-btn-{setup.id}"
+									>
+										<Trash2 class="h-3 w-3" />
+									</button>
+								{/if}
 							{/if}
 						</div>
 					</div>
@@ -310,10 +348,12 @@
 <!-- Modal: Create New Brewery Setup -->
 {#if showAddModal}
 	<div
+		use:portal
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="add-modal-title"
+		tabindex="-1"
 	>
 		<div
 			class="glass-panel w-full max-w-sm rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-zinc-900"
@@ -387,10 +427,12 @@
 <!-- Modal: Rename Brewery Setup -->
 {#if showRenameModal}
 	<div
+		use:portal
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="rename-modal-title"
+		tabindex="-1"
 	>
 		<div
 			class="glass-panel w-full max-w-sm rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-zinc-900"
@@ -463,10 +505,12 @@
 <!-- Modal: Delete Confirmation -->
 {#if showDeleteModal && deleteTarget}
 	<div
+		use:portal
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="delete-modal-title"
+		tabindex="-1"
 	>
 		<div
 			class="glass-panel w-full max-w-sm rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-zinc-900"
@@ -512,4 +556,15 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+<!-- Modal: Manage Brewery Members & Collaboration -->
+{#if showMembersModal && membersModalTarget}
+	<BreweryMembersModal
+		setup={membersModalTarget}
+		onclose={() => {
+			showMembersModal = false;
+			membersModalTarget = null;
+		}}
+	/>
 {/if}

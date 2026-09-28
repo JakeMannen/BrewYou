@@ -109,6 +109,11 @@ public static class BrewerySetupEndpoints
             }
 
             var (result, updated, errorMessage) = await setupService.UpdateSetupAsync(id, request, userId);
+            if (result == BrewerySetupAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "Access forbidden."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (result == BrewerySetupAccessResult.NotFound || updated == null)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Brewery setup not found."));
@@ -134,6 +139,11 @@ public static class BrewerySetupEndpoints
             }
 
             var (result, errorMessage) = await setupService.DeleteSetupAsync(id, userId);
+            if (result == BrewerySetupAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "Access forbidden."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (result == BrewerySetupAccessResult.NotFound)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Brewery setup not found."));

@@ -20,6 +20,7 @@ BrewYou is strictly open-source craft brewing software: **all features are unive
 1. [Features](#features)
    - [Interactive Dashboard & Cellar Operations](#interactive-dashboard--cellar-operations)
    - [Multi-Rig Brewery Setup & Loss Profiles](#multi-rig-brewery-setup--loss-profiles)
+   - [Brewery Collaboration & Shared Setups](#brewery-collaboration--shared-setups)
    - [Recipe Management & Recipe Formulator](#recipe-management--recipe-formulator)
    - [Batch Tracking & Live Brew Day Execution](#batch-tracking--live-brew-day-execution)
    - [Equipment & Vessel Inventory](#equipment--vessel-inventory)
@@ -67,6 +68,27 @@ BrewYou allows brewers to configure multiple distinct brewing rigs (such as a 5-
 2. **Configure a Brewing Rig**: Click **Add Brewery Setup** (or edit an existing profile) and enter your kettle type, boil capacity, and calibrated physical parameters (boil-off L/hr, grain absorption L/kg, kettle trub loss, and cooling shrinkage %).
 3. **Switch the Active Rig**: Select a rig and set it as **Active** using the brewery switcher in the application header or settings view.
 4. **Apply to Recipes**: When designing a recipe or scheduling a brew, your active rig's parameters automatically calculate strike water volumes, sparge requirements, and target boil volumes.
+
+### Brewery Collaboration & Shared Setups
+
+BrewYou enables brewers to share, co-own, and collaborate on brewing setups with other team members. Any brewery setup (`BrewerySetup`) can be configured as a shared group. Brewery owners can invite other brewers by email with specific role permissions (*Co-Owner*, *Brewer*, or *Viewer*), share secure 32-byte cryptographically random invitation links, revoke pending invitations, modify collaborator roles, and remove members at any time. Non-owner members can inspect team members and choose to leave a shared setup at will.
+
+- **Role-Based Access Control (RBAC)**:
+  - **Owner / Co-Owner**: Full administrative control over brewery setups, equipment, members, invitations, and hardware secrets.
+  - **Brewer**: Can add, update, and manage shared equipment vessels, brew batches, and log telemetry readings.
+  - **Viewer**: Read-only access to recipes, shared equipment, batch progress, and telemetry charts.
+- **Hardware & IoT Security**: Sensitive credentials (such as IoT ingestion connection tokens and MQTT broker passwords) are strictly redacted on the server from non-owners to prevent sensor spoofing and credential exfiltration. Equipment deletion is strictly restricted to owners, co-owners, or the equipment's creator.
+- **Privacy & Previews**: Unauthenticated invite validation endpoints mask recipient email addresses (e.g., `j***e@domain.com`) to prevent privacy leakage and user enumeration.
+- **Collaborative Brewing & Telemetry**: Collaborators with the Brewer or Owner role can schedule batches using shared setup equipment, and live sensor telemetry (SSE) is broadcast concurrently to all active members of the setup.
+- **Universal Access Invariant**: 100% free and open craft brewing software for all users with no paywalls or tier restrictions.
+
+#### How to Use
+
+1. **Open Collaborators Dialog**: Open the Brewery Switcher in the navigation bar and click the **Collaborators** button (users icon) next to any brewery setup.
+2. **Invite a Brewer**: Enter the collaborator's email address, select their role (*Brewer*, *Co-Owner*, or *Viewer*), and click **Send Invitation**.
+3. **Share the Invite Link**: Copy the generated invite link (e.g., `/invites/<invite-code>`) and send it directly to your partner.
+4. **Accepting an Invitation**: The recipient visits the invite link, previews the brewery details and assigned role, and clicks **Accept Invitation & Join** to gain immediate access to the shared setup and its equipment inventory.
+5. **Manage Team Members**: Setup owners can change member roles, revoke unused invites, or remove collaborators directly from the modal.
 
 ### Recipe Management & Recipe Formulator
 
@@ -384,6 +406,26 @@ npm run api:sync
 ```
 
 This regenerates `src/lib/types/api.generated.ts` directly from the running backend OpenAPI contract.
+
+### Key API Endpoints Overview
+
+| Area | Method & Route | Description |
+| :--- | :--- | :--- |
+| **Authentication** | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` | User registration, JWT login, and token refresh |
+| **Brewery Setups** | `GET/POST /api/v1/brewery-setups`, `PUT/DELETE /api/v1/brewery-setups/{id}` | Manage personal and shared brewery setups |
+| **Collaboration** | `GET /api/v1/brewery-setups/{id}/members` | List brewery members and assigned roles |
+| | `POST /api/v1/brewery-setups/{id}/invites` | Invite brewer by email (Owner only) |
+| | `GET /api/v1/brewery-setups/{id}/invites` | List pending invitations (Owner only) |
+| | `DELETE /api/v1/brewery-setups/{id}/invites/{inviteId}` | Revoke pending invitation (Owner only) |
+| | `PATCH /api/v1/brewery-setups/{id}/members/{userId}` | Update member role (Owner only) |
+| | `DELETE /api/v1/brewery-setups/{id}/members/{userId}` | Remove member from setup (Owner only) |
+| | `POST /api/v1/brewery-setups/{id}/leave` | Leave shared brewery setup |
+| | `GET /api/v1/invites/{code}/validate` | Validate invitation code (anonymous/authenticated) |
+| | `POST /api/v1/invites/accept` | Accept invitation and join brewery setup |
+| **Equipment** | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}` | Equipment digital twins & hardware calibrations |
+| **Telemetry** | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream` | IoT ingestion webhook & SSE telemetry stream |
+| **Recipes** | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}` | Recipe formulations, BJCP metrics, BeerXML/BeerJSON |
+| **Batches** | `GET/POST /api/v1/batches`, `POST /api/v1/batches/{id}/advance-stage` | 10-stage brew lifecycle, mash/boil logs, attenuation |
 
 ---
 

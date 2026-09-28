@@ -95,6 +95,9 @@ class BreweryState {
 						description: s.description ?? undefined,
 						isDefault: s.isDefault,
 						equipmentCount: s.equipmentCount,
+						currentUserRole: s.currentUserRole,
+						isOwner: s.isOwner,
+						memberCount: s.memberCount,
 						createdAt: s.createdAt
 					}));
 
@@ -168,6 +171,9 @@ class BreweryState {
 						description: remote.description ?? undefined,
 						isDefault: remote.isDefault,
 						equipmentCount: remote.equipmentCount,
+						currentUserRole: remote.currentUserRole ?? 'Owner',
+						isOwner: remote.isOwner ?? true,
+						memberCount: remote.memberCount ?? 1,
 						createdAt: remote.createdAt
 					};
 					this.setups = [...this.setups, newSetup];

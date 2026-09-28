@@ -403,4 +403,93 @@ describe('API Client', () => {
 			expect(received).toEqual({ id: 'r1', temperatureC: 19.2 });
 		});
 	});
+
+	describe('Brewery Collaboration API Client', () => {
+		it('calls getMembers with correct URL', async () => {
+			const members = [
+				{
+					id: 'm1',
+					userId: 'u1',
+					email: 'brewer@craft.com',
+					displayName: 'Master Brewer',
+					role: 'Owner',
+					joinedAt: '2026-01-01T00:00:00Z'
+				}
+			];
+			globalThis.fetch = vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				json: async () => ({ success: true, data: members })
+			} as Response);
+
+			const result = await api.breweryCollaboration.getMembers('setup-123');
+			expect(result).toEqual(members);
+			expect(globalThis.fetch).toHaveBeenCalledWith(
+				expect.stringContaining('/api/v1/brewery-setups/setup-123/members'),
+				expect.anything()
+			);
+		});
+
+		it('calls inviteMember with POST request', async () => {
+			const inviteDto = {
+				id: 'inv-1',
+				brewerySetupId: 'setup-123',
+				setupName: 'Downtown Brewery',
+				invitedEmail: 'friend@craft.com',
+				inviteCode: 'code-xyz',
+				role: 'Brewer',
+				createdAt: '2026-01-01T00:00:00Z',
+				expiresAt: '2026-01-08T00:00:00Z'
+			};
+			globalThis.fetch = vi.fn().mockResolvedValue({
+				ok: true,
+				status: 201,
+				json: async () => ({ success: true, data: inviteDto })
+			} as Response);
+
+			const result = await api.breweryCollaboration.inviteMember('setup-123', {
+				email: 'friend@craft.com',
+				role: 'Brewer'
+			});
+			expect(result).toEqual(inviteDto);
+			expect(globalThis.fetch).toHaveBeenCalledWith(
+				expect.stringContaining('/api/v1/brewery-setups/setup-123/invites'),
+				expect.objectContaining({
+					method: 'POST',
+					body: JSON.stringify({ email: 'friend@craft.com', role: 'Brewer' })
+				})
+			);
+		});
+
+		it('calls validateInvite and acceptInvite', async () => {
+			const inviteDto = {
+				id: 'inv-1',
+				brewerySetupId: 'setup-123',
+				setupName: 'Downtown Brewery',
+				invitedEmail: 'friend@craft.com',
+				inviteCode: 'code-xyz',
+				role: 'Brewer',
+				createdAt: '2026-01-01T00:00:00Z',
+				expiresAt: '2026-01-08T00:00:00Z'
+			};
+			globalThis.fetch = vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				json: async () => ({ success: true, data: inviteDto })
+			} as Response);
+
+			const validated = await api.breweryCollaboration.validateInvite('code-xyz');
+			expect(validated).toEqual(inviteDto);
+
+			const setupDto = { id: 'setup-123', name: 'Downtown Brewery' };
+			globalThis.fetch = vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				json: async () => ({ success: true, data: setupDto })
+			} as Response);
+
+			const accepted = await api.breweryCollaboration.acceptInvite({ code: 'code-xyz' });
+			expect(accepted).toEqual(setupDto);
+		});
+	});
 });

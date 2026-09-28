@@ -92,6 +92,7 @@ builder.Services.AddScoped<IIngredientService, IngredientService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 builder.Services.AddScoped<IBrewerySetupService, BrewerySetupService>();
+builder.Services.AddScoped<IBreweryCollaborationService, BreweryCollaborationService>();
 builder.Services.AddScoped<IBatchService, BatchService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ITelemetryBroadcastService, TelemetryBroadcastService>();
@@ -226,6 +227,7 @@ app.MapIngredientEndpoints();
 app.MapRecipeEndpoints();
 app.MapEquipmentEndpoints();
 app.MapBrewerySetupEndpoints();
+app.MapBreweryCollaborationEndpoints();
 app.MapBatchEndpoints();
 app.MapTelemetryEndpoints().RequireRateLimiting("telemetry-rate-limit");
 

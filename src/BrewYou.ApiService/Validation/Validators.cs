@@ -1069,3 +1069,36 @@ public class CalculateWaterVolumeRequestValidator : AbstractValidator<CalculateW
         RuleFor(x => x.CoolingShrinkagePercent).InclusiveBetween(0m, 20m).When(x => x.CoolingShrinkagePercent.HasValue);
     }
 }
+
+public class InviteMemberRequestValidator : AbstractValidator<InviteMemberRequest>
+{
+    public InviteMemberRequestValidator()
+    {
+        RuleFor(x => x.Email)
+            .NotEmpty().WithMessage("Email address is required.")
+            .EmailAddress().WithMessage("A valid email address is required.")
+            .MaximumLength(256).WithMessage("Email cannot exceed 256 characters.");
+
+        RuleFor(x => x.Role)
+            .IsInEnum().WithMessage("Invalid brewery role specified.");
+    }
+}
+
+public class UpdateMemberRoleRequestValidator : AbstractValidator<UpdateMemberRoleRequest>
+{
+    public UpdateMemberRoleRequestValidator()
+    {
+        RuleFor(x => x.Role)
+            .IsInEnum().WithMessage("Invalid brewery role specified.");
+    }
+}
+
+public class AcceptInviteRequestValidator : AbstractValidator<AcceptInviteRequest>
+{
+    public AcceptInviteRequestValidator()
+    {
+        RuleFor(x => x.Code)
+            .NotEmpty().WithMessage("Invitation code is required.")
+            .MaximumLength(128).WithMessage("Invitation code cannot exceed 128 characters.");
+    }
+}

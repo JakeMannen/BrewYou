@@ -1,3 +1,5 @@
+using BrewYou.ApiService.Data.Entities;
+
 namespace BrewYou.ApiService.Services;
 
 public record CreateBrewerySetupRequest(
@@ -40,7 +42,10 @@ public record BrewerySetupDto(
     decimal CoolingShrinkagePercent,
     decimal DefaultPackagingLossLiters,
     DateTime CreatedAt,
-    DateTime UpdatedAt
+    DateTime UpdatedAt,
+    BreweryRole CurrentUserRole = BreweryRole.Owner,
+    int MemberCount = 1,
+    bool IsOwner = true
 );
 
 public enum BrewerySetupAccessResult

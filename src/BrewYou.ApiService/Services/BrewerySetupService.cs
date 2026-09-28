@@ -21,25 +21,11 @@ public class BrewerySetupService : IBrewerySetupService
     {
         var setups = await _db.BrewerySetups
             .AsNoTracking()
-            .Where(s => s.UserId == userId)
+            .Include(s => s.Members)
+            .Include(s => s.Equipment)
+            .Where(s => s.UserId == userId || s.Members.Any(m => m.UserId == userId))
             .OrderByDescending(s => s.IsDefault)
             .ThenBy(s => s.CreatedAt)
-            .Select(s => new BrewerySetupDto(
-                s.Id,
-                s.Name,
-                s.Description,
-                s.IsDefault,
-                s.Equipment.Count,
-                s.DefaultGrainAbsorptionRate,
-                s.DefaultBoilOffRatePerHour,
-                s.DefaultKettleTrubLossLiters,
-                s.DefaultFermenterLossLiters,
-                s.DefaultMashTunDeadSpaceLiters,
-                s.CoolingShrinkagePercent,
-                s.DefaultPackagingLossLiters,
-                s.CreatedAt,
-                s.UpdatedAt
-            ))
             .ToListAsync();
 
         if (setups.Count == 0)
@@ -81,19 +67,22 @@ public class BrewerySetupService : IBrewerySetupService
                 defaultSetup.CoolingShrinkagePercent,
                 defaultSetup.DefaultPackagingLossLiters,
                 defaultSetup.CreatedAt,
-                defaultSetup.UpdatedAt
+                defaultSetup.UpdatedAt,
+                CurrentUserRole: BreweryRole.Owner,
+                MemberCount: 1,
+                IsOwner: true
             )];
         }
 
-        return setups;
-    }
+        return setups.Select(s =>
+        {
+            var isOwner = s.UserId == userId;
+            var role = isOwner
+                ? BreweryRole.Owner
+                : (s.Members.FirstOrDefault(m => m.UserId == userId)?.Role ?? BreweryRole.Viewer);
+            var memberCount = 1 + s.Members.Count;
 
-    public async Task<(BrewerySetupAccessResult Result, BrewerySetupDto? Setup)> GetSetupByIdAsync(Guid id, string userId)
-    {
-        var setup = await _db.BrewerySetups
-            .AsNoTracking()
-            .Where(s => s.Id == id && s.UserId == userId)
-            .Select(s => new BrewerySetupDto(
+            return new BrewerySetupDto(
                 s.Id,
                 s.Name,
                 s.Description,
@@ -107,16 +96,54 @@ public class BrewerySetupService : IBrewerySetupService
                 s.CoolingShrinkagePercent,
                 s.DefaultPackagingLossLiters,
                 s.CreatedAt,
-                s.UpdatedAt
-            ))
-            .FirstOrDefaultAsync();
+                s.UpdatedAt,
+                CurrentUserRole: role,
+                MemberCount: memberCount,
+                IsOwner: isOwner
+            );
+        }).ToList();
+    }
+
+    public async Task<(BrewerySetupAccessResult Result, BrewerySetupDto? Setup)> GetSetupByIdAsync(Guid id, string userId)
+    {
+        var setup = await _db.BrewerySetups
+            .AsNoTracking()
+            .Include(s => s.Members)
+            .Include(s => s.Equipment)
+            .FirstOrDefaultAsync(s => s.Id == id && (s.UserId == userId || s.Members.Any(m => m.UserId == userId)));
 
         if (setup == null)
         {
             return (BrewerySetupAccessResult.NotFound, null);
         }
 
-        return (BrewerySetupAccessResult.Success, setup);
+        var isOwner = setup.UserId == userId;
+        var role = isOwner
+            ? BreweryRole.Owner
+            : (setup.Members.FirstOrDefault(m => m.UserId == userId)?.Role ?? BreweryRole.Viewer);
+        var memberCount = 1 + setup.Members.Count;
+
+        var dto = new BrewerySetupDto(
+            setup.Id,
+            setup.Name,
+            setup.Description,
+            setup.IsDefault,
+            setup.Equipment.Count,
+            setup.DefaultGrainAbsorptionRate,
+            setup.DefaultBoilOffRatePerHour,
+            setup.DefaultKettleTrubLossLiters,
+            setup.DefaultFermenterLossLiters,
+            setup.DefaultMashTunDeadSpaceLiters,
+            setup.CoolingShrinkagePercent,
+            setup.DefaultPackagingLossLiters,
+            setup.CreatedAt,
+            setup.UpdatedAt,
+            CurrentUserRole: role,
+            MemberCount: memberCount,
+            IsOwner: isOwner
+        );
+
+        return (BrewerySetupAccessResult.Success, dto);
     }
 
     public async Task<(BrewerySetupAccessResult Result, BrewerySetupDto? Setup, string? ErrorMessage)> CreateSetupAsync(
@@ -173,7 +200,8 @@ public class BrewerySetupService : IBrewerySetupService
         var dto = new BrewerySetupDto(setup.Id, setup.Name, setup.Description, setup.IsDefault, 0,
             setup.DefaultGrainAbsorptionRate, setup.DefaultBoilOffRatePerHour, setup.DefaultKettleTrubLossLiters,
             setup.DefaultFermenterLossLiters, setup.DefaultMashTunDeadSpaceLiters, setup.CoolingShrinkagePercent,
-            setup.DefaultPackagingLossLiters, setup.CreatedAt, setup.UpdatedAt);
+            setup.DefaultPackagingLossLiters, setup.CreatedAt, setup.UpdatedAt,
+            CurrentUserRole: BreweryRole.Owner, MemberCount: 1, IsOwner: true);
         return (BrewerySetupAccessResult.Success, dto, null);
     }
 
@@ -181,10 +209,22 @@ public class BrewerySetupService : IBrewerySetupService
         Guid id, UpdateBrewerySetupRequest request, string userId)
     {
         var setup = await _db.BrewerySetups
-            .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+            .Include(s => s.Members)
+            .FirstOrDefaultAsync(s => s.Id == id);
 
         if (setup == null)
         {
+            return (BrewerySetupAccessResult.NotFound, null, "Brewery setup not found.");
+        }
+
+        var isOwner = setup.UserId == userId || setup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner);
+        if (!isOwner)
+        {
+            var isMember = setup.Members.Any(m => m.UserId == userId);
+            if (isMember)
+            {
+                return (BrewerySetupAccessResult.Forbidden, null, "Only an owner or co-owner can update brewery setup settings.");
+            }
             return (BrewerySetupAccessResult.NotFound, null, "Brewery setup not found.");
         }
 
@@ -204,7 +244,7 @@ public class BrewerySetupService : IBrewerySetupService
         if (request.CoolingShrinkagePercent.HasValue) setup.CoolingShrinkagePercent = request.CoolingShrinkagePercent.Value;
         if (request.DefaultPackagingLossLiters.HasValue) setup.DefaultPackagingLossLiters = request.DefaultPackagingLossLiters.Value;
 
-        if (request.IsDefault.HasValue && request.IsDefault.Value && !setup.IsDefault)
+        if (request.IsDefault.HasValue && request.IsDefault.Value && !setup.IsDefault && setup.UserId == userId)
         {
             var existingDefaults = await _db.BrewerySetups
                 .Where(s => s.UserId == userId && s.IsDefault && s.Id != id)
@@ -223,6 +263,9 @@ public class BrewerySetupService : IBrewerySetupService
         await _db.SaveChangesAsync();
 
         var equipmentCount = await _db.Equipment.CountAsync(e => e.BrewerySetupId == id);
+        var memberCount = 1 + setup.Members.Count;
+        var role = setup.UserId == userId ? BreweryRole.Owner : (setup.Members.FirstOrDefault(m => m.UserId == userId)?.Role ?? BreweryRole.Viewer);
+
         var dto = new BrewerySetupDto(
             setup.Id,
             setup.Name,
@@ -237,25 +280,41 @@ public class BrewerySetupService : IBrewerySetupService
             setup.CoolingShrinkagePercent,
             setup.DefaultPackagingLossLiters,
             setup.CreatedAt,
-            setup.UpdatedAt);
+            setup.UpdatedAt,
+            CurrentUserRole: role,
+            MemberCount: memberCount,
+            IsOwner: setup.UserId == userId);
 
-        _logger.LogInformation("Brewery setup {SetupId} updated for user {UserId}", setup.Id, userId);
+        _logger.LogInformation("Brewery setup {SetupId} updated by user {UserId}", setup.Id, userId);
         return (BrewerySetupAccessResult.Success, dto, null);
     }
 
     public async Task<(BrewerySetupAccessResult Result, string? ErrorMessage)> DeleteSetupAsync(Guid id, string userId)
     {
         var setup = await _db.BrewerySetups
+            .Include(s => s.Members)
             .Include(s => s.Equipment)
-            .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+            .FirstOrDefaultAsync(s => s.Id == id);
 
         if (setup == null)
         {
             return (BrewerySetupAccessResult.NotFound, "Brewery setup not found.");
         }
 
+        var isPrimaryOwner = setup.UserId == userId;
+        var isCoOwner = setup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner);
+        if (!isPrimaryOwner && !isCoOwner)
+        {
+            var isMember = setup.Members.Any(m => m.UserId == userId);
+            if (isMember)
+            {
+                return (BrewerySetupAccessResult.Forbidden, "Only an owner can delete a brewery setup.");
+            }
+            return (BrewerySetupAccessResult.NotFound, "Brewery setup not found.");
+        }
+
         var totalSetups = await _db.BrewerySetups.CountAsync(s => s.UserId == userId);
-        if (totalSetups <= 1)
+        if (isPrimaryOwner && totalSetups <= 1)
         {
             return (BrewerySetupAccessResult.CannotDeleteLastSetup, "Cannot delete the last remaining brewery setup.");
         }
@@ -263,7 +322,7 @@ public class BrewerySetupService : IBrewerySetupService
         bool wasDefault = setup.IsDefault;
         _db.BrewerySetups.Remove(setup);
 
-        if (wasDefault)
+        if (wasDefault && isPrimaryOwner)
         {
             var nextDefault = await _db.BrewerySetups
                 .Where(s => s.UserId == userId && s.Id != id)
@@ -279,7 +338,7 @@ public class BrewerySetupService : IBrewerySetupService
 
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation("Brewery setup {SetupId} deleted for user {UserId}", id, userId);
+        _logger.LogInformation("Brewery setup {SetupId} deleted by user {UserId}", id, userId);
         return (BrewerySetupAccessResult.Success, null);
     }
 
@@ -287,6 +346,7 @@ public class BrewerySetupService : IBrewerySetupService
         Guid id, string userId)
     {
         var setup = await _db.BrewerySetups
+            .Include(s => s.Members)
             .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
 
         if (setup == null)
@@ -312,6 +372,8 @@ public class BrewerySetupService : IBrewerySetupService
         }
 
         var equipmentCount = await _db.Equipment.CountAsync(e => e.BrewerySetupId == id);
+        var memberCount = 1 + setup.Members.Count;
+
         var dto = new BrewerySetupDto(
             setup.Id,
             setup.Name,
@@ -326,7 +388,10 @@ public class BrewerySetupService : IBrewerySetupService
             setup.CoolingShrinkagePercent,
             setup.DefaultPackagingLossLiters,
             setup.CreatedAt,
-            setup.UpdatedAt);
+            setup.UpdatedAt,
+            CurrentUserRole: BreweryRole.Owner,
+            MemberCount: memberCount,
+            IsOwner: true);
 
         return (BrewerySetupAccessResult.Success, dto, null);
     }

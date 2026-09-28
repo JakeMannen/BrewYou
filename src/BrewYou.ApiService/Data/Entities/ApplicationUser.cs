@@ -60,4 +60,5 @@ public class ApplicationUser : IdentityUser
     public ICollection<Recipe> Recipes { get; set; } = new List<Recipe>();
     public ICollection<Equipment> Equipment { get; set; } = new List<Equipment>();
     public ICollection<BrewerySetup> BrewerySetups { get; set; } = new List<BrewerySetup>();
+    public ICollection<BreweryMember> BreweryMemberships { get; set; } = new List<BreweryMember>();
 }

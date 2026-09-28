@@ -24,6 +24,15 @@ public class BatchService : IBatchService
         _logger = logger;
     }
 
+    private IQueryable<Equipment> GetAccessibleEquipment(string userId)
+    {
+        return _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .Where(e => e.UserId == userId ||
+                        (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role != BreweryRole.Viewer))));
+    }
+
     public async Task<(List<BatchSummaryDto> Items, PaginationMeta Pagination)> GetBatchesAsync(
         string userId, BatchStatus? status, string? search, int page, int limit)
     {
@@ -175,9 +184,8 @@ public class BatchService : IBatchService
         Equipment? boiler = null;
         if (request.BoilerId.HasValue)
         {
-            boiler = await _db.Equipment
-                .Include(e => e.BrewerySetup)
-                .FirstOrDefaultAsync(e => e.Id == request.BoilerId.Value && e.UserId == userId);
+            boiler = await GetAccessibleEquipment(userId)
+                .FirstOrDefaultAsync(e => e.Id == request.BoilerId.Value);
 
             if (boiler == null)
             {
@@ -193,9 +201,8 @@ public class BatchService : IBatchService
         Equipment? fermenter = null;
         if (request.FermenterId.HasValue)
         {
-            fermenter = await _db.Equipment
-                .Include(e => e.BrewerySetup)
-                .FirstOrDefaultAsync(e => e.Id == request.FermenterId.Value && e.UserId == userId);
+            fermenter = await GetAccessibleEquipment(userId)
+                .FirstOrDefaultAsync(e => e.Id == request.FermenterId.Value);
 
             if (fermenter == null)
             {
@@ -211,9 +218,8 @@ public class BatchService : IBatchService
         Equipment? packagingVessel = null;
         if (request.PackagingVesselId.HasValue)
         {
-            packagingVessel = await _db.Equipment
-                .Include(e => e.BrewerySetup)
-                .FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value && e.UserId == userId);
+            packagingVessel = await GetAccessibleEquipment(userId)
+                .FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
 
             if (packagingVessel == null)
             {
@@ -509,7 +515,7 @@ public class BatchService : IBatchService
         {
             foreach (var sa in request.SensorAssignments)
             {
-                var sensorEq = await _db.Equipment.FirstOrDefaultAsync(e => e.Id == sa.EquipmentId && e.UserId == userId);
+                var sensorEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == sa.EquipmentId);
                 if (sensorEq != null)
                 {
                     batch.SensorAssignments.Add(new BatchSensorAssignment
@@ -717,8 +723,8 @@ public class BatchService : IBatchService
                 // Assign & Fill Packaging Vessel if selected
                 if (request.PackagingVesselId.HasValue)
                 {
-                    var vessel = await _db.Equipment
-                        .FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value && e.UserId == userId);
+                    var vessel = await GetAccessibleEquipment(userId)
+                        .FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
 
                     if (vessel != null)
                     {
@@ -1087,7 +1093,7 @@ public class BatchService : IBatchService
             }
             else
             {
-                var vessel = await _db.Equipment.FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value && e.UserId == userId);
+                var vessel = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
                 if (vessel != null)
                 {
                     if (vessel.Type == EquipmentType.Sensor || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
@@ -1137,7 +1143,7 @@ public class BatchService : IBatchService
 
             foreach (var sa in request.SensorAssignments)
             {
-                var sensorEq = await _db.Equipment.FirstOrDefaultAsync(e => e.Id == sa.EquipmentId && e.UserId == userId);
+                var sensorEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == sa.EquipmentId);
                 if (sensorEq != null)
                 {
                     var assignment = new BatchSensorAssignment
@@ -1446,10 +1452,11 @@ public class BatchService : IBatchService
 
         if (request.EquipmentId.HasValue)
         {
-            var eq = await _db.Equipment.FirstOrDefaultAsync(e => e.Id == request.EquipmentId.Value && e.UserId == userId);
+            var eq = await GetAccessibleEquipment(userId)
+                .FirstOrDefaultAsync(e => e.Id == request.EquipmentId.Value);
             if (eq == null)
             {
-                return (BatchAccessResult.Conflict, null, "Specified equipment not found or not owned by user.");
+                return (BatchAccessResult.Conflict, null, "Specified equipment not found or not accessible to user.");
             }
             equipmentId = eq.Id;
             equipmentName = eq.Name;
@@ -1605,7 +1612,7 @@ public class BatchService : IBatchService
 
         foreach (var sa in sensorInputs)
         {
-            var sensorEq = await _db.Equipment.FirstOrDefaultAsync(e => e.Id == sa.EquipmentId && e.UserId == userId);
+            var sensorEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == sa.EquipmentId);
             if (sensorEq != null)
             {
                 var assignment = new BatchSensorAssignment
