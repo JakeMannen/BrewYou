@@ -198,12 +198,12 @@ BrewYou provides secure identity and session management built on ASP.NET Core se
 
 ### Internationalization (i18n) & Personalization
 
-BrewYou offers comprehensive internationalization with 100% key parity between English (`en`) and Swedish (`sv`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a rich persistent theme system featuring the default flagship **Imperial Stout**, **Chocolate Porter**, **Obsidian Ember**, **Modern Amber**, and **Pilsner Clean**.
+BrewYou offers comprehensive internationalization with 100% key parity across English (`en`), Swedish (`sv`), German (`de`), French (`fr`), and Spanish (`es`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a rich persistent theme system featuring the default flagship **Imperial Stout**, **Chocolate Porter**, **Obsidian Ember**, **Modern Amber**, and **Pilsner Clean**.
 
 #### How to Use
 
 1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (*European Metric*, *US Craft*, or *UK Traditional*).
-2. **Switch Language**: Click the language selector (EN / SV) in the header or in **Settings ➔ Preferences** to toggle between English and Swedish instantly.
+2. **Switch Language**: Click the language switcher in the header, login/onboarding modals, or navigate to **Settings ➔ Language & Region** to switch between English, Swedish, German, French, and Spanish instantly.
 3. **Switch Unit System & Presets**: Apply pre-configured regional presets (*European Metric*, *US Craft*, *UK Traditional*) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
 4. **Change Theme**: Select your preferred aesthetic in **Settings ➔ Appearance** between **Imperial Stout** (default), **Chocolate Porter**, **Obsidian Ember**, **Modern Amber**, or **Pilsner Clean**.
 
@@ -509,7 +509,7 @@ BrewYou/
 │           │   ├── calculators/  # Pure brewing math (Tinseth IBU, SRM, strike water, etc.)
 │           │   ├── components/   # Modular Svelte 5 UI components (runes-based)
 │           │   ├── exporters/    # BeerXML & BeerJSON export engines
-│           │   ├── i18n/         # Internationalization dictionary (en.json, sv.json)
+│           │   ├── i18n/         # Internationalization dictionary (en.json, sv.json, de.json, fr.json, es.json)
 │           │   ├── parsers/      # BeerXML & BeerJSON import parsers
 │           │   ├── stores/       # Reactive Svelte stores (auth, brewery, theme, settings)
 │           │   └── types/        # API DTO contracts and domain types
@@ -528,7 +528,7 @@ This repository adheres to strict architectural and engineering standards detail
 2. **Tier Separation**: Frontend handles presentation and client UI state; backend enforces domain rules, transactions, and data access.
 3. **Strict Formatting Compliance**: Zero warnings or errors on `dotnet format --verify-no-changes` and `npm run lint`.
 4. **Mandatory Test Coverage**: All new features and endpoints must include automated tests.
-5. **Full i18n Key Parity**: User-visible strings must be localized using `t(...)` with identical keys in both `en.json` and `sv.json`.
+5. **Full i18n Key Parity**: User-visible strings must be localized using `t(...)` with identical keys across all dictionaries (`en.json`, `sv.json`, `de.json`, `fr.json`, `es.json`).
 6. **Documentation Synchronization**: This [README.md](README.md) must be updated whenever new features, endpoints, or setup instructions are introduced.
 
 ---

@@ -37,9 +37,7 @@ public class BrewerySetupService : IBrewerySetupService
                 return [];
             }
 
-            var defaultName = user.PreferredLanguage?.StartsWith("sv", StringComparison.OrdinalIgnoreCase) == true
-                ? "Mitt bryggeri"
-                : "My brewery";
+            var defaultName = GetDefaultBreweryName(user.PreferredLanguage);
 
             var defaultSetup = new BrewerySetup
             {
@@ -394,5 +392,20 @@ public class BrewerySetupService : IBrewerySetupService
             IsOwner: true);
 
         return (BrewerySetupAccessResult.Success, dto, null);
+    }
+
+    public static string GetDefaultBreweryName(string? preferredLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(preferredLanguage))
+        {
+            return "My brewery";
+        }
+
+        var lang = preferredLanguage.ToLowerInvariant().Trim();
+        if (lang.StartsWith("sv")) return "Mitt bryggeri";
+        if (lang.StartsWith("de")) return "Meine Brauerei";
+        if (lang.StartsWith("fr")) return "Ma brasserie";
+        if (lang.StartsWith("es")) return "Mi cervecería";
+        return "My brewery";
     }
 }

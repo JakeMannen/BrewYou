@@ -766,7 +766,7 @@
 							{#each supportedLocales as loc}
 								<option value={loc.code}>
 									{loc.flag}
-									{loc.label} ({loc.code === 'en' ? 'English' : 'Svenska'})
+									{loc.label}
 								</option>
 							{/each}
 						</select>

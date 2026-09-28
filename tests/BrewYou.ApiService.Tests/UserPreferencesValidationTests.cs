@@ -1,5 +1,6 @@
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services;
 using BrewYou.ApiService.Validation;
 using FluentAssertions;
 
@@ -65,11 +66,42 @@ public class UserPreferencesValidationTests
     [Fact]
     public async Task ValidatePreferences_InvalidLanguage_FailsValidation()
     {
-        var request = new UpdateUserPreferencesRequest(Language: "fr");
+        var request = new UpdateUserPreferencesRequest(Language: "it");
         var result = await _preferencesValidator.ValidateAsync(request);
 
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == "Language");
+    }
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("sv")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    public async Task ValidatePreferences_SupportedLanguages_PassValidation(string lang)
+    {
+        var request = new UpdateUserPreferencesRequest(Language: lang);
+        var result = await _preferencesValidator.ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("en", "My brewery")]
+    [InlineData("sv", "Mitt bryggeri")]
+    [InlineData("de", "Meine Brauerei")]
+    [InlineData("fr", "Ma brasserie")]
+    [InlineData("es", "Mi cervecería")]
+    [InlineData("DE-AT", "Meine Brauerei")]
+    [InlineData("fr-FR", "Ma brasserie")]
+    [InlineData("es-ES", "Mi cervecería")]
+    [InlineData(null, "My brewery")]
+    [InlineData("", "My brewery")]
+    [InlineData("unknown", "My brewery")]
+    public void GetDefaultBreweryName_ResolvesExpectedName(string? lang, string expected)
+    {
+        BrewerySetupService.GetDefaultBreweryName(lang).Should().Be(expected);
     }
 
     [Theory]

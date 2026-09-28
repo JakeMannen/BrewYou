@@ -448,9 +448,7 @@ public class AuthService(
 
     private static string GetDefaultBreweryName(string? preferredLanguage)
     {
-        return preferredLanguage?.StartsWith("sv", StringComparison.OrdinalIgnoreCase) == true
-            ? "Mitt bryggeri"
-            : "My brewery";
+        return BrewerySetupService.GetDefaultBreweryName(preferredLanguage);
     }
 
     private async Task EnsureUserHasDefaultSetupAsync(string userId)
