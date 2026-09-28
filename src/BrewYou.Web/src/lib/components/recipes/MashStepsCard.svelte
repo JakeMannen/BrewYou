@@ -3,6 +3,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { Plus, Trash2, ArrowUp, ArrowDown, Thermometer, Clock, Flame } from '@lucide/svelte';
+	import MashEnzymeVisualizer from '$lib/components/brewery/MashEnzymeVisualizer.svelte';
 
 	export interface FormMashStepItem {
 		id: string;
@@ -53,12 +54,12 @@
 	>
 		<div class="flex items-center gap-3">
 			<div
-				class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/20 text-amber-600 dark:text-amber-400"
+				class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-copper-600/20 text-copper-600 dark:text-copper-400"
 			>
 				<Flame class="h-5 w-5" />
 			</div>
 			<div>
-				<h3 class="font-display font-bold text-zinc-900 dark:text-white">
+				<h3 class="font-editorial text-lg font-bold text-zinc-900 dark:text-white">
 					{t('mash_profile.title')}
 				</h3>
 				<p class="text-xs text-zinc-500 dark:text-zinc-400">
@@ -103,6 +104,13 @@
 			</button>
 		</div>
 	</div>
+
+	<!-- Interactive Stepped Enzymatic Profile Visualizer -->
+	{#if steps.length > 0}
+		<div class="px-4 pt-4 sm:px-6 sm:pt-6">
+			<MashEnzymeVisualizer {steps} />
+		</div>
+	{/if}
 
 	<!-- Step List -->
 	<div class="divide-y divide-zinc-200/60 p-4 sm:p-6 dark:divide-zinc-800/60">

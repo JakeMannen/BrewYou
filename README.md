@@ -70,7 +70,7 @@ BrewYou allows brewers to configure multiple distinct brewing rigs (such as a 5-
 
 ### Recipe Management & Recipe Formulator
 
-The Recipe Formulator is an interactive brewing formulation tool that calculates Original Gravity (OG), Final Gravity (FG), ABV, Bitterness (Tinseth IBU), Color (SRM/EBC), and BU:GU balance in real time. It features a dynamic craft beer glass visualization that reflects your wort's authentic SRM color and style-adaptive foam head. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges. You can manage base and specialty malts, physical ingredient forms (Pellet, Leaf, Plug for hops; Dry, Liquid, Slant, Culture for yeasts with selectable units in g, pkg, or ml), timed hop additions (Mash, First Wort, Boil, Aroma, Whirlpool, Dry Hop), yeasts, and water salts. It includes dedicated staged fermentation schedules (*Primary*, *Secondary*, *Ramp / Diacetyl Rest*, *Free Rise*, *Cold Crash*, *Conditioning*) with pre-configured style presets (*Standard Ale*, *Lager with D-Rest*, *Saison Free-Rise*, *NEIPA Juicy*), with full bidirectional BeerXML 1.0 and BeerJSON import and export support preserving ingredient forms and precise yeast amounts.
+The Recipe Atelier and Formulator is an interactive brewing formulation workspace designed with a warm, bespoke **Artisanal Craft Taproom & Editorial** aesthetic. It pairs modern geometric display typography (`Outfit`) with crisp telemetry badges (`JetBrains Mono`) and calculates Original Gravity (OG), Final Gravity (FG), ABV, Bitterness (Tinseth IBU), Color (SRM/EBC), and BU:GU balance in real time. It features a dynamic craft beer glass visualization that reflects your wort's authentic SRM color and style-adaptive foam head, presented on tactile craft cards with raised telemetry stamps. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges. You can manage base and specialty malts, physical ingredient forms (Pellet, Leaf, Plug for hops; Dry, Liquid, Slant, Culture for yeasts with selectable units in g, pkg, or ml), timed hop additions (Mash, First Wort, Boil, Aroma, Whirlpool, Dry Hop), yeasts, and water salts. It includes dedicated staged fermentation schedules (*Primary*, *Secondary*, *Ramp / Diacetyl Rest*, *Free Rise*, *Cold Crash*, *Conditioning*) with pre-configured style presets (*Standard Ale*, *Lager with D-Rest*, *Saison Free-Rise*, *NEIPA Juicy*), with full bidirectional BeerXML 1.0 and BeerJSON import and export support preserving ingredient forms and precise yeast amounts.
 
 #### How to Use
 
@@ -88,11 +88,19 @@ The Recipe Formulator is an interactive brewing formulation tool that calculates
 
 Batch Tracking guides you through a structured 10-stage brewing lifecycle: *Planning*, *Preparation*, *Mashing*, *Lautering*, *Boiling*, *Cooling*, *Fermenting*, *Conditioning*, *Bottling / Kegging*, and *Completed*. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
 
+#### Brew Station HUD Mode
+
+For real-time brewhouse execution in high-steam or wet-hands environments, the **Brew Station HUD** modal transforms the cockpit into a high-visibility, full-screen tactical interface:
+- **Oversized Countdown Timer**: Gigantic typography legible from across the brewhouse.
+- **Wet-Hands Touch Targets**: Generously sized (64px+) action buttons for Play, Pause, Reset, and Step Advance, plus keyboard shortcuts (`Space` to toggle, `R` to reset, `Esc` to close).
+- **Target & Live Sensor Instrumentation**: At-a-glance target mash/boil temperatures alongside live IoT probe readings.
+
 #### How to Use
 
 1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe (which automatically previews and inherits the fermentation profile and pitch temperature), and assign available equipment.
-2. **Run Brew Day**:
+2. **Run Brew Day & Launch Brew Station HUD**:
    - Open the batch to launch the **Brew Day Cockpit** (`/batches/[id]`).
+   - Click the **Brew Station HUD** button in the header (or the expand icon on mash/boil timers) to enter full-screen high-contrast mode for hands-on brewing.
    - Follow the stage pipeline, starting timers for mash rests and boil additions.
    - Record pre-boil gravity and volume; if discrepancies occur, use the dynamic boil calculator to adjust boil duration or water additions.
 3. **Track Fermentation & Staged Profile**:

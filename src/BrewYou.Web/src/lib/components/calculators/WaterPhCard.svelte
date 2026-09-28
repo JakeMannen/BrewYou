@@ -69,7 +69,7 @@
 				<Droplets class="h-5 w-5" />
 			</div>
 			<div>
-				<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+				<h3 class="font-editorial text-base font-bold text-zinc-900 dark:text-white">
 					{t('calculations.water_ph.title')}
 				</h3>
 				<p class="text-xs text-zinc-500 dark:text-zinc-400">

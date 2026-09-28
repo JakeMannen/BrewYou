@@ -83,7 +83,9 @@
 				</div>
 
 				{#if !collapsed}
-					<span class="text-base font-bold tracking-tight text-zinc-900 dark:text-white">
+					<span
+						class="font-editorial text-base font-bold tracking-tight text-zinc-900 dark:text-white"
+					>
 						Brew<span class="text-amber-500 dark:text-amber-400">You</span>
 					</span>
 				{/if}

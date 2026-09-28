@@ -245,7 +245,9 @@
 				>
 					<Activity class="h-5 w-5" />
 				</div>
-				<h1 class="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
+				<h1
+					class="font-editorial text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl dark:text-white"
+				>
 					{t('batches.title')}
 				</h1>
 			</div>

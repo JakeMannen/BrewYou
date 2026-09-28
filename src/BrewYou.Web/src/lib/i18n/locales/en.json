@@ -380,6 +380,14 @@
 			"occupied_suffix": "— Occupied"
 		},
 		"workspace": {
+			"brew_station_hud": "Brew Station HUD",
+			"brew_station_hud_desc": "High-contrast brewhouse cockpit for steam and distance viewing",
+			"exit_hud": "Exit HUD",
+			"live_brewhouse_hud": "Brewhouse Command HUD",
+			"steam_friendly_mode": "Wet Hands & Steam Mode",
+			"target_temp_hud": "Target Temperature",
+			"quick_timer_control": "Timer Controls",
+			"timer_complete": "Timer Complete! Stage Target Reached.",
 			"advance_stage": "Advance Stage",
 			"advancing": "Advancing...",
 			"advance_modal_title": "Advance to {stage}",
@@ -667,6 +675,13 @@
 			"bottling": "Bottling",
 			"aroma": "Aroma"
 		},
+		"hop_timeline_title": "Boil & Hop Addition Timeline",
+		"total_bitterness": "Total Bitterness: {ibu} IBU",
+		"phase_bittering": "Bittering",
+		"phase_flavor": "Flavor",
+		"phase_aroma": "Aroma",
+		"phase_whirlpool": "Whirlpool",
+		"phase_dry_hop": "Dry Hop",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Leaf",
@@ -1611,7 +1626,15 @@
 		"step_order_badge": "Step {order}",
 		"type_infusion": "Infusion",
 		"type_temperature": "Temperature",
-		"type_decoction": "Decoction"
+		"type_decoction": "Decoction",
+		"enzymatic_profile": "Enzymatic Rest Profile",
+		"zone_protein": "Acid / Protein Rest",
+		"zone_beta_glucan": "Beta-Glucan Rest",
+		"zone_beta_amylase": "Beta-Amylase (Dry & Crisp / Maltose)",
+		"zone_balanced": "Balanced Saccharification",
+		"zone_alpha_amylase": "Alpha-Amylase (Full Body / Dextrins)",
+		"zone_mash_out": "Mash-Out (Enzyme Denaturation)",
+		"total_mash_time": "Total Mash: {minutes} min"
 	},
 	"calculations": {
 		"title": "Brewery Calculators",
@@ -1654,6 +1677,15 @@
 				"slaked_lime": "Calcium Hydroxide / Slaked Lime (Ca(OH)₂)",
 				"chalk": "Calcium Carbonate / Chalk (CaCO₃)"
 			}
+		},
+		"water_balance": {
+			"title": "Sulfate-to-Chloride Balance",
+			"ratio_label": "SO₄²⁻ : Cl⁻ Ratio",
+			"very_malty": "Very Malty & Full",
+			"malty": "Malt-Forward",
+			"balanced": "Balanced",
+			"bitter": "Crisp / Bitter-Forward",
+			"very_bitter": "Very Bitter & Dry"
 		},
 		"strike_water": {
 			"title": "Strike Water Temperature",
@@ -1799,6 +1831,8 @@
 		"type_freerise": "Free Rise",
 		"type_coldcrash": "Cold Crash",
 		"type_conditioning": "Conditioning",
-		"days": "days"
+		"days": "days",
+		"timeline_title": "Cellar Stage Timeline",
+		"total_fermentation_time": "Total Cellar: {days} days"
 	}
 }

@@ -158,7 +158,7 @@
 								class="hidden h-full w-full object-contain p-0.5 dark:block"
 							/>
 						</div>
-						<span class="text-zinc-900 dark:text-white"
+						<span class="font-editorial text-zinc-900 dark:text-white"
 							>Brew<span class="text-amber-500 dark:text-amber-400">You</span></span
 						>
 					</a>

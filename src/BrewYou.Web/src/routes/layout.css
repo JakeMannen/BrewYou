@@ -4,6 +4,11 @@
 @import '@fontsource/plus-jakarta-sans/600.css';
 @import '@fontsource/plus-jakarta-sans/700.css';
 @import '@fontsource/plus-jakarta-sans/800.css';
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/500.css';
+@import '@fontsource/outfit/600.css';
+@import '@fontsource/outfit/700.css';
+@import '@fontsource/outfit/800.css';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
 @import '@fontsource/jetbrains-mono/600.css';
@@ -37,8 +42,12 @@
 		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
 		sans-serif;
 	--font-display:
-		'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
 		sans-serif;
+	--font-editorial:
+		'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 	--font-mono-numbers: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
 	/* Subtle Ambient Glow Shadows */
@@ -186,6 +195,40 @@ h6 {
 	border: 1px solid var(--border-micro);
 }
 
+/* Artisanal Craft & Editorial Utility Classes */
+.font-editorial {
+	font-family: var(--font-editorial);
+}
+
+.artisan-card {
+	background-color: var(--panel-card);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	border: 1px solid var(--border-micro);
+	transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.artisan-card:hover {
+	border-color: var(--border-active);
+	box-shadow:
+		0 16px 36px -8px rgba(0, 0, 0, 0.3),
+		0 0 24px -4px rgba(245, 158, 11, 0.15);
+	transform: translateY(-2px);
+}
+
+.tactile-pill {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 0.5rem 0.625rem;
+	border-radius: 0.875rem;
+	border: 1px solid var(--border-micro);
+	background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0.04) 100%);
+	box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+	transition: all 0.2s ease;
+}
+
 /* Tactile frosted glass & dial enhancements for Imperial Stout */
 [data-theme='imperial-stout'] .glass-panel {
 	background-color: var(--panel-bg);
@@ -226,6 +269,17 @@ h6 {
 	--panel-card: rgba(34, 23, 17, 0.82);
 	--elevated-bg: #2d1e16;
 	--recessed-bg: #0c0805;
+
+	/* 90-Degree Zero Radius Tokens */
+	--radius: 0px;
+	--radius-xs: 0px;
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
+	--radius-xl: 0px;
+	--radius-2xl: 0px;
+	--radius-3xl: 0px;
+	--radius-4xl: 0px;
 
 	/* 2. Micro & Active Borders (Warm Bronze & Caramel Crema) */
 	--border-micro: rgba(196, 139, 82, 0.18);
@@ -317,7 +371,7 @@ h6 {
 [data-theme='chocolate-porter'] h1,
 [data-theme='chocolate-porter'] h2,
 [data-theme='chocolate-porter'] h3 {
-	font-family: 'Playfair Display', 'Cormorant Garamond', 'Georgia', serif;
+	font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
 }
 
 :root[data-theme='obsidian'],
@@ -328,6 +382,17 @@ h6 {
 	--panel-card: rgba(18, 20, 26, 0.78);
 	--elevated-bg: #181a21;
 	--recessed-bg: #070809;
+
+	/* 90-Degree Zero Radius Tokens */
+	--radius: 0px;
+	--radius-xs: 0px;
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
+	--radius-xl: 0px;
+	--radius-2xl: 0px;
+	--radius-3xl: 0px;
+	--radius-4xl: 0px;
 
 	/* 2. Micro & Active Borders (Electric Ember Flame) */
 	--border-micro: rgba(255, 255, 255, 0.08);
@@ -409,6 +474,59 @@ h6 {
 	);
 	background-repeat: no-repeat;
 	background-attachment: fixed;
+}
+
+/* 90-Degree Sharp Borders for Chocolate Porter & Obsidian Ember Themes */
+:is([data-theme='chocolate-porter'], [data-theme='obsidian']) {
+	/* Cards, Panels, Modals & Visualizers */
+	.glass-panel,
+	.glass-card,
+	.artisan-card,
+	[role='dialog'],
+	dialog,
+	.modal-box,
+
+	/* Banners, Headers & Status Notices */
+	header.glass-panel,
+	aside,
+	[role='alert'],
+	[role='status'],
+	[data-testid*='banner'],
+
+	/* Badges, Pills & Telemetry Stamps */
+	.tactile-pill,
+	[class*='badge'],
+	[data-testid*='badge'],
+	[data-testid*='pill'] {
+		border-radius: 0 !important;
+	}
+
+	/* Card, panel, and banner elements with explicit Tailwind rounded classes */
+	.glass-panel[class*='rounded-'],
+	.glass-card[class*='rounded-'],
+	.artisan-card[class*='rounded-'],
+	header[class*='rounded-'],
+	aside[class*='rounded-'],
+	[role='alert'][class*='rounded-'],
+	[role='status'][class*='rounded-'],
+	[role='dialog'][class*='rounded-'],
+	div[class*='rounded-3xl'],
+	div[class*='rounded-2xl'],
+	div[class*='rounded-xl']:not(:has(input, select, textarea)) {
+		border-radius: 0 !important;
+	}
+
+	/* Badges, chips, and pills using rounded-full or rounded-md with horizontal padding */
+	span[class*='rounded-full']:not(.h-1\.5):not(.h-2):not(.w-1\.5):not(.w-2):not(.animate-ping),
+	div[class*='rounded-full']:not(.h-1\.5):not(.h-2):not(.w-1\.5):not(.w-2):not(.h-8):not(.h-9):not(
+			.w-8
+		):not(.w-9):not(.animate-ping),
+	span[class*='rounded-md'][class*='px-'],
+	span[class*='rounded-lg'][class*='px-'],
+	div[class*='rounded-md'][class*='px-'],
+	div[class*='rounded-lg'][class*='px-'] {
+		border-radius: 0 !important;
+	}
 }
 
 .stout-dial-glow {

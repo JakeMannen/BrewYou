@@ -6,6 +6,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import { Plus, Trash2, Wheat, Flower2, Dna, Sparkles } from '@lucide/svelte';
+	import HopScheduleVisualizer from '$lib/components/brewery/HopScheduleVisualizer.svelte';
 
 	export interface FormIngredientItem {
 		id: string;
@@ -132,7 +133,7 @@
 					<Wheat class="h-4 w-4" />
 				</div>
 				<div>
-					<h3 class="text-sm font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-base font-bold text-zinc-900 dark:text-white">
 						{t('formulator.sections.fermentables')}
 					</h3>
 					<span class="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -266,7 +267,7 @@
 					<Flower2 class="h-4 w-4" />
 				</div>
 				<div>
-					<h3 class="text-sm font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-base font-bold text-zinc-900 dark:text-white">
 						{t('formulator.sections.hops')}
 					</h3>
 					<span class="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -285,6 +286,13 @@
 				<span>{t('formulator.buttons.add_hop')}</span>
 			</button>
 		</div>
+
+		<!-- Chronological Boil & Hop Schedule Visualizer -->
+		{#if hops.length > 0}
+			<div class="px-5 pt-4">
+				<HopScheduleVisualizer {hops} {catalogIngredients} {estimatedOg} {batchSizeLiters} />
+			</div>
+		{/if}
 
 		<!-- Hops List -->
 		{#if hops.length === 0}
@@ -421,7 +429,7 @@
 					<Dna class="h-4 w-4" />
 				</div>
 				<div>
-					<h3 class="text-sm font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-base font-bold text-zinc-900 dark:text-white">
 						{t('formulator.sections.yeasts')}
 					</h3>
 					<span class="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -574,7 +582,7 @@
 					<Sparkles class="h-4 w-4" />
 				</div>
 				<div>
-					<h3 class="text-sm font-bold text-zinc-900 dark:text-white">
+					<h3 class="font-editorial text-base font-bold text-zinc-900 dark:text-white">
 						{t('formulator.sections.miscs')}
 					</h3>
 					<span class="text-[11px] text-zinc-500 dark:text-zinc-400">

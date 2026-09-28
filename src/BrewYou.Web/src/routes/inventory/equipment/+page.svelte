@@ -441,7 +441,9 @@
 					<Wrench class="h-5 w-5" />
 				</div>
 				<div>
-					<h1 class="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
+					<h1
+						class="font-editorial text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl dark:text-white"
+					>
 						{t('equipment.title')}
 					</h1>
 					<div class="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
@@ -467,7 +469,7 @@
 					type="button"
 					onclick={openAddModal}
 					data-testid="add-equipment-btn"
-					class="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 text-sm font-bold text-zinc-950 shadow-md transition-all hover:from-amber-400 hover:to-amber-500 active:scale-98"
+					class="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-sm font-bold text-zinc-950 shadow-md transition-all hover:from-amber-400 hover:to-amber-500 active:scale-[0.98]"
 				>
 					<Plus class="h-4 w-4 stroke-[2.5]" />
 					<span>{t('equipment.add_equipment')}</span>
