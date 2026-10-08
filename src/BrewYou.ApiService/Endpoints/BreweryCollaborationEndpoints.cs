@@ -242,6 +242,8 @@ public static class BreweryCollaborationEndpoints
             {
                 BreweryCollaborationAccessResult.Success => Results.Ok(ApiResponse<BrewerySetupDto>.Ok(setup!)),
                 BreweryCollaborationAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Invitation not found.")),
+                BreweryCollaborationAccessResult.Forbidden or BreweryCollaborationAccessResult.EmailMismatch =>
+                    Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "You are not authorized to accept this invitation."), statusCode: StatusCodes.Status403Forbidden),
                 BreweryCollaborationAccessResult.InviteExpired => Results.UnprocessableEntity(ApiResponse.Fail("INVITE_EXPIRED", errorMessage ?? "Invitation has expired.")),
                 BreweryCollaborationAccessResult.AlreadyMember => Results.Conflict(ApiResponse.Fail("ALREADY_MEMBER", errorMessage ?? "You are already a member of this setup.")),
                 _ => Results.BadRequest(ApiResponse.Fail("BAD_REQUEST", errorMessage ?? "Could not accept invitation."))

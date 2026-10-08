@@ -23,7 +23,7 @@ public class MqttConnectivityChecker : IMqttConnectivityChecker
 
             // SSRF Defense: Resolve DNS and validate IP addresses
             var ipAddresses = await Dns.GetHostAddressesAsync(trimmedHost, cancellationToken);
-            if (ipAddresses.Length == 0 || ipAddresses.Any(IsForbiddenAddress))
+            if (ipAddresses.Length == 0 || ipAddresses.Any(ip => NetworkSecurityValidator.IsForbiddenAddress(ip, allowPrivateNetworks: true)))
             {
                 return false;
             }
@@ -55,42 +55,5 @@ public class MqttConnectivityChecker : IMqttConnectivityChecker
         {
             return false;
         }
-    }
-
-    private static bool IsForbiddenAddress(IPAddress address)
-    {
-        if (address.IsIPv4MappedToIPv6)
-        {
-            address = address.MapToIPv4();
-        }
-
-        if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal)
-        {
-            return true;
-        }
-
-        var bytes = address.GetAddressBytes();
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            // Link-local / Cloud metadata: 169.254.0.0/16
-            if (bytes[0] == 169 && bytes[1] == 254)
-            {
-                return true;
-            }
-
-            // Unspecified / 0.0.0.0
-            if (bytes[0] == 0)
-            {
-                return true;
-            }
-
-            // Multicast and Broadcast (>= 224.0.0.0)
-            if (bytes[0] >= 224)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

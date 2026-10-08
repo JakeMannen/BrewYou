@@ -225,13 +225,13 @@ jobs:
                 ASPNETCORE_ENVIRONMENT: Production
                 ASPNETCORE_HTTP_PORTS: "5000"
                 ConnectionStrings__brewyou-db: "Host=postgres;Port=5432;Database=${DB_NAME:-brewyou-db};Username=${DB_USER:-brewyou};Password=${DB_PASSWORD:-brewyou_dev_password}"
-                Jwt__SecretKey: "${JWT_SECRET:-SuperSecretBrewYouKey_AtLeast32BytesLong!}"
+                Jwt__SecretKey: "${JWT_SECRET:?JWT_SECRET must be set for production deployments}"
                 Jwt__Issuer: "BrewYou"
                 Jwt__Audience: "BrewYouApp"
                 Cors__AllowedOrigins__0: "http://localhost:3000"
                 Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
               ports:
-                - "5000:5000"
+                - "127.0.0.1:5000:5000"
               healthcheck:
                 test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/alive || exit 1"]
                 interval: 5s
@@ -251,7 +251,7 @@ jobs:
                 services__apiservice__http__0: "http://apiservice:5000"
                 PUBLIC_API_URL: "http://localhost:5000"
               ports:
-                - "3000:3000"
+                - "127.0.0.1:3000:3000"
               healthcheck:
                 test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
                 interval: 5s

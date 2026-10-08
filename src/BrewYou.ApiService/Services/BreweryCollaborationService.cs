@@ -370,6 +370,22 @@ public class BreweryCollaborationService : IBreweryCollaborationService
             return (BreweryCollaborationAccessResult.NotFound, null, "Associated brewery setup no longer exists.");
         }
 
+        var currentUser = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == currentUserId);
+
+        if (currentUser == null)
+        {
+            return (BreweryCollaborationAccessResult.NotFound, null, "User account not found.");
+        }
+
+        if (string.IsNullOrEmpty(currentUser.Email) ||
+            !string.Equals(currentUser.Email.Trim(), invite.InvitedEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return (BreweryCollaborationAccessResult.EmailMismatch, null,
+                "This invitation was sent to a different email address. Please sign in with the invited email address.");
+        }
+
         if (setup.UserId == currentUserId || setup.Members.Any(m => m.UserId == currentUserId))
         {
             return (BreweryCollaborationAccessResult.AlreadyMember, null, "You are already a member of this brewery setup.");
