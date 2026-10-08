@@ -42,7 +42,7 @@ services:
       Cors__AllowedOrigins__0: "http://localhost:3000"
       Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     networks:
       - brewyou-network
     healthcheck:
@@ -67,7 +67,7 @@ services:
       services__apiservice__http__0: "http://apiservice:5000"
       PUBLIC_API_URL: "http://localhost:5000"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     networks:
       - brewyou-network
     healthcheck:

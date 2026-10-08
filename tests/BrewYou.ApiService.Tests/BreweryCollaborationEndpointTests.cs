@@ -98,7 +98,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task Invitee_CanAcceptInvite_AndAccessSharedSetupAndEquipment()
     {
         var (ownerClient, ownerId, _) = await CreateAuthenticatedUserAsync("Primary Owner");
-        var (friendClient, friendId, _) = await CreateAuthenticatedUserAsync("Co Brewer");
+        var (friendClient, friendId, friendEmail) = await CreateAuthenticatedUserAsync("Co Brewer");
 
         // 1. Owner gets setup
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
@@ -117,7 +117,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
         var createdEquip = (await createEquipRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
 
         // 3. Owner invites friend as Brewer
-        var inviteReq = new InviteMemberRequest("friend@brewyou.test", BreweryRole.Brewer);
+        var inviteReq = new InviteMemberRequest(friendEmail, BreweryRole.Brewer);
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites", inviteReq);
         inviteRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var inviteData = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!;
@@ -157,7 +157,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task ViewerRole_CannotModifyEquipment_AndCannotInviteCollaborators()
     {
         var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("Owner");
-        var (viewerClient, viewerId, _) = await CreateAuthenticatedUserAsync("Observer");
+        var (viewerClient, viewerId, viewerEmail) = await CreateAuthenticatedUserAsync("Observer");
 
         // Owner gets setup
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
@@ -174,7 +174,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
 
         // Owner invites viewer with Viewer role
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("viewer@brewyou.test", BreweryRole.Viewer));
+            new InviteMemberRequest(viewerEmail, BreweryRole.Viewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
 
         // Viewer accepts invite
@@ -213,7 +213,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task NonOwner_CannotRegenerateConnectionToken()
     {
         var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("Owner");
-        var (brewerClient, _, _) = await CreateAuthenticatedUserAsync("Brewer");
+        var (brewerClient, _, brewerEmail) = await CreateAuthenticatedUserAsync("Brewer");
 
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
         var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data![0].Id;
@@ -231,7 +231,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
 
         // Owner invites Brewer
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("brewer@brewyou.test", BreweryRole.Brewer));
+            new InviteMemberRequest(brewerEmail, BreweryRole.Brewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
 
         // Brewer accepts invite
@@ -250,13 +250,13 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task Owner_CanUpdateMemberRole_AndRemoveMember()
     {
         var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("Owner");
-        var (collabClient, collabId, _) = await CreateAuthenticatedUserAsync("Collaborator");
+        var (collabClient, collabId, collabEmail) = await CreateAuthenticatedUserAsync("Collaborator");
 
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
         var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data![0].Id;
 
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("collab@brewyou.test", BreweryRole.Viewer));
+            new InviteMemberRequest(collabEmail, BreweryRole.Viewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
         await collabClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inviteCode));
 
@@ -281,13 +281,13 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task Member_CanLeaveBrewerySetup()
     {
         var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("Owner");
-        var (memberClient, _, _) = await CreateAuthenticatedUserAsync("Member");
+        var (memberClient, _, memberEmail) = await CreateAuthenticatedUserAsync("Member");
 
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
         var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data![0].Id;
 
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("member@brewyou.test", BreweryRole.Brewer));
+            new InviteMemberRequest(memberEmail, BreweryRole.Brewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
         await memberClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inviteCode));
 
@@ -328,7 +328,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task Brewer_CanCreateBatch_UsingSharedSetupEquipment()
     {
         var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("Owner");
-        var (brewerClient, _, _) = await CreateAuthenticatedUserAsync("Brewer");
+        var (brewerClient, _, brewerEmail) = await CreateAuthenticatedUserAsync("Brewer");
 
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
         var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data![0].Id;
@@ -341,7 +341,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
 
         // Owner invites collaborator as Brewer
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("brewer@brewyou.test", BreweryRole.Brewer));
+            new InviteMemberRequest(brewerEmail, BreweryRole.Brewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
         await brewerClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inviteCode));
 
@@ -375,7 +375,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task GuestBrewer_CannotDeleteEquipmentCreatedByOwner()
     {
         var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("Owner");
-        var (brewerClient, _, _) = await CreateAuthenticatedUserAsync("Brewer");
+        var (brewerClient, _, brewerEmail) = await CreateAuthenticatedUserAsync("Brewer");
 
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
         var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data![0].Id;
@@ -387,7 +387,7 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
 
         // Owner invites collaborator as Brewer
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("brewer@brewyou.test", BreweryRole.Brewer));
+            new InviteMemberRequest(brewerEmail, BreweryRole.Brewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
         await brewerClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inviteCode));
 
@@ -400,14 +400,14 @@ public class BreweryCollaborationEndpointTests : IClassFixture<WebApplicationFac
     public async Task Owner_CannotDeletePrimaryOwnerOrLastOwner_AndMembersHaveIsPrimaryOwnerFlag()
     {
         var (ownerClient, ownerId, _) = await CreateAuthenticatedUserAsync("Original Owner");
-        var (friendClient, friendId, _) = await CreateAuthenticatedUserAsync("Invited Friend");
+        var (friendClient, friendId, friendEmail) = await CreateAuthenticatedUserAsync("Invited Friend");
 
         var setupsRes = await ownerClient.GetAsync("/api/v1/brewery-setups");
         var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data![0].Id;
 
         // Owner invites friend as Brewer
         var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setupId}/invites",
-            new InviteMemberRequest("friend@brewyou.test", BreweryRole.Brewer));
+            new InviteMemberRequest(friendEmail, BreweryRole.Brewer));
         var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
         await friendClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inviteCode));
 

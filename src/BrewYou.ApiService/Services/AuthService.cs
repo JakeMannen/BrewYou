@@ -122,7 +122,15 @@ public class AuthService(
 
             if (user != null)
             {
-                // Existing user: Link Google identity to existing account
+                // Existing user: Link Google identity to existing account.
+                // Guard against pre-account-takeover: Google ID tokens guarantee the email is verified (googleUser.EmailVerified == true).
+                // Confirm the email on the existing account to lock in verification.
+                if (!user.EmailConfirmed && googleUser.EmailVerified)
+                {
+                    user.EmailConfirmed = true;
+                    await userManager.UpdateAsync(user);
+                }
+
                 var linkResult = await userManager.AddLoginAsync(user, new UserLoginInfo(provider, providerKey, "Google"));
                 if (!linkResult.Succeeded)
                 {

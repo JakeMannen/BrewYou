@@ -46,5 +46,6 @@ public enum BreweryCollaborationAccessResult
     AlreadyInvited,
     InviteExpired,
     CannotModifyLastOwner,
-    InvalidCode
+    InvalidCode,
+    EmailMismatch
 }

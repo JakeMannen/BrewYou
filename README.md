@@ -188,7 +188,7 @@ The Brewing Calculators Suite provides dedicated, standalone utilities for quick
 
 ### Security & Authentication
 
-BrewYou provides secure identity and session management built on ASP.NET Core security best practices. It supports standard email/password authentication with JWT access and refresh token lifecycles, as well as one-click Google OAuth authentication. Protected user actions use non-disruptive authentication modals, allowing unauthenticated or expired sessions to sign in or register without losing unsaved recipe formulations or current page contexts. The backend enforces strict Content Security Policies (CSP), HTTP Strict Transport Security (HSTS), rate limiting, and CORS isolation.
+BrewYou provides secure identity and session management built on ASP.NET Core security best practices. It supports standard email/password authentication with JWT access and refresh token lifecycles, as well as one-click Google OAuth authentication with verified email association. Protected user actions use non-disruptive authentication modals, allowing unauthenticated or expired sessions to sign in or register without losing unsaved recipe formulations or current page contexts. The backend enforces strict Content Security Policies (CSP), HTTP Strict Transport Security (HSTS), rate limiting, SSRF protection on IoT polling endpoints, and CORS isolation.
 
 #### How to Use
 

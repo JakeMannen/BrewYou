@@ -114,7 +114,8 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
     {
         TelemetryService.ValidatePollUrl("http://169.254.169.254/latest/meta-data/").IsValid.Should().BeFalse();
         TelemetryService.ValidatePollUrl("ftp://example.com/temp").IsValid.Should().BeFalse();
-        TelemetryService.ValidatePollUrl("http://192.168.1.50/status").IsValid.Should().BeTrue();
+        TelemetryService.ValidatePollUrl("http://127.0.0.1:5000/status").IsValid.Should().BeFalse();
+        TelemetryService.ValidatePollUrl("http://192.168.1.50/status").IsValid.Should().BeFalse();
         TelemetryService.ValidatePollUrl("https://api.brewery.test/temp").IsValid.Should().BeTrue();
     }
 

@@ -29,12 +29,12 @@ public class TelemetryService : ITelemetryService
 
     public TelemetryService(
         BrewYouDbContext db,
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         ITelemetryBroadcastService broadcastService,
         ILogger<TelemetryService> logger)
     {
         _db = db;
-        _httpClient = httpClient;
+        _httpClient = httpClientFactory.CreateClient("TelemetryPoller");
         _broadcastService = broadcastService;
         _logger = logger;
     }
@@ -383,10 +383,10 @@ public class TelemetryService : ITelemetryService
             return new TelemetryPollResult(false, null, "Poll URL is required.");
         }
 
-        var ssrfValidation = ValidatePollUrl(targetUrl);
-        if (!ssrfValidation.IsValid)
+        var (isValid, errorMessage, validatedUri) = await NetworkSecurityValidator.ValidateUrlAsync(targetUrl);
+        if (!isValid || validatedUri == null)
         {
-            return new TelemetryPollResult(false, null, ssrfValidation.ErrorMessage);
+            return new TelemetryPollResult(false, null, errorMessage ?? "Invalid or prohibited target URL.");
         }
 
         try
@@ -752,24 +752,7 @@ public class TelemetryService : ITelemetryService
 
     public static (bool IsValid, string? ErrorMessage) ValidatePollUrl(string urlString)
     {
-        if (!Uri.TryCreate(urlString, UriKind.Absolute, out var uri))
-        {
-            return (false, "Invalid URL format.");
-        }
-
-        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-        {
-            return (false, "Only HTTP and HTTPS URLs are allowed.");
-        }
-
-        // SSRF Defense: Block cloud metadata services
-        var host = uri.Host.ToLowerInvariant();
-        if (host == "169.254.169.254" || host == "metadata.google.internal" || host == "100.100.100.200")
-        {
-            return (false, "Access to cloud metadata endpoints is prohibited.");
-        }
-
-        return (true, null);
+        return NetworkSecurityValidator.ValidateUrlFormat(urlString);
     }
 
     public static TemperatureParseResult ParseTemperature(JsonElement root, string? preferredPath = null)

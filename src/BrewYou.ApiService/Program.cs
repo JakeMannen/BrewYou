@@ -49,14 +49,33 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 // JWT Authentication & Token Service
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 var jwtSecret = builder.Configuration["Jwt:SecretKey"];
+const string KnownDevelopmentSecret = "SuperSecretBrewYouKey_AtLeast32BytesLong!";
+
 if (string.IsNullOrEmpty(jwtSecret))
 {
     if (!builder.Environment.IsDevelopment())
     {
         throw new InvalidOperationException("Fatal security error: Jwt:SecretKey must be configured in non-development environments.");
     }
-    jwtSecret = "SuperSecretBrewYouKey_AtLeast32BytesLong!";
+    jwtSecret = KnownDevelopmentSecret;
 }
+else if (!builder.Environment.IsDevelopment() && string.Equals(jwtSecret, KnownDevelopmentSecret, StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Fatal security error: The default development JWT secret must not be used in non-development environments.");
+}
+
+if (Encoding.UTF8.GetByteCount(jwtSecret) < 32)
+{
+    throw new InvalidOperationException("Fatal security error: Jwt:SecretKey must be at least 256 bits (32 bytes) long.");
+}
+
+builder.Services.PostConfigure<JwtOptions>(options =>
+{
+    if (string.IsNullOrEmpty(options.SecretKey))
+    {
+        options.SecretKey = jwtSecret;
+    }
+});
 
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "BrewYou";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "BrewYouApp";
@@ -95,6 +114,16 @@ builder.Services.AddScoped<IBrewerySetupService, BrewerySetupService>();
 builder.Services.AddScoped<IBreweryCollaborationService, BreweryCollaborationService>();
 builder.Services.AddScoped<IBatchService, BatchService>();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("TelemetryPoller", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+    client.MaxResponseContentBufferSize = 64 * 1024; // 64 KB limit to prevent response amplification DoS
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false, // Critical SSRF defense: Prevent following redirects to internal targets
+    ConnectTimeout = TimeSpan.FromSeconds(3)
+});
 builder.Services.AddSingleton<ITelemetryBroadcastService, TelemetryBroadcastService>();
 builder.Services.AddSingleton<IMqttConnectivityChecker, MqttConnectivityChecker>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
