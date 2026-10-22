@@ -43,9 +43,16 @@ public class ApplicationUser : IdentityUser
     public string PreferredLanguage { get; set; } = "en";
     public VolumeUnit PreferredVolumeUnit { get; set; } = VolumeUnit.Liters;
     public WeightUnit PreferredWeightUnit { get; set; } = WeightUnit.Metric;
+    public string? PreferredGrainWeightUnit { get; set; }
+    public string? PreferredHopWeightUnit { get; set; }
+    public string? PreferredColorUnit { get; set; } = "SRM";
+    public string? PreferredCarbonationUnit { get; set; } = "Volumes";
     public TemperatureUnit PreferredTemperatureUnit { get; set; } = TemperatureUnit.Celsius;
     public GravityUnit PreferredGravityUnit { get; set; } = GravityUnit.SpecificGravity;
     public ThemePreference PreferredTheme { get; set; } = ThemePreference.ImperialStout;
+    public string? PreferredBitternessFormula { get; set; } = "Tinseth";
+    public string? PreferredColorFormula { get; set; } = "Morey";
+    public string? PreferredAbvFormula { get; set; } = "Linear";
     public decimal DefaultBatchSizeLiters { get; set; } = 20.0m;
     public decimal DefaultEfficiencyPercent { get; set; } = 75.0m;
     public int DefaultBoilTimeMinutes { get; set; } = 60;

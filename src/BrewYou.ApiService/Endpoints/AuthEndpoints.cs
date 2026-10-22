@@ -30,7 +30,14 @@ public record UserPreferencesDto(
     string? MqttPassword = null,
     string? MqttCertificate = null,
     bool HasMqttPassword = false,
-    string? MqttTopicPrefix = "brewyou/equipment");
+    string? MqttTopicPrefix = "brewyou/equipment",
+    string? GrainWeightUnit = null,
+    string? HopWeightUnit = null,
+    string? ColorUnit = "SRM",
+    string? CarbonationUnit = "Volumes",
+    string? BitternessFormula = "Tinseth",
+    string? ColorFormula = "Morey",
+    string? AbvFormula = "Linear");
 
 public record UpdateUserPreferencesRequest(
     string? Language = null,
@@ -47,7 +54,14 @@ public record UpdateUserPreferencesRequest(
     string? MqttUsername = null,
     string? MqttPassword = null,
     string? MqttCertificate = null,
-    string? MqttTopicPrefix = null);
+    string? MqttTopicPrefix = null,
+    string? GrainWeightUnit = null,
+    string? HopWeightUnit = null,
+    string? ColorUnit = null,
+    string? CarbonationUnit = null,
+    string? BitternessFormula = null,
+    string? ColorFormula = null,
+    string? AbvFormula = null);
 
 public record UpdateProfileRequest(string DisplayName);
 

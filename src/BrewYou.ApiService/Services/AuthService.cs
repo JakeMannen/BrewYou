@@ -272,6 +272,49 @@ public class AuthService(
         if (request.WeightUnit.HasValue)
         {
             user.PreferredWeightUnit = request.WeightUnit.Value;
+            if (string.IsNullOrWhiteSpace(request.GrainWeightUnit))
+            {
+                user.PreferredGrainWeightUnit = request.WeightUnit.Value == WeightUnit.Imperial ? "lb" : "kg";
+            }
+            if (string.IsNullOrWhiteSpace(request.HopWeightUnit))
+            {
+                user.PreferredHopWeightUnit = request.WeightUnit.Value == WeightUnit.Imperial ? "oz" : "g";
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.GrainWeightUnit))
+        {
+            user.PreferredGrainWeightUnit = request.GrainWeightUnit.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.HopWeightUnit))
+        {
+            user.PreferredHopWeightUnit = request.HopWeightUnit.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ColorUnit))
+        {
+            user.PreferredColorUnit = request.ColorUnit.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CarbonationUnit))
+        {
+            user.PreferredCarbonationUnit = request.CarbonationUnit.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BitternessFormula))
+        {
+            user.PreferredBitternessFormula = request.BitternessFormula.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ColorFormula))
+        {
+            user.PreferredColorFormula = request.ColorFormula.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.AbvFormula))
+        {
+            user.PreferredAbvFormula = request.AbvFormula.Trim();
         }
 
         if (request.TemperatureUnit.HasValue)
@@ -425,7 +468,14 @@ public class AuthService(
             MqttPassword: null,
             user.MqttCertificate,
             HasMqttPassword: !string.IsNullOrEmpty(user.MqttPassword),
-            MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment"
+            MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment",
+            GrainWeightUnit: user.PreferredGrainWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "lb" : "kg"),
+            HopWeightUnit: user.PreferredHopWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "oz" : "g"),
+            ColorUnit: user.PreferredColorUnit ?? "SRM",
+            CarbonationUnit: user.PreferredCarbonationUnit ?? "Volumes",
+            BitternessFormula: user.PreferredBitternessFormula ?? "Tinseth",
+            ColorFormula: user.PreferredColorFormula ?? "Morey",
+            AbvFormula: user.PreferredAbvFormula ?? "Linear"
         );
 
         return new UserDto(

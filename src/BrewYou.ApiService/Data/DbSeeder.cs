@@ -13,6 +13,19 @@ public static class DbSeeder
         await _seedLock.WaitAsync();
         try
         {
+            if (db.Database.IsRelational())
+            {
+                await db.Database.ExecuteSqlRawAsync("""
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredGrainWeightUnit" character varying(10);
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredHopWeightUnit" character varying(10);
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredColorUnit" character varying(10) DEFAULT 'SRM';
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredCarbonationUnit" character varying(20) DEFAULT 'Volumes';
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredBitternessFormula" character varying(20) DEFAULT 'Tinseth';
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredColorFormula" character varying(20) DEFAULT 'Morey';
+                    ALTER TABLE "AspNetUsers" ADD COLUMN IF NOT EXISTS "PreferredAbvFormula" character varying(20) DEFAULT 'Linear';
+                    """);
+            }
+
             var catalogIngredients = GetDefaultCatalogIngredients();
             var existingNames = await db.Ingredients
                 .Where(i => i.IsCatalogItem)

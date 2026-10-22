@@ -1,4 +1,5 @@
 using BrewYou.ApiService.Auth;
+using BrewYou.ApiService.Backup.Versioning;
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
@@ -113,6 +114,10 @@ builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 builder.Services.AddScoped<IBrewerySetupService, BrewerySetupService>();
 builder.Services.AddScoped<IBreweryCollaborationService, BreweryCollaborationService>();
 builder.Services.AddScoped<IBatchService, BatchService>();
+builder.Services.AddSingleton<IBackupSchemaMigrator, V0ToV1BackupMigrator>();
+builder.Services.AddSingleton<IBackupSchemaMigrator, V1ToV2BackupMigrator>();
+builder.Services.AddSingleton<BackupMigrationPipeline>();
+builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("TelemetryPoller", client =>
 {
@@ -258,6 +263,7 @@ app.MapEquipmentEndpoints();
 app.MapBrewerySetupEndpoints();
 app.MapBreweryCollaborationEndpoints();
 app.MapBatchEndpoints();
+app.MapBackupEndpoints().RequireRateLimiting("auth-rate-limit");
 app.MapTelemetryEndpoints().RequireRateLimiting("telemetry-rate-limit");
 
 // Seed initial database catalog

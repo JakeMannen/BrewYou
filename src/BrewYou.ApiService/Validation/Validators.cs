@@ -1,3 +1,4 @@
+using BrewYou.ApiService.Backup.Models;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Services;
@@ -584,6 +585,13 @@ public class UpdateVolumeUnitRequestValidator : AbstractValidator<UpdateVolumeUn
 public class UpdateUserPreferencesRequestValidator : AbstractValidator<UpdateUserPreferencesRequest>
 {
     private static readonly string[] ValidLanguages = ["en", "sv", "de", "fr", "es"];
+    private static readonly string[] ValidGrainWeightUnits = ["kg", "lb"];
+    private static readonly string[] ValidHopWeightUnits = ["g", "oz"];
+    private static readonly string[] ValidColorUnits = ["SRM", "EBC"];
+    private static readonly string[] ValidCarbonationUnits = ["Volumes", "GramsPerLiter"];
+    private static readonly string[] ValidBitternessFormulas = ["Tinseth", "Rager", "Daniels"];
+    private static readonly string[] ValidColorFormulas = ["Morey", "Mosher", "Daniels"];
+    private static readonly string[] ValidAbvFormulas = ["Linear", "Advanced"];
 
     public UpdateUserPreferencesRequestValidator()
     {
@@ -671,6 +679,41 @@ public class UpdateUserPreferencesRequestValidator : AbstractValidator<UpdateUse
             .Must(prefix => prefix == null || (!prefix.Contains('+') && !prefix.Contains('#') && !prefix.Contains('$') && !prefix.Contains('\0')))
             .When(x => !string.IsNullOrEmpty(x.MqttTopicPrefix))
             .WithMessage("MQTT topic prefix cannot contain wildcards ('+', '#') or '$'.");
+
+        RuleFor(x => x.GrainWeightUnit)
+            .Must(u => ValidGrainWeightUnits.Contains(u!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.GrainWeightUnit))
+            .WithMessage("Grain weight unit must be 'kg' or 'lb'.");
+
+        RuleFor(x => x.HopWeightUnit)
+            .Must(u => ValidHopWeightUnits.Contains(u!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.HopWeightUnit))
+            .WithMessage("Hop weight unit must be 'g' or 'oz'.");
+
+        RuleFor(x => x.ColorUnit)
+            .Must(u => ValidColorUnits.Contains(u!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.ColorUnit))
+            .WithMessage("Color unit must be 'SRM' or 'EBC'.");
+
+        RuleFor(x => x.CarbonationUnit)
+            .Must(u => ValidCarbonationUnits.Contains(u!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.CarbonationUnit))
+            .WithMessage("Carbonation unit must be 'Volumes' or 'GramsPerLiter'.");
+
+        RuleFor(x => x.BitternessFormula)
+            .Must(f => ValidBitternessFormulas.Contains(f!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.BitternessFormula))
+            .WithMessage("Bitterness formula must be 'Tinseth', 'Rager', or 'Daniels'.");
+
+        RuleFor(x => x.ColorFormula)
+            .Must(f => ValidColorFormulas.Contains(f!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.ColorFormula))
+            .WithMessage("Color formula must be 'Morey', 'Mosher', or 'Daniels'.");
+
+        RuleFor(x => x.AbvFormula)
+            .Must(f => ValidAbvFormulas.Contains(f!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.AbvFormula))
+            .WithMessage("ABV formula must be 'Linear' or 'Advanced'.");
     }
 }
 
@@ -1100,5 +1143,43 @@ public class AcceptInviteRequestValidator : AbstractValidator<AcceptInviteReques
         RuleFor(x => x.Code)
             .NotEmpty().WithMessage("Invitation code is required.")
             .MaximumLength(128).WithMessage("Invitation code cannot exceed 128 characters.");
+    }
+}
+
+public class ExportBackupRequestValidator : AbstractValidator<ExportBackupRequest>
+{
+    public ExportBackupRequestValidator()
+    {
+        RuleFor(x => x.Passphrase)
+            .NotEmpty().WithMessage("A passphrase of at least 8 characters is required when exporting encrypted secrets.")
+            .MinimumLength(8).WithMessage("Backup passphrase must be at least 8 characters long.")
+            .MaximumLength(255).WithMessage("Backup passphrase cannot exceed 255 characters.")
+            .When(x => x.IncludeSecrets);
+    }
+}
+
+public class PreviewRestoreRequestValidator : AbstractValidator<PreviewRestoreRequest>
+{
+    public PreviewRestoreRequestValidator()
+    {
+        RuleFor(x => x.Backup)
+            .NotNull().WithMessage("Backup envelope is required.");
+
+        RuleFor(x => x.Backup.Format)
+            .NotEmpty().WithMessage("Backup format identifier is required.")
+            .When(x => x.Backup != null);
+    }
+}
+
+public class ExecuteRestoreRequestValidator : AbstractValidator<ExecuteRestoreRequest>
+{
+    public ExecuteRestoreRequestValidator()
+    {
+        RuleFor(x => x.Backup)
+            .NotNull().WithMessage("Backup envelope is required.");
+
+        RuleFor(x => x.Backup.Format)
+            .NotEmpty().WithMessage("Backup format identifier is required.")
+            .When(x => x.Backup != null);
     }
 }
