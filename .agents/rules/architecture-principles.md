@@ -54,3 +54,14 @@ Core design standards for fullstack development in the BrewYou project, curated 
 - **Strict Invariant**: The BrewYou project is, and will permanently remain, a **100% free and open** craft brewing platform.
 - **Prohibited Concepts**: NEVER introduce Pro, Premium, Paid, Subscription, Tiered, Paywalled, Monetization, or Billing concepts, badges, gating, features, database models, or endpoints into BrewYou.
 - All brewing features (recipe formulation, BJCP styles, inventory management, fermentation logging, gauges, calculators, batch management) are universally and unconditionally accessible to every user without restrictions or tier differentiation.
+
+---
+
+## 6. User Backup & Restore Backwards Compatibility
+
+- **Mandatory Coverage on New Features**: Any new feature that introduces or modifies user-owned domain entities, child records, user preferences/settings, hardware/IoT configurations, or collaboration links must concurrently update the User Backup & Restore pipeline (`BackupContracts.cs`, `BackupService.cs`, and frontend `api.ts`).
+- **Backwards-Compatible Schema Evolution**:
+  - Backups created on any earlier version of BrewYou must always remain restorable on newer versions.
+  - Additive fields on backup DTOs must be optional/nullable and fall back to safe domain defaults when absent in older backup payloads.
+  - Structural, renamed, or split fields require incrementing `BackupSchemaConstants.CurrentSchemaVersion` and registering a deterministic `IBackupSchemaMigration` step (`vN -> vN+1`) in `BackupMigrationPipeline.cs`.
+- **Zero-Plaintext Secret Invariant**: Any newly introduced secret or credential must be protected with `BackupSecretProtector` (PBKDF2-SHA256 + AES-256-GCM) when `includeSecrets` is enabled and redacted otherwise.

@@ -24,7 +24,7 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 | **New or modified API endpoints, DTO changes, schema updates** | `api-contract-sync` | [api-contract-reviewer.md](.agents/api-contract-reviewer.md) | **MUST** verify synchronization between backend C# DTOs and frontend TypeScript types. |
 | **Cross-cutting system design, database modeling, tier boundaries** | `architecture-review` | [software-architect.md](.agents/software-architect.md) | **MUST** conduct architectural review and produce an implementation plan before making modifications. |
 | **Aspire AppHost, container orchestration, service discovery** | `aspire` / `aspire-orchestration` | [software-architect.md](.agents/software-architect.md) | **MUST** check Aspire configuration parity with `docker-compose.yml`. |
-| **Database schema migrations, seed data changes** | `db-migrate` | [backend-developer.md](.agents/backend-developer.md) | **MUST** follow migration safe-practices and rollback verification. |
+| **Database schema migrations, seed data changes, user-scoped domain models** | `db-migrate` | [backend-developer.md](.agents/backend-developer.md) | **MUST** follow migration safe-practices, rollback verification, and update User Backup & Restore (`BackupContracts`, `BackupMigrationPipeline`, `BackupService`) to preserve backwards compatibility. |
 | **Designing test suites, integration tests, mock harnesses** | `build-and-test` | [test-architect.md](.agents/test-architect.md) | **MUST** ensure test coverage meets project quality standards. |
 | **Authentication, authorization, tokens, secrets, security headers** | — | [cybersecurity-expert.md](.agents/cybersecurity-expert.md) | **MUST** perform OWASP threat-check on new inputs/endpoints. |
 
@@ -96,6 +96,16 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 
 - **Strict Rule**: The root [README.md](README.md) must be kept up to date whenever new features, endpoints, configuration options, or architectural changes are introduced.
 
+### J. Mandatory User Backup & Restore Backwards Compatibility
+
+- **Strict Rule**: Whenever a new feature adds or modifies user-scoped entities, child collections, user preferences/settings, equipment/IoT configurations, or collaboration structures, the User Backup & Restore system **MUST** be updated in lockstep while preserving full backwards compatibility with backups created on older versions.
+- **Complete Backup Coverage**: Update [BackupContracts.cs](src/BrewYou.ApiService/Backup/Models/BackupContracts.cs), [BackupService.cs](src/BrewYou.ApiService/Services/BackupService.cs), and [api.ts](src/BrewYou.Web/src/lib/types/api.ts) so new user-owned data and preferences are exported, previewed, and restored across all conflict resolution modes (`MergeSkipExisting`, `MergeOverwriteExisting`, `ReplaceAll`).
+- **Backwards-Compatible Schema Evolution**:
+  - New properties on existing backup DTOs **must** be optional/nullable with safe domain defaults so older `.brewyou.json` files missing those properties deserialize and restore without errors.
+  - When renaming, splitting, or restructuring backup fields or introducing breaking schema changes, increment `BackupSchemaConstants.CurrentSchemaVersion` and add a sequential `IBackupSchemaMigration` upcaster step (`FromVersion -> ToVersion`) in [BackupMigrationPipeline.cs](src/BrewYou.ApiService/Backup/Versioning/BackupMigrationPipeline.cs).
+- **Zero-Plaintext Secret Protection**: Any new credentials, tokens, or passwords added to user settings or equipment **must** be encrypted via [BackupSecretProtector.cs](src/BrewYou.ApiService/Backup/Security/BackupSecretProtector.cs) and never exported in plaintext.
+- **Mandatory Regression Testing**: Extend [BackupEndpointsTests.cs](tests/BrewYou.ApiService.Tests/BackupEndpointsTests.cs) to verify both round-trip export/restore of the new feature data and backwards-compatible restoration of legacy schema versions (`v0`, `v1`, `v2`, etc.) onto the current version.
+
 ---
 
 ## 4. References
@@ -110,7 +120,8 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 1. Verify linting, static analysis, and `.editorconfig` compliance across touched files (zero errors/warnings).
 2. Run relevant unit and integration test suites.
 3. Confirm contract alignment across frontend and backend.
-4. Verify full i18n key parity across `en.json` and `sv.json`.
-5. Verify container configuration parity (`docker compose config`).
-6. Confirm that [README.md](README.md) reflects any new capabilities, endpoints, or setup instructions introduced.
-7. Present a concise summary of changes and verification results.
+4. Verify User Backup & Restore coverage and backwards compatibility (`BackupEndpointsTests`) when user-scoped models or settings are touched.
+5. Verify full i18n key parity across `en.json` and `sv.json` (and all supported locales).
+6. Verify container configuration parity (`docker compose config`).
+7. Confirm that [README.md](README.md) reflects any new capabilities, endpoints, or setup instructions introduced.
+8. Present a concise summary of changes and verification results.

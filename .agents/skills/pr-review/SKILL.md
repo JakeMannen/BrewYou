@@ -47,8 +47,9 @@ Evaluate the PR against the following dimensions:
 4. **Security & Secrets**:
    - Are any passwords, tokens, API keys, or `.env` files present in the diff?
    - Are user inputs sanitized and parameterized?
-5. **Test Coverage**:
+5. **Test Coverage & Backup Backwards Compatibility**:
    - Is every new feature covered by automated unit and/or integration tests?
+   - If user-scoped models, child collections, or preferences were added or modified, is User Backup & Restore (`BackupContracts.cs`, `BackupMigrationPipeline.cs`, `BackupService.cs`, `BackupEndpointsTests.cs`) updated while preserving backwards compatibility with older backup versions?
    - Do all tests pass deterministically?
 6. **Git Hygiene**:
    - Are commits conventional and cleanly scoped (`feat(frontend): ...`, `fix(backend): ...`)?

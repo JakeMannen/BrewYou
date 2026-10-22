@@ -28,6 +28,7 @@ BrewYou is strictly open-source craft brewing software: **all features are unive
    - [IoT Telemetry & Real-Time Monitoring](#iot-telemetry--real-time-monitoring)
    - [Brewing Calculators Suite](#brewing-calculators-suite)
    - [Security & Authentication](#security--authentication)
+   - [User Backup & Restore](#user-backup--restore)
    - [Internationalization (i18n) & Personalization](#internationalization-i18n--personalization)
 2. [Technology Stack](#technology-stack)
 3. [Prerequisites](#prerequisites)
@@ -195,6 +196,24 @@ BrewYou provides secure identity and session management built on ASP.NET Core se
 1. **Create an Account or Sign In**: Click **Sign In** or **Register** in the navigation header, or use **Continue with Google** for single-click OAuth.
 2. **In-Flow Authentication**: If you attempt to save a recipe, start a batch, or modify settings while signed out, the authentication modal appears automatically. Complete login to continue your action without losing draft data or navigating away.
 3. **Manage Security**: Under **Settings ➔ Security**, update your password, review active token sessions, or link external authentication providers.
+
+### User Backup & Restore
+
+BrewYou provides a complete, self-contained **User Backup & Restore** system (`brewyou.user-backup` `.brewyou.json`) designed for data portability, server migrations, and long-term archival:
+
+- **Comprehensive Domain Coverage**: Exports and restores personal and shared brewery setups, equipment vessels and sensors, custom user-defined ingredients, pantry stock, recipes (with full ingredient snapshots, mash steps, and fermentation schedules), batches (with volume profiles, stage history, gravity/temperature logs, and sensor assignments), and optional historical equipment telemetry readings.
+- **Granular Preferences & Connectivity**: Preserves theme, language (`en`, `sv`, `de`, `fr`, `es`), decoupled measurement units (volume, grain weight `kg`/`lb`, hop weight `g`/`oz`, color `SRM`/`EBC`, carbonation `Volumes`/`GramsPerLiter`, temperature, gravity), calculation formulas (IBU, SRM, ABV), default brewing parameters, and MQTT/IoT connectivity settings.
+- **Zero-Plaintext Secret Protection**: Sensitive credentials (MQTT broker passwords, HTTP webhook connection tokens, and polling passwords) are never exported in plaintext. Users can optionally provide a backup passphrase to encrypt secrets using **PBKDF2-SHA256 (600,000 iterations) + AES-256-GCM**, or omit secrets so clean tokens can be regenerated on restore.
+- **Collaboration & Shared Setups**: Exports collaborator memberships and pending invites on owned setups, as well as snapshots of shared setups where the user is a collaborator (`Owner`, `Brewer`, or `Viewer`) and external community recipes referenced by the user's batches. On restore, if a shared setup no longer exists on the target server, BrewYou can recreate it as a personal setup or fall back to the default rig; collaborators can be re-linked or issued fresh pending invitations.
+- **Backwards-Compatible Versioned Migration Pipeline**: Every backup file carries an explicit `schemaVersion` and undergoes a deterministic sequential migration pipeline (`v0 ➔ v1 ➔ v2 ➔ current`) with tolerant JSON deserialization before preview or restore, guaranteeing older backups always restore cleanly on newer versions of BrewYou.
+- **Two-Step Dry-Run Preview & Transactional Restore**: Before modifying any database records, the dry-run preview analyzer reports exact creation, update, and skip counts along with conflict resolution options (*Skip Existing*, *Overwrite Existing*, or *Replace All*).
+
+#### How to Use
+
+1. **Open Backup & Restore**: Navigate to **Settings ➔ Backup & Restore** (`/settings?tab=backup`).
+2. **Export a Backup**: Choose whether to include historical equipment telemetry readings and whether to encrypt MQTT/webhook secrets with a passphrase, then click **Download Backup (.brewyou.json)**.
+3. **Preview a Restore**: Upload a `.brewyou.json` file to run an automatic non-destructive dry-run preview showing the backup's schema version, migration notes, and item-by-item action counts.
+4. **Configure & Execute Restore**: Select your conflict resolution strategy (*Keep existing*, *Overwrite existing*, or *Replace all*) and collaboration handling mode, enter your backup passphrase if secrets were encrypted, and click **Execute Restore**.
 
 ### Internationalization (i18n) & Personalization
 
@@ -426,6 +445,7 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 | **Telemetry** | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream` | IoT ingestion webhook & SSE telemetry stream |
 | **Recipes** | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}` | Recipe formulations, BJCP metrics, BeerXML/BeerJSON |
 | **Batches** | `GET/POST /api/v1/batches`, `POST /api/v1/batches/{id}/advance-stage` | 10-stage brew lifecycle, mash/boil logs, attenuation |
+| **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore |
 
 ---
 
@@ -495,6 +515,7 @@ BrewYou/
 │   ├── BrewYou.AppHost/          # .NET Aspire 13.5 AppHost orchestration project
 │   ├── BrewYou.ApiService/       # ASP.NET Core Minimal API backend & domain logic
 │   │   ├── Auth/                 # JWT & Google OAuth authentication services
+│   │   ├── Backup/               # User backup DTOs, versioned migration pipeline, and AES-GCM secret protection
 │   │   ├── Common/               # Uniform API envelopes & pagination models
 │   │   ├── Data/                 # EF Core DbContext, entities, and DB seed catalog
 │   │   ├── Endpoints/            # Route groups (Auth, Batch, Equipment, Recipe, etc.)
@@ -529,7 +550,8 @@ This repository adheres to strict architectural and engineering standards detail
 3. **Strict Formatting Compliance**: Zero warnings or errors on `dotnet format --verify-no-changes` and `npm run lint`.
 4. **Mandatory Test Coverage**: All new features and endpoints must include automated tests.
 5. **Full i18n Key Parity**: User-visible strings must be localized using `t(...)` with identical keys across all dictionaries (`en.json`, `sv.json`, `de.json`, `fr.json`, `es.json`).
-6. **Documentation Synchronization**: This [README.md](README.md) must be updated whenever new features, endpoints, or setup instructions are introduced.
+6. **Backup & Restore Backwards Compatibility**: Any new feature that introduces or modifies user-scoped entities, child collections, preferences, or collaboration settings must update User Backup & Restore (`BackupContracts.cs`, `BackupMigrationPipeline.cs`, `BackupService.cs`) and maintain full backwards compatibility with backups created on older versions.
+7. **Documentation Synchronization**: This [README.md](README.md) must be updated whenever new features, endpoints, or setup instructions are introduced.
 
 ---
 
