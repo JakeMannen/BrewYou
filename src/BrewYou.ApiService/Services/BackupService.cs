@@ -552,895 +552,903 @@ public class BackupService : IBackupService
             return (false, null, "INVALID_PASSPHRASE", "The provided backup passphrase is incorrect.");
         }
 
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
-        if (user == null)
+        foreach (var note in migrationNotes)
         {
-            return (false, null, "USER_NOT_FOUND", "Authenticated user profile was not found.");
+            warnings.Add(note);
         }
 
-        await using var transaction = _db.Database.IsRelational()
-            ? await _db.Database.BeginTransactionAsync()
-            : null;
-
-        try
+        var executionStrategy = _db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync<(bool Succeeded, RestoreResultDto? Result, string? ErrorCode, string? ErrorMessage)>(async () =>
         {
-            foreach (var note in migrationNotes)
+            _db.ChangeTracker.Clear();
+
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
             {
-                warnings.Add(note);
+                return (false, null, "USER_NOT_FOUND", "Authenticated user profile was not found.");
             }
 
-            int setupsCreated = 0, setupsUpdated = 0, setupsSkipped = 0;
-            int eqCreated = 0, eqUpdated = 0, eqSkipped = 0;
-            int ingCreated = 0, ingUpdated = 0, ingSkipped = 0;
-            int stocksUpserted = 0;
-            int recipesCreated = 0, recipesUpdated = 0, recipesSkipped = 0;
-            int batchesCreated = 0, batchesUpdated = 0, batchesSkipped = 0;
-            int readingsRestored = 0;
-            int collaboratorsRestored = 0;
-            var generatedInvites = new List<RestoredInviteInfoDto>();
+            await using var transaction = _db.Database.IsRelational()
+                ? await _db.Database.BeginTransactionAsync()
+                : null;
 
-            // Handle ReplaceAll clean-slate mode
-            if (options.ConflictResolution == RestoreConflictResolutionMode.ReplaceAll)
+            try
             {
-                await ExecuteReplaceAllCleanupAsync(userId);
-            }
+                int setupsCreated = 0, setupsUpdated = 0, setupsSkipped = 0;
+                int eqCreated = 0, eqUpdated = 0, eqSkipped = 0;
+                int ingCreated = 0, ingUpdated = 0, ingSkipped = 0;
+                int stocksUpserted = 0;
+                int recipesCreated = 0, recipesUpdated = 0, recipesSkipped = 0;
+                int batchesCreated = 0, batchesUpdated = 0, batchesSkipped = 0;
+                int readingsRestored = 0;
+                int collaboratorsRestored = 0;
+                var generatedInvites = new List<RestoredInviteInfoDto>();
 
-            // 1. Restore User Settings
-            bool settingsRestored = false;
-            if (options.RestoreUserSettings && payload.UserSettings != null)
-            {
-                ApplyUserSettings(user, payload.UserSettings, encryptionKey, warnings);
-                settingsRestored = true;
-            }
-
-            // ID Translation Maps (Archive Guid -> Target Database Guid)
-            var setupIdMap = new Dictionary<Guid, Guid>();
-            var equipmentIdMap = new Dictionary<Guid, Guid>();
-            var ingredientIdMap = new Dictionary<Guid, Guid>();
-            var recipeIdMap = new Dictionary<Guid, Guid>();
-            var batchIdMap = new Dictionary<Guid, Guid>();
-            var batchMashStepIdMap = new Dictionary<Guid, Guid>();
-
-            // 2. Restore Custom Ingredients
-            var catalogIngredients = await _db.Ingredients
-                .Where(i => i.IsCatalogItem)
-                .ToListAsync();
-
-            var userCustomIngredients = await _db.Ingredients
-                .Where(i => !i.IsCatalogItem && i.CreatedByUserId == userId)
-                .ToListAsync();
-
-            foreach (var customDto in payload.CustomIngredients)
-            {
-                var normName = customDto.Name.Trim();
-                if (string.IsNullOrEmpty(normName)) continue;
-
-                var existing = userCustomIngredients.FirstOrDefault(i =>
-                    i.Id == customDto.Id ||
-                    (string.Equals(i.Name, normName, StringComparison.OrdinalIgnoreCase) && i.Type == customDto.Type));
-
-                if (existing != null)
+                // Handle ReplaceAll clean-slate mode
+                if (options.ConflictResolution == RestoreConflictResolutionMode.ReplaceAll)
                 {
-                    ingredientIdMap[customDto.Id] = existing.Id;
-                    if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                    await ExecuteReplaceAllCleanupAsync(userId);
+                }
+
+                // 1. Restore User Settings
+                bool settingsRestored = false;
+                if (options.RestoreUserSettings && payload.UserSettings != null)
+                {
+                    ApplyUserSettings(user, payload.UserSettings, encryptionKey, warnings);
+                    settingsRestored = true;
+                }
+
+                // ID Translation Maps (Archive Guid -> Target Database Guid)
+                var setupIdMap = new Dictionary<Guid, Guid>();
+                var equipmentIdMap = new Dictionary<Guid, Guid>();
+                var ingredientIdMap = new Dictionary<Guid, Guid>();
+                var recipeIdMap = new Dictionary<Guid, Guid>();
+                var batchIdMap = new Dictionary<Guid, Guid>();
+                var batchMashStepIdMap = new Dictionary<Guid, Guid>();
+
+                // 2. Restore Custom Ingredients
+                var catalogIngredients = await _db.Ingredients
+                    .Where(i => i.IsCatalogItem)
+                    .ToListAsync();
+
+                var userCustomIngredients = await _db.Ingredients
+                    .Where(i => !i.IsCatalogItem && i.CreatedByUserId == userId)
+                    .ToListAsync();
+
+                foreach (var customDto in payload.CustomIngredients)
+                {
+                    var normName = customDto.Name.Trim();
+                    if (string.IsNullOrEmpty(normName)) continue;
+
+                    var existing = userCustomIngredients.FirstOrDefault(i =>
+                        i.Id == customDto.Id ||
+                        (string.Equals(i.Name, normName, StringComparison.OrdinalIgnoreCase) && i.Type == customDto.Type));
+
+                    if (existing != null)
                     {
-                        existing.Name = normName;
-                        existing.PotentialGravity = customDto.PotentialGravity;
-                        existing.ColorSrm = customDto.ColorSrm;
-                        existing.AlphaAcidPercent = customDto.AlphaAcidPercent;
-                        existing.AttenuationPercent = customDto.AttenuationPercent;
-                        existing.Form = customDto.Form;
-                        existing.Description = customDto.Description;
-                        ingUpdated++;
-                    }
-                    else
-                    {
-                        ingSkipped++;
-                    }
-                }
-                else
-                {
-                    var idConflict = await _db.Ingredients.AnyAsync(i => i.Id == customDto.Id);
-                    var newIngredient = new Ingredient
-                    {
-                        Id = idConflict ? Guid.NewGuid() : customDto.Id,
-                        Name = normName,
-                        Type = customDto.Type,
-                        PotentialGravity = customDto.PotentialGravity,
-                        ColorSrm = customDto.ColorSrm,
-                        AlphaAcidPercent = customDto.AlphaAcidPercent,
-                        AttenuationPercent = customDto.AttenuationPercent,
-                        Form = customDto.Form,
-                        Description = customDto.Description,
-                        IsCatalogItem = false,
-                        CreatedByUserId = userId,
-                        CreatedAt = customDto.CreatedAt == default ? DateTime.UtcNow : customDto.CreatedAt
-                    };
-                    _db.Ingredients.Add(newIngredient);
-                    userCustomIngredients.Add(newIngredient);
-                    ingredientIdMap[customDto.Id] = newIngredient.Id;
-                    ingCreated++;
-                }
-            }
-
-            await _db.SaveChangesAsync();
-
-            async Task<Guid> ResolveIngredientAsync(
-                Guid archiveIngredientId,
-                string ingredientName,
-                IngredientType ingredientType,
-                IngredientSnapshotDto? snapshot)
-            {
-                if (ingredientIdMap.TryGetValue(archiveIngredientId, out var mappedId))
-                {
-                    return mappedId;
-                }
-
-                var byCatalogId = catalogIngredients.FirstOrDefault(i => i.Id == archiveIngredientId);
-                if (byCatalogId != null)
-                {
-                    ingredientIdMap[archiveIngredientId] = byCatalogId.Id;
-                    return byCatalogId.Id;
-                }
-
-                var byCustomId = userCustomIngredients.FirstOrDefault(i => i.Id == archiveIngredientId);
-                if (byCustomId != null)
-                {
-                    ingredientIdMap[archiveIngredientId] = byCustomId.Id;
-                    return byCustomId.Id;
-                }
-
-                var cleanName = (snapshot?.Name ?? ingredientName).Trim();
-                var targetType = snapshot?.Type ?? ingredientType;
-
-                var byCatalogName = catalogIngredients.FirstOrDefault(i =>
-                    string.Equals(i.Name, cleanName, StringComparison.OrdinalIgnoreCase) && i.Type == targetType)
-                    ?? catalogIngredients.FirstOrDefault(i =>
-                        string.Equals(i.Name, cleanName, StringComparison.OrdinalIgnoreCase));
-
-                if (byCatalogName != null)
-                {
-                    ingredientIdMap[archiveIngredientId] = byCatalogName.Id;
-                    return byCatalogName.Id;
-                }
-
-                var byCustomName = userCustomIngredients.FirstOrDefault(i =>
-                    string.Equals(i.Name, cleanName, StringComparison.OrdinalIgnoreCase) && i.Type == targetType);
-
-                if (byCustomName != null)
-                {
-                    ingredientIdMap[archiveIngredientId] = byCustomName.Id;
-                    return byCustomName.Id;
-                }
-
-                // Fallback: synthesize custom ingredient from snapshot so recipes/stocks never break
-                var fallbackIngredient = new Ingredient
-                {
-                    Id = Guid.NewGuid(),
-                    Name = string.IsNullOrEmpty(cleanName) ? "Restored Ingredient" : cleanName,
-                    Type = targetType,
-                    PotentialGravity = snapshot?.PotentialGravity,
-                    ColorSrm = snapshot?.ColorSrm,
-                    AlphaAcidPercent = snapshot?.AlphaAcidPercent,
-                    AttenuationPercent = snapshot?.AttenuationPercent,
-                    Form = snapshot?.Form,
-                    Description = snapshot?.Description ?? "Auto-created during backup restore",
-                    IsCatalogItem = false,
-                    CreatedByUserId = userId,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _db.Ingredients.Add(fallbackIngredient);
-                await _db.SaveChangesAsync();
-
-                userCustomIngredients.Add(fallbackIngredient);
-                ingredientIdMap[archiveIngredientId] = fallbackIngredient.Id;
-                ingCreated++;
-                return fallbackIngredient.Id;
-            }
-
-            // 3. Restore Ingredient Stocks
-            var existingStocks = await _db.IngredientStocks
-                .Where(s => s.UserId == userId)
-                .ToListAsync();
-
-            foreach (var stockDto in payload.IngredientStocks)
-            {
-                var targetIngId = await ResolveIngredientAsync(
-                    stockDto.IngredientId,
-                    stockDto.IngredientName,
-                    stockDto.IngredientType,
-                    stockDto.IngredientSnapshot);
-
-                var existingStock = existingStocks.FirstOrDefault(s => s.IngredientId == targetIngId);
-                if (existingStock != null)
-                {
-                    if (options.ConflictResolution != RestoreConflictResolutionMode.MergeSkipExisting)
-                    {
-                        existingStock.Amount = Math.Max(0m, stockDto.Amount);
-                        existingStock.Unit = string.IsNullOrWhiteSpace(stockDto.Unit) ? "kg" : stockDto.Unit.Trim();
-                        existingStock.LowStockAlertThreshold = stockDto.LowStockAlertThreshold;
-                        existingStock.UpdatedAt = DateTime.UtcNow;
-                        stocksUpserted++;
-                    }
-                }
-                else
-                {
-                    var newStock = new IngredientStock
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = userId,
-                        IngredientId = targetIngId,
-                        Amount = Math.Max(0m, stockDto.Amount),
-                        Unit = string.IsNullOrWhiteSpace(stockDto.Unit) ? "kg" : stockDto.Unit.Trim(),
-                        LowStockAlertThreshold = stockDto.LowStockAlertThreshold,
-                        UpdatedAt = stockDto.UpdatedAt == default ? DateTime.UtcNow : stockDto.UpdatedAt
-                    };
-                    _db.IngredientStocks.Add(newStock);
-                    existingStocks.Add(newStock);
-                    stocksUpserted++;
-                }
-            }
-
-            await _db.SaveChangesAsync();
-
-            // 4. Restore Owned Brewery Setups & Collaboration
-            var userOwnedSetups = await _db.BrewerySetups
-                .Include(s => s.Members)
-                .Include(s => s.Invites)
-                .Where(s => s.UserId == userId)
-                .ToListAsync();
-
-            foreach (var setupDto in payload.OwnedBrewerySetups)
-            {
-                var normName = setupDto.Name.Trim();
-                if (string.IsNullOrEmpty(normName)) normName = "My brewery";
-
-                var existingSetup = userOwnedSetups.FirstOrDefault(s =>
-                    s.Id == setupDto.Id ||
-                    string.Equals(s.Name, normName, StringComparison.OrdinalIgnoreCase));
-
-                BrewerySetup targetSetup;
-                if (existingSetup != null)
-                {
-                    targetSetup = existingSetup;
-                    setupIdMap[setupDto.Id] = existingSetup.Id;
-
-                    if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
-                    {
-                        existingSetup.Name = normName;
-                        existingSetup.Description = setupDto.Description;
-                        existingSetup.DefaultGrainAbsorptionRate = setupDto.DefaultGrainAbsorptionRate;
-                        existingSetup.DefaultBoilOffRatePerHour = setupDto.DefaultBoilOffRatePerHour;
-                        existingSetup.DefaultKettleTrubLossLiters = setupDto.DefaultKettleTrubLossLiters;
-                        existingSetup.DefaultFermenterLossLiters = setupDto.DefaultFermenterLossLiters;
-                        existingSetup.DefaultMashTunDeadSpaceLiters = setupDto.DefaultMashTunDeadSpaceLiters;
-                        existingSetup.CoolingShrinkagePercent = setupDto.CoolingShrinkagePercent;
-                        existingSetup.DefaultPackagingLossLiters = setupDto.DefaultPackagingLossLiters;
-                        existingSetup.UpdatedAt = DateTime.UtcNow;
-                        setupsUpdated++;
-                    }
-                    else
-                    {
-                        setupsSkipped++;
-                    }
-                }
-                else
-                {
-                    var idTaken = await _db.BrewerySetups.AnyAsync(s => s.Id == setupDto.Id);
-                    targetSetup = new BrewerySetup
-                    {
-                        Id = idTaken ? Guid.NewGuid() : setupDto.Id,
-                        UserId = userId,
-                        Name = normName,
-                        Description = setupDto.Description,
-                        IsDefault = false, // Normalized after loop to guarantee unique default constraint
-                        DefaultGrainAbsorptionRate = setupDto.DefaultGrainAbsorptionRate,
-                        DefaultBoilOffRatePerHour = setupDto.DefaultBoilOffRatePerHour,
-                        DefaultKettleTrubLossLiters = setupDto.DefaultKettleTrubLossLiters,
-                        DefaultFermenterLossLiters = setupDto.DefaultFermenterLossLiters,
-                        DefaultMashTunDeadSpaceLiters = setupDto.DefaultMashTunDeadSpaceLiters,
-                        CoolingShrinkagePercent = setupDto.CoolingShrinkagePercent,
-                        DefaultPackagingLossLiters = setupDto.DefaultPackagingLossLiters,
-                        CreatedAt = setupDto.CreatedAt == default ? DateTime.UtcNow : setupDto.CreatedAt,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    _db.BrewerySetups.Add(targetSetup);
-                    userOwnedSetups.Add(targetSetup);
-                    setupIdMap[setupDto.Id] = targetSetup.Id;
-                    setupsCreated++;
-                }
-
-                // Restore Collaborators & Invites on Owned Setup
-                if (options.CollaboratorRestore != CollaboratorRestoreMode.SkipCollaborators)
-                {
-                    var (restoredCount, invites) = await RestoreSetupCollaborationAsync(
-                        targetSetup,
-                        setupDto,
-                        userId,
-                        options.CollaboratorRestore);
-                    collaboratorsRestored += restoredCount;
-                    generatedInvites.AddRange(invites);
-                }
-            }
-
-            // Ensure exactly one default setup for userId
-            await NormalizeDefaultSetupAsync(userOwnedSetups, payload.OwnedBrewerySetups, setupIdMap, user.PreferredLanguage);
-            await _db.SaveChangesAsync();
-
-            // 5. Restore Shared Setup Memberships
-            if (options.RestoreSharedSetups)
-            {
-                foreach (var sharedDto in payload.SharedSetupMemberships)
-                {
-                    var liveSharedSetup = await _db.BrewerySetups
-                        .Include(s => s.Members)
-                        .Include(s => s.Equipment)
-                        .FirstOrDefaultAsync(s =>
-                            s.Id == sharedDto.OriginalSetupId &&
-                            (s.UserId == userId || s.Members.Any(m => m.UserId == userId)));
-
-                    if (liveSharedSetup != null)
-                    {
-                        setupIdMap[sharedDto.OriginalSetupId] = liveSharedSetup.Id;
-                        foreach (var snapEq in sharedDto.ReferencedEquipmentSnapshots)
+                        ingredientIdMap[customDto.Id] = existing.Id;
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
                         {
-                            var liveEq = liveSharedSetup.Equipment.FirstOrDefault(e =>
-                                e.Id == snapEq.Id ||
-                                string.Equals(e.Name, snapEq.Name.Trim(), StringComparison.OrdinalIgnoreCase));
-                            if (liveEq != null)
-                            {
-                                equipmentIdMap[snapEq.Id] = liveEq.Id;
-                            }
+                            existing.Name = normName;
+                            existing.PotentialGravity = customDto.PotentialGravity;
+                            existing.ColorSrm = customDto.ColorSrm;
+                            existing.AlphaAcidPercent = customDto.AlphaAcidPercent;
+                            existing.AttenuationPercent = customDto.AttenuationPercent;
+                            existing.Form = customDto.Form;
+                            existing.Description = customDto.Description;
+                            ingUpdated++;
+                        }
+                        else
+                        {
+                            ingSkipped++;
                         }
                     }
-                    else if (options.SharedSetupFallback == SharedSetupFallbackMode.CloneAsPersonal)
+                    else
                     {
-                        var baseName = $"{sharedDto.SetupName.Trim()} (Restored)";
-                        var cloneName = EnsureUniqueSetupName(baseName, userOwnedSetups);
+                        var idConflict = await _db.Ingredients.AnyAsync(i => i.Id == customDto.Id);
+                        var newIngredient = new Ingredient
+                        {
+                            Id = idConflict ? Guid.NewGuid() : customDto.Id,
+                            Name = normName,
+                            Type = customDto.Type,
+                            PotentialGravity = customDto.PotentialGravity,
+                            ColorSrm = customDto.ColorSrm,
+                            AlphaAcidPercent = customDto.AlphaAcidPercent,
+                            AttenuationPercent = customDto.AttenuationPercent,
+                            Form = customDto.Form,
+                            Description = customDto.Description,
+                            IsCatalogItem = false,
+                            CreatedByUserId = userId,
+                            CreatedAt = customDto.CreatedAt == default ? DateTime.UtcNow : customDto.CreatedAt
+                        };
+                        _db.Ingredients.Add(newIngredient);
+                        userCustomIngredients.Add(newIngredient);
+                        ingredientIdMap[customDto.Id] = newIngredient.Id;
+                        ingCreated++;
+                    }
+                }
 
-                        var clonedSetup = new BrewerySetup
+                await _db.SaveChangesAsync();
+
+                async Task<Guid> ResolveIngredientAsync(
+                    Guid archiveIngredientId,
+                    string ingredientName,
+                    IngredientType ingredientType,
+                    IngredientSnapshotDto? snapshot)
+                {
+                    if (ingredientIdMap.TryGetValue(archiveIngredientId, out var mappedId))
+                    {
+                        return mappedId;
+                    }
+
+                    var byCatalogId = catalogIngredients.FirstOrDefault(i => i.Id == archiveIngredientId);
+                    if (byCatalogId != null)
+                    {
+                        ingredientIdMap[archiveIngredientId] = byCatalogId.Id;
+                        return byCatalogId.Id;
+                    }
+
+                    var byCustomId = userCustomIngredients.FirstOrDefault(i => i.Id == archiveIngredientId);
+                    if (byCustomId != null)
+                    {
+                        ingredientIdMap[archiveIngredientId] = byCustomId.Id;
+                        return byCustomId.Id;
+                    }
+
+                    var cleanName = (snapshot?.Name ?? ingredientName).Trim();
+                    var targetType = snapshot?.Type ?? ingredientType;
+
+                    var byCatalogName = catalogIngredients.FirstOrDefault(i =>
+                        string.Equals(i.Name, cleanName, StringComparison.OrdinalIgnoreCase) && i.Type == targetType)
+                        ?? catalogIngredients.FirstOrDefault(i =>
+                            string.Equals(i.Name, cleanName, StringComparison.OrdinalIgnoreCase));
+
+                    if (byCatalogName != null)
+                    {
+                        ingredientIdMap[archiveIngredientId] = byCatalogName.Id;
+                        return byCatalogName.Id;
+                    }
+
+                    var byCustomName = userCustomIngredients.FirstOrDefault(i =>
+                        string.Equals(i.Name, cleanName, StringComparison.OrdinalIgnoreCase) && i.Type == targetType);
+
+                    if (byCustomName != null)
+                    {
+                        ingredientIdMap[archiveIngredientId] = byCustomName.Id;
+                        return byCustomName.Id;
+                    }
+
+                    // Fallback: synthesize custom ingredient from snapshot so recipes/stocks never break
+                    var fallbackIngredient = new Ingredient
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = string.IsNullOrEmpty(cleanName) ? "Restored Ingredient" : cleanName,
+                        Type = targetType,
+                        PotentialGravity = snapshot?.PotentialGravity,
+                        ColorSrm = snapshot?.ColorSrm,
+                        AlphaAcidPercent = snapshot?.AlphaAcidPercent,
+                        AttenuationPercent = snapshot?.AttenuationPercent,
+                        Form = snapshot?.Form,
+                        Description = snapshot?.Description ?? "Auto-created during backup restore",
+                        IsCatalogItem = false,
+                        CreatedByUserId = userId,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _db.Ingredients.Add(fallbackIngredient);
+                    await _db.SaveChangesAsync();
+
+                    userCustomIngredients.Add(fallbackIngredient);
+                    ingredientIdMap[archiveIngredientId] = fallbackIngredient.Id;
+                    ingCreated++;
+                    return fallbackIngredient.Id;
+                }
+
+                // 3. Restore Ingredient Stocks
+                var existingStocks = await _db.IngredientStocks
+                    .Where(s => s.UserId == userId)
+                    .ToListAsync();
+
+                foreach (var stockDto in payload.IngredientStocks)
+                {
+                    var targetIngId = await ResolveIngredientAsync(
+                        stockDto.IngredientId,
+                        stockDto.IngredientName,
+                        stockDto.IngredientType,
+                        stockDto.IngredientSnapshot);
+
+                    var existingStock = existingStocks.FirstOrDefault(s => s.IngredientId == targetIngId);
+                    if (existingStock != null)
+                    {
+                        if (options.ConflictResolution != RestoreConflictResolutionMode.MergeSkipExisting)
+                        {
+                            existingStock.Amount = Math.Max(0m, stockDto.Amount);
+                            existingStock.Unit = string.IsNullOrWhiteSpace(stockDto.Unit) ? "kg" : stockDto.Unit.Trim();
+                            existingStock.LowStockAlertThreshold = stockDto.LowStockAlertThreshold;
+                            existingStock.UpdatedAt = DateTime.UtcNow;
+                            stocksUpserted++;
+                        }
+                    }
+                    else
+                    {
+                        var newStock = new IngredientStock
                         {
                             Id = Guid.NewGuid(),
                             UserId = userId,
-                            Name = cloneName,
-                            Description = sharedDto.SetupSnapshot.Description,
-                            IsDefault = false,
-                            DefaultGrainAbsorptionRate = sharedDto.SetupSnapshot.DefaultGrainAbsorptionRate,
-                            DefaultBoilOffRatePerHour = sharedDto.SetupSnapshot.DefaultBoilOffRatePerHour,
-                            DefaultKettleTrubLossLiters = sharedDto.SetupSnapshot.DefaultKettleTrubLossLiters,
-                            DefaultFermenterLossLiters = sharedDto.SetupSnapshot.DefaultFermenterLossLiters,
-                            DefaultMashTunDeadSpaceLiters = sharedDto.SetupSnapshot.DefaultMashTunDeadSpaceLiters,
-                            CoolingShrinkagePercent = sharedDto.SetupSnapshot.CoolingShrinkagePercent,
-                            DefaultPackagingLossLiters = sharedDto.SetupSnapshot.DefaultPackagingLossLiters,
-                            CreatedAt = DateTime.UtcNow,
+                            IngredientId = targetIngId,
+                            Amount = Math.Max(0m, stockDto.Amount),
+                            Unit = string.IsNullOrWhiteSpace(stockDto.Unit) ? "kg" : stockDto.Unit.Trim(),
+                            LowStockAlertThreshold = stockDto.LowStockAlertThreshold,
+                            UpdatedAt = stockDto.UpdatedAt == default ? DateTime.UtcNow : stockDto.UpdatedAt
+                        };
+                        _db.IngredientStocks.Add(newStock);
+                        existingStocks.Add(newStock);
+                        stocksUpserted++;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
+                // 4. Restore Owned Brewery Setups & Collaboration
+                var userOwnedSetups = await _db.BrewerySetups
+                    .Include(s => s.Members)
+                    .Include(s => s.Invites)
+                    .Where(s => s.UserId == userId)
+                    .ToListAsync();
+
+                foreach (var setupDto in payload.OwnedBrewerySetups)
+                {
+                    var normName = setupDto.Name.Trim();
+                    if (string.IsNullOrEmpty(normName)) normName = "My brewery";
+
+                    var existingSetup = userOwnedSetups.FirstOrDefault(s =>
+                        s.Id == setupDto.Id ||
+                        string.Equals(s.Name, normName, StringComparison.OrdinalIgnoreCase));
+
+                    BrewerySetup targetSetup;
+                    if (existingSetup != null)
+                    {
+                        targetSetup = existingSetup;
+                        setupIdMap[setupDto.Id] = existingSetup.Id;
+
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        {
+                            existingSetup.Name = normName;
+                            existingSetup.Description = setupDto.Description;
+                            existingSetup.DefaultGrainAbsorptionRate = setupDto.DefaultGrainAbsorptionRate;
+                            existingSetup.DefaultBoilOffRatePerHour = setupDto.DefaultBoilOffRatePerHour;
+                            existingSetup.DefaultKettleTrubLossLiters = setupDto.DefaultKettleTrubLossLiters;
+                            existingSetup.DefaultFermenterLossLiters = setupDto.DefaultFermenterLossLiters;
+                            existingSetup.DefaultMashTunDeadSpaceLiters = setupDto.DefaultMashTunDeadSpaceLiters;
+                            existingSetup.CoolingShrinkagePercent = setupDto.CoolingShrinkagePercent;
+                            existingSetup.DefaultPackagingLossLiters = setupDto.DefaultPackagingLossLiters;
+                            existingSetup.UpdatedAt = DateTime.UtcNow;
+                            setupsUpdated++;
+                        }
+                        else
+                        {
+                            setupsSkipped++;
+                        }
+                    }
+                    else
+                    {
+                        var idTaken = await _db.BrewerySetups.AnyAsync(s => s.Id == setupDto.Id);
+                        targetSetup = new BrewerySetup
+                        {
+                            Id = idTaken ? Guid.NewGuid() : setupDto.Id,
+                            UserId = userId,
+                            Name = normName,
+                            Description = setupDto.Description,
+                            IsDefault = false, // Normalized after loop to guarantee unique default constraint
+                            DefaultGrainAbsorptionRate = setupDto.DefaultGrainAbsorptionRate,
+                            DefaultBoilOffRatePerHour = setupDto.DefaultBoilOffRatePerHour,
+                            DefaultKettleTrubLossLiters = setupDto.DefaultKettleTrubLossLiters,
+                            DefaultFermenterLossLiters = setupDto.DefaultFermenterLossLiters,
+                            DefaultMashTunDeadSpaceLiters = setupDto.DefaultMashTunDeadSpaceLiters,
+                            CoolingShrinkagePercent = setupDto.CoolingShrinkagePercent,
+                            DefaultPackagingLossLiters = setupDto.DefaultPackagingLossLiters,
+                            CreatedAt = setupDto.CreatedAt == default ? DateTime.UtcNow : setupDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow
                         };
-                        _db.BrewerySetups.Add(clonedSetup);
-                        userOwnedSetups.Add(clonedSetup);
-                        setupIdMap[sharedDto.OriginalSetupId] = clonedSetup.Id;
+                        _db.BrewerySetups.Add(targetSetup);
+                        userOwnedSetups.Add(targetSetup);
+                        setupIdMap[setupDto.Id] = targetSetup.Id;
                         setupsCreated++;
+                    }
 
-                        foreach (var snapEq in sharedDto.ReferencedEquipmentSnapshots)
+                    // Restore Collaborators & Invites on Owned Setup
+                    if (options.CollaboratorRestore != CollaboratorRestoreMode.SkipCollaborators)
+                    {
+                        var (restoredCount, invites) = await RestoreSetupCollaborationAsync(
+                            targetSetup,
+                            setupDto,
+                            userId,
+                            options.CollaboratorRestore);
+                        collaboratorsRestored += restoredCount;
+                        generatedInvites.AddRange(invites);
+                    }
+                }
+
+                // Ensure exactly one default setup for userId
+                await NormalizeDefaultSetupAsync(userId, userOwnedSetups, payload.OwnedBrewerySetups, setupIdMap, user.PreferredLanguage);
+                await _db.SaveChangesAsync();
+
+                // 5. Restore Shared Setup Memberships
+                if (options.RestoreSharedSetups)
+                {
+                    foreach (var sharedDto in payload.SharedSetupMemberships)
+                    {
+                        var liveSharedSetup = await _db.BrewerySetups
+                            .Include(s => s.Members)
+                            .Include(s => s.Equipment)
+                            .FirstOrDefaultAsync(s =>
+                                s.Id == sharedDto.OriginalSetupId &&
+                                (s.UserId == userId || s.Members.Any(m => m.UserId == userId)));
+
+                        if (liveSharedSetup != null)
                         {
-                            var clonedEq = new Equipment
+                            setupIdMap[sharedDto.OriginalSetupId] = liveSharedSetup.Id;
+                            foreach (var snapEq in sharedDto.ReferencedEquipmentSnapshots)
+                            {
+                                var liveEq = liveSharedSetup.Equipment.FirstOrDefault(e =>
+                                    e.Id == snapEq.Id ||
+                                    string.Equals(e.Name, snapEq.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                                if (liveEq != null)
+                                {
+                                    equipmentIdMap[snapEq.Id] = liveEq.Id;
+                                }
+                            }
+                        }
+                        else if (options.SharedSetupFallback == SharedSetupFallbackMode.CloneAsPersonal)
+                        {
+                            var baseName = $"{sharedDto.SetupName.Trim()} (Restored)";
+                            var cloneName = EnsureUniqueSetupName(baseName, userOwnedSetups);
+
+                            var clonedSetup = new BrewerySetup
                             {
                                 Id = Guid.NewGuid(),
                                 UserId = userId,
-                                BrewerySetupId = clonedSetup.Id,
-                                Name = EquipmentService.NormalizeEquipmentName(snapEq.Name),
-                                Type = snapEq.Type,
-                                Subtype = snapEq.Subtype,
-                                Capacity = snapEq.Capacity,
-                                Unit = snapEq.Unit,
-                                CapacityLiters = snapEq.CapacityLiters,
-                                CurrentVolume = snapEq.CurrentVolume,
-                                CurrentVolumeLiters = snapEq.CurrentVolumeLiters,
-                                BoilOffRatePerHour = snapEq.BoilOffRatePerHour,
-                                TrubLossLiters = snapEq.TrubLossLiters,
-                                MashTunDeadSpaceLiters = snapEq.MashTunDeadSpaceLiters,
-                                PackagingLossLiters = snapEq.PackagingLossLiters,
-                                ConnectionType = EquipmentConnectionType.None,
-                                Description = snapEq.Description,
-                                Notes = snapEq.Notes,
+                                Name = cloneName,
+                                Description = sharedDto.SetupSnapshot.Description,
+                                IsDefault = false,
+                                DefaultGrainAbsorptionRate = sharedDto.SetupSnapshot.DefaultGrainAbsorptionRate,
+                                DefaultBoilOffRatePerHour = sharedDto.SetupSnapshot.DefaultBoilOffRatePerHour,
+                                DefaultKettleTrubLossLiters = sharedDto.SetupSnapshot.DefaultKettleTrubLossLiters,
+                                DefaultFermenterLossLiters = sharedDto.SetupSnapshot.DefaultFermenterLossLiters,
+                                DefaultMashTunDeadSpaceLiters = sharedDto.SetupSnapshot.DefaultMashTunDeadSpaceLiters,
+                                CoolingShrinkagePercent = sharedDto.SetupSnapshot.CoolingShrinkagePercent,
+                                DefaultPackagingLossLiters = sharedDto.SetupSnapshot.DefaultPackagingLossLiters,
                                 CreatedAt = DateTime.UtcNow,
                                 UpdatedAt = DateTime.UtcNow
                             };
-                            _db.Equipment.Add(clonedEq);
-                            equipmentIdMap[snapEq.Id] = clonedEq.Id;
-                            eqCreated++;
+                            _db.BrewerySetups.Add(clonedSetup);
+                            userOwnedSetups.Add(clonedSetup);
+                            setupIdMap[sharedDto.OriginalSetupId] = clonedSetup.Id;
+                            setupsCreated++;
+
+                            foreach (var snapEq in sharedDto.ReferencedEquipmentSnapshots)
+                            {
+                                var clonedEq = new Equipment
+                                {
+                                    Id = Guid.NewGuid(),
+                                    UserId = userId,
+                                    BrewerySetupId = clonedSetup.Id,
+                                    Name = EquipmentService.NormalizeEquipmentName(snapEq.Name),
+                                    Type = snapEq.Type,
+                                    Subtype = snapEq.Subtype,
+                                    Capacity = snapEq.Capacity,
+                                    Unit = snapEq.Unit,
+                                    CapacityLiters = snapEq.CapacityLiters,
+                                    CurrentVolume = snapEq.CurrentVolume,
+                                    CurrentVolumeLiters = snapEq.CurrentVolumeLiters,
+                                    BoilOffRatePerHour = snapEq.BoilOffRatePerHour,
+                                    TrubLossLiters = snapEq.TrubLossLiters,
+                                    MashTunDeadSpaceLiters = snapEq.MashTunDeadSpaceLiters,
+                                    PackagingLossLiters = snapEq.PackagingLossLiters,
+                                    ConnectionType = EquipmentConnectionType.None,
+                                    Description = snapEq.Description,
+                                    Notes = snapEq.Notes,
+                                    CreatedAt = DateTime.UtcNow,
+                                    UpdatedAt = DateTime.UtcNow
+                                };
+                                _db.Equipment.Add(clonedEq);
+                                equipmentIdMap[snapEq.Id] = clonedEq.Id;
+                                eqCreated++;
+                            }
                         }
-                    }
-                    else
-                    {
-                        warnings.Add($"Detached references to unavailable shared brewery setup '{sharedDto.SetupName}'.");
-                    }
-                }
-
-                await _db.SaveChangesAsync();
-            }
-
-            // 6. Restore Equipment
-            var defaultSetupId = userOwnedSetups.FirstOrDefault(s => s.IsDefault)?.Id
-                                 ?? userOwnedSetups.First().Id;
-
-            var existingUserEquipment = await _db.Equipment
-                .Where(e => e.UserId == userId || userOwnedSetups.Select(s => s.Id).Contains(e.BrewerySetupId))
-                .ToListAsync();
-
-            foreach (var eqDto in payload.Equipment)
-            {
-                var targetSetupId = setupIdMap.TryGetValue(eqDto.BrewerySetupId, out var mappedSetupId)
-                    ? mappedSetupId
-                    : defaultSetupId;
-
-                var normName = EquipmentService.NormalizeEquipmentName(eqDto.Name);
-                if (string.IsNullOrEmpty(normName)) normName = "Restored Vessel";
-
-                var existingEq = existingUserEquipment.FirstOrDefault(e =>
-                    e.Id == eqDto.Id ||
-                    (e.BrewerySetupId == targetSetupId && string.Equals(e.Name, normName, StringComparison.OrdinalIgnoreCase)));
-
-                var (restoredToken, restoredConfigJson) = await RestoreEquipmentSecretsAsync(
-                    eqDto, encryptionKey, existingEq?.Id, warnings);
-
-                if (existingEq != null)
-                {
-                    equipmentIdMap[eqDto.Id] = existingEq.Id;
-                    if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
-                    {
-                        existingEq.BrewerySetupId = targetSetupId;
-                        existingEq.Name = normName;
-                        existingEq.Type = eqDto.Type;
-                        existingEq.Subtype = eqDto.Subtype;
-                        existingEq.Capacity = eqDto.Capacity;
-                        existingEq.Unit = eqDto.Unit;
-                        existingEq.CapacityLiters = eqDto.CapacityLiters;
-                        existingEq.CurrentVolume = eqDto.CurrentVolume;
-                        existingEq.CurrentVolumeLiters = eqDto.CurrentVolumeLiters;
-                        existingEq.BoilOffRatePerHour = eqDto.BoilOffRatePerHour;
-                        existingEq.TrubLossLiters = eqDto.TrubLossLiters;
-                        existingEq.MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters;
-                        existingEq.PackagingLossLiters = eqDto.PackagingLossLiters;
-                        existingEq.CurrentTemperatureC = eqDto.CurrentTemperatureC;
-                        existingEq.CurrentSpecificGravity = eqDto.CurrentSpecificGravity;
-                        existingEq.CurrentPressureBar = eqDto.CurrentPressureBar;
-                        existingEq.CurrentBatteryPercent = eqDto.CurrentBatteryPercent;
-                        existingEq.CurrentBatteryVoltage = eqDto.CurrentBatteryVoltage;
-                        existingEq.TemperatureUpdatedAt = eqDto.TemperatureUpdatedAt;
-                        existingEq.LastTelemetryAt = eqDto.LastTelemetryAt;
-                        existingEq.LatestMetricsJson = eqDto.LatestMetricsJson;
-                        existingEq.ConnectionType = eqDto.ConnectionType;
-                        if (restoredToken != null) existingEq.ConnectionToken = restoredToken;
-                        if (restoredConfigJson != null) existingEq.ConnectionConfigJson = restoredConfigJson;
-                        existingEq.Description = eqDto.Description;
-                        existingEq.Notes = eqDto.Notes;
-                        existingEq.UpdatedAt = DateTime.UtcNow;
-                        eqUpdated++;
-                    }
-                    else
-                    {
-                        eqSkipped++;
-                    }
-                }
-                else
-                {
-                    var idTaken = await _db.Equipment.AnyAsync(e => e.Id == eqDto.Id);
-                    var uniqueName = EnsureUniqueEquipmentName(normName, targetSetupId, existingUserEquipment);
-
-                    var newEq = new Equipment
-                    {
-                        Id = idTaken ? Guid.NewGuid() : eqDto.Id,
-                        UserId = userId,
-                        BrewerySetupId = targetSetupId,
-                        Name = uniqueName,
-                        Type = eqDto.Type,
-                        Subtype = eqDto.Subtype,
-                        Capacity = eqDto.Capacity,
-                        Unit = eqDto.Unit,
-                        CapacityLiters = eqDto.CapacityLiters,
-                        CurrentVolume = eqDto.CurrentVolume,
-                        CurrentVolumeLiters = eqDto.CurrentVolumeLiters,
-                        BoilOffRatePerHour = eqDto.BoilOffRatePerHour,
-                        TrubLossLiters = eqDto.TrubLossLiters,
-                        MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters,
-                        PackagingLossLiters = eqDto.PackagingLossLiters,
-                        CurrentTemperatureC = eqDto.CurrentTemperatureC,
-                        CurrentSpecificGravity = eqDto.CurrentSpecificGravity,
-                        CurrentPressureBar = eqDto.CurrentPressureBar,
-                        CurrentBatteryPercent = eqDto.CurrentBatteryPercent,
-                        CurrentBatteryVoltage = eqDto.CurrentBatteryVoltage,
-                        TemperatureUpdatedAt = eqDto.TemperatureUpdatedAt,
-                        LastTelemetryAt = eqDto.LastTelemetryAt,
-                        LatestMetricsJson = eqDto.LatestMetricsJson,
-                        ConnectionType = eqDto.ConnectionType,
-                        ConnectionToken = restoredToken,
-                        ConnectionConfigJson = restoredConfigJson,
-                        Description = eqDto.Description,
-                        Notes = eqDto.Notes,
-                        CreatedAt = eqDto.CreatedAt == default ? DateTime.UtcNow : eqDto.CreatedAt,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    _db.Equipment.Add(newEq);
-                    existingUserEquipment.Add(newEq);
-                    equipmentIdMap[eqDto.Id] = newEq.Id;
-                    eqCreated++;
-                }
-            }
-
-            await _db.SaveChangesAsync();
-
-            // 7. Resolve Referenced External Recipes & Restore User Recipes
-            foreach (var extRecipe in payload.ReferencedExternalRecipes)
-            {
-                var liveExt = await _db.Recipes
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(r => r.Id == extRecipe.Id && (r.IsPublic || r.UserId == userId));
-                if (liveExt != null)
-                {
-                    recipeIdMap[extRecipe.Id] = liveExt.Id;
-                }
-            }
-
-            var existingUserRecipes = await _db.Recipes
-                .Include(r => r.Ingredients)
-                .Include(r => r.MashSteps)
-                .Include(r => r.FermentationSteps)
-                .Where(r => r.UserId == userId)
-                .ToListAsync();
-
-            foreach (var recipeDto in payload.Recipes)
-            {
-                var normName = recipeDto.Name.Trim();
-                if (string.IsNullOrEmpty(normName)) normName = "Restored Recipe";
-
-                var existingRecipe = existingUserRecipes.FirstOrDefault(r =>
-                    r.Id == recipeDto.Id ||
-                    string.Equals(r.Name, normName, StringComparison.OrdinalIgnoreCase));
-
-                if (existingRecipe != null)
-                {
-                    recipeIdMap[recipeDto.Id] = existingRecipe.Id;
-                    if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
-                    {
-                        existingRecipe.Name = normName;
-                        existingRecipe.Description = recipeDto.Description;
-                        existingRecipe.BeerStyle = recipeDto.BeerStyle;
-                        existingRecipe.BatchSizeLiters = recipeDto.BatchSizeLiters;
-                        existingRecipe.BoilTimeMinutes = recipeDto.BoilTimeMinutes;
-                        existingRecipe.EfficiencyPercent = recipeDto.EfficiencyPercent;
-                        existingRecipe.OriginalGravity = recipeDto.OriginalGravity;
-                        existingRecipe.FinalGravity = recipeDto.FinalGravity;
-                        existingRecipe.AlcoholByVolume = recipeDto.AlcoholByVolume;
-                        existingRecipe.BitternessIbu = recipeDto.BitternessIbu;
-                        existingRecipe.ColorSrm = recipeDto.ColorSrm;
-                        existingRecipe.IsPublic = recipeDto.IsPublic;
-                        existingRecipe.UpdatedAt = DateTime.UtcNow;
-
-                        _db.RecipeIngredients.RemoveRange(existingRecipe.Ingredients);
-                        _db.RecipeMashSteps.RemoveRange(existingRecipe.MashSteps);
-                        _db.RecipeFermentationSteps.RemoveRange(existingRecipe.FermentationSteps);
-
-                        var newRecipeIngredients = await BuildRecipeIngredientsAsync(existingRecipe.Id, recipeDto.Ingredients, ResolveIngredientAsync);
-                        var newRecipeMashSteps = BuildRecipeMashSteps(existingRecipe.Id, recipeDto.MashSteps);
-                        var newRecipeFermentationSteps = BuildRecipeFermentationSteps(existingRecipe.Id, recipeDto.FermentationSteps);
-
-                        _db.RecipeIngredients.AddRange(newRecipeIngredients);
-                        _db.RecipeMashSteps.AddRange(newRecipeMashSteps);
-                        _db.RecipeFermentationSteps.AddRange(newRecipeFermentationSteps);
-                        recipesUpdated++;
-                    }
-                    else
-                    {
-                        recipesSkipped++;
-                    }
-                }
-                else
-                {
-                    var idTaken = await _db.Recipes.AnyAsync(r => r.Id == recipeDto.Id);
-                    var uniqueName = EnsureUniqueRecipeName(normName, existingUserRecipes);
-                    var newRecipeId = idTaken ? Guid.NewGuid() : recipeDto.Id;
-
-                    var newRecipe = new Recipe
-                    {
-                        Id = newRecipeId,
-                        UserId = userId,
-                        Name = uniqueName,
-                        Description = recipeDto.Description,
-                        BeerStyle = recipeDto.BeerStyle,
-                        BatchSizeLiters = recipeDto.BatchSizeLiters,
-                        BoilTimeMinutes = recipeDto.BoilTimeMinutes,
-                        EfficiencyPercent = recipeDto.EfficiencyPercent,
-                        OriginalGravity = recipeDto.OriginalGravity,
-                        FinalGravity = recipeDto.FinalGravity,
-                        AlcoholByVolume = recipeDto.AlcoholByVolume,
-                        BitternessIbu = recipeDto.BitternessIbu,
-                        ColorSrm = recipeDto.ColorSrm,
-                        IsPublic = recipeDto.IsPublic,
-                        CreatedAt = recipeDto.CreatedAt == default ? DateTime.UtcNow : recipeDto.CreatedAt,
-                        UpdatedAt = DateTime.UtcNow,
-                        Ingredients = await BuildRecipeIngredientsAsync(newRecipeId, recipeDto.Ingredients, ResolveIngredientAsync),
-                        MashSteps = BuildRecipeMashSteps(newRecipeId, recipeDto.MashSteps),
-                        FermentationSteps = BuildRecipeFermentationSteps(newRecipeId, recipeDto.FermentationSteps)
-                    };
-                    _db.Recipes.Add(newRecipe);
-                    existingUserRecipes.Add(newRecipe);
-                    recipeIdMap[recipeDto.Id] = newRecipe.Id;
-                    recipesCreated++;
-                }
-            }
-
-            await _db.SaveChangesAsync();
-
-            // 8. Restore Batches
-            var existingUserBatches = await _db.Batches
-                .Include(b => b.VolumeProfile)
-                .Include(b => b.Ingredients)
-                .Include(b => b.MashSteps)
-                .Include(b => b.FermentationSteps)
-                .Include(b => b.StageHistory)
-                .Include(b => b.Readings)
-                .Include(b => b.SensorAssignments)
-                .Where(b => b.UserId == userId)
-                .ToListAsync();
-
-            foreach (var batchDto in payload.Batches)
-            {
-                var normCode = batchDto.BatchCode.Trim();
-                if (string.IsNullOrEmpty(normCode)) normCode = $"B-{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}-1";
-
-                var existingBatch = existingUserBatches.FirstOrDefault(b =>
-                    b.Id == batchDto.Id ||
-                    string.Equals(b.BatchCode, normCode, StringComparison.OrdinalIgnoreCase));
-
-                Guid? mappedRecipeId = batchDto.RecipeId.HasValue && recipeIdMap.TryGetValue(batchDto.RecipeId.Value, out var rId)
-                    ? rId
-                    : null;
-                Guid? mappedSetupId = batchDto.BrewerySetupId.HasValue && setupIdMap.TryGetValue(batchDto.BrewerySetupId.Value, out var sId)
-                    ? sId
-                    : defaultSetupId;
-                Guid? mappedBoilerId = batchDto.BoilerId.HasValue && equipmentIdMap.TryGetValue(batchDto.BoilerId.Value, out var bId)
-                    ? bId
-                    : null;
-                Guid? mappedFermenterId = batchDto.FermenterId.HasValue && equipmentIdMap.TryGetValue(batchDto.FermenterId.Value, out var fId)
-                    ? fId
-                    : null;
-                Guid? mappedPkgId = batchDto.PackagingVesselId.HasValue && equipmentIdMap.TryGetValue(batchDto.PackagingVesselId.Value, out var pId)
-                    ? pId
-                    : null;
-
-                if (existingBatch != null)
-                {
-                    batchIdMap[batchDto.Id] = existingBatch.Id;
-                    if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
-                    {
-                        existingBatch.RecipeId = mappedRecipeId;
-                        existingBatch.BrewerySetupId = mappedSetupId;
-                        existingBatch.Name = batchDto.Name.Trim();
-                        existingBatch.BeerStyle = batchDto.BeerStyle;
-                        existingBatch.Status = batchDto.Status;
-                        existingBatch.CurrentStage = batchDto.CurrentStage;
-                        existingBatch.BrewDate = batchDto.BrewDate == default ? DateOnly.FromDateTime(DateTime.UtcNow) : batchDto.BrewDate;
-                        existingBatch.TargetOg = batchDto.TargetOg;
-                        existingBatch.TargetFg = batchDto.TargetFg;
-                        existingBatch.TargetAbv = batchDto.TargetAbv;
-                        existingBatch.TargetIbu = batchDto.TargetIbu;
-                        existingBatch.TargetColorSrm = batchDto.TargetColorSrm;
-                        existingBatch.TargetBatchSizeLiters = batchDto.TargetBatchSizeLiters;
-                        existingBatch.BoilTimeMinutes = batchDto.BoilTimeMinutes;
-                        existingBatch.EfficiencyPercent = batchDto.EfficiencyPercent;
-                        existingBatch.MeasuredOg = batchDto.MeasuredOg;
-                        existingBatch.CurrentGravity = batchDto.CurrentGravity;
-                        existingBatch.MeasuredFg = batchDto.MeasuredFg;
-                        existingBatch.AlcoholByVolume = batchDto.AlcoholByVolume;
-                        existingBatch.BrewhouseEfficiency = batchDto.BrewhouseEfficiency;
-                        existingBatch.MeasuredBatchSizeLiters = batchDto.MeasuredBatchSizeLiters;
-                        existingBatch.PitchTemperatureC = batchDto.PitchTemperatureC;
-                        existingBatch.BoilerId = mappedBoilerId;
-                        existingBatch.FermenterId = mappedFermenterId;
-                        existingBatch.PackagingVesselId = mappedPkgId;
-                        existingBatch.Notes = batchDto.Notes;
-                        existingBatch.UpdatedAt = DateTime.UtcNow;
-                        existingBatch.CompletedAt = batchDto.CompletedAt;
-
-                        if (existingBatch.VolumeProfile != null)
+                        else
                         {
-                            _db.BatchVolumeProfiles.Remove(existingBatch.VolumeProfile);
-                            existingBatch.VolumeProfile = null;
+                            warnings.Add($"Detached references to unavailable shared brewery setup '{sharedDto.SetupName}'.");
                         }
-                        _db.BatchIngredients.RemoveRange(existingBatch.Ingredients);
-                        _db.BatchMashSteps.RemoveRange(existingBatch.MashSteps);
-                        _db.BatchFermentationSteps.RemoveRange(existingBatch.FermentationSteps);
-                        _db.BatchStageHistories.RemoveRange(existingBatch.StageHistory);
-                        _db.BatchReadings.RemoveRange(existingBatch.Readings);
-                        _db.BatchSensorAssignments.RemoveRange(existingBatch.SensorAssignments);
-
-                        PopulateBatchChildren(existingBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap);
-                        if (existingBatch.VolumeProfile != null)
-                        {
-                            _db.BatchVolumeProfiles.Add(existingBatch.VolumeProfile);
-                        }
-                        _db.BatchIngredients.AddRange(existingBatch.Ingredients);
-                        _db.BatchMashSteps.AddRange(existingBatch.MashSteps);
-                        _db.BatchFermentationSteps.AddRange(existingBatch.FermentationSteps);
-                        _db.BatchStageHistories.AddRange(existingBatch.StageHistory);
-                        _db.BatchReadings.AddRange(existingBatch.Readings);
-                        _db.BatchSensorAssignments.AddRange(existingBatch.SensorAssignments);
-                        batchesUpdated++;
                     }
-                    else
-                    {
-                        foreach (var ms in batchDto.MashSteps ?? [])
-                        {
-                            var matchMs = existingBatch.MashSteps.FirstOrDefault(x => x.StepOrder == ms.StepOrder);
-                            if (matchMs != null) batchMashStepIdMap[ms.Id] = matchMs.Id;
-                        }
-                        batchesSkipped++;
-                    }
+
+                    await _db.SaveChangesAsync();
                 }
-                else
-                {
-                    var idTaken = await _db.Batches.AnyAsync(b => b.Id == batchDto.Id);
-                    var uniqueCode = EnsureUniqueBatchCode(normCode, existingUserBatches);
-                    var newBatchId = idTaken ? Guid.NewGuid() : batchDto.Id;
 
-                    var newBatch = new Batch
-                    {
-                        Id = newBatchId,
-                        UserId = userId,
-                        RecipeId = mappedRecipeId,
-                        BrewerySetupId = mappedSetupId,
-                        BatchCode = uniqueCode,
-                        Name = string.IsNullOrWhiteSpace(batchDto.Name) ? uniqueCode : batchDto.Name.Trim(),
-                        BeerStyle = batchDto.BeerStyle,
-                        Status = batchDto.Status,
-                        CurrentStage = batchDto.CurrentStage,
-                        BrewDate = batchDto.BrewDate == default ? DateOnly.FromDateTime(DateTime.UtcNow) : batchDto.BrewDate,
-                        TargetOg = batchDto.TargetOg,
-                        TargetFg = batchDto.TargetFg,
-                        TargetAbv = batchDto.TargetAbv,
-                        TargetIbu = batchDto.TargetIbu,
-                        TargetColorSrm = batchDto.TargetColorSrm,
-                        TargetBatchSizeLiters = batchDto.TargetBatchSizeLiters,
-                        BoilTimeMinutes = batchDto.BoilTimeMinutes,
-                        EfficiencyPercent = batchDto.EfficiencyPercent,
-                        MeasuredOg = batchDto.MeasuredOg,
-                        CurrentGravity = batchDto.CurrentGravity,
-                        MeasuredFg = batchDto.MeasuredFg,
-                        AlcoholByVolume = batchDto.AlcoholByVolume,
-                        BrewhouseEfficiency = batchDto.BrewhouseEfficiency,
-                        MeasuredBatchSizeLiters = batchDto.MeasuredBatchSizeLiters,
-                        PitchTemperatureC = batchDto.PitchTemperatureC,
-                        BoilerId = mappedBoilerId,
-                        FermenterId = mappedFermenterId,
-                        PackagingVesselId = mappedPkgId,
-                        Notes = batchDto.Notes,
-                        CreatedAt = batchDto.CreatedAt == default ? DateTime.UtcNow : batchDto.CreatedAt,
-                        UpdatedAt = DateTime.UtcNow,
-                        CompletedAt = batchDto.CompletedAt
-                    };
+                // 6. Restore Equipment
+                var defaultSetupId = userOwnedSetups.FirstOrDefault(s => s.IsDefault)?.Id
+                                     ?? userOwnedSetups.First().Id;
 
-                    PopulateBatchChildren(newBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap);
-                    _db.Batches.Add(newBatch);
-                    existingUserBatches.Add(newBatch);
-                    batchIdMap[batchDto.Id] = newBatch.Id;
-                    batchesCreated++;
-                }
-            }
-
-            await _db.SaveChangesAsync();
-
-            // 9. Restore Equipment Telemetry Readings
-            if (options.RestoreTelemetryReadings && payload.EquipmentReadings.Count > 0)
-            {
-                var targetEqIds = equipmentIdMap.Values.Distinct().ToList();
-                var existingReadingKeys = await _db.EquipmentReadings
-                    .AsNoTracking()
-                    .Where(er => targetEqIds.Contains(er.EquipmentId))
-                    .Select(er => new { er.EquipmentId, er.Timestamp })
+                var existingUserEquipment = await _db.Equipment
+                    .Where(e => e.UserId == userId || userOwnedSetups.Select(s => s.Id).Contains(e.BrewerySetupId))
                     .ToListAsync();
 
-                var existingSet = existingReadingKeys
-                    .Select(k => (k.EquipmentId, k.Timestamp))
-                    .ToHashSet();
-
-                foreach (var erDto in payload.EquipmentReadings)
+                foreach (var eqDto in payload.Equipment)
                 {
-                    if (!equipmentIdMap.TryGetValue(erDto.EquipmentId, out var targetEqId))
+                    var targetSetupId = setupIdMap.TryGetValue(eqDto.BrewerySetupId, out var mappedSetupId)
+                        ? mappedSetupId
+                        : defaultSetupId;
+
+                    var normName = EquipmentService.NormalizeEquipmentName(eqDto.Name);
+                    if (string.IsNullOrEmpty(normName)) normName = "Restored Vessel";
+
+                    var existingEq = existingUserEquipment.FirstOrDefault(e =>
+                        e.Id == eqDto.Id ||
+                        (e.BrewerySetupId == targetSetupId && string.Equals(e.Name, normName, StringComparison.OrdinalIgnoreCase)));
+
+                    var (restoredToken, restoredConfigJson) = await RestoreEquipmentSecretsAsync(
+                        eqDto, encryptionKey, existingEq?.Id, warnings);
+
+                    if (existingEq != null)
                     {
-                        continue;
+                        equipmentIdMap[eqDto.Id] = existingEq.Id;
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        {
+                            existingEq.BrewerySetupId = targetSetupId;
+                            existingEq.Name = normName;
+                            existingEq.Type = eqDto.Type;
+                            existingEq.Subtype = eqDto.Subtype;
+                            existingEq.Capacity = eqDto.Capacity;
+                            existingEq.Unit = eqDto.Unit;
+                            existingEq.CapacityLiters = eqDto.CapacityLiters;
+                            existingEq.CurrentVolume = eqDto.CurrentVolume;
+                            existingEq.CurrentVolumeLiters = eqDto.CurrentVolumeLiters;
+                            existingEq.BoilOffRatePerHour = eqDto.BoilOffRatePerHour;
+                            existingEq.TrubLossLiters = eqDto.TrubLossLiters;
+                            existingEq.MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters;
+                            existingEq.PackagingLossLiters = eqDto.PackagingLossLiters;
+                            existingEq.CurrentTemperatureC = eqDto.CurrentTemperatureC;
+                            existingEq.CurrentSpecificGravity = eqDto.CurrentSpecificGravity;
+                            existingEq.CurrentPressureBar = eqDto.CurrentPressureBar;
+                            existingEq.CurrentBatteryPercent = eqDto.CurrentBatteryPercent;
+                            existingEq.CurrentBatteryVoltage = eqDto.CurrentBatteryVoltage;
+                            existingEq.TemperatureUpdatedAt = eqDto.TemperatureUpdatedAt;
+                            existingEq.LastTelemetryAt = eqDto.LastTelemetryAt;
+                            existingEq.LatestMetricsJson = eqDto.LatestMetricsJson;
+                            existingEq.ConnectionType = eqDto.ConnectionType;
+                            if (restoredToken != null) existingEq.ConnectionToken = restoredToken;
+                            if (restoredConfigJson != null) existingEq.ConnectionConfigJson = restoredConfigJson;
+                            existingEq.Description = eqDto.Description;
+                            existingEq.Notes = eqDto.Notes;
+                            existingEq.UpdatedAt = DateTime.UtcNow;
+                            eqUpdated++;
+                        }
+                        else
+                        {
+                            eqSkipped++;
+                        }
                     }
-
-                    if (existingSet.Contains((targetEqId, erDto.Timestamp)))
+                    else
                     {
-                        continue;
+                        var idTaken = await _db.Equipment.AnyAsync(e => e.Id == eqDto.Id);
+                        var uniqueName = EnsureUniqueEquipmentName(normName, targetSetupId, existingUserEquipment);
+
+                        var newEq = new Equipment
+                        {
+                            Id = idTaken ? Guid.NewGuid() : eqDto.Id,
+                            UserId = userId,
+                            BrewerySetupId = targetSetupId,
+                            Name = uniqueName,
+                            Type = eqDto.Type,
+                            Subtype = eqDto.Subtype,
+                            Capacity = eqDto.Capacity,
+                            Unit = eqDto.Unit,
+                            CapacityLiters = eqDto.CapacityLiters,
+                            CurrentVolume = eqDto.CurrentVolume,
+                            CurrentVolumeLiters = eqDto.CurrentVolumeLiters,
+                            BoilOffRatePerHour = eqDto.BoilOffRatePerHour,
+                            TrubLossLiters = eqDto.TrubLossLiters,
+                            MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters,
+                            PackagingLossLiters = eqDto.PackagingLossLiters,
+                            CurrentTemperatureC = eqDto.CurrentTemperatureC,
+                            CurrentSpecificGravity = eqDto.CurrentSpecificGravity,
+                            CurrentPressureBar = eqDto.CurrentPressureBar,
+                            CurrentBatteryPercent = eqDto.CurrentBatteryPercent,
+                            CurrentBatteryVoltage = eqDto.CurrentBatteryVoltage,
+                            TemperatureUpdatedAt = eqDto.TemperatureUpdatedAt,
+                            LastTelemetryAt = eqDto.LastTelemetryAt,
+                            LatestMetricsJson = eqDto.LatestMetricsJson,
+                            ConnectionType = eqDto.ConnectionType,
+                            ConnectionToken = restoredToken,
+                            ConnectionConfigJson = restoredConfigJson,
+                            Description = eqDto.Description,
+                            Notes = eqDto.Notes,
+                            CreatedAt = eqDto.CreatedAt == default ? DateTime.UtcNow : eqDto.CreatedAt,
+                            UpdatedAt = DateTime.UtcNow
+                        };
+                        _db.Equipment.Add(newEq);
+                        existingUserEquipment.Add(newEq);
+                        equipmentIdMap[eqDto.Id] = newEq.Id;
+                        eqCreated++;
                     }
-
-                    Guid? targetBatchId = erDto.BatchId.HasValue && batchIdMap.TryGetValue(erDto.BatchId.Value, out var bId)
-                        ? bId
-                        : null;
-                    Guid? targetMashStepId = erDto.BatchMashStepId.HasValue && batchMashStepIdMap.TryGetValue(erDto.BatchMashStepId.Value, out var msId)
-                        ? msId
-                        : null;
-
-                    _db.EquipmentReadings.Add(new EquipmentReading
-                    {
-                        Id = Guid.NewGuid(),
-                        EquipmentId = targetEqId,
-                        BatchId = targetBatchId,
-                        Stage = erDto.Stage,
-                        BatchMashStepId = targetMashStepId,
-                        StepName = erDto.StepName,
-                        Timestamp = erDto.Timestamp,
-                        TemperatureC = erDto.TemperatureC,
-                        SpecificGravity = erDto.SpecificGravity,
-                        PressureBar = erDto.PressureBar,
-                        BatteryPercent = erDto.BatteryPercent,
-                        BatteryVoltage = erDto.BatteryVoltage,
-                        TiltDegrees = erDto.TiltDegrees,
-                        Rssi = erDto.Rssi,
-                        MetricsJson = erDto.MetricsJson,
-                        Source = erDto.Source,
-                        RawPayload = erDto.RawPayload,
-                        Notes = erDto.Notes,
-                        CreatedAt = erDto.CreatedAt == default ? DateTime.UtcNow : erDto.CreatedAt
-                    });
-                    existingSet.Add((targetEqId, erDto.Timestamp));
-                    readingsRestored++;
                 }
 
                 await _db.SaveChangesAsync();
-            }
 
-            if (transaction != null)
+                // 7. Resolve Referenced External Recipes & Restore User Recipes
+                foreach (var extRecipe in payload.ReferencedExternalRecipes)
+                {
+                    var liveExt = await _db.Recipes
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(r => r.Id == extRecipe.Id && (r.IsPublic || r.UserId == userId));
+                    if (liveExt != null)
+                    {
+                        recipeIdMap[extRecipe.Id] = liveExt.Id;
+                    }
+                }
+
+                var existingUserRecipes = await _db.Recipes
+                    .Include(r => r.Ingredients)
+                    .Include(r => r.MashSteps)
+                    .Include(r => r.FermentationSteps)
+                    .Where(r => r.UserId == userId)
+                    .ToListAsync();
+
+                foreach (var recipeDto in payload.Recipes)
+                {
+                    var normName = recipeDto.Name.Trim();
+                    if (string.IsNullOrEmpty(normName)) normName = "Restored Recipe";
+
+                    var existingRecipe = existingUserRecipes.FirstOrDefault(r =>
+                        r.Id == recipeDto.Id ||
+                        string.Equals(r.Name, normName, StringComparison.OrdinalIgnoreCase));
+
+                    if (existingRecipe != null)
+                    {
+                        recipeIdMap[recipeDto.Id] = existingRecipe.Id;
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        {
+                            existingRecipe.Name = normName;
+                            existingRecipe.Description = recipeDto.Description;
+                            existingRecipe.BeerStyle = recipeDto.BeerStyle;
+                            existingRecipe.BatchSizeLiters = recipeDto.BatchSizeLiters;
+                            existingRecipe.BoilTimeMinutes = recipeDto.BoilTimeMinutes;
+                            existingRecipe.EfficiencyPercent = recipeDto.EfficiencyPercent;
+                            existingRecipe.OriginalGravity = recipeDto.OriginalGravity;
+                            existingRecipe.FinalGravity = recipeDto.FinalGravity;
+                            existingRecipe.AlcoholByVolume = recipeDto.AlcoholByVolume;
+                            existingRecipe.BitternessIbu = recipeDto.BitternessIbu;
+                            existingRecipe.ColorSrm = recipeDto.ColorSrm;
+                            existingRecipe.IsPublic = recipeDto.IsPublic;
+                            existingRecipe.UpdatedAt = DateTime.UtcNow;
+
+                            _db.RecipeIngredients.RemoveRange(existingRecipe.Ingredients);
+                            _db.RecipeMashSteps.RemoveRange(existingRecipe.MashSteps);
+                            _db.RecipeFermentationSteps.RemoveRange(existingRecipe.FermentationSteps);
+                            await _db.SaveChangesAsync();
+
+                            var newRecipeIngredients = await BuildRecipeIngredientsAsync(existingRecipe.Id, recipeDto.Ingredients, ResolveIngredientAsync);
+                            var newRecipeMashSteps = BuildRecipeMashSteps(existingRecipe.Id, recipeDto.MashSteps);
+                            var newRecipeFermentationSteps = BuildRecipeFermentationSteps(existingRecipe.Id, recipeDto.FermentationSteps);
+
+                            _db.RecipeIngredients.AddRange(newRecipeIngredients);
+                            _db.RecipeMashSteps.AddRange(newRecipeMashSteps);
+                            _db.RecipeFermentationSteps.AddRange(newRecipeFermentationSteps);
+                            recipesUpdated++;
+                        }
+                        else
+                        {
+                            recipesSkipped++;
+                        }
+                    }
+                    else
+                    {
+                        var idTaken = await _db.Recipes.AnyAsync(r => r.Id == recipeDto.Id);
+                        var uniqueName = EnsureUniqueRecipeName(normName, existingUserRecipes);
+                        var newRecipeId = idTaken ? Guid.NewGuid() : recipeDto.Id;
+
+                        var newRecipe = new Recipe
+                        {
+                            Id = newRecipeId,
+                            UserId = userId,
+                            Name = uniqueName,
+                            Description = recipeDto.Description,
+                            BeerStyle = recipeDto.BeerStyle,
+                            BatchSizeLiters = recipeDto.BatchSizeLiters,
+                            BoilTimeMinutes = recipeDto.BoilTimeMinutes,
+                            EfficiencyPercent = recipeDto.EfficiencyPercent,
+                            OriginalGravity = recipeDto.OriginalGravity,
+                            FinalGravity = recipeDto.FinalGravity,
+                            AlcoholByVolume = recipeDto.AlcoholByVolume,
+                            BitternessIbu = recipeDto.BitternessIbu,
+                            ColorSrm = recipeDto.ColorSrm,
+                            IsPublic = recipeDto.IsPublic,
+                            CreatedAt = recipeDto.CreatedAt == default ? DateTime.UtcNow : recipeDto.CreatedAt,
+                            UpdatedAt = DateTime.UtcNow,
+                            Ingredients = await BuildRecipeIngredientsAsync(newRecipeId, recipeDto.Ingredients, ResolveIngredientAsync),
+                            MashSteps = BuildRecipeMashSteps(newRecipeId, recipeDto.MashSteps),
+                            FermentationSteps = BuildRecipeFermentationSteps(newRecipeId, recipeDto.FermentationSteps)
+                        };
+                        _db.Recipes.Add(newRecipe);
+                        existingUserRecipes.Add(newRecipe);
+                        recipeIdMap[recipeDto.Id] = newRecipe.Id;
+                        recipesCreated++;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
+                // 8. Restore Batches
+                var existingUserBatches = await _db.Batches
+                    .Include(b => b.VolumeProfile)
+                    .Include(b => b.Ingredients)
+                    .Include(b => b.MashSteps)
+                    .Include(b => b.FermentationSteps)
+                    .Include(b => b.StageHistory)
+                    .Include(b => b.Readings)
+                    .Include(b => b.SensorAssignments)
+                    .Where(b => b.UserId == userId)
+                    .ToListAsync();
+
+                foreach (var batchDto in payload.Batches)
+                {
+                    var normCode = batchDto.BatchCode.Trim();
+                    if (string.IsNullOrEmpty(normCode)) normCode = $"B-{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}-1";
+
+                    var existingBatch = existingUserBatches.FirstOrDefault(b =>
+                        b.Id == batchDto.Id ||
+                        string.Equals(b.BatchCode, normCode, StringComparison.OrdinalIgnoreCase));
+
+                    Guid? mappedRecipeId = batchDto.RecipeId.HasValue && recipeIdMap.TryGetValue(batchDto.RecipeId.Value, out var rId)
+                        ? rId
+                        : null;
+                    Guid? mappedSetupId = batchDto.BrewerySetupId.HasValue && setupIdMap.TryGetValue(batchDto.BrewerySetupId.Value, out var sId)
+                        ? sId
+                        : defaultSetupId;
+                    Guid? mappedBoilerId = batchDto.BoilerId.HasValue && equipmentIdMap.TryGetValue(batchDto.BoilerId.Value, out var bId)
+                        ? bId
+                        : null;
+                    Guid? mappedFermenterId = batchDto.FermenterId.HasValue && equipmentIdMap.TryGetValue(batchDto.FermenterId.Value, out var fId)
+                        ? fId
+                        : null;
+                    Guid? mappedPkgId = batchDto.PackagingVesselId.HasValue && equipmentIdMap.TryGetValue(batchDto.PackagingVesselId.Value, out var pId)
+                        ? pId
+                        : null;
+
+                    if (existingBatch != null)
+                    {
+                        batchIdMap[batchDto.Id] = existingBatch.Id;
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        {
+                            existingBatch.RecipeId = mappedRecipeId;
+                            existingBatch.BrewerySetupId = mappedSetupId;
+                            existingBatch.Name = batchDto.Name.Trim();
+                            existingBatch.BeerStyle = batchDto.BeerStyle;
+                            existingBatch.Status = batchDto.Status;
+                            existingBatch.CurrentStage = batchDto.CurrentStage;
+                            existingBatch.BrewDate = batchDto.BrewDate == default ? DateOnly.FromDateTime(DateTime.UtcNow) : batchDto.BrewDate;
+                            existingBatch.TargetOg = batchDto.TargetOg;
+                            existingBatch.TargetFg = batchDto.TargetFg;
+                            existingBatch.TargetAbv = batchDto.TargetAbv;
+                            existingBatch.TargetIbu = batchDto.TargetIbu;
+                            existingBatch.TargetColorSrm = batchDto.TargetColorSrm;
+                            existingBatch.TargetBatchSizeLiters = batchDto.TargetBatchSizeLiters;
+                            existingBatch.BoilTimeMinutes = batchDto.BoilTimeMinutes;
+                            existingBatch.EfficiencyPercent = batchDto.EfficiencyPercent;
+                            existingBatch.MeasuredOg = batchDto.MeasuredOg;
+                            existingBatch.CurrentGravity = batchDto.CurrentGravity;
+                            existingBatch.MeasuredFg = batchDto.MeasuredFg;
+                            existingBatch.AlcoholByVolume = batchDto.AlcoholByVolume;
+                            existingBatch.BrewhouseEfficiency = batchDto.BrewhouseEfficiency;
+                            existingBatch.MeasuredBatchSizeLiters = batchDto.MeasuredBatchSizeLiters;
+                            existingBatch.PitchTemperatureC = batchDto.PitchTemperatureC;
+                            existingBatch.BoilerId = mappedBoilerId;
+                            existingBatch.FermenterId = mappedFermenterId;
+                            existingBatch.PackagingVesselId = mappedPkgId;
+                            existingBatch.Notes = batchDto.Notes;
+                            existingBatch.UpdatedAt = DateTime.UtcNow;
+                            existingBatch.CompletedAt = batchDto.CompletedAt;
+
+                            if (existingBatch.VolumeProfile != null)
+                            {
+                                _db.BatchVolumeProfiles.Remove(existingBatch.VolumeProfile);
+                                existingBatch.VolumeProfile = null;
+                            }
+                            _db.BatchIngredients.RemoveRange(existingBatch.Ingredients);
+                            _db.BatchMashSteps.RemoveRange(existingBatch.MashSteps);
+                            _db.BatchFermentationSteps.RemoveRange(existingBatch.FermentationSteps);
+                            _db.BatchStageHistories.RemoveRange(existingBatch.StageHistory);
+                            _db.BatchReadings.RemoveRange(existingBatch.Readings);
+                            _db.BatchSensorAssignments.RemoveRange(existingBatch.SensorAssignments);
+                            await _db.SaveChangesAsync();
+
+                            PopulateBatchChildren(existingBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap);
+                            if (existingBatch.VolumeProfile != null)
+                            {
+                                _db.BatchVolumeProfiles.Add(existingBatch.VolumeProfile);
+                            }
+                            _db.BatchIngredients.AddRange(existingBatch.Ingredients);
+                            _db.BatchMashSteps.AddRange(existingBatch.MashSteps);
+                            _db.BatchFermentationSteps.AddRange(existingBatch.FermentationSteps);
+                            _db.BatchStageHistories.AddRange(existingBatch.StageHistory);
+                            _db.BatchReadings.AddRange(existingBatch.Readings);
+                            _db.BatchSensorAssignments.AddRange(existingBatch.SensorAssignments);
+                            batchesUpdated++;
+                        }
+                        else
+                        {
+                            foreach (var ms in batchDto.MashSteps ?? [])
+                            {
+                                var matchMs = existingBatch.MashSteps.FirstOrDefault(x => x.StepOrder == ms.StepOrder);
+                                if (matchMs != null) batchMashStepIdMap[ms.Id] = matchMs.Id;
+                            }
+                            batchesSkipped++;
+                        }
+                    }
+                    else
+                    {
+                        var idTaken = await _db.Batches.AnyAsync(b => b.Id == batchDto.Id);
+                        var uniqueCode = EnsureUniqueBatchCode(normCode, existingUserBatches);
+                        var newBatchId = idTaken ? Guid.NewGuid() : batchDto.Id;
+
+                        var newBatch = new Batch
+                        {
+                            Id = newBatchId,
+                            UserId = userId,
+                            RecipeId = mappedRecipeId,
+                            BrewerySetupId = mappedSetupId,
+                            BatchCode = uniqueCode,
+                            Name = string.IsNullOrWhiteSpace(batchDto.Name) ? uniqueCode : batchDto.Name.Trim(),
+                            BeerStyle = batchDto.BeerStyle,
+                            Status = batchDto.Status,
+                            CurrentStage = batchDto.CurrentStage,
+                            BrewDate = batchDto.BrewDate == default ? DateOnly.FromDateTime(DateTime.UtcNow) : batchDto.BrewDate,
+                            TargetOg = batchDto.TargetOg,
+                            TargetFg = batchDto.TargetFg,
+                            TargetAbv = batchDto.TargetAbv,
+                            TargetIbu = batchDto.TargetIbu,
+                            TargetColorSrm = batchDto.TargetColorSrm,
+                            TargetBatchSizeLiters = batchDto.TargetBatchSizeLiters,
+                            BoilTimeMinutes = batchDto.BoilTimeMinutes,
+                            EfficiencyPercent = batchDto.EfficiencyPercent,
+                            MeasuredOg = batchDto.MeasuredOg,
+                            CurrentGravity = batchDto.CurrentGravity,
+                            MeasuredFg = batchDto.MeasuredFg,
+                            AlcoholByVolume = batchDto.AlcoholByVolume,
+                            BrewhouseEfficiency = batchDto.BrewhouseEfficiency,
+                            MeasuredBatchSizeLiters = batchDto.MeasuredBatchSizeLiters,
+                            PitchTemperatureC = batchDto.PitchTemperatureC,
+                            BoilerId = mappedBoilerId,
+                            FermenterId = mappedFermenterId,
+                            PackagingVesselId = mappedPkgId,
+                            Notes = batchDto.Notes,
+                            CreatedAt = batchDto.CreatedAt == default ? DateTime.UtcNow : batchDto.CreatedAt,
+                            UpdatedAt = DateTime.UtcNow,
+                            CompletedAt = batchDto.CompletedAt
+                        };
+
+                        PopulateBatchChildren(newBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap);
+                        _db.Batches.Add(newBatch);
+                        existingUserBatches.Add(newBatch);
+                        batchIdMap[batchDto.Id] = newBatch.Id;
+                        batchesCreated++;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
+                // 9. Restore Equipment Telemetry Readings
+                if (options.RestoreTelemetryReadings && payload.EquipmentReadings.Count > 0)
+                {
+                    var targetEqIds = equipmentIdMap.Values.Distinct().ToList();
+                    var existingReadingKeys = await _db.EquipmentReadings
+                        .AsNoTracking()
+                        .Where(er => targetEqIds.Contains(er.EquipmentId))
+                        .Select(er => new { er.EquipmentId, er.Timestamp })
+                        .ToListAsync();
+
+                    var existingSet = existingReadingKeys
+                        .Select(k => (k.EquipmentId, k.Timestamp))
+                        .ToHashSet();
+
+                    foreach (var erDto in payload.EquipmentReadings)
+                    {
+                        if (!equipmentIdMap.TryGetValue(erDto.EquipmentId, out var targetEqId))
+                        {
+                            continue;
+                        }
+
+                        if (existingSet.Contains((targetEqId, erDto.Timestamp)))
+                        {
+                            continue;
+                        }
+
+                        Guid? targetBatchId = erDto.BatchId.HasValue && batchIdMap.TryGetValue(erDto.BatchId.Value, out var bId)
+                            ? bId
+                            : null;
+                        Guid? targetMashStepId = erDto.BatchMashStepId.HasValue && batchMashStepIdMap.TryGetValue(erDto.BatchMashStepId.Value, out var msId)
+                            ? msId
+                            : null;
+
+                        _db.EquipmentReadings.Add(new EquipmentReading
+                        {
+                            Id = Guid.NewGuid(),
+                            EquipmentId = targetEqId,
+                            BatchId = targetBatchId,
+                            Stage = erDto.Stage,
+                            BatchMashStepId = targetMashStepId,
+                            StepName = erDto.StepName,
+                            Timestamp = erDto.Timestamp,
+                            TemperatureC = erDto.TemperatureC,
+                            SpecificGravity = erDto.SpecificGravity,
+                            PressureBar = erDto.PressureBar,
+                            BatteryPercent = erDto.BatteryPercent,
+                            BatteryVoltage = erDto.BatteryVoltage,
+                            TiltDegrees = erDto.TiltDegrees,
+                            Rssi = erDto.Rssi,
+                            MetricsJson = erDto.MetricsJson,
+                            Source = erDto.Source,
+                            RawPayload = erDto.RawPayload,
+                            Notes = erDto.Notes,
+                            CreatedAt = erDto.CreatedAt == default ? DateTime.UtcNow : erDto.CreatedAt
+                        });
+                        existingSet.Add((targetEqId, erDto.Timestamp));
+                        readingsRestored++;
+                    }
+
+                    await _db.SaveChangesAsync();
+                }
+
+                if (transaction != null)
+                {
+                    await transaction.CommitAsync();
+                }
+
+                var summary = new RestoreActionCountsDto(
+                    SetupsCreated: setupsCreated,
+                    SetupsUpdated: setupsUpdated,
+                    SetupsSkipped: setupsSkipped,
+                    EquipmentCreated: eqCreated,
+                    EquipmentUpdated: eqUpdated,
+                    EquipmentSkipped: eqSkipped,
+                    CustomIngredientsCreated: ingCreated,
+                    CustomIngredientsUpdated: ingUpdated,
+                    CustomIngredientsSkipped: ingSkipped,
+                    StocksUpserted: stocksUpserted,
+                    RecipesCreated: recipesCreated,
+                    RecipesUpdated: recipesUpdated,
+                    RecipesSkipped: recipesSkipped,
+                    BatchesCreated: batchesCreated,
+                    BatchesUpdated: batchesUpdated,
+                    BatchesSkipped: batchesSkipped,
+                    TelemetryReadingsRestored: readingsRestored,
+                    CollaboratorsRestored: collaboratorsRestored
+                );
+
+                _logger.LogInformation(
+                    "Completed backup restore for user {UserId}: Setups +{SetupsCreated}/~{SetupsUpdated}, Equipment +{EqCreated}/~{EqUpdated}, Recipes +{RecipesCreated}/~{RecipesUpdated}, Batches +{BatchesCreated}/~{BatchesUpdated}",
+                    userId, setupsCreated, setupsUpdated, eqCreated, eqUpdated, recipesCreated, recipesUpdated, batchesCreated, batchesUpdated);
+
+                var resultDto = new RestoreResultDto(
+                    Succeeded: true,
+                    BackupSchemaVersion: envelope.SchemaVersion,
+                    CurrentSchemaVersion: BackupSchemaConstants.CurrentSchemaVersion,
+                    SettingsRestored: settingsRestored,
+                    Summary: summary,
+                    GeneratedInvites: generatedInvites,
+                    Warnings: warnings);
+
+                return (true, resultDto, null, null);
+            }
+            catch (Exception ex)
             {
-                await transaction.CommitAsync();
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync();
+                }
+                _logger.LogError(ex, "Backup restore failed for user {UserId}", userId);
+                return (false, null, "RESTORE_FAILED", $"Restore failed: {ex.Message}");
             }
-
-            var summary = new RestoreActionCountsDto(
-                SetupsCreated: setupsCreated,
-                SetupsUpdated: setupsUpdated,
-                SetupsSkipped: setupsSkipped,
-                EquipmentCreated: eqCreated,
-                EquipmentUpdated: eqUpdated,
-                EquipmentSkipped: eqSkipped,
-                CustomIngredientsCreated: ingCreated,
-                CustomIngredientsUpdated: ingUpdated,
-                CustomIngredientsSkipped: ingSkipped,
-                StocksUpserted: stocksUpserted,
-                RecipesCreated: recipesCreated,
-                RecipesUpdated: recipesUpdated,
-                RecipesSkipped: recipesSkipped,
-                BatchesCreated: batchesCreated,
-                BatchesUpdated: batchesUpdated,
-                BatchesSkipped: batchesSkipped,
-                TelemetryReadingsRestored: readingsRestored,
-                CollaboratorsRestored: collaboratorsRestored
-            );
-
-            _logger.LogInformation(
-                "Completed backup restore for user {UserId}: Setups +{SetupsCreated}/~{SetupsUpdated}, Equipment +{EqCreated}/~{EqUpdated}, Recipes +{RecipesCreated}/~{RecipesUpdated}, Batches +{BatchesCreated}/~{BatchesUpdated}",
-                userId, setupsCreated, setupsUpdated, eqCreated, eqUpdated, recipesCreated, recipesUpdated, batchesCreated, batchesUpdated);
-
-            var resultDto = new RestoreResultDto(
-                Succeeded: true,
-                BackupSchemaVersion: envelope.SchemaVersion,
-                CurrentSchemaVersion: BackupSchemaConstants.CurrentSchemaVersion,
-                SettingsRestored: settingsRestored,
-                Summary: summary,
-                GeneratedInvites: generatedInvites,
-                Warnings: warnings);
-
-            return (true, resultDto, null, null);
-        }
-        catch (Exception ex)
-        {
-            if (transaction != null)
-            {
-                await transaction.RollbackAsync();
-            }
-            _logger.LogError(ex, "Backup restore failed for user {UserId}", userId);
-            return (false, null, "RESTORE_FAILED", $"Restore failed: {ex.Message}");
-        }
+        });
     }
 
     private EquipmentBackupDto MapEquipmentToBackupDto(Equipment e, bool includeSecrets, byte[]? encryptionKey)
@@ -1987,6 +1995,7 @@ public class BackupService : IBackupService
     }
 
     private async Task NormalizeDefaultSetupAsync(
+        string userId,
         List<BrewerySetup> userOwnedSetups,
         List<BrewerySetupBackupDto> backupSetups,
         Dictionary<Guid, Guid> setupIdMap,
@@ -1997,7 +2006,7 @@ public class BackupService : IBackupService
             var autoSetup = new BrewerySetup
             {
                 Id = Guid.NewGuid(),
-                UserId = (await _db.Users.FirstAsync()).Id,
+                UserId = userId,
                 Name = BrewerySetupService.GetDefaultBreweryName(preferredLanguage),
                 IsDefault = true,
                 CreatedAt = DateTime.UtcNow,
@@ -2017,9 +2026,22 @@ public class BackupService : IBackupService
 
         desiredDefaultId ??= userOwnedSetups.FirstOrDefault(s => s.IsDefault)?.Id ?? userOwnedSetups[0].Id;
 
-        foreach (var s in userOwnedSetups)
+        bool clearedOldDefault = false;
+        foreach (var s in userOwnedSetups.Where(s => s.Id != desiredDefaultId && s.IsDefault))
         {
-            s.IsDefault = s.Id == desiredDefaultId;
+            s.IsDefault = false;
+            clearedOldDefault = true;
+        }
+
+        if (clearedOldDefault)
+        {
+            await _db.SaveChangesAsync();
+        }
+
+        var desiredSetup = userOwnedSetups.FirstOrDefault(s => s.Id == desiredDefaultId);
+        if (desiredSetup != null && !desiredSetup.IsDefault)
+        {
+            desiredSetup.IsDefault = true;
         }
     }
 

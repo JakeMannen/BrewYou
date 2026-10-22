@@ -583,4 +583,71 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             .Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
         allAfterReplace.Should().ContainSingle(r => r.Name == "House Pilsner");
     }
+
+    [Fact]
+    public async Task ExportDeleteRecipeAndRestore_PreservesChecksumAfterBrowserNumberNormalizationAndRestoresDeletedRecipe()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Sommer Öl Bryggeri");
+
+        var ingredients = (await (await client.GetAsync("/api/v1/ingredients"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<IngredientDto>>>())!.Data!;
+        var pilsnerMalt = ingredients.First(i => i.Name == "Pilsner Malt");
+
+        // 1. Create a recipe with trailing decimal zeros (as returned by PostgreSQL numeric(6,2)) and Unicode text
+        var createRes = await client.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Märzen Festbier °C",
+            Description: "Brewed at 66.00 °C",
+            BeerStyle: "Märzen",
+            BatchSizeLiters: 20.00m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75.00m,
+            IsPublic: false,
+            Ingredients:
+            [
+                new RecipeIngredientInputDto(pilsnerMalt.Id, 4.500m, "kg", 60, IngredientUsage.Mash, "Base")
+            ]));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var createdRecipe = (await createRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        // 2. Export backup
+        var exportRes = await client.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var exportedEnvelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        // Simulate browser JSON.parse + JSON.stringify (which strips trailing decimal zeros 20.00 -> 20, 4.500 -> 4.5)
+        var rawDataWithBrowserNormalizedNumbers = exportedEnvelope.Data.GetRawText()
+            .Replace("20.00", "20")
+            .Replace("75.00", "75")
+            .Replace("4.500", "4.5")
+            .Replace("0.9600", "0.96");
+        using var normalizedDoc = JsonDocument.Parse(rawDataWithBrowserNormalizedNumbers);
+        var browserNormalizedEnvelope = exportedEnvelope with { Data = normalizedDoc.RootElement.Clone() };
+
+        // 3. Delete the recipe
+        var delRes = await client.DeleteAsync($"/api/v1/recipes/{createdRecipe.Id}");
+        delRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var recipesAfterDelete = (await (await client.GetAsync("/api/v1/recipes?scope=mine"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
+        recipesAfterDelete.Should().BeEmpty();
+
+        // 4. Preview restore using browser-normalized JSON and verify checksum still matches
+        var previewRes = await client.PostAsJsonAsync("/api/v1/backup/preview", new PreviewRestoreRequest(browserNormalizedEnvelope));
+        previewRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = (await previewRes.Content.ReadFromJsonAsync<ApiResponse<RestorePreviewReportDto>>())!.Data!;
+        preview.IsValid.Should().BeTrue();
+        preview.ChecksumVerified.Should().BeTrue();
+        preview.Warnings.Should().NotContain(w => w.Contains("checksum", StringComparison.OrdinalIgnoreCase));
+
+        // 5. Execute restore and verify the deleted recipe is restored
+        var restoreRes = await client.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(browserNormalizedEnvelope));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restoreResult = (await restoreRes.Content.ReadFromJsonAsync<ApiResponse<RestoreResultDto>>())!.Data!;
+        restoreResult.Succeeded.Should().BeTrue();
+        restoreResult.Summary.RecipesCreated.Should().Be(1);
+
+        var recipesAfterRestore = (await (await client.GetAsync("/api/v1/recipes?scope=mine"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
+        recipesAfterRestore.Should().ContainSingle(r => r.Name == "Märzen Festbier °C");
+    }
 }

@@ -1,5 +1,6 @@
 using BrewYou.ApiService.Backup.Models;
 using BrewYou.ApiService.Data.Entities;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -553,6 +554,23 @@ public class BackupMigrationPipeline
         {
             var items = arr.Select(CanonicalizeNode);
             return "[" + string.Join(",", items) + "]";
+        }
+
+        if (node is JsonValue val)
+        {
+            return val.GetValueKind() switch
+            {
+                JsonValueKind.String => JsonSerializer.Serialize(val.GetValue<string>()),
+                JsonValueKind.Number when decimal.TryParse(
+                    val.ToJsonString(),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out var dec) => dec == 0m ? "0" : dec.ToString("G29", CultureInfo.InvariantCulture),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                JsonValueKind.Null => "null",
+                _ => val.ToJsonString()
+            };
         }
 
         return node.ToJsonString();
