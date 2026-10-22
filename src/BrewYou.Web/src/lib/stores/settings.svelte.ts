@@ -495,13 +495,42 @@ class SettingsState {
 
 	hydrateFromPreferences(pref: UserPreferencesDto) {
 		if (pref.volumeUnit) this.volumeUnit = pref.volumeUnit;
-		if (pref.weightUnit) {
+		if (pref.grainWeightUnit === 'kg' || pref.grainWeightUnit === 'lb') {
+			this.grainWeightUnit = pref.grainWeightUnit;
+		} else if (pref.weightUnit) {
 			if (!browser || !localStorage.getItem('brewyou_grain_weight_unit')) {
 				this.grainWeightUnit = pref.weightUnit === 'Imperial' ? 'lb' : 'kg';
 			}
+		}
+		if (pref.hopWeightUnit === 'g' || pref.hopWeightUnit === 'oz') {
+			this.hopWeightUnit = pref.hopWeightUnit;
+		} else if (pref.weightUnit) {
 			if (!browser || !localStorage.getItem('brewyou_hop_weight_unit')) {
 				this.hopWeightUnit = pref.weightUnit === 'Imperial' ? 'oz' : 'g';
 			}
+		}
+		if (pref.colorUnit === 'SRM' || pref.colorUnit === 'EBC') {
+			this.colorUnit = pref.colorUnit;
+		}
+		if (pref.carbonationUnit === 'Volumes' || pref.carbonationUnit === 'GramsPerLiter') {
+			this.carbonationUnit = pref.carbonationUnit;
+		}
+		if (
+			pref.bitternessFormula === 'Tinseth' ||
+			pref.bitternessFormula === 'Rager' ||
+			pref.bitternessFormula === 'Daniels'
+		) {
+			this.bitternessFormula = pref.bitternessFormula;
+		}
+		if (
+			pref.colorFormula === 'Morey' ||
+			pref.colorFormula === 'Mosher' ||
+			pref.colorFormula === 'Daniels'
+		) {
+			this.colorFormula = pref.colorFormula;
+		}
+		if (pref.abvFormula === 'Linear' || pref.abvFormula === 'Advanced') {
+			this.abvFormula = pref.abvFormula;
 		}
 		if (pref.temperatureUnit) this.temperatureUnit = pref.temperatureUnit;
 		if (pref.gravityUnit) this.gravityUnit = pref.gravityUnit;
@@ -680,10 +709,14 @@ class SettingsState {
 		if (auth.isAuthenticated) {
 			try {
 				await api.auth.updatePreferences({
-					weightUnit: this.weightUnit
+					weightUnit: this.weightUnit,
+					grainWeightUnit: this.grainWeightUnit,
+					hopWeightUnit: this.hopWeightUnit
 				});
 				if (auth.user?.preferences) {
 					auth.user.preferences.weightUnit = this.weightUnit;
+					auth.user.preferences.grainWeightUnit = this.grainWeightUnit;
+					auth.user.preferences.hopWeightUnit = this.hopWeightUnit;
 				}
 			} catch (err) {
 				console.warn('Could not sync weight unit preference to profile:', err);
@@ -779,6 +812,13 @@ class SettingsState {
 			const updatedUser = await api.auth.updatePreferences({
 				volumeUnit: this.volumeUnit,
 				weightUnit: this.weightUnit,
+				grainWeightUnit: this.grainWeightUnit,
+				hopWeightUnit: this.hopWeightUnit,
+				colorUnit: this.colorUnit,
+				carbonationUnit: this.carbonationUnit,
+				bitternessFormula: this.bitternessFormula,
+				colorFormula: this.colorFormula,
+				abvFormula: this.abvFormula,
 				temperatureUnit: this.temperatureUnit,
 				gravityUnit: this.gravityUnit,
 				theme: this.themePreference,

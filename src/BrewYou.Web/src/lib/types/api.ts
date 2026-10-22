@@ -246,6 +246,13 @@ export interface RecipeNameCheckResponse {
 
 export type VolumeUnit = 'Liters' | 'Gallons';
 export type WeightUnit = 'Metric' | 'Imperial';
+export type GrainWeightUnitPreference = 'kg' | 'lb';
+export type HopWeightUnitPreference = 'g' | 'oz';
+export type ColorUnitPreference = 'SRM' | 'EBC';
+export type CarbonationUnitPreference = 'Volumes' | 'GramsPerLiter';
+export type BitternessFormulaPreference = 'Tinseth' | 'Rager' | 'Daniels';
+export type ColorFormulaPreference = 'Morey' | 'Mosher' | 'Daniels';
+export type AbvFormulaPreference = 'Linear' | 'Advanced';
 export type TemperatureUnit = 'Celsius' | 'Fahrenheit';
 export type GravityUnit = 'SpecificGravity' | 'Plato';
 export type ThemePreference =
@@ -268,6 +275,13 @@ export interface UserPreferencesDto {
 	mqttCertificate?: string | null;
 	hasMqttPassword?: boolean;
 	mqttTopicPrefix?: string | null;
+	grainWeightUnit?: GrainWeightUnitPreference;
+	hopWeightUnit?: HopWeightUnitPreference;
+	colorUnit?: ColorUnitPreference;
+	carbonationUnit?: CarbonationUnitPreference;
+	bitternessFormula?: BitternessFormulaPreference;
+	colorFormula?: ColorFormulaPreference;
+	abvFormula?: AbvFormulaPreference;
 }
 
 export interface UpdateUserPreferencesRequest {
@@ -286,6 +300,13 @@ export interface UpdateUserPreferencesRequest {
 	mqttPassword?: string | null;
 	mqttCertificate?: string | null;
 	mqttTopicPrefix?: string | null;
+	grainWeightUnit?: GrainWeightUnitPreference;
+	hopWeightUnit?: HopWeightUnitPreference;
+	colorUnit?: ColorUnitPreference;
+	carbonationUnit?: CarbonationUnitPreference;
+	bitternessFormula?: BitternessFormulaPreference;
+	colorFormula?: ColorFormulaPreference;
+	abvFormula?: AbvFormulaPreference;
 }
 
 export interface MqttStatusResponse {
@@ -1067,4 +1088,144 @@ export interface IngredientShortageDto {
 export interface BatchStockCheckResult {
 	hasShortage: boolean;
 	shortages: IngredientShortageDto[];
+}
+
+export type RestoreConflictResolutionMode =
+	'MergeSkipExisting' | 'MergeOverwriteExisting' | 'ReplaceAll';
+
+export type SharedSetupFallbackMode = 'CloneAsPersonal' | 'DetachReferences';
+
+export type CollaboratorRestoreMode =
+	'RestoreMembershipsIfAvailable' | 'CreateInvitesOnly' | 'SkipCollaborators';
+
+export interface BackupEncryptionMetadataDto {
+	secretsEncrypted: boolean;
+	algorithm: string;
+	kdf: string;
+	iterations: number;
+	saltBase64?: string | null;
+}
+
+export interface BrewYouBackupEnvelope {
+	format: string;
+	schemaVersion: number;
+	appVersion: string;
+	exportedAtUtc: string;
+	checksumSha256: string;
+	data: Record<string, unknown>;
+	encryption?: BackupEncryptionMetadataDto | null;
+}
+
+export interface ExportBackupRequest {
+	includeTelemetryReadings?: boolean;
+	includeSecrets?: boolean;
+	passphrase?: string | null;
+}
+
+export interface RestoreOptionsDto {
+	conflictResolution: RestoreConflictResolutionMode;
+	restoreUserSettings: boolean;
+	restoreSharedSetups: boolean;
+	sharedSetupFallback: SharedSetupFallbackMode;
+	collaboratorRestore: CollaboratorRestoreMode;
+	restoreTelemetryReadings: boolean;
+	passphrase?: string | null;
+}
+
+export interface PreviewRestoreRequest {
+	backup: BrewYouBackupEnvelope;
+	options?: RestoreOptionsDto | null;
+}
+
+export interface ExecuteRestoreRequest {
+	backup: BrewYouBackupEnvelope;
+	options?: RestoreOptionsDto | null;
+}
+
+export interface BackupItemCountsDto {
+	ownedSetups: number;
+	sharedSetups: number;
+	equipment: number;
+	customIngredients: number;
+	ingredientStocks: number;
+	recipes: number;
+	batches: number;
+	telemetryReadings: number;
+	collaborators: number;
+	pendingInvites: number;
+}
+
+export interface BackupConflictSummaryDto {
+	matchingSetups: number;
+	matchingEquipment: number;
+	matchingCustomIngredients: number;
+	matchingRecipes: number;
+	matchingBatches: number;
+}
+
+export interface SharedSetupPreviewItemDto {
+	originalSetupId: string;
+	setupName: string;
+	ownerDisplayName?: string | null;
+	role: BreweryRole;
+	liveSetupAvailable: boolean;
+	plannedAction: string;
+}
+
+export interface RestorePreviewReportDto {
+	isValid: boolean;
+	checksumVerified: boolean;
+	backupSchemaVersion: number;
+	currentSchemaVersion: number;
+	wasUpgraded: boolean;
+	migrationNotes: string[];
+	backupAppVersion?: string | null;
+	exportedAtUtc?: string | null;
+	secretsEncrypted: boolean;
+	passphraseRequired: boolean;
+	passphraseValid: boolean;
+	counts: BackupItemCountsDto;
+	conflicts: BackupConflictSummaryDto;
+	sharedSetups: SharedSetupPreviewItemDto[];
+	warnings: string[];
+	errors: string[];
+}
+
+export interface RestoreActionCountsDto {
+	setupsCreated: number;
+	setupsUpdated: number;
+	setupsSkipped: number;
+	equipmentCreated: number;
+	equipmentUpdated: number;
+	equipmentSkipped: number;
+	customIngredientsCreated: number;
+	customIngredientsUpdated: number;
+	customIngredientsSkipped: number;
+	stocksUpserted: number;
+	recipesCreated: number;
+	recipesUpdated: number;
+	recipesSkipped: number;
+	batchesCreated: number;
+	batchesUpdated: number;
+	batchesSkipped: number;
+	telemetryReadingsRestored: number;
+	collaboratorsRestored: number;
+}
+
+export interface RestoredInviteInfoDto {
+	brewerySetupId: string;
+	brewerySetupName: string;
+	invitedEmail: string;
+	role: BreweryRole;
+	inviteCode: string;
+}
+
+export interface RestoreResultDto {
+	succeeded: boolean;
+	backupSchemaVersion: number;
+	currentSchemaVersion: number;
+	settingsRestored: boolean;
+	summary: RestoreActionCountsDto;
+	generatedInvites: RestoredInviteInfoDto[];
+	warnings: string[];
 }
