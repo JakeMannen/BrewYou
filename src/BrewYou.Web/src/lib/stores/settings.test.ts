@@ -527,4 +527,84 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 		expect(settings.themePreference).toBe('Dark');
 		expect(theme.preference).toBe('dark');
 	});
+
+	it('hydrates granular unit and formula preferences from backend UserPreferencesDto', () => {
+		settings.hydrateFromPreferences({
+			language: 'sv',
+			volumeUnit: 'Liters',
+			weightUnit: 'Metric',
+			grainWeightUnit: 'kg',
+			hopWeightUnit: 'oz',
+			colorUnit: 'EBC',
+			carbonationUnit: 'GramsPerLiter',
+			temperatureUnit: 'Celsius',
+			gravityUnit: 'Plato',
+			theme: 'ImperialStout',
+			bitternessFormula: 'Rager',
+			colorFormula: 'Mosher',
+			abvFormula: 'Advanced',
+			defaultBatchSizeLiters: 25,
+			defaultEfficiencyPercent: 78,
+			defaultBoilTimeMinutes: 75
+		});
+
+		expect(settings.grainWeightUnit).toBe('kg');
+		expect(settings.hopWeightUnit).toBe('oz');
+		expect(settings.colorUnit).toBe('EBC');
+		expect(settings.carbonationUnit).toBe('GramsPerLiter');
+		expect(settings.bitternessFormula).toBe('Rager');
+		expect(settings.colorFormula).toBe('Mosher');
+		expect(settings.abvFormula).toBe('Advanced');
+	});
+
+	it('sends granular unit and formula preferences when syncing to backend', async () => {
+		auth.user = {
+			id: 'sync-user',
+			email: 'sync@brewyou.local',
+			displayName: 'Sync Brewer',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters',
+			createdAt: new Date().toISOString()
+		};
+
+		const spy = vi.spyOn(api.auth, 'updatePreferences').mockResolvedValue({
+			id: 'sync-user',
+			email: 'sync@brewyou.local',
+			displayName: 'Sync Brewer',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters',
+			createdAt: new Date().toISOString()
+		});
+
+		settings.setGrainWeightUnit('kg');
+		settings.setHopWeightUnit('oz');
+		settings.setColorUnit('EBC');
+		settings.setCarbonationUnit('GramsPerLiter');
+		settings.setBitternessFormula('Rager');
+		settings.setColorFormula('Mosher');
+		settings.setAbvFormula('Advanced');
+
+		await settings.syncAllToBackend();
+
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				grainWeightUnit: 'kg',
+				hopWeightUnit: 'oz',
+				colorUnit: 'EBC',
+				carbonationUnit: 'GramsPerLiter',
+				bitternessFormula: 'Rager',
+				colorFormula: 'Mosher',
+				abvFormula: 'Advanced'
+			})
+		);
+
+		spy.mockRestore();
+		auth.user = null;
+	});
+
+	it('exposes backup export, preview, and restore API client methods', () => {
+		expect(typeof api.backup.export).toBe('function');
+		expect(typeof api.backup.preview).toBe('function');
+		expect(typeof api.backup.restore).toBe('function');
+	});
 });

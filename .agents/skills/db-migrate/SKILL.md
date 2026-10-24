@@ -27,3 +27,8 @@ Use this skill when modifying database schemas, creating new tables or columns, 
 4. **Update ORM / Schema Artifacts**:
    - Regenerate client types or schema definitions (e.g. `prisma generate`).
    - Notify the **Backend Developer** and **API Contract Reviewer** of newly available models and fields.
+
+5. **Synchronize User Backup & Restore Backwards Compatibility**:
+   - If the schema change adds, renames, or alters any user-scoped entity, child collection, user preference, or collaboration model, update `BackupContracts.cs`, `BackupService.cs`, and frontend `api.ts`.
+   - Keep new backup DTO properties optional/nullable with safe defaults so older `.brewyou.json` backups remain restorable.
+   - If the change alters or restructures existing backup fields, increment `BackupSchemaConstants.CurrentSchemaVersion` and add a sequential `IBackupSchemaMigration` upcaster step in `BackupMigrationPipeline.cs`, verified by tests in `BackupEndpointsTests.cs`.

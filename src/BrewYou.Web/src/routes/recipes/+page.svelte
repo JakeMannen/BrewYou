@@ -282,9 +282,10 @@
 
 			allRecipes = [created, ...allRecipes];
 			recipes = [created, ...recipes];
-			goto(`/recipes/${created.id}/edit`);
+			await goto(`/recipes/${created.id}`);
 		} catch (err: unknown) {
 			error = (err as Error).message || 'Failed to import recipe.';
+		} finally {
 			loading = false;
 		}
 	}

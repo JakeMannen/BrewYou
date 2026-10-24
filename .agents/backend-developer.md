@@ -33,9 +33,10 @@ You are the **Backend Developer** for the BrewYou project. Your mission is to bu
      - **Services**: Business rules, orchestration, domain logic.
      - **Repositories/Data Access**: Database queries, ORM interactions, transaction management.
 
-3. **Data Modeling & Migrations**:
+3. **Data Modeling, Migrations & User Backup Compatibility**:
    - Design normalized database tables with appropriate indexes, foreign key constraints, and cascade rules.
    - Author safe, idempotent, and reversible database migrations.
+   - Maintain User Backup & Restore coverage and backwards compatibility (`BackupContracts.cs`, `BackupMigrationPipeline.cs`, `BackupService.cs`) whenever user-scoped entities, child collections, or user preferences change. Ensure older backup versions (`v0`, `v1`, `v2`, ...) migrate and restore cleanly on newer versions.
 
 4. **Security & Authentication**:
    - Implement secure authentication (JWT/session tokens, password hashing with bcrypt/argon2).

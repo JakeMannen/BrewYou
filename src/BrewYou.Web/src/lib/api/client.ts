@@ -61,7 +61,13 @@ import type {
 	BatchEquipmentReadingDto,
 	LogBatchTemperatureRequest,
 	CheckBatchStockRequest,
-	BatchStockCheckResult
+	BatchStockCheckResult,
+	BrewYouBackupEnvelope,
+	ExportBackupRequest,
+	PreviewRestoreRequest,
+	RestorePreviewReportDto,
+	ExecuteRestoreRequest,
+	RestoreResultDto
 } from '$lib/types/api';
 
 interface CustomWindow extends Window {
@@ -882,6 +888,29 @@ export const api = {
 				if (options.signal?.aborted) return;
 				options.onError?.(err instanceof Error ? err : new Error(String(err)));
 			}
+		}
+	},
+
+	backup: {
+		async export(req: ExportBackupRequest = {}): Promise<BrewYouBackupEnvelope> {
+			return request<BrewYouBackupEnvelope>('/api/v1/backup/export', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async preview(req: PreviewRestoreRequest): Promise<RestorePreviewReportDto> {
+			return request<RestorePreviewReportDto>('/api/v1/backup/preview', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async restore(req: ExecuteRestoreRequest): Promise<RestoreResultDto> {
+			return request<RestoreResultDto>('/api/v1/backup/restore', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
 		}
 	}
 };

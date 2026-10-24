@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { api } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
+	import { brewery } from '$lib/stores/brewery.svelte';
 	import { i18n, supportedLocales, t, type LocaleCode } from '$lib/i18n/index.svelte';
 	import {
 		settings,
@@ -16,7 +18,19 @@
 		type AbvFormula,
 		type UnitPreset
 	} from '$lib/stores/settings.svelte';
-	import type { GravityUnit, TemperatureUnit, ThemePreference, VolumeUnit } from '$lib/types/api';
+	import type {
+		BrewYouBackupEnvelope,
+		CollaboratorRestoreMode,
+		GravityUnit,
+		RestoreConflictResolutionMode,
+		RestoreOptionsDto,
+		RestorePreviewReportDto,
+		RestoreResultDto,
+		SharedSetupFallbackMode,
+		TemperatureUnit,
+		ThemePreference,
+		VolumeUnit
+	} from '$lib/types/api';
 	import {
 		User,
 		Palette,
@@ -40,12 +54,16 @@
 		Wifi,
 		Eye,
 		EyeOff,
-		Info
+		Info,
+		Archive,
+		Download,
+		Upload,
+		ShieldCheck
 	} from '@lucide/svelte';
 
 	import { SvelteURL } from 'svelte/reactivity';
 
-	type SettingsTab = 'units' | 'defaults' | 'connectivity' | 'account';
+	type SettingsTab = 'units' | 'defaults' | 'connectivity' | 'backup' | 'account';
 
 	let activeTab = $state<SettingsTab>('units');
 
@@ -89,6 +107,171 @@
 	let connectivitySuccess = $state(false);
 	let connectivityError = $state<string | null>(null);
 
+	// Backup & Restore state
+	let includeTelemetryReadings = $state(true);
+	let includeEncryptedSecrets = $state(false);
+	let exportPassphrase = $state('');
+	let isExportingBackup = $state(false);
+	let exportSuccess = $state(false);
+	let exportError = $state<string | null>(null);
+
+	let selectedBackupEnvelope = $state<BrewYouBackupEnvelope | null>(null);
+	let selectedBackupFileName = $state<string>('');
+	let conflictResolutionMode = $state<RestoreConflictResolutionMode>('MergeSkipExisting');
+	let sharedSetupFallbackMode = $state<SharedSetupFallbackMode>('CloneAsPersonal');
+	let collaboratorRestoreMode = $state<CollaboratorRestoreMode>('RestoreMembershipsIfAvailable');
+	let decryptionPassphrase = $state('');
+	let isPreviewingRestore = $state(false);
+	let isExecutingRestore = $state(false);
+	let restorePreview = $state<RestorePreviewReportDto | null>(null);
+	let restoreResult = $state<RestoreResultDto | null>(null);
+	let restoreError = $state<string | null>(null);
+
+	function buildRestoreOptions(): RestoreOptionsDto {
+		return {
+			conflictResolution: conflictResolutionMode,
+			restoreUserSettings: true,
+			restoreSharedSetups: true,
+			sharedSetupFallback: sharedSetupFallbackMode,
+			collaboratorRestore: collaboratorRestoreMode,
+			restoreTelemetryReadings: true,
+			passphrase: decryptionPassphrase.trim() || null
+		};
+	}
+
+	async function handleExportBackup(e: SubmitEvent) {
+		e.preventDefault();
+		exportSuccess = false;
+		exportError = null;
+
+		if (includeEncryptedSecrets && exportPassphrase.trim().length < 8) {
+			exportError = t('settings.backup.passphrase_too_short');
+			return;
+		}
+
+		isExportingBackup = true;
+		try {
+			const envelope = await api.backup.export({
+				includeTelemetryReadings,
+				includeSecrets: includeEncryptedSecrets,
+				passphrase: includeEncryptedSecrets ? exportPassphrase.trim() : null
+			});
+
+			if (typeof window !== 'undefined') {
+				const datePart = new Date().toISOString().slice(0, 10);
+				const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+					type: 'application/json'
+				});
+				const url = URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = url;
+				a.download = `brewyou-backup-${datePart}.brewyou.json`;
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				URL.revokeObjectURL(url);
+			}
+
+			exportSuccess = true;
+			setTimeout(() => {
+				exportSuccess = false;
+			}, 4000);
+		} catch (err: unknown) {
+			exportError = (err as Error).message || t('settings.backup.export_error');
+		} finally {
+			isExportingBackup = false;
+		}
+	}
+
+	async function handleBackupFileChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		restoreError = null;
+		restorePreview = null;
+		restoreResult = null;
+
+		if (!file) {
+			selectedBackupEnvelope = null;
+			selectedBackupFileName = '';
+			return;
+		}
+
+		try {
+			const text = await file.text();
+			const parsed = JSON.parse(text) as BrewYouBackupEnvelope;
+			if (!parsed || typeof parsed !== 'object' || !parsed.data) {
+				throw new Error(t('settings.backup.invalid_json'));
+			}
+			selectedBackupEnvelope = parsed;
+			selectedBackupFileName = file.name;
+			await handlePreviewRestore();
+		} catch {
+			selectedBackupEnvelope = null;
+			selectedBackupFileName = '';
+			restoreError = t('settings.backup.invalid_json');
+		}
+	}
+
+	function clearSelectedBackupFile() {
+		selectedBackupEnvelope = null;
+		selectedBackupFileName = '';
+		restorePreview = null;
+		restoreResult = null;
+		restoreError = null;
+	}
+
+	async function handlePreviewRestore() {
+		if (!selectedBackupEnvelope) return;
+		isPreviewingRestore = true;
+		restoreError = null;
+
+		try {
+			restorePreview = await api.backup.preview({
+				backup: selectedBackupEnvelope,
+				options: buildRestoreOptions()
+			});
+		} catch (err: unknown) {
+			restoreError = (err as Error).message || t('settings.backup.restore_error');
+		} finally {
+			isPreviewingRestore = false;
+		}
+	}
+
+	async function handleExecuteRestore() {
+		if (!selectedBackupEnvelope) return;
+		isExecutingRestore = true;
+		restoreError = null;
+
+		try {
+			restoreResult = await api.backup.restore({
+				backup: selectedBackupEnvelope,
+				options: buildRestoreOptions()
+			});
+
+			const updatedUser = await api.auth.me();
+			auth.user = updatedUser;
+			if (updatedUser.preferredLanguage) {
+				i18n.setLocale(updatedUser.preferredLanguage as LocaleCode);
+			}
+			if (updatedUser.preferences) {
+				settings.hydrateFromPreferences(updatedUser.preferences);
+				defaultBatchSizeDisplay = toDisplayVolume(settings.defaultBatchSize, settings.volumeUnit);
+				defaultEfficiency = settings.defaultEfficiency;
+				defaultBoilTime = settings.defaultBoilTime;
+				mqttHost = settings.mqttHost;
+				mqttPort = settings.mqttPort || 1883;
+				mqttUsername = settings.mqttUsername;
+				mqttCertificate = settings.mqttCertificate;
+				mqttTopicPrefix = settings.mqttTopicPrefix || 'brewyou/equipment';
+			}
+			await brewery.syncFromBackend();
+		} catch (err: unknown) {
+			restoreError = (err as Error).message || t('settings.backup.restore_error');
+		} finally {
+			isExecutingRestore = false;
+		}
+	}
+
 	function setTab(tab: SettingsTab) {
 		activeTab = tab;
 		if (typeof window !== 'undefined') {
@@ -118,12 +301,14 @@
 		// Resolve initial tab from query param or URL hash
 		const initialHash = typeof window !== 'undefined' ? window.location.hash : page.url.hash;
 		const urlTab = page.url.searchParams.get('tab') as SettingsTab | null;
-		if (urlTab && ['units', 'defaults', 'connectivity', 'account'].includes(urlTab)) {
+		if (urlTab && ['units', 'defaults', 'connectivity', 'backup', 'account'].includes(urlTab)) {
 			activeTab = urlTab;
 		} else if (initialHash === '#connectivity') {
 			activeTab = 'connectivity';
 		} else if (initialHash === '#defaults') {
 			activeTab = 'defaults';
+		} else if (initialHash === '#backup') {
+			activeTab = 'backup';
 		} else if (initialHash === '#account' || initialHash === '#profile') {
 			activeTab = 'account';
 		}
@@ -132,6 +317,7 @@
 			const hash = window.location.hash;
 			if (hash === '#connectivity') activeTab = 'connectivity';
 			else if (hash === '#defaults') activeTab = 'defaults';
+			else if (hash === '#backup') activeTab = 'backup';
 			else if (hash === '#account' || hash === '#profile') activeTab = 'account';
 			else if (hash === '#units') activeTab = 'units';
 		};
@@ -275,35 +461,56 @@
 	async function updateGrainWeightUnit(unit: GrainWeightUnit) {
 		settings.setGrainWeightUnit(unit);
 		if (auth.isAuthenticated) {
-			await auth.updatePreferences({ weightUnit: settings.weightUnit });
+			await auth.updatePreferences({
+				weightUnit: settings.weightUnit,
+				grainWeightUnit: unit
+			});
 		}
 	}
 
 	async function updateHopWeightUnit(unit: HopWeightUnit) {
 		settings.setHopWeightUnit(unit);
 		if (auth.isAuthenticated) {
-			await auth.updatePreferences({ weightUnit: settings.weightUnit });
+			await auth.updatePreferences({
+				weightUnit: settings.weightUnit,
+				hopWeightUnit: unit
+			});
 		}
 	}
 
 	function updateColorUnit(unit: ColorUnit) {
 		settings.setColorUnit(unit);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ colorUnit: unit });
+		}
 	}
 
 	function updateCarbonationUnit(unit: CarbonationUnit) {
 		settings.setCarbonationUnit(unit);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ carbonationUnit: unit });
+		}
 	}
 
 	function updateBitternessFormula(formula: BitternessFormula) {
 		settings.setBitternessFormula(formula);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ bitternessFormula: formula });
+		}
 	}
 
 	function updateColorFormula(formula: ColorFormula) {
 		settings.setColorFormula(formula);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ colorFormula: formula });
+		}
 	}
 
 	function updateAbvFormula(formula: AbvFormula) {
 		settings.setAbvFormula(formula);
+		if (auth.isAuthenticated) {
+			void auth.updatePreferences({ abvFormula: formula });
+		}
 	}
 
 	async function updateTemperatureUnit(unit: TemperatureUnit) {
@@ -503,7 +710,25 @@
 			{/if}
 		</button>
 
-		<!-- Tab 4: Account & Profile -->
+		<!-- Tab 4: Backup & Restore -->
+		<button
+			type="button"
+			role="tab"
+			id="tab-backup"
+			aria-selected={activeTab === 'backup'}
+			aria-controls="panel-backup"
+			data-testid="tab-btn-backup"
+			onclick={() => setTab('backup')}
+			class="flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl px-4 py-2 font-bold whitespace-nowrap transition-all {activeTab ===
+			'backup'
+				? 'bg-amber-500 text-zinc-950 shadow-sm'
+				: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+		>
+			<Archive class="h-4 w-4" />
+			<span>{t('settings.tabs.backup')}</span>
+		</button>
+
+		<!-- Tab 5: Account & Profile -->
 		<button
 			type="button"
 			role="tab"
@@ -1925,7 +2150,589 @@
 		</div>
 	{/if}
 
-	<!-- TAB PANEL 4: ACCOUNT & PROFILE -->
+	<!-- TAB PANEL 4: BACKUP & RESTORE -->
+	{#if activeTab === 'backup'}
+		<div id="panel-backup" role="tabpanel" aria-labelledby="tab-backup" class="max-w-3xl space-y-6">
+			{#if auth.isAuthenticated}
+				<!-- Export Card -->
+				<section
+					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+					aria-labelledby="backup-export-heading"
+				>
+					<div
+						class="flex items-center gap-3 border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+					>
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<Download class="h-5 w-5" />
+						</div>
+						<div>
+							<h2
+								id="backup-export-heading"
+								class="text-base font-bold text-zinc-900 dark:text-white"
+							>
+								{t('settings.backup.export_title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.backup.export_desc')}
+							</p>
+						</div>
+					</div>
+
+					<form onsubmit={handleExportBackup} class="mt-5 space-y-4">
+						<label
+							class="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50/50 p-3.5 dark:border-white/5 dark:bg-zinc-900/30"
+						>
+							<input
+								type="checkbox"
+								data-testid="backup-include-telemetry"
+								bind:checked={includeTelemetryReadings}
+								class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+							/>
+							<div>
+								<span class="block text-xs font-bold text-zinc-900 dark:text-white">
+									{t('settings.backup.include_telemetry')}
+								</span>
+								<span class="mt-0.5 block text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('settings.backup.include_telemetry_desc')}
+								</span>
+							</div>
+						</label>
+
+						<label
+							class="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50/50 p-3.5 dark:border-white/5 dark:bg-zinc-900/30"
+						>
+							<input
+								type="checkbox"
+								data-testid="backup-include-secrets"
+								bind:checked={includeEncryptedSecrets}
+								class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+							/>
+							<div>
+								<span class="block text-xs font-bold text-zinc-900 dark:text-white">
+									{t('settings.backup.include_secrets')}
+								</span>
+								<span class="mt-0.5 block text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('settings.backup.include_secrets_desc')}
+								</span>
+							</div>
+						</label>
+
+						{#if includeEncryptedSecrets}
+							<div>
+								<label
+									for="backup-export-passphrase"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('settings.backup.passphrase_label')}
+								</label>
+								<input
+									id="backup-export-passphrase"
+									data-testid="backup-export-passphrase"
+									type="password"
+									minlength={8}
+									bind:value={exportPassphrase}
+									placeholder={t('settings.backup.passphrase_placeholder')}
+									class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-sm text-zinc-900 transition focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
+								/>
+								<span class="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
+									{t('settings.backup.passphrase_help')}
+								</span>
+							</div>
+						{/if}
+
+						{#if exportSuccess}
+							<div
+								class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400"
+								role="status"
+							>
+								<CheckCircle2 class="h-4 w-4 flex-shrink-0" />
+								<span>{t('settings.backup.export_success')}</span>
+							</div>
+						{/if}
+
+						{#if exportError}
+							<div
+								class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+								role="alert"
+							>
+								<AlertCircle class="h-4 w-4 flex-shrink-0" />
+								<span>{exportError}</span>
+							</div>
+						{/if}
+
+						<div class="flex justify-end pt-2">
+							<button
+								type="submit"
+								data-testid="backup-export-btn"
+								disabled={isExportingBackup}
+								class="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400 active:scale-95 disabled:opacity-50"
+							>
+								<Download class="h-4 w-4" />
+								<span
+									>{isExportingBackup
+										? t('settings.backup.exporting')
+										: t('settings.backup.export_btn')}</span
+								>
+							</button>
+						</div>
+					</form>
+				</section>
+
+				<!-- Restore Card -->
+				<section
+					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+					aria-labelledby="backup-restore-heading"
+				>
+					<div
+						class="flex items-center gap-3 border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+					>
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<Upload class="h-5 w-5" />
+						</div>
+						<div>
+							<h2
+								id="backup-restore-heading"
+								class="text-base font-bold text-zinc-900 dark:text-white"
+							>
+								{t('settings.backup.restore_title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.backup.restore_desc')}
+							</p>
+						</div>
+					</div>
+
+					<div class="mt-5 space-y-5">
+						<!-- File Picker -->
+						<div
+							class="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-zinc-50/40 p-5 text-center dark:border-zinc-700 dark:bg-zinc-900/30"
+						>
+							{#if !selectedBackupEnvelope}
+								<label
+									class="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400"
+								>
+									<Upload class="h-4 w-4" />
+									<span>{t('settings.backup.select_file_btn')}</span>
+									<input
+										type="file"
+										accept=".json,.brewyou.json"
+										data-testid="backup-restore-file-input"
+										onchange={handleBackupFileChange}
+										class="sr-only"
+									/>
+								</label>
+								<p class="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('settings.backup.dropzone_hint')}
+								</p>
+							{:else}
+								<div class="flex flex-wrap items-center justify-center gap-3">
+									<span class="text-xs font-semibold text-zinc-900 dark:text-white">
+										{t('settings.backup.selected_file', { name: selectedBackupFileName })}
+									</span>
+									<button
+										type="button"
+										onclick={clearSelectedBackupFile}
+										class="rounded-lg border border-zinc-300 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+									>
+										{t('settings.backup.clear_file')}
+									</button>
+								</div>
+							{/if}
+						</div>
+
+						{#if selectedBackupEnvelope}
+							<!-- Restore Options -->
+							<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+								<div>
+									<label
+										for="restore-conflict-mode"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.backup.conflict_mode_label')}
+									</label>
+									<select
+										id="restore-conflict-mode"
+										data-testid="restore-conflict-mode"
+										bind:value={conflictResolutionMode}
+										onchange={() => void handlePreviewRestore()}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-xs font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
+									>
+										<option value="MergeSkipExisting">{t('settings.backup.conflict_skip')}</option>
+										<option value="MergeOverwriteExisting"
+											>{t('settings.backup.conflict_overwrite')}</option
+										>
+										<option value="ReplaceAll">{t('settings.backup.conflict_replace')}</option>
+									</select>
+								</div>
+
+								<div>
+									<label
+										for="restore-shared-fallback"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.backup.shared_fallback_label')}
+									</label>
+									<select
+										id="restore-shared-fallback"
+										data-testid="restore-shared-fallback"
+										bind:value={sharedSetupFallbackMode}
+										onchange={() => void handlePreviewRestore()}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-xs font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
+									>
+										<option value="CloneAsPersonal"
+											>{t('settings.backup.shared_fallback_clone')}</option
+										>
+										<option value="DetachReferences"
+											>{t('settings.backup.shared_fallback_detach')}</option
+										>
+									</select>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+								<div>
+									<label
+										for="restore-collaborator-mode"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.backup.collaborator_mode_label')}
+									</label>
+									<select
+										id="restore-collaborator-mode"
+										data-testid="restore-collaborator-mode"
+										bind:value={collaboratorRestoreMode}
+										onchange={() => void handlePreviewRestore()}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-xs font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
+									>
+										<option value="RestoreMembershipsIfAvailable"
+											>{t('settings.backup.collaborator_existing')}</option
+										>
+										<option value="CreateInvitesOnly"
+											>{t('settings.backup.collaborator_invites')}</option
+										>
+										<option value="SkipCollaborators"
+											>{t('settings.backup.collaborator_ignore')}</option
+										>
+									</select>
+								</div>
+
+								<div>
+									<label
+										for="restore-decrypt-passphrase"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.backup.decrypt_passphrase_label')}
+									</label>
+									<input
+										id="restore-decrypt-passphrase"
+										data-testid="restore-decrypt-passphrase"
+										type="password"
+										bind:value={decryptionPassphrase}
+										onchange={() => void handlePreviewRestore()}
+										placeholder={t('settings.backup.decrypt_passphrase_placeholder')}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
+									/>
+								</div>
+							</div>
+
+							{#if restorePreview}
+								<div
+									data-testid="restore-preview-card"
+									class="space-y-3 rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-4 dark:border-white/10 dark:bg-zinc-900/40"
+								>
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<div class="flex items-center gap-2">
+											<ShieldCheck class="h-4 w-4 text-amber-500" />
+											<h3 class="text-xs font-bold text-zinc-900 dark:text-white">
+												{t('settings.backup.preview_title')}
+											</h3>
+										</div>
+										<div class="flex flex-wrap items-center gap-2">
+											<span
+												class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
+											>
+												{t('settings.backup.schema_badge', {
+													source: restorePreview.backupSchemaVersion,
+													target: restorePreview.currentSchemaVersion
+												})}
+											</span>
+											<span
+												class="rounded-full border px-2.5 py-0.5 text-[10px] font-bold {restorePreview.checksumVerified
+													? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+													: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'}"
+											>
+												{restorePreview.checksumVerified
+													? t('settings.backup.checksum_valid')
+													: t('settings.backup.checksum_invalid')}
+											</span>
+										</div>
+									</div>
+
+									{#if restorePreview.migrationNotes.length > 0}
+										<p class="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+											{t('settings.backup.migrations_applied', {
+												list: restorePreview.migrationNotes.join(', ')
+											})}
+										</p>
+									{/if}
+
+									{#if restorePreview.secretsEncrypted}
+										<p
+											class="text-[11px] font-medium {restorePreview.passphraseValid
+												? 'text-emerald-600 dark:text-emerald-400'
+												: 'text-amber-600 dark:text-amber-400'}"
+										>
+											{restorePreview.passphraseValid
+												? t('settings.backup.secrets_ready')
+												: t('settings.backup.secrets_invalid')}
+										</p>
+									{/if}
+
+									<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+										<div
+											class="flex items-center justify-between rounded-lg border border-zinc-200/70 bg-white/70 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40"
+										>
+											<span class="font-medium text-zinc-700 dark:text-zinc-300"
+												>{t('settings.backup.entity_setups')}</span
+											>
+											<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+												{t('settings.backup.summary_create_update_skip', {
+													create: Math.max(
+														0,
+														restorePreview.counts.ownedSetups -
+															restorePreview.conflicts.matchingSetups
+													),
+													update:
+														conflictResolutionMode === 'MergeOverwriteExisting'
+															? restorePreview.conflicts.matchingSetups
+															: 0,
+													skip:
+														conflictResolutionMode === 'MergeSkipExisting'
+															? restorePreview.conflicts.matchingSetups
+															: 0
+												})}
+											</span>
+										</div>
+
+										<div
+											class="flex items-center justify-between rounded-lg border border-zinc-200/70 bg-white/70 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40"
+										>
+											<span class="font-medium text-zinc-700 dark:text-zinc-300"
+												>{t('settings.backup.entity_equipment')}</span
+											>
+											<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+												{t('settings.backup.summary_create_update_skip', {
+													create: Math.max(
+														0,
+														restorePreview.counts.equipment -
+															restorePreview.conflicts.matchingEquipment
+													),
+													update:
+														conflictResolutionMode === 'MergeOverwriteExisting'
+															? restorePreview.conflicts.matchingEquipment
+															: 0,
+													skip:
+														conflictResolutionMode === 'MergeSkipExisting'
+															? restorePreview.conflicts.matchingEquipment
+															: 0
+												})}
+											</span>
+										</div>
+
+										<div
+											class="flex items-center justify-between rounded-lg border border-zinc-200/70 bg-white/70 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40"
+										>
+											<span class="font-medium text-zinc-700 dark:text-zinc-300"
+												>{t('settings.backup.entity_ingredients')}</span
+											>
+											<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+												{t('settings.backup.summary_create_update_skip', {
+													create: Math.max(
+														0,
+														restorePreview.counts.customIngredients -
+															restorePreview.conflicts.matchingCustomIngredients
+													),
+													update:
+														conflictResolutionMode === 'MergeOverwriteExisting'
+															? restorePreview.conflicts.matchingCustomIngredients
+															: 0,
+													skip:
+														conflictResolutionMode === 'MergeSkipExisting'
+															? restorePreview.conflicts.matchingCustomIngredients
+															: 0
+												})}
+											</span>
+										</div>
+
+										<div
+											class="flex items-center justify-between rounded-lg border border-zinc-200/70 bg-white/70 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40"
+										>
+											<span class="font-medium text-zinc-700 dark:text-zinc-300"
+												>{t('settings.backup.entity_recipes')}</span
+											>
+											<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+												{t('settings.backup.summary_create_update_skip', {
+													create: Math.max(
+														0,
+														restorePreview.counts.recipes - restorePreview.conflicts.matchingRecipes
+													),
+													update:
+														conflictResolutionMode === 'MergeOverwriteExisting'
+															? restorePreview.conflicts.matchingRecipes
+															: 0,
+													skip:
+														conflictResolutionMode === 'MergeSkipExisting'
+															? restorePreview.conflicts.matchingRecipes
+															: 0
+												})}
+											</span>
+										</div>
+
+										<div
+											class="flex items-center justify-between rounded-lg border border-zinc-200/70 bg-white/70 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40"
+										>
+											<span class="font-medium text-zinc-700 dark:text-zinc-300"
+												>{t('settings.backup.entity_batches')}</span
+											>
+											<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+												{t('settings.backup.summary_create_update_skip', {
+													create: Math.max(
+														0,
+														restorePreview.counts.batches - restorePreview.conflicts.matchingBatches
+													),
+													update:
+														conflictResolutionMode === 'MergeOverwriteExisting'
+															? restorePreview.conflicts.matchingBatches
+															: 0,
+													skip:
+														conflictResolutionMode === 'MergeSkipExisting'
+															? restorePreview.conflicts.matchingBatches
+															: 0
+												})}
+											</span>
+										</div>
+
+										<div
+											class="flex items-center justify-between rounded-lg border border-zinc-200/70 bg-white/70 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40"
+										>
+											<span class="font-medium text-zinc-700 dark:text-zinc-300"
+												>{t('settings.backup.entity_stocks')}</span
+											>
+											<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+												+{restorePreview.counts.ingredientStocks}
+											</span>
+										</div>
+									</div>
+
+									{#if restorePreview.warnings.length > 0}
+										<ul class="space-y-1 text-[11px] text-amber-700 dark:text-amber-300">
+											{#each restorePreview.warnings as warning}
+												<li>• {warning}</li>
+											{/each}
+										</ul>
+									{/if}
+
+									{#if restorePreview.errors.length > 0}
+										<ul class="space-y-1 text-[11px] text-red-600 dark:text-red-400">
+											{#each restorePreview.errors as errText}
+												<li>• {errText}</li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+							{/if}
+
+							{#if restoreResult}
+								<div
+									data-testid="restore-result-banner"
+									class="space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-700 dark:text-emerald-300"
+									role="status"
+								>
+									<div class="flex items-center gap-2 font-bold">
+										<CheckCircle2 class="h-4 w-4 flex-shrink-0" />
+										<span>{t('settings.backup.restore_success')}</span>
+									</div>
+									{#if restoreResult.generatedInvites.length > 0}
+										<div class="mt-2 space-y-1">
+											<span class="block text-[11px] font-semibold">
+												{t('settings.backup.generated_invites_title')}:
+											</span>
+											{#each restoreResult.generatedInvites as inv}
+												<div class="font-mono text-[11px]">
+													{inv.brewerySetupName} ({inv.role}): /breweries/join?token={inv.inviteCode}
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
+
+							<div class="flex flex-wrap items-center justify-end gap-3 pt-2">
+								<button
+									type="button"
+									data-testid="backup-preview-btn"
+									disabled={isPreviewingRestore || isExecutingRestore}
+									onclick={handlePreviewRestore}
+									class="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3.5 py-2 text-xs font-semibold text-zinc-700 shadow-xs transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+								>
+									<span>
+										{isPreviewingRestore
+											? t('settings.backup.previewing')
+											: t('settings.backup.preview_btn')}
+									</span>
+								</button>
+
+								<button
+									type="button"
+									data-testid="backup-execute-btn"
+									disabled={isExecutingRestore ||
+										isPreviewingRestore ||
+										(restorePreview !== null && !restorePreview.isValid)}
+									onclick={handleExecuteRestore}
+									class="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400 active:scale-95 disabled:opacity-50"
+								>
+									<Upload class="h-4 w-4" />
+									<span>
+										{isExecutingRestore
+											? t('settings.backup.executing')
+											: t('settings.backup.execute_btn')}
+									</span>
+								</button>
+							</div>
+						{/if}
+
+						{#if restoreError}
+							<div
+								class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+								role="alert"
+							>
+								<AlertCircle class="h-4 w-4 flex-shrink-0" />
+								<span>{restoreError}</span>
+							</div>
+						{/if}
+					</div>
+				</section>
+			{:else}
+				<section
+					class="glass-panel rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-center sm:p-6"
+				>
+					<Archive class="mx-auto h-10 w-10 text-amber-600 dark:text-amber-400" />
+					<h2 class="mt-3 text-base font-bold text-zinc-900 dark:text-white">
+						{t('settings.backup.title')}
+					</h2>
+					<p class="mx-auto mt-1 max-w-md text-xs text-zinc-600 dark:text-zinc-400">
+						{t('settings.backup.auth_required')}
+					</p>
+				</section>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- TAB PANEL 5: ACCOUNT & PROFILE -->
 	{#if activeTab === 'account'}
 		<div
 			id="panel-account"

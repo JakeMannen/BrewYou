@@ -40,9 +40,16 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(u => u.PreferredLanguage).HasMaxLength(10).HasDefaultValue("en");
             entity.Property(u => u.PreferredVolumeUnit).HasConversion<string>().HasMaxLength(20);
             entity.Property(u => u.PreferredWeightUnit).HasConversion<string>().HasMaxLength(20);
+            entity.Property(u => u.PreferredGrainWeightUnit).HasMaxLength(10);
+            entity.Property(u => u.PreferredHopWeightUnit).HasMaxLength(10);
+            entity.Property(u => u.PreferredColorUnit).HasMaxLength(10).HasDefaultValue("SRM");
+            entity.Property(u => u.PreferredCarbonationUnit).HasMaxLength(20).HasDefaultValue("Volumes");
             entity.Property(u => u.PreferredTemperatureUnit).HasConversion<string>().HasMaxLength(20);
             entity.Property(u => u.PreferredGravityUnit).HasConversion<string>().HasMaxLength(30);
             entity.Property(u => u.PreferredTheme).HasConversion<string>().HasMaxLength(20);
+            entity.Property(u => u.PreferredBitternessFormula).HasMaxLength(20).HasDefaultValue("Tinseth");
+            entity.Property(u => u.PreferredColorFormula).HasMaxLength(20).HasDefaultValue("Morey");
+            entity.Property(u => u.PreferredAbvFormula).HasMaxLength(20).HasDefaultValue("Linear");
             entity.Property(u => u.DefaultBatchSizeLiters).HasPrecision(6, 2);
             entity.Property(u => u.DefaultEfficiencyPercent).HasPrecision(5, 2);
             entity.Property(u => u.MqttHost).HasMaxLength(255);
