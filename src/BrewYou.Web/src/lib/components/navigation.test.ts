@@ -1,9 +1,17 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { isRouteActive, getDeviceCategory } from './navigation/navUtils';
 
 export { isRouteActive, getDeviceCategory };
 
 describe('Responsive Navigation & Active Route Logic', () => {
+	it('ensures recipe detail and edit routes exist for /recipes/[id] and /recipes/[id]/edit links', () => {
+		const detailRoute = resolve(process.cwd(), 'src/routes/recipes/[id]/+page.svelte');
+		const editRoute = resolve(process.cwd(), 'src/routes/recipes/[id]/edit/+page.svelte');
+		expect(existsSync(detailRoute)).toBe(true);
+		expect(existsSync(editRoute)).toBe(true);
+	});
 	it('correctly matches home route strictly', () => {
 		expect(isRouteActive('/', '/')).toBe(true);
 		expect(isRouteActive('/recipes', '/')).toBe(false);

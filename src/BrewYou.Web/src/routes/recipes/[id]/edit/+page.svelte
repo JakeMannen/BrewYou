@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { api } from '$lib/api/client';
+	import { auth } from '$lib/stores/auth.svelte';
 	import type { IngredientDto, RecipeDetailDto } from '$lib/types/api';
 	import { t } from '$lib/i18n/index.svelte';
 	import RecipeFormulator from '$lib/components/recipes/RecipeFormulator.svelte';
@@ -21,6 +22,7 @@
 		}
 
 		try {
+			await auth.ready();
 			const [loadedRecipe, loadedIngredients] = await Promise.all([
 				api.recipes.getById(recipeId),
 				api.ingredients.list()
