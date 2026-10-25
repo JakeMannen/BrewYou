@@ -135,22 +135,13 @@
 			.filter((item) => {
 				if (!searchTerm.trim()) return true;
 				const q = searchTerm.toLowerCase().trim();
-				const localizedName = getLocalizedIngredientName(item).toLowerCase();
-				const localizedDesc = getLocalizedIngredientDescription(item).toLowerCase();
-				const rawName = item.name.toLowerCase();
-				const rawDesc = (item.description ?? '').toLowerCase();
-				return (
-					localizedName.includes(q) ||
-					localizedDesc.includes(q) ||
-					rawName.includes(q) ||
-					rawDesc.includes(q)
-				);
+				const name = item.name.toLowerCase();
+				const desc = (item.description ?? '').toLowerCase();
+				return name.includes(q) || desc.includes(q);
 			})
 			.slice()
 			.sort((a, b) => {
-				const nameA = getLocalizedIngredientName(a);
-				const nameB = getLocalizedIngredientName(b);
-				return nameA.localeCompare(nameB, i18n.locale, { sensitivity: 'base' });
+				return a.name.localeCompare(b.name, i18n.locale, { sensitivity: 'base' });
 			})
 	);
 

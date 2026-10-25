@@ -11,21 +11,21 @@ export function normalizeIngredientKey(name: string): string {
 		.replace(/^_+|_+$/g, '');
 }
 
+/**
+ * Ingredient names are not localized to preserve standard brewing ingredient names.
+ */
 export function getLocalizedIngredientName(item: { name: string }): string {
-	const key = normalizeIngredientKey(item.name);
-	const translationKey = `ingredients.items.${key}.name`;
-	const translated = t(translationKey);
-	return translated !== translationKey ? translated : item.name;
+	return item.name;
 }
 
+/**
+ * Ingredient descriptions are not localized to preserve original brewing notes.
+ */
 export function getLocalizedIngredientDescription(item: {
-	name: string;
+	name?: string;
 	description?: string | null;
 }): string {
-	const key = normalizeIngredientKey(item.name);
-	const translationKey = `ingredients.items.${key}.description`;
-	const translated = t(translationKey);
-	return translated !== translationKey ? translated : (item.description ?? '');
+	return item.description ?? '';
 }
 
 export function getLocalizedIngredientType(type: IngredientType | string): string {
