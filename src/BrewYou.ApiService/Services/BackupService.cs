@@ -795,6 +795,23 @@ public class BackupService : IBackupService
                     .Where(s => s.UserId == userId)
                     .ToListAsync();
 
+                var existingUserEquipmentForCheck = await _db.Equipment
+                    .Where(e => e.UserId == userId || userOwnedSetups.Select(s => s.Id).Contains(e.BrewerySetupId))
+                    .ToListAsync();
+
+                var userBatchesForCheck = await _db.Batches
+                    .Where(b => b.UserId == userId)
+                    .ToListAsync();
+
+                var backupPrimarySetup = payload.OwnedBrewerySetups.FirstOrDefault(s => s.IsDefault)
+                    ?? payload.OwnedBrewerySetups.FirstOrDefault();
+
+                bool isUntouchedPlaceholder = userOwnedSetups.Count == 1 &&
+                    existingUserEquipmentForCheck.Count == 0 &&
+                    userBatchesForCheck.Count == 0 &&
+                    !userOwnedSetups[0].Members.Any() &&
+                    !userOwnedSetups[0].Invites.Any();
+
                 foreach (var setupDto in payload.OwnedBrewerySetups)
                 {
                     var normName = setupDto.Name.Trim();
@@ -804,13 +821,18 @@ public class BackupService : IBackupService
                         s.Id == setupDto.Id ||
                         string.Equals(s.Name, normName, StringComparison.OrdinalIgnoreCase));
 
+                    if (existingSetup == null && isUntouchedPlaceholder && backupPrimarySetup != null && setupDto.Id == backupPrimarySetup.Id)
+                    {
+                        existingSetup = userOwnedSetups[0];
+                    }
+
                     BrewerySetup targetSetup;
                     if (existingSetup != null)
                     {
                         targetSetup = existingSetup;
                         setupIdMap[setupDto.Id] = existingSetup.Id;
 
-                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting || isUntouchedPlaceholder)
                         {
                             existingSetup.Name = normName;
                             existingSetup.Description = setupDto.Description;
@@ -828,6 +850,8 @@ public class BackupService : IBackupService
                         {
                             setupsSkipped++;
                         }
+
+                        isUntouchedPlaceholder = false;
                     }
                     else
                     {

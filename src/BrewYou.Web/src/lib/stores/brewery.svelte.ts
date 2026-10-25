@@ -79,9 +79,15 @@ class BreweryState {
 
 	private syncPromise: Promise<void> | null = null;
 
-	async syncFromBackend(): Promise<void> {
+	async syncFromBackend(forceSelectDefault: boolean = false): Promise<void> {
 		if (this.syncPromise) {
-			return this.syncPromise;
+			await this.syncPromise;
+			if (forceSelectDefault && this.setups.length > 0) {
+				const defaultSetup = this.setups.find((s) => s.isDefault) ?? this.setups[0];
+				this.activeSetupId = defaultSetup.id;
+				this.persistToLocalStorage();
+			}
+			return;
 		}
 
 		this.syncPromise = (async () => {
@@ -101,9 +107,23 @@ class BreweryState {
 						createdAt: s.createdAt
 					}));
 
-					if (!this.setups.some((s) => s.id === this.activeSetupId)) {
-						const defaultSetup = this.setups.find((s) => s.isDefault) ?? this.setups[0];
+					const defaultSetup = this.setups.find((s) => s.isDefault) ?? this.setups[0];
+
+					if (forceSelectDefault || !this.setups.some((s) => s.id === this.activeSetupId)) {
 						this.activeSetupId = defaultSetup.id;
+					} else {
+						// If currently active setup has 0 equipment, but the default setup has equipment and isDefault,
+						// switch to the default setup so restored or populated equipment is immediately visible
+						const current = this.setups.find((s) => s.id === this.activeSetupId);
+						if (
+							current &&
+							(current.equipmentCount ?? 0) === 0 &&
+							defaultSetup &&
+							defaultSetup.id !== current.id &&
+							(defaultSetup.equipmentCount ?? 0) > 0
+						) {
+							this.activeSetupId = defaultSetup.id;
+						}
 					}
 					this.persistToLocalStorage();
 				}

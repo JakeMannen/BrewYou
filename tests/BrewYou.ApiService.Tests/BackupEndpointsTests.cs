@@ -650,4 +650,123 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             .Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
         recipesAfterRestore.Should().ContainSingle(r => r.Name == "Märzen Festbier °C");
     }
+
+    [Fact]
+    public async Task RestoreBackup_WithCustomNamedDefaultSetupAndEquipment_AdoptsUntouchedInitialSetupAndPopulatesEquipment()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Fresh Brewer");
+
+        // Verify initial state: exactly one auto-generated setup with 0 equipment
+        var initialSetupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var initialSetups = (await initialSetupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        initialSetups.Should().ContainSingle();
+        var initialSetupId = initialSetups[0].Id;
+
+        var initialEquipRes = await client.GetAsync($"/api/v1/inventory/equipment?setupId={initialSetupId}");
+        var initialEquip = (await initialEquipRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        initialEquip.Should().BeEmpty();
+
+        // Load the backup fixture (contains setup 'Bryggan' and 3 equipment items)
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "base-2026-10-24.brewyou.json");
+        if (!File.Exists(fixturePath))
+        {
+            fixturePath = Path.GetFullPath("../../../Fixtures/base-2026-10-24.brewyou.json");
+        }
+        var rawJson = await File.ReadAllTextAsync(fixturePath);
+        var envelope = JsonSerializer.Deserialize<BrewYouBackupEnvelope>(rawJson, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        })!;
+
+        // Execute restore
+        var restoreRes = await client.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(envelope, new RestoreOptionsDto
+        {
+            ConflictResolution = RestoreConflictResolutionMode.MergeSkipExisting
+        }));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restoreResult = (await restoreRes.Content.ReadFromJsonAsync<ApiResponse<RestoreResultDto>>())!.Data!;
+        restoreResult.Succeeded.Should().BeTrue();
+        restoreResult.Summary.EquipmentCreated.Should().Be(3);
+
+        // Verify setups: the untouched placeholder was adopted into "Bryggan", no zombie duplicate setup
+        var postSetupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var postSetups = (await postSetupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        postSetups.Should().ContainSingle();
+        postSetups[0].Name.Should().Be("Bryggan");
+        postSetups[0].IsDefault.Should().BeTrue();
+        postSetups[0].Id.Should().Be(initialSetupId); // Preserved ID matches client active setup
+
+        // Verify Equipment tab query (with setupId): returns all 3 vessels
+        var setupEquipRes = await client.GetAsync($"/api/v1/inventory/equipment?setupId={postSetups[0].Id}");
+        var setupEquip = (await setupEquipRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        setupEquip.Should().HaveCount(3);
+        setupEquip.Should().Contain(e => e.Name == "Grainfather G30" && e.Type == EquipmentType.Boiler);
+        setupEquip.Should().Contain(e => e.Name == "Grainfather GF30" && e.Type == EquipmentType.Fermenter);
+        setupEquip.Should().Contain(e => e.Name == "Corneliusfat 1" && e.Type == EquipmentType.Keg);
+
+        // Verify global equipment query (without setupId, e.g. start batch wizard): returns all 3 vessels
+        var globalEquipRes = await client.GetAsync("/api/v1/inventory/equipment");
+        var globalEquip = (await globalEquipRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        globalEquip.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task RestoreBackup_WhenUserAlreadyHasEquipmentInExistingSetup_PreservesExistingSetupAndCreatesNewSetup()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Experienced Brewer");
+
+        // User already created equipment in their initial setup
+        var initialSetups = (await (await client.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var existingSetupId = initialSetups[0].Id;
+
+        await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            existingSetupId,
+            "Existing Kettle 30L",
+            EquipmentType.Boiler,
+            30.0m));
+
+        // Load backup fixture containing "Bryggan" and 3 equipment
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "base-2026-10-24.brewyou.json");
+        if (!File.Exists(fixturePath))
+        {
+            fixturePath = Path.GetFullPath("../../../Fixtures/base-2026-10-24.brewyou.json");
+        }
+        var rawJson = await File.ReadAllTextAsync(fixturePath);
+        var envelope = JsonSerializer.Deserialize<BrewYouBackupEnvelope>(rawJson, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        })!;
+
+        // Execute restore
+        var restoreRes = await client.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(envelope, new RestoreOptionsDto
+        {
+            ConflictResolution = RestoreConflictResolutionMode.MergeSkipExisting
+        }));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // User now has 2 setups: their existing setup + the restored "Bryggan" setup
+        var postSetups = (await (await client.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        postSetups.Should().HaveCount(2);
+
+        var existingSetup = postSetups.First(s => s.Id == existingSetupId);
+        var brygganSetup = postSetups.First(s => s.Name == "Bryggan");
+        brygganSetup.IsDefault.Should().BeTrue();
+
+        // Equipment in existing setup is preserved
+        var existingEquip = (await (await client.GetAsync($"/api/v1/inventory/equipment?setupId={existingSetup.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        existingEquip.Should().ContainSingle(e => e.Name == "Existing Kettle 30L");
+
+        // Equipment in restored setup is present
+        var brygganEquip = (await (await client.GetAsync($"/api/v1/inventory/equipment?setupId={brygganSetup.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        brygganEquip.Should().HaveCount(3);
+
+        // Global query returns all 4 equipment across both setups
+        var allEquip = (await (await client.GetAsync("/api/v1/inventory/equipment"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        allEquip.Should().HaveCount(4);
+    }
 }

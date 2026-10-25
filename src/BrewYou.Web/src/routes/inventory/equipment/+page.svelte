@@ -40,6 +40,14 @@
 	let selectedCategory = $state<string>('All');
 	let searchFilter = $state('');
 
+	let otherSetupWithEquipment = $derived.by(() => {
+		if (equipmentList.length > 0 || brewery.setups.length <= 1) return null;
+		return (
+			brewery.setups.find((s) => s.id !== brewery.activeSetupId && (s.equipmentCount ?? 0) > 0) ??
+			null
+		);
+	});
+
 	let modalOpen = $state(false);
 	let editingItem = $state<EquipmentDto | null>(null);
 	let deleteModalOpen = $state(false);
@@ -446,14 +454,44 @@
 					>
 						{t('equipment.title')}
 					</h1>
-					<div class="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
-						<Building2 class="h-3.5 w-3.5 text-amber-500" />
-						<span
-							>{t('brewery.active_setup_prefix')}:
-							<strong class="font-semibold text-zinc-900 dark:text-zinc-200"
-								>{brewery.activeSetup.name}</strong
-							></span
-						>
+					<div
+						class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400"
+					>
+						<Building2 class="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+						{#if brewery.setups.length > 1}
+							<label
+								for="equipment-brewery-select"
+								class="font-medium text-zinc-700 dark:text-zinc-300"
+							>
+								{t('brewery.active_setup_prefix')}:
+							</label>
+							<select
+								id="equipment-brewery-select"
+								data-testid="equipment-brewery-select"
+								value={brewery.activeSetupId}
+								onchange={(e) => {
+									const targetVal = e.currentTarget.value;
+									brewery.selectSetup(targetVal);
+									loadEquipment();
+								}}
+								class="rounded-lg border border-zinc-200 bg-white px-2 py-0.5 text-xs font-semibold text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100"
+							>
+								{#each brewery.setups as s}
+									<option value={s.id}>
+										{s.name}{s.isDefault
+											? ` (${t('brewery.default_badge')})`
+											: ''}{typeof s.equipmentCount === 'number' ? ` (${s.equipmentCount})` : ''}
+									</option>
+								{/each}
+							</select>
+						{:else}
+							<span
+								>{t('brewery.active_setup_prefix')}:
+								<strong class="font-semibold text-zinc-900 dark:text-zinc-200"
+									>{brewery.activeSetup.name}</strong
+								></span
+							>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -573,6 +611,32 @@
 				<p class="mt-1 max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
 					{t('equipment.empty_desc')}
 				</p>
+				{#if otherSetupWithEquipment}
+					<div
+						data-testid="equipment-other-setup-hint"
+						class="mt-4 flex flex-col items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-800 sm:flex-row dark:text-amber-200"
+					>
+						<span>
+							{t('equipment.found_in_other_setup', {
+								name: otherSetupWithEquipment.name,
+								count: otherSetupWithEquipment.equipmentCount ?? 0
+							})}
+						</span>
+						<button
+							type="button"
+							data-testid="switch-to-setup-with-equipment-btn"
+							onclick={() => {
+								if (otherSetupWithEquipment) {
+									brewery.selectSetup(otherSetupWithEquipment.id);
+									loadEquipment();
+								}
+							}}
+							class="rounded-lg bg-amber-500 px-3 py-1 font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400"
+						>
+							{t('equipment.switch_setup', { name: otherSetupWithEquipment.name })}
+						</button>
+					</div>
+				{/if}
 				<button
 					type="button"
 					onclick={openAddModal}

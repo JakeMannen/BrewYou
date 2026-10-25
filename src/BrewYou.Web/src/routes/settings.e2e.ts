@@ -1,5 +1,10 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { setupAuthenticatedSession } from './fixtures/auth';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('Brewer Personalization Settings Page', () => {
 	test.beforeEach(async ({ page }) => {
@@ -260,5 +265,46 @@ test.describe('Brewer Personalization Settings Page', () => {
 			'aria-selected',
 			'true'
 		);
+	});
+
+	test('imports backup file, previews contents, executes restore, and navigates to equipment tab showing restored vessels', async ({
+		page
+	}) => {
+		// 1. Navigate to Settings Backup tab
+		await page.locator('[data-testid="tab-btn-backup"]').click();
+		await expect(page).toHaveURL(/tab=backup/);
+		await expect(page.locator('[data-testid="backup-export-btn"]')).toBeVisible();
+
+		// 2. Select backup file
+		const fixturePath = path.resolve(
+			__dirname,
+			'../../../../tests/BrewYou.ApiService.Tests/Fixtures/base-2026-10-24.brewyou.json'
+		);
+		await page.locator('[data-testid="backup-restore-file-input"]').setInputFiles(fixturePath);
+
+		// 3. Click Preview Restore
+		const previewBtn = page.locator('[data-testid="backup-preview-btn"]');
+		await expect(previewBtn).toBeEnabled();
+		await previewBtn.click();
+
+		// 4. Verify preview summary report appears
+		await expect(page.locator('[data-testid="backup-execute-btn"]')).toBeVisible();
+
+		// 5. Click Execute Restore
+		await page.locator('[data-testid="backup-execute-btn"]').click();
+
+		// 6. Verify restore execution finishes and displays success banner
+		await expect(page.locator('[data-testid="restore-result-banner"]')).toBeVisible({
+			timeout: 10000
+		});
+
+		// 7. Navigate to Equipment tab
+		await page.goto('/inventory/equipment');
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		// 8. Verify the active setup is "Bryggan" and equipment cards are visible
+		await expect(page.getByText('Grainfather G30')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('Grainfather GF30')).toBeVisible();
+		await expect(page.getByText('Corneliusfat 1')).toBeVisible();
 	});
 });
