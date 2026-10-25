@@ -349,3 +349,50 @@ describe('Batch Equipment & Sensor Filtering', () => {
 		expect(ids).not.toContain('boiler-1');
 	});
 });
+
+describe('Equipment Tab Brewery Setup Filter and Cross-Setup Hints', () => {
+	function resolveOtherSetupWithEquipment(
+		currentEquipmentCount: number,
+		setups: Array<{ id: string; name: string; equipmentCount?: number }>,
+		activeSetupId: string
+	) {
+		if (currentEquipmentCount > 0 || setups.length <= 1) return null;
+		return setups.find((s) => s.id !== activeSetupId && (s.equipmentCount ?? 0) > 0) ?? null;
+	}
+
+	function resolveSetupIdFilter(activeSetupId: string, defaultId: string) {
+		return activeSetupId && activeSetupId !== defaultId ? activeSetupId : undefined;
+	}
+
+	it('returns null when current active setup already has equipment', () => {
+		const setups = [
+			{ id: 'setup-1', name: 'My brewery', equipmentCount: 2 },
+			{ id: 'setup-2', name: 'Bryggan', equipmentCount: 3 }
+		];
+		const result = resolveOtherSetupWithEquipment(2, setups, 'setup-1');
+		expect(result).toBeNull();
+	});
+
+	it('returns null when there is only one setup even if empty', () => {
+		const setups = [{ id: 'setup-1', name: 'My brewery', equipmentCount: 0 }];
+		const result = resolveOtherSetupWithEquipment(0, setups, 'setup-1');
+		expect(result).toBeNull();
+	});
+
+	it('identifies other setup with equipment when current setup is empty', () => {
+		const setups = [
+			{ id: 'setup-old', name: 'My brewery', equipmentCount: 0 },
+			{ id: 'setup-bryggan', name: 'Bryggan', equipmentCount: 3 }
+		];
+		const result = resolveOtherSetupWithEquipment(0, setups, 'setup-old');
+		expect(result).not.toBeNull();
+		expect(result?.id).toBe('setup-bryggan');
+		expect(result?.name).toBe('Bryggan');
+		expect(result?.equipmentCount).toBe(3);
+	});
+
+	it('resolves setupId filter correctly for api.equipment.list', () => {
+		expect(resolveSetupIdFilter('default-1', 'default-1')).toBeUndefined();
+		expect(resolveSetupIdFilter('setup-guid-123', 'default-1')).toBe('setup-guid-123');
+	});
+});

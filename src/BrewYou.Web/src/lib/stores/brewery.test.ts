@@ -199,4 +199,139 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 		expect(brewery.setups[0].name).toBe('Backend Brewery');
 		expect(brewery.activeSetupId).toBe('backend-setup-123');
 	});
+
+	it('syncFromBackend(true) forces active setup to default setup even when previous active setup still exists', async () => {
+		const mockSetups = [
+			{
+				id: 'setup-old',
+				name: 'Old Empty Brewery',
+				isDefault: false,
+				equipmentCount: 0,
+				defaultGrainAbsorptionRate: 0.96,
+				defaultBoilOffRatePerHour: 3.0,
+				defaultKettleTrubLossLiters: 1.5,
+				defaultFermenterLossLiters: 1.5,
+				defaultMashTunDeadSpaceLiters: 0.0,
+				coolingShrinkagePercent: 4.0,
+				defaultPackagingLossLiters: 0.5,
+				createdAt: '2026-09-07T12:00:00Z',
+				updatedAt: '2026-09-07T12:00:00Z'
+			},
+			{
+				id: 'setup-bryggan',
+				name: 'Bryggan',
+				isDefault: true,
+				equipmentCount: 3,
+				defaultGrainAbsorptionRate: 0.96,
+				defaultBoilOffRatePerHour: 3.0,
+				defaultKettleTrubLossLiters: 1.5,
+				defaultFermenterLossLiters: 1.5,
+				defaultMashTunDeadSpaceLiters: 0.0,
+				coolingShrinkagePercent: 4.0,
+				defaultPackagingLossLiters: 0.5,
+				createdAt: '2026-09-07T12:00:00Z',
+				updatedAt: '2026-09-07T12:00:00Z'
+			}
+		];
+		const { api } = await import('$lib/api/client');
+		vi.spyOn(api.brewerySetups, 'list').mockResolvedValue(mockSetups);
+
+		// User was previously on setup-old
+		brewery.activeSetupId = 'setup-old';
+		mockStorage.setItem('brewyou_active_setup_id', 'setup-old');
+
+		// Sync with forceSelectDefault = true (called after restore)
+		await brewery.syncFromBackend(true);
+
+		expect(brewery.activeSetupId).toBe('setup-bryggan');
+		expect(mockStorage.getItem('brewyou_active_setup_id')).toBe('setup-bryggan');
+	});
+
+	it('syncFromBackend() automatically switches from an active setup with 0 equipment to default setup when default has equipment', async () => {
+		const mockSetups = [
+			{
+				id: 'setup-empty-mine',
+				name: 'My brewery',
+				isDefault: false,
+				equipmentCount: 0,
+				defaultGrainAbsorptionRate: 0.96,
+				defaultBoilOffRatePerHour: 3.0,
+				defaultKettleTrubLossLiters: 1.5,
+				defaultFermenterLossLiters: 1.5,
+				defaultMashTunDeadSpaceLiters: 0.0,
+				coolingShrinkagePercent: 4.0,
+				defaultPackagingLossLiters: 0.5,
+				createdAt: '2026-09-07T12:00:00Z',
+				updatedAt: '2026-09-07T12:00:00Z'
+			},
+			{
+				id: 'setup-bryggan-restored',
+				name: 'Bryggan',
+				isDefault: true,
+				equipmentCount: 3,
+				defaultGrainAbsorptionRate: 0.96,
+				defaultBoilOffRatePerHour: 3.0,
+				defaultKettleTrubLossLiters: 1.5,
+				defaultFermenterLossLiters: 1.5,
+				defaultMashTunDeadSpaceLiters: 0.0,
+				coolingShrinkagePercent: 4.0,
+				defaultPackagingLossLiters: 0.5,
+				createdAt: '2026-09-07T12:00:00Z',
+				updatedAt: '2026-09-07T12:00:00Z'
+			}
+		];
+		const { api } = await import('$lib/api/client');
+		vi.spyOn(api.brewerySetups, 'list').mockResolvedValue(mockSetups);
+
+		brewery.activeSetupId = 'setup-empty-mine';
+
+		// Normal sync without force flag
+		await brewery.syncFromBackend(false);
+
+		expect(brewery.activeSetupId).toBe('setup-bryggan-restored');
+	});
+
+	it('syncFromBackend() preserves active setup when current active setup has equipment', async () => {
+		const mockSetups = [
+			{
+				id: 'setup-pilot',
+				name: 'Pilot Rig',
+				isDefault: false,
+				equipmentCount: 2,
+				defaultGrainAbsorptionRate: 0.96,
+				defaultBoilOffRatePerHour: 3.0,
+				defaultKettleTrubLossLiters: 1.5,
+				defaultFermenterLossLiters: 1.5,
+				defaultMashTunDeadSpaceLiters: 0.0,
+				coolingShrinkagePercent: 4.0,
+				defaultPackagingLossLiters: 0.5,
+				createdAt: '2026-09-07T12:00:00Z',
+				updatedAt: '2026-09-07T12:00:00Z'
+			},
+			{
+				id: 'setup-main',
+				name: 'Main Brewery',
+				isDefault: true,
+				equipmentCount: 5,
+				defaultGrainAbsorptionRate: 0.96,
+				defaultBoilOffRatePerHour: 3.0,
+				defaultKettleTrubLossLiters: 1.5,
+				defaultFermenterLossLiters: 1.5,
+				defaultMashTunDeadSpaceLiters: 0.0,
+				coolingShrinkagePercent: 4.0,
+				defaultPackagingLossLiters: 0.5,
+				createdAt: '2026-09-07T12:00:00Z',
+				updatedAt: '2026-09-07T12:00:00Z'
+			}
+		];
+		const { api } = await import('$lib/api/client');
+		vi.spyOn(api.brewerySetups, 'list').mockResolvedValue(mockSetups);
+
+		brewery.activeSetupId = 'setup-pilot';
+
+		await brewery.syncFromBackend(false);
+
+		// Remains on Pilot Rig because it already has equipment
+		expect(brewery.activeSetupId).toBe('setup-pilot');
+	});
 });

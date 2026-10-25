@@ -115,17 +115,168 @@ export async function setupAuthenticatedSession(page: Page, user = defaultE2EUse
 			})
 		});
 	});
+	const mockEquipment = [
+		{
+			id: 'eq-grainfather-g30',
+			brewerySetupId: 'setup-bryggan',
+			name: 'Grainfather G30',
+			type: 'Boiler',
+			subtype: 'AllInOne',
+			capacity: 30,
+			unit: 'Liters',
+			capacityLiters: 30,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			boilOffRatePerHour: 3,
+			trubLossLiters: 1.5,
+			createdAt: new Date().toISOString()
+		},
+		{
+			id: 'eq-grainfather-gf30',
+			brewerySetupId: 'setup-bryggan',
+			name: 'Grainfather GF30',
+			type: 'Fermenter',
+			subtype: 'ConicalFermenter',
+			capacity: 30,
+			unit: 'Liters',
+			capacityLiters: 30,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			createdAt: new Date().toISOString()
+		},
+		{
+			id: 'eq-corneliusfat-1',
+			brewerySetupId: 'setup-bryggan',
+			name: 'Corneliusfat 1',
+			type: 'Keg',
+			subtype: 'Cornelius',
+			capacity: 19,
+			unit: 'Liters',
+			capacityLiters: 19,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			createdAt: new Date().toISOString()
+		}
+	];
+
 	await page.route('**/api/v1/equipment*', async (route) => {
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
 			body: JSON.stringify({
 				success: true,
-				data: []
+				data: mockEquipment
 			})
 		});
 	});
+
+	await page.route('**/api/v1/backup/preview', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				success: true,
+				data: {
+					isValid: true,
+					checksumVerified: true,
+					backupSchemaVersion: 2,
+					currentSchemaVersion: 2,
+					wasUpgraded: false,
+					appVersion: '1.6.1',
+					exportedAtUtc: new Date().toISOString(),
+					counts: {
+						userSettingsPresent: true,
+						ownedBrewerySetups: 1,
+						sharedSetupMemberships: 0,
+						equipment: 3,
+						customIngredients: 11,
+						ingredientStocks: 0,
+						recipes: 3,
+						referencedExternalRecipes: 0,
+						batches: 0,
+						equipmentReadings: 0
+					},
+					conflicts: {
+						matchingSetups: 0,
+						matchingEquipment: 0,
+						matchingCustomIngredients: 0,
+						matchingRecipes: 0,
+						matchingBatches: 0
+					},
+					sharedSetups: [],
+					migrationNotes: [],
+					warnings: [],
+					errors: []
+				}
+			})
+		});
+	});
+
+	await page.route('**/api/v1/backup/restore', async (route) => {
+		mockSetups = [
+			{
+				id: 'setup-bryggan',
+				name: 'Bryggan',
+				description: 'Restored brewery setup',
+				isDefault: true,
+				equipmentCount: 3,
+				createdAt: new Date().toISOString()
+			}
+		];
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				success: true,
+				data: {
+					succeeded: true,
+					settingsRestored: true,
+					summary: {
+						setupsCreated: 0,
+						setupsUpdated: 1,
+						setupsSkipped: 0,
+						equipmentCreated: 3,
+						equipmentUpdated: 0,
+						equipmentSkipped: 0,
+						customIngredientsCreated: 11,
+						customIngredientsUpdated: 0,
+						customIngredientsSkipped: 0,
+						ingredientStocksCreatedOrUpdated: 0,
+						recipesCreated: 3,
+						recipesUpdated: 0,
+						recipesSkipped: 0,
+						batchesCreated: 0,
+						batchesUpdated: 0,
+						batchesSkipped: 0,
+						readingsRestored: 0,
+						collaboratorsRestored: 0
+					},
+					warnings: [],
+					errors: [],
+					generatedInvites: []
+				}
+			})
+		});
+	});
+
 	await page.route('**/api/v1/inventory/**', async (route) => {
+		if (route.request().url().includes('/inventory/equipment')) {
+			const url = new URL(route.request().url());
+			const setupId = url.searchParams.get('setupId');
+			let filtered = mockEquipment;
+			if (setupId) {
+				filtered = mockEquipment.filter((e) => e.brewerySetupId === setupId);
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					success: true,
+					data: filtered
+				})
+			});
+			return;
+		}
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',

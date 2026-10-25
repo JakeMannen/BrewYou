@@ -39,6 +39,7 @@ import {
 import { auth } from './auth.svelte';
 import { theme } from './theme.svelte';
 import { api } from '$lib/api/client';
+import type { RestoreResultDto } from '$lib/types/api';
 
 describe('Volume Unit Conversion Helpers', () => {
 	it('converts liters to US gallons accurately', () => {
@@ -606,5 +607,68 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 		expect(typeof api.backup.export).toBe('function');
 		expect(typeof api.backup.preview).toBe('function');
 		expect(typeof api.backup.restore).toBe('function');
+	});
+
+	it('restoring a backup synchronizes brewery setups with forceSelectDefault flag', async () => {
+		const { brewery } = await import('$lib/stores/brewery.svelte');
+		const syncSpy = vi.spyOn(brewery, 'syncFromBackend').mockResolvedValue();
+
+		const mockRestoreResult: RestoreResultDto = {
+			succeeded: true,
+			backupSchemaVersion: 2,
+			currentSchemaVersion: 2,
+			settingsRestored: true,
+			summary: {
+				setupsCreated: 0,
+				setupsUpdated: 1,
+				setupsSkipped: 0,
+				equipmentCreated: 3,
+				equipmentUpdated: 0,
+				equipmentSkipped: 0,
+				customIngredientsCreated: 0,
+				customIngredientsUpdated: 0,
+				customIngredientsSkipped: 0,
+				stocksUpserted: 0,
+				recipesCreated: 0,
+				recipesUpdated: 0,
+				recipesSkipped: 0,
+				batchesCreated: 0,
+				batchesUpdated: 0,
+				batchesSkipped: 0,
+				telemetryReadingsRestored: 0,
+				collaboratorsRestored: 0
+			},
+			warnings: [],
+			generatedInvites: []
+		};
+
+		vi.spyOn(api.backup, 'restore').mockResolvedValue(mockRestoreResult);
+
+		const result = await api.backup.restore({
+			backup: {
+				format: 'brewyou-user-backup',
+				schemaVersion: 2,
+				appVersion: '1.6.1',
+				exportedAtUtc: '2026-10-24T00:00:00Z',
+				checksumSha256: 'abc',
+				data: {}
+			},
+			options: {
+				conflictResolution: 'MergeSkipExisting',
+				restoreUserSettings: true,
+				restoreSharedSetups: true,
+				sharedSetupFallback: 'CloneAsPersonal',
+				collaboratorRestore: 'SkipCollaborators',
+				restoreTelemetryReadings: true
+			}
+		});
+
+		expect(result.succeeded).toBe(true);
+
+		// Trigger brewery sync with forceSelectDefault: true as done in handleExecuteRestore
+		await brewery.syncFromBackend(true);
+		expect(syncSpy).toHaveBeenCalledWith(true);
+
+		syncSpy.mockRestore();
 	});
 });

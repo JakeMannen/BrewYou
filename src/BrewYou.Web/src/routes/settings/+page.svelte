@@ -243,7 +243,7 @@
 		restoreError = null;
 
 		try {
-			restoreResult = await api.backup.restore({
+			const result = await api.backup.restore({
 				backup: selectedBackupEnvelope,
 				options: buildRestoreOptions()
 			});
@@ -264,7 +264,8 @@
 				mqttCertificate = settings.mqttCertificate;
 				mqttTopicPrefix = settings.mqttTopicPrefix || 'brewyou/equipment';
 			}
-			await brewery.syncFromBackend();
+			await brewery.syncFromBackend(true);
+			restoreResult = result;
 		} catch (err: unknown) {
 			restoreError = (err as Error).message || t('settings.backup.restore_error');
 		} finally {
