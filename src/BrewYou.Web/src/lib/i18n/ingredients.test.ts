@@ -33,20 +33,23 @@ describe('Ingredient Localization Engine', () => {
 		expect(getLocalizedIngredientType('Other')).toBe('Övrigt');
 	});
 
-	it('localizes ingredient names with fallback support', () => {
+	it('does not localize ingredient names, preserving original names across locales', () => {
 		const pilsner = { name: 'Pilsner Malt' };
 		const customMalt = { name: 'My Backyard Grain' };
+		const citra = { name: 'Citra' };
 
 		i18n.setLocale('en');
 		expect(getLocalizedIngredientName(pilsner)).toBe('Pilsner Malt');
 		expect(getLocalizedIngredientName(customMalt)).toBe('My Backyard Grain');
+		expect(getLocalizedIngredientName(citra)).toBe('Citra');
 
 		i18n.setLocale('sv');
-		expect(getLocalizedIngredientName(pilsner)).toBe('Pilsnermalt');
+		expect(getLocalizedIngredientName(pilsner)).toBe('Pilsner Malt');
 		expect(getLocalizedIngredientName(customMalt)).toBe('My Backyard Grain');
+		expect(getLocalizedIngredientName(citra)).toBe('Citra');
 	});
 
-	it('localizes ingredient descriptions with fallback support', () => {
+	it('does not localize ingredient descriptions, preserving original descriptions across locales', () => {
 		const citra = {
 			name: 'Citra',
 			description:
@@ -58,15 +61,19 @@ describe('Ingredient Localization Engine', () => {
 		};
 
 		i18n.setLocale('en');
-		expect(getLocalizedIngredientDescription(citra)).toContain('tropical fruit punch');
+		expect(getLocalizedIngredientDescription(citra)).toBe(
+			'Intense citrus and tropical fruit punch (mango, passionfruit, lime, grapefruit) aromas.'
+		);
 		expect(getLocalizedIngredientDescription(customHop)).toBe('Found in the forest.');
 
 		i18n.setLocale('sv');
-		expect(getLocalizedIngredientDescription(citra)).toContain('passionsfrukt');
+		expect(getLocalizedIngredientDescription(citra)).toBe(
+			'Intense citrus and tropical fruit punch (mango, passionfruit, lime, grapefruit) aromas.'
+		);
 		expect(getLocalizedIngredientDescription(customHop)).toBe('Found in the forest.');
 	});
 
-	it('localizes Other category ingredients and tab labels', () => {
+	it('keeps original names for Other category ingredients while localizing type label', () => {
 		const irishMoss = { name: 'Irish Moss' };
 		const gypsum = { name: 'Gypsum (Calcium Sulfate)' };
 
@@ -76,12 +83,12 @@ describe('Ingredient Localization Engine', () => {
 		expect(getLocalizedIngredientType('Other')).toBe('Other');
 
 		i18n.setLocale('sv');
-		expect(getLocalizedIngredientName(irishMoss)).toBe('Irish Moss (Irländsk mossa)');
-		expect(getLocalizedIngredientName(gypsum)).toBe('Brygggips (Kalciumsulfat)');
+		expect(getLocalizedIngredientName(irishMoss)).toBe('Irish Moss');
+		expect(getLocalizedIngredientName(gypsum)).toBe('Gypsum (Calcium Sulfate)');
 		expect(getLocalizedIngredientType('Other')).toBe('Övrigt');
 	});
 
-	it('sorts ingredients alphabetically by localized name according to the active locale', () => {
+	it('sorts ingredients alphabetically by name', () => {
 		const items = [
 			{ name: 'Pilsner Malt' },
 			{ name: 'Amarillo' },
@@ -89,8 +96,6 @@ describe('Ingredient Localization Engine', () => {
 			{ name: 'Citra' }
 		];
 
-		// In English:
-		// Amarillo, Citra, Gypsum (Calcium Sulfate), Pilsner Malt
 		i18n.setLocale('en');
 		const sortedEn = items
 			.slice()
@@ -103,10 +108,6 @@ describe('Ingredient Localization Engine', () => {
 
 		expect(sortedEn).toEqual(['Amarillo', 'Citra', 'Gypsum (Calcium Sulfate)', 'Pilsner Malt']);
 
-		// In Swedish:
-		// Gypsum -> 'Brygggips (Kalciumsulfat)'
-		// Pilsner Malt -> 'Pilsnermalt'
-		// Amarillo, Brygggips (Kalciumsulfat), Citra, Pilsnermalt
 		i18n.setLocale('sv');
 		const sortedSv = items
 			.slice()
@@ -117,17 +118,23 @@ describe('Ingredient Localization Engine', () => {
 			)
 			.map((item) => getLocalizedIngredientName(item));
 
-		expect(sortedSv).toEqual(['Amarillo', 'Brygggips (Kalciumsulfat)', 'Citra', 'Pilsnermalt']);
+		expect(sortedSv).toEqual(['Amarillo', 'Citra', 'Gypsum (Calcium Sulfate)', 'Pilsner Malt']);
 	});
 
-	it('localizes new German and craft catalogue ingredients in both English and Swedish', () => {
+	it('preserves catalogue ingredient names and descriptions across locales', () => {
 		const tradition = { name: 'Hallertauer Tradition' };
-		const darkWheat = { name: 'Dark Wheat Malt' };
+		const darkWheat = {
+			name: 'Dark Wheat Malt',
+			description: 'Dark malted wheat for Dunkelweizen and Weizenbock styles.'
+		};
 		const sauermalz = { name: 'Acidulated Malt' };
 		const rauchmalz = { name: 'Smoked Malt (Rauchmalz)' };
-		const weizenYeast = { name: 'Wyeast 3068 / WLP300 Weihenstephan Weizen' };
+		const weizenYeast = {
+			name: 'Wyeast 3068 / WLP300 Weihenstephan Weizen',
+			description: 'Classic banana and clove profile rich in isoamyl acetate.'
+		};
 
-		// Key normalizations
+		// Key normalizations remain supported
 		expect(normalizeIngredientKey(tradition.name)).toBe('hallertauer_tradition');
 		expect(normalizeIngredientKey(darkWheat.name)).toBe('dark_wheat_malt');
 		expect(normalizeIngredientKey(sauermalz.name)).toBe('acidulated_malt');
@@ -145,20 +152,28 @@ describe('Ingredient Localization Engine', () => {
 		expect(getLocalizedIngredientName(weizenYeast)).toBe(
 			'Wyeast 3068 / WLP300 Weihenstephan Weizen'
 		);
-		expect(getLocalizedIngredientDescription(darkWheat)).toContain('Dunkelweizen');
-		expect(getLocalizedIngredientDescription(weizenYeast)).toContain('isoamyl acetate');
+		expect(getLocalizedIngredientDescription(darkWheat)).toBe(
+			'Dark malted wheat for Dunkelweizen and Weizenbock styles.'
+		);
+		expect(getLocalizedIngredientDescription(weizenYeast)).toBe(
+			'Classic banana and clove profile rich in isoamyl acetate.'
+		);
 
 		// Swedish
 		i18n.setLocale('sv');
 		expect(getLocalizedIngredientName(tradition)).toBe('Hallertauer Tradition');
-		expect(getLocalizedIngredientName(darkWheat)).toBe('Mörkt vetemalt (Dunkles Weizenmalz)');
-		expect(getLocalizedIngredientName(sauermalz)).toBe('Surmalt (Sauermalz)');
-		expect(getLocalizedIngredientName(rauchmalz)).toBe('Rökmalt (Rauchmalz)');
+		expect(getLocalizedIngredientName(darkWheat)).toBe('Dark Wheat Malt');
+		expect(getLocalizedIngredientName(sauermalz)).toBe('Acidulated Malt');
+		expect(getLocalizedIngredientName(rauchmalz)).toBe('Smoked Malt (Rauchmalz)');
 		expect(getLocalizedIngredientName(weizenYeast)).toBe(
 			'Wyeast 3068 / WLP300 Weihenstephan Weizen'
 		);
-		expect(getLocalizedIngredientDescription(darkWheat)).toContain('dunkelweizen');
-		expect(getLocalizedIngredientDescription(weizenYeast)).toContain('isoamylacetat');
+		expect(getLocalizedIngredientDescription(darkWheat)).toBe(
+			'Dark malted wheat for Dunkelweizen and Weizenbock styles.'
+		);
+		expect(getLocalizedIngredientDescription(weizenYeast)).toBe(
+			'Classic banana and clove profile rich in isoamyl acetate.'
+		);
 	});
 
 	it('localizes ingredient forms in both English and Swedish', () => {
@@ -195,5 +210,19 @@ describe('Ingredient Localization Engine', () => {
 		expect(sv.ingredients.out_of_stock).toBe('Ej i lager');
 		expect(sv.ingredients.edit_stock).toBe('Redigera lager');
 		expect(sv.ingredients.update_stock).toBe('Uppdatera lager');
+	});
+
+	it('localizes descriptive UI text such as Type, Alfasensyrahalt, Användning, and Lager', async () => {
+		const en = (await import('$lib/i18n/locales/en.json')).default;
+		expect(en.ingredients.type_label).toBe('Ingredient Type');
+		expect(en.ingredients.alpha_acids).toBe('Alpha Acids');
+		expect(en.ingredients.purpose).toBe('Purpose');
+		expect(en.ingredients.stock).toBe('Stock');
+
+		const sv = (await import('$lib/i18n/locales/sv.json')).default;
+		expect(sv.ingredients.type_label).toBe('Typ av råvara');
+		expect(sv.ingredients.alpha_acids).toBe('Alfasensyrahalt');
+		expect(sv.ingredients.purpose).toBe('Användning');
+		expect(sv.ingredients.stock).toBe('Lager');
 	});
 });
