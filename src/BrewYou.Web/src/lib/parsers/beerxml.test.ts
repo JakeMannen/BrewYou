@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseBeerXml } from './beerxml';
+import { calculateBrewMetrics } from '$lib/calculators/brewing';
 
 describe('BeerXML Parser', () => {
 	it('parses valid BeerXML 1.0 recipe with unit conversions', () => {
@@ -640,5 +641,108 @@ describe('BeerXML Parser', () => {
 		// 1.0 liquid pack -> 1 pkg
 		expect(yeasts[4].amount).toBe(1);
 		expect(yeasts[4].unit).toBe('pkg');
+	});
+
+	it('reconciles brewhouse vs mash efficiency against EST_OG/OG so Erdinger Hefeweizen Clone calculates 1.050 OG', () => {
+		const erdingerXml = `<?xml version="1.0" encoding="UTF-8"?>
+<RECIPES>
+ <RECIPE>
+  <NAME>Erdinger Hefeweizen Clone</NAME>
+  <VERSION>1</VERSION>
+  <TYPE>All Grain</TYPE>
+  <BATCH_SIZE>23</BATCH_SIZE>
+  <BOIL_SIZE>29</BOIL_SIZE>
+  <BOIL_TIME>60</BOIL_TIME>
+  <EFFICIENCY>65</EFFICIENCY>
+  <EST_COLOR>3.8</EST_COLOR>
+  <IBU>13.2</IBU>
+  <IBU_METHOD>Tinseth</IBU_METHOD>
+  <EST_ABV>5.0</EST_ABV>
+  <EST_OG>1.050 sg</EST_OG>
+  <EST_FG>1.012 sg</EST_FG>
+  <OG>1.050</OG>
+  <FG>1.012</FG>
+  <FERMENTABLES>
+   <FERMENTABLE>
+    <NAME>Wheat Malt, Pale</NAME>
+    <VERSION>1</VERSION>
+    <TYPE>Grain</TYPE>
+    <AMOUNT>3.0</AMOUNT>
+    <YIELD>82.0</YIELD>
+    <COLOR>2.0</COLOR>
+   </FERMENTABLE>
+   <FERMENTABLE>
+    <NAME>Pilsner</NAME>
+    <VERSION>1</VERSION>
+    <TYPE>Grain</TYPE>
+    <AMOUNT>2.0</AMOUNT>
+    <YIELD>81.0</YIELD>
+    <COLOR>1.6</COLOR>
+   </FERMENTABLE>
+   <FERMENTABLE>
+    <NAME>Carahell</NAME>
+    <VERSION>1</VERSION>
+    <TYPE>Grain</TYPE>
+    <AMOUNT>0.2</AMOUNT>
+    <YIELD>75.0</YIELD>
+    <COLOR>11.0</COLOR>
+   </FERMENTABLE>
+  </FERMENTABLES>
+  <HOPS>
+   <HOP>
+    <NAME>Hallertau Mittelfruh</NAME>
+    <VERSION>1</VERSION>
+    <ALPHA>3.75</ALPHA>
+    <AMOUNT>0.035</AMOUNT>
+    <USE>Boil</USE>
+    <TIME>60</TIME>
+    <FORM>Pellet</FORM>
+   </HOP>
+  </HOPS>
+  <YEASTS>
+   <YEAST>
+    <NAME>Bavarian Wheat 3056</NAME>
+    <VERSION>1</VERSION>
+    <TYPE>Ale</TYPE>
+    <FORM>Liquid</FORM>
+    <AMOUNT>0.125</AMOUNT>
+    <AMOUNT_IS_WEIGHT>FALSE</AMOUNT_IS_WEIGHT>
+    <ATTENUATION>75</ATTENUATION>
+   </YEAST>
+  </YEASTS>
+ </RECIPE>
+</RECIPES>`;
+
+		const recipes = parseBeerXml(erdingerXml);
+		expect(recipes).toHaveLength(1);
+		const recipe = recipes[0];
+
+		// Reconciled from 65% brewhouse efficiency to 70.7% mash efficiency to match 1.050 OG
+		expect(recipe.efficiencyPercent).toBe(70.7);
+
+		const metrics = calculateBrewMetrics(
+			recipe.batchSizeLiters,
+			recipe.efficiencyPercent,
+			recipe.boilTimeMinutes,
+			recipe.ingredients.map((ing, idx) => ({
+				ingredient: {
+					id: String(idx),
+					name: ing.name,
+					type: ing.type,
+					potentialGravity: ing.potentialGravity,
+					colorSrm: ing.colorSrm,
+					alphaAcidPercent: ing.alphaAcidPercent,
+					attenuationPercent: ing.attenuationPercent,
+					isCatalogItem: true
+				},
+				amount: ing.amount,
+				durationMinutes: ing.durationMinutes,
+				usage: ing.usage
+			}))
+		);
+
+		expect(metrics.originalGravity).toBe(1.05);
+		expect(metrics.bitternessIbu).toBe(13.2);
+		expect(metrics.colorSrm).toBe(4.0);
 	});
 });

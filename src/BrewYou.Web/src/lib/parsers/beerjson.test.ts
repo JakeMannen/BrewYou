@@ -413,4 +413,43 @@ describe('BeerJSON Parser', () => {
 		expect(cultures[1].amount).toBe(1);
 		expect(cultures[1].unit).toBe('pkg');
 	});
+
+	it('reconciles efficiency against original_gravity in BeerJSON when brewhouse efficiency differs from mash efficiency', () => {
+		const json = JSON.stringify({
+			beerjson: {
+				version: 2.06,
+				recipes: [
+					{
+						name: 'Erdinger BeerJSON',
+						batch_size: { value: 23, unit: 'l' },
+						efficiency: { brewhouse: { value: 65, unit: '%' } },
+						original_gravity: { value: 1.05, unit: 'sg' },
+						ingredients: {
+							fermentable_additions: [
+								{
+									name: 'Wheat Malt, Pale',
+									amount: { value: 3.0, unit: 'kg' },
+									yield: { fine_grind: { value: 82.0, unit: '%' } }
+								},
+								{
+									name: 'Pilsner',
+									amount: { value: 2.0, unit: 'kg' },
+									yield: { fine_grind: { value: 81.0, unit: '%' } }
+								},
+								{
+									name: 'Carahell',
+									amount: { value: 0.2, unit: 'kg' },
+									yield: { fine_grind: { value: 75.0, unit: '%' } }
+								}
+							]
+						}
+					}
+				]
+			}
+		});
+
+		const recipes = parseBeerJson(json);
+		expect(recipes).toHaveLength(1);
+		expect(recipes[0].efficiencyPercent).toBe(70.7);
+	});
 });

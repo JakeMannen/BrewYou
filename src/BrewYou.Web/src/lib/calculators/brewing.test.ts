@@ -7,6 +7,7 @@ import {
 	ppgToSg,
 	smartPotentialToSg,
 	formatPotentialGravity,
+	reconcileImportedEfficiency,
 	type CalculatorItem
 } from './brewing';
 
@@ -261,6 +262,32 @@ describe('calculateBrewMetrics', () => {
 			expect(formatPotentialGravity(1.038)).toBe('1.038 (38 PPG)');
 			expect(formatPotentialGravity(1.037)).toBe('1.037 (37 PPG)');
 			expect(formatPotentialGravity(null)).toBe('1.037 (37 PPG)');
+		});
+	});
+
+	describe('reconcileImportedEfficiency', () => {
+		it('derives effective mash efficiency when stated brewhouse efficiency under-predicts target OG', () => {
+			// Erdinger Clone grain bill: 3kg Wheat (1.038), 2kg Pilsner (1.037), 0.2kg Carahell (1.035) in 23L
+			const fermentables = [
+				{ amount: 3.0, potentialGravity: 1.038 },
+				{ amount: 2.0, potentialGravity: 1.037 },
+				{ amount: 0.2, potentialGravity: 1.035 }
+			];
+			const eff = reconcileImportedEfficiency(23.0, 65.0, 1.05, fermentables);
+			expect(eff).toBe(70.7);
+		});
+
+		it('retains stated efficiency when calculated OG already matches target OG', () => {
+			const fermentables = [{ amount: 4.5, potentialGravity: 1.037 }];
+			const eff = reconcileImportedEfficiency(20.0, 75.0, 1.052, fermentables);
+			expect(eff).toBe(75.0);
+		});
+
+		it('retains stated efficiency when target OG is missing or invalid', () => {
+			const fermentables = [{ amount: 4.5, potentialGravity: 1.037 }];
+			expect(reconcileImportedEfficiency(20.0, 65.0, null, fermentables)).toBe(65.0);
+			expect(reconcileImportedEfficiency(20.0, 65.0, 1.0, fermentables)).toBe(65.0);
+			expect(reconcileImportedEfficiency(20.0, 65.0, 1.5, fermentables)).toBe(65.0);
 		});
 	});
 });

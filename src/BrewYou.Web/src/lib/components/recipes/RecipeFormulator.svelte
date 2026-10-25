@@ -648,13 +648,13 @@
 
 			for (const ing of imported.ingredients) {
 				const lowerName = ing.name.trim().toLowerCase();
-				// Find matching ingredient in catalog (exact match, contains, or contained by)
-				let catalogMatch = activeCatalog.find(
-					(c) =>
-						c.name.toLowerCase() === lowerName ||
-						c.name.toLowerCase().includes(lowerName) ||
-						lowerName.includes(c.name.toLowerCase())
-				);
+				// Find matching ingredient in catalog (exact match first, then contains or contained by)
+				let catalogMatch =
+					activeCatalog.find((c) => c.name.toLowerCase() === lowerName) ??
+					activeCatalog.find(
+						(c) =>
+							c.name.toLowerCase().includes(lowerName) || lowerName.includes(c.name.toLowerCase())
+					);
 
 				// Fallback to first ingredient of corresponding type
 				if (!catalogMatch) {
