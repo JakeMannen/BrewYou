@@ -264,3 +264,54 @@ export function formatPotentialGravity(sg: number | null | undefined): string {
 	const ppg = sgToPpg(val);
 	return `${val.toFixed(3)} (${ppg} PPG)`;
 }
+
+/**
+ * Reconciles imported recipe efficiency against an explicit target Original Gravity (OG).
+ * Bridges BeerXML/BeerJSON exports where <EFFICIENCY> represents brewhouse efficiency
+ * (post-trub loss) while <OG>/<EST_OG> was calculated from mash/kettle efficiency.
+ */
+export function reconcileImportedEfficiency(
+	batchSizeLiters: number,
+	statedEfficiencyPercent: number,
+	targetOg: number | null | undefined,
+	fermentables: Array<{ amount: number; potentialGravity?: number | null }>
+): number {
+	if (
+		!targetOg ||
+		isNaN(targetOg) ||
+		targetOg <= 1.001 ||
+		targetOg > 1.25 ||
+		batchSizeLiters <= 0 ||
+		fermentables.length === 0
+	) {
+		return statedEfficiencyPercent;
+	}
+
+	const volumeGallons = batchSizeLiters * LITERS_TO_GALLONS;
+	let maxGravityPoints = 0;
+
+	for (const f of fermentables) {
+		if (!f || f.amount <= 0) continue;
+		const weightLbs = f.amount * KG_TO_LBS;
+		const ppg = f.potentialGravity ? (f.potentialGravity - 1.0) * 1000 : 37;
+		maxGravityPoints += (weightLbs * ppg) / volumeGallons;
+	}
+
+	if (maxGravityPoints <= 0) {
+		return statedEfficiencyPercent;
+	}
+
+	const calculatedOg = 1.0 + (maxGravityPoints * (statedEfficiencyPercent / 100.0)) / 1000.0;
+	if (Math.round(calculatedOg * 1000) === Math.round(targetOg * 1000)) {
+		return statedEfficiencyPercent;
+	}
+
+	const targetPoints = (targetOg - 1.0) * 1000.0;
+	const derivedEfficiency = (targetPoints / maxGravityPoints) * 100.0;
+
+	if (derivedEfficiency >= 25.0 && derivedEfficiency <= 100.0) {
+		return Math.round(derivedEfficiency * 10) / 10;
+	}
+
+	return statedEfficiencyPercent;
+}

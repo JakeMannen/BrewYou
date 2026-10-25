@@ -10,7 +10,7 @@ import type {
 	ParsedMashStep,
 	ParsedRecipe
 } from './types';
-import { smartPotentialToSg } from '$lib/calculators/brewing';
+import { reconcileImportedEfficiency, smartPotentialToSg } from '$lib/calculators/brewing';
 
 const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024; // 2 MB
 
@@ -84,6 +84,21 @@ function mapMiscUsage(use: string | null): IngredientUsage {
 	return 'Boil';
 }
 
+function parseBeerXmlGravitySg(raw: string | null): number | null {
+	if (!raw) return null;
+	const cleaned = raw.trim().toLowerCase();
+	const num = parseFloat(cleaned);
+	if (isNaN(num) || num <= 0) return null;
+	if (cleaned.includes('plato') || cleaned.includes('°p') || cleaned.endsWith('p')) {
+		const sg = 1.0 + num / (258.6 - (num / 258.2) * 227.1);
+		return sg >= 1.002 && sg <= 1.25 ? Math.round(sg * 1000) / 1000 : null;
+	}
+	if (num >= 1.002 && num <= 1.25) {
+		return Math.round(num * 1000) / 1000;
+	}
+	return null;
+}
+
 export function parseBeerXml(rawXml: string): ParsedRecipe[] {
 	if (!rawXml || typeof rawXml !== 'string') {
 		throw new Error('Invalid BeerXML: Content is empty.');
@@ -131,8 +146,11 @@ export function parseBeerXml(rawXml: string): ParsedRecipe[] {
 		const boilTimeMinutes = isNaN(boilTimeRaw) || boilTimeRaw < 0 ? 60 : boilTimeRaw;
 
 		const effRaw = parseFloat(extractTagContent(recipeXml, 'EFFICIENCY') || '72.0');
-		const efficiencyPercent =
+		const statedEfficiencyPercent =
 			isNaN(effRaw) || effRaw <= 0 ? 72.0 : Math.min(100, Math.round(effRaw * 10) / 10);
+		const targetOg =
+			parseBeerXmlGravitySg(extractTagContent(recipeXml, 'EST_OG')) ??
+			parseBeerXmlGravitySg(extractTagContent(recipeXml, 'OG'));
 
 		const ingredients: ParsedIngredient[] = [];
 
@@ -489,6 +507,13 @@ export function parseBeerXml(rawXml: string): ParsedRecipe[] {
 				durationDays: defaultDays
 			});
 		}
+
+		const efficiencyPercent = reconcileImportedEfficiency(
+			batchSizeLiters,
+			statedEfficiencyPercent,
+			targetOg,
+			ingredients.filter((i) => i.type === 'Fermentable')
+		);
 
 		return {
 			name,

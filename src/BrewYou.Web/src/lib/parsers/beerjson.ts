@@ -10,7 +10,7 @@ import type {
 	ParsedMashStep,
 	ParsedRecipe
 } from './types';
-import { smartPotentialToSg } from '$lib/calculators/brewing';
+import { reconcileImportedEfficiency, smartPotentialToSg } from '$lib/calculators/brewing';
 
 const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024; // 2 MB
 
@@ -228,6 +228,28 @@ function parseDurationDays(obj: unknown, fallback: number = 14): number {
 	return fallback;
 }
 
+function parseBeerJsonGravitySg(obj: unknown): number | null {
+	if (!obj) return null;
+	if (typeof obj === 'number' && !isNaN(obj)) {
+		return obj >= 1.002 && obj <= 1.25 ? Math.round(obj * 1000) / 1000 : null;
+	}
+	if (typeof obj === 'object') {
+		const measure = obj as { value?: number; unit?: string };
+		if (typeof measure.value === 'number' && !isNaN(measure.value)) {
+			const unit = (measure.unit || 'sg').toLowerCase().trim();
+			if (unit === 'plato' || unit === '°p' || unit === 'p' || unit === 'brix') {
+				const p = measure.value;
+				const sg = 1.0 + p / (258.6 - (p / 258.2) * 227.1);
+				return sg >= 1.002 && sg <= 1.25 ? Math.round(sg * 1000) / 1000 : null;
+			}
+			if (measure.value >= 1.002 && measure.value <= 1.25) {
+				return Math.round(measure.value * 1000) / 1000;
+			}
+		}
+	}
+	return null;
+}
+
 export function parseBeerJson(rawJson: string): ParsedRecipe[] {
 	if (!rawJson || typeof rawJson !== 'string') {
 		throw new Error('Invalid BeerJSON: Content is empty.');
@@ -295,21 +317,23 @@ export function parseBeerJson(rawJson: string): ParsedRecipe[] {
 			boilTimeMinutes = parseDurationMinutes(rec.boil_time);
 		}
 
-		let efficiencyPercent = 72.0;
+		let statedEfficiencyPercent = 72.0;
 		if (rec.efficiency && typeof rec.efficiency === 'object') {
-			const eff = (rec.efficiency as Record<string, unknown>).brewhouse;
+			const effObj = rec.efficiency as Record<string, unknown>;
+			const eff = effObj.mash ?? effObj.brewhouse;
 			if (typeof eff === 'number') {
-				efficiencyPercent = eff;
+				statedEfficiencyPercent = eff;
 			} else if (
 				eff &&
 				typeof eff === 'object' &&
 				typeof (eff as { value?: number }).value === 'number'
 			) {
-				efficiencyPercent = (eff as { value: number }).value;
+				statedEfficiencyPercent = (eff as { value: number }).value;
 			}
 		} else if (typeof rec.efficiency === 'number') {
-			efficiencyPercent = rec.efficiency;
+			statedEfficiencyPercent = rec.efficiency;
 		}
+		const targetOg = parseBeerJsonGravitySg(rec.original_gravity);
 
 		const ingredients: ParsedIngredient[] = [];
 		const ingSection = (rec.ingredients || {}) as Record<string, unknown>;
@@ -594,6 +618,13 @@ export function parseBeerJson(rawJson: string): ParsedRecipe[] {
 				durationDays: isLager ? 21 : 14
 			});
 		}
+
+		const efficiencyPercent = reconcileImportedEfficiency(
+			batchSizeLiters,
+			statedEfficiencyPercent,
+			targetOg,
+			ingredients.filter((i) => i.type === 'Fermentable')
+		);
 
 		return {
 			name,
