@@ -281,10 +281,23 @@
 	let currentStageEquipmentId = $derived(currentStageEquipment?.id ?? null);
 	let currentStageEquipmentName = $derived(currentStageEquipment?.name ?? null);
 
-	// Boil Timer
+	// Boil & Mash Timers
 	let timerRunning = $state(false);
 	let timerRemainingSeconds = $state(3600); // 60 mins default
 	let timerInterval = $state<ReturnType<typeof setInterval> | null>(null);
+
+	function syncTimerForStage(stage: BrewStage, currentBatch?: BatchDetailDto | null) {
+		const targetBatch = currentBatch ?? batch;
+		if (stage === 'Boil' && targetBatch?.boilTimeMinutes) {
+			timerRemainingSeconds = targetBatch.boilTimeMinutes * 60;
+		} else if (stage === 'Mash') {
+			const activeStep =
+				targetBatch?.mashSteps?.[activeMashStepIndex] ?? targetBatch?.mashSteps?.[0];
+			timerRemainingSeconds = (activeStep?.durationMinutes ?? 60) * 60;
+		} else {
+			timerRemainingSeconds = 3600;
+		}
+	}
 
 	const batchId = $derived(page.params.id);
 
@@ -445,14 +458,7 @@
 			}
 
 			if (!timerRunning) {
-				if (batch.currentStage === 'Boil' && batch.boilTimeMinutes) {
-					timerRemainingSeconds = batch.boilTimeMinutes * 60;
-				} else if (batch.currentStage === 'Mash') {
-					const activeStep = batch.mashSteps?.[activeMashStepIndex] ?? batch.mashSteps?.[0];
-					timerRemainingSeconds = (activeStep?.durationMinutes ?? 60) * 60;
-				} else {
-					timerRemainingSeconds = 3600;
-				}
+				syncTimerForStage(batch.currentStage, batch);
 			}
 			determineNextStage(batch.currentStage);
 		} catch (err: unknown) {
@@ -905,6 +911,8 @@
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
+			pauseTimer();
+			syncTimerForStage(updated.currentStage, updated);
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
@@ -971,13 +979,7 @@
 
 	function resetTimer() {
 		pauseTimer();
-		if (inspectedStage === 'Boil' && batch?.boilTimeMinutes) {
-			timerRemainingSeconds = batch.boilTimeMinutes * 60;
-		} else if (inspectedStage === 'Mash') {
-			timerRemainingSeconds = (currentSelectedMashStep?.durationMinutes ?? 60) * 60;
-		} else {
-			timerRemainingSeconds = 3600;
-		}
+		syncTimerForStage(inspectedStage);
 	}
 
 	function formatTime(seconds: number) {
@@ -1090,6 +1092,9 @@
 					const found = stageOrder.find((st) => st.toLowerCase() === s.id.toLowerCase());
 					if (found) {
 						inspectedStage = found;
+						if (!timerRunning) {
+							syncTimerForStage(found);
+						}
 					}
 				}}
 			/>
@@ -1121,7 +1126,12 @@
 				<button
 					type="button"
 					data-testid="return-to-active-stage-btn"
-					onclick={() => (inspectedStage = batch!.currentStage)}
+					onclick={() => {
+						inspectedStage = batch!.currentStage;
+						if (!timerRunning) {
+							syncTimerForStage(batch!.currentStage);
+						}
+					}}
 					class="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-800 transition-colors hover:bg-amber-500/30 active:scale-95 dark:text-amber-300"
 				>
 					<RotateCcw class="h-3.5 w-3.5" />
@@ -1443,7 +1453,10 @@
 								{/if}
 
 								<div class="py-4 text-center">
-									<span class="font-mono text-5xl font-extrabold text-zinc-900 dark:text-white">
+									<span
+										data-testid="mash-timer-display"
+										class="font-mono text-5xl font-extrabold text-zinc-900 dark:text-white"
+									>
 										{formatTime(timerRemainingSeconds)}
 									</span>
 								</div>
@@ -1718,6 +1731,7 @@
 				<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
 					<!-- Boil Timer & Controls -->
 					<div
+						data-testid="boil-timer-panel"
 						class="glass-panel flex flex-col justify-between rounded-3xl border border-zinc-200/80 p-6 dark:border-white/10"
 					>
 						<div class="space-y-2">
@@ -1742,7 +1756,10 @@
 								{t('batches.workspace.boil_timer_desc')}
 							</p>
 							<div class="py-6 text-center">
-								<span class="font-mono text-5xl font-extrabold text-zinc-900 dark:text-white">
+								<span
+									data-testid="boil-timer-display"
+									class="font-mono text-5xl font-extrabold text-zinc-900 dark:text-white"
+								>
 									{formatTime(timerRemainingSeconds)}
 								</span>
 							</div>
