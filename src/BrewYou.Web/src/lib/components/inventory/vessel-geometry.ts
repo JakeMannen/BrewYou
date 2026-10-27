@@ -13,6 +13,8 @@ export const CHAMBER_BOUNDS: Record<
 	Pan: { bottomY: 38, topY: 16 },
 	Hlt: { bottomY: 39, topY: 13 },
 	HermsRims: { bottomY: 38, topY: 14 },
+	MashTun: { bottomY: 39, topY: 13 },
+	LauterTun: { bottomY: 39, topY: 14 },
 	Bucket: { bottomY: 39.5, topY: 13.5 },
 	ConicalFermenter: { bottomY: 37, topY: 12 },
 	Carboy: { bottomY: 40, topY: 14 },
@@ -85,6 +87,7 @@ export function resolveVesselAnimationType(
 		return options.animationStage.toLowerCase();
 	}
 
+	if (['MashTun', 'LauterTun'].includes(subtype as string)) return 'mash';
 	if (['Pan', 'AllInOne', 'Hlt', 'HermsRims'].includes(subtype as string)) return 'boil';
 	if (
 		['Bucket', 'ConicalFermenter', 'Carboy', 'PressureFermenter', 'StainlessBucket'].includes(

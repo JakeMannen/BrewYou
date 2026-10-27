@@ -217,7 +217,10 @@ public static class RecipeEndpoints
                 MashTunDeadSpaceLiters: request.MashTunDeadSpaceLiters ?? 0.0m,
                 CoolingShrinkagePercent: request.CoolingShrinkagePercent ?? 4.0m,
                 PackagingLossLiters: request.PackagingLossLiters ?? 0.5m,
-                MashThicknessLitersPerKg: request.MashThicknessLitersPerKg ?? 3.0m
+                MashThicknessLitersPerKg: request.MashThicknessLitersPerKg ?? 3.0m,
+                HltDeadSpaceLiters: request.HltDeadSpaceLiters ?? 0.0m,
+                PlumbingLossLiters: request.PlumbingLossLiters ?? 0.0m,
+                SpargeMethod: request.SpargeMethod ?? "Batch"
             );
 
             var result = VolumeCalculator.CalculateWaterRequirements(input);
@@ -235,7 +238,9 @@ public static class RecipeEndpoints
                 KettleTrubLossLiters: result.KettleTrubLossLiters,
                 ShrinkageLossLiters: result.ShrinkageLossLiters,
                 FermenterLossLiters: result.FermenterLossLiters,
-                PackagingLossLiters: result.PackagingLossLiters
+                PackagingLossLiters: result.PackagingLossLiters,
+                HltDeadSpaceLossLiters: result.HltDeadSpaceLossLiters,
+                PlumbingLossLiters: result.PlumbingLossLiters
             );
 
             return Results.Ok(ApiResponse<CalculateWaterVolumeResponse>.Ok(response));

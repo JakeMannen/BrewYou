@@ -131,6 +131,9 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 				kettleTrubLossLiters: 1.5,
 				fermenterTrubLossLiters: 1,
 				mashTunDeadSpaceLiters: 0.5,
+				hltDeadSpaceLiters: 0.0,
+				plumbingLossLiters: 0.0,
+				spargeMethod: 'Batch',
 				coolingShrinkagePercent: 4,
 				packagingLossLiters: 0.5
 			}

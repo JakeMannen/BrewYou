@@ -35,6 +35,9 @@ public class BatchVolumeProfile
     public decimal KettleTrubLossLiters { get; set; }
     public decimal FermenterTrubLossLiters { get; set; }
     public decimal MashTunDeadSpaceLiters { get; set; }
+    public decimal HltDeadSpaceLiters { get; set; } = 0.0m;
+    public decimal PlumbingLossLiters { get; set; } = 0.0m;
+    public string SpargeMethod { get; set; } = "Batch";
     public decimal CoolingShrinkagePercent { get; set; }
     public decimal PackagingLossLiters { get; set; }
 

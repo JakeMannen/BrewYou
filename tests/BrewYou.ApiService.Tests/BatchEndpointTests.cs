@@ -1369,4 +1369,127 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         uncheckedStep.IsCompleted.Should().BeFalse();
         uncheckedStep.CompletedAt.Should().BeNull();
     }
+
+    [Fact]
+    public async Task CreateBatch_AllInOneWithSpargeHeater_PersistsBothVesselsAndCalculatesSplit()
+    {
+        var (client, userId, _, _, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        // 1. Fetch default brewery setup
+        var setups = (await (await client.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups.First(s => s.IsDefault).Id;
+
+        // 2. Create All-In-One (Grainfather) and HLT (Sparge water heater)
+        var aioRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Grainfather G30",
+            Type: EquipmentType.Boiler,
+            Capacity: 30.0m,
+            Subtype: EquipmentSubtype.AllInOne,
+            MashTunDeadSpaceLiters: 2.0m
+        ));
+        aioRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var aio = (await aioRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var hltRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Grainfather Sparge Water Heater 18L",
+            Type: EquipmentType.Boiler,
+            Capacity: 18.0m,
+            Subtype: EquipmentSubtype.Hlt
+        ));
+        hltRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var hlt = (await hltRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // 3. Create batch assigning AIO for boiling and mash tun, and HLT for sparge water
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: "B-AIO-01",
+            Name: "Saison with AIO + Sparge Heater",
+            BeerStyle: "Saison",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 23.0m,
+            TargetOg: 1.052m,
+            TargetFg: 1.006m,
+            TargetAbv: 6.0m,
+            TargetIbu: 30.0m,
+            TargetColorSrm: 4.5m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75.0m,
+            BoilerId: aio.Id,
+            FermenterId: null,
+            PackagingVesselId: null,
+            HltId: hlt.Id,
+            MashTunId: aio.Id,
+            HltDeadSpaceLiters: 0.5m,
+            SpargeMethod: "Batch"
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        batch.BoilerId.Should().Be(aio.Id);
+        batch.MashTunId.Should().Be(aio.Id);
+        batch.HltId.Should().Be(hlt.Id);
+        batch.HltName.Should().Be("Grainfather Sparge Water Heater 18L");
+        batch.VolumeProfile.Should().NotBeNull();
+        batch.VolumeProfile!.HltDeadSpaceLiters.Should().Be(0.5m);
+        batch.VolumeProfile!.StrikeWaterLiters.Should().BeGreaterThan(0m);
+        batch.VolumeProfile!.SpargeWaterLiters.Should().BeGreaterThan(0m);
+    }
+
+    [Fact]
+    public async Task CreateBatch_ThreeVesselTraditional_PersistsHltMashTunAndBoiler()
+    {
+        var (client, userId, _, _, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var setups = (await (await client.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups.First(s => s.IsDefault).Id;
+
+        // 1. Create 3 distinct vessels
+        var hlt = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId, Name: "3V Hot Liquor Tank", Type: EquipmentType.Boiler, Capacity: 50m, Subtype: EquipmentSubtype.Hlt
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var mlt = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId, Name: "3V Mash Lauter Tun", Type: EquipmentType.Boiler, Capacity: 50m, Subtype: EquipmentSubtype.MashTun, MashTunDeadSpaceLiters: 1.5m
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var bk = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId, Name: "3V Boil Kettle", Type: EquipmentType.Boiler, Capacity: 50m, Subtype: EquipmentSubtype.Pan
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // 2. Create batch
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: "B-3V-01",
+            Name: "Imperial Stout 3V",
+            BeerStyle: "Imperial Stout",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 35.0m,
+            TargetOg: 1.090m,
+            TargetFg: 1.020m,
+            TargetAbv: 9.2m,
+            TargetIbu: 75.0m,
+            TargetColorSrm: 40.0m,
+            BoilTimeMinutes: 90,
+            EfficiencyPercent: 78.0m,
+            BoilerId: bk.Id,
+            FermenterId: null,
+            PackagingVesselId: null,
+            HltId: hlt.Id,
+            MashTunId: mlt.Id,
+            PlumbingLossLiters: 0.8m,
+            SpargeMethod: "Fly"
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        batch.HltId.Should().Be(hlt.Id);
+        batch.MashTunId.Should().Be(mlt.Id);
+        batch.BoilerId.Should().Be(bk.Id);
+        batch.VolumeProfile!.PlumbingLossLiters.Should().Be(0.8m);
+        batch.VolumeProfile!.SpargeMethod.Should().Be("Fly");
+    }
 }

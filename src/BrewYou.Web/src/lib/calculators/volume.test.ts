@@ -143,6 +143,35 @@ describe('calculateWaterRequirements', () => {
 		expect(result.strikeWaterLiters).toBe(result.totalWaterLiters);
 	});
 
+	it('includes HLT dead space and plumbing losses in multi-vessel system calculations', () => {
+		const baseline = calculateWaterRequirements({
+			targetBatchSizeLiters: 20.0,
+			boilTimeMinutes: 60,
+			totalGrainWeightKg: 5.0,
+			mashTunDeadSpaceLiters: 1.0,
+			hltDeadSpaceLiters: 0.0,
+			plumbingLossLiters: 0.0
+		});
+
+		const multiVessel = calculateWaterRequirements({
+			targetBatchSizeLiters: 20.0,
+			boilTimeMinutes: 60,
+			totalGrainWeightKg: 5.0,
+			mashTunDeadSpaceLiters: 1.0,
+			hltDeadSpaceLiters: 1.5,
+			plumbingLossLiters: 0.8,
+			spargeMethod: 'Fly'
+		});
+
+		// Total water should increase by HLT dead space (1.5) + plumbing loss (0.8) = 2.3L
+		expect(multiVessel.totalWaterLiters).toBeCloseTo(baseline.totalWaterLiters + 2.3, 2);
+		// Strike water includes plumbing loss (+0.8L)
+		expect(multiVessel.strikeWaterLiters).toBeCloseTo(baseline.strikeWaterLiters + 0.8, 2);
+		expect(multiVessel.hltDeadSpaceLossLiters).toBe(1.5);
+		expect(multiVessel.plumbingLossLiters).toBe(0.8);
+		expect(multiVessel.spargeMethod).toBe('Fly');
+	});
+
 	it('produces same total water regardless of spargeEnabled flag', () => {
 		const sharedInput = {
 			targetBatchSizeLiters: 20.0,
@@ -264,6 +293,9 @@ describe('recalculatePostStepMilestones', () => {
 		kettleTrubLossLiters: 2.0,
 		fermenterTrubLossLiters: 1.5,
 		mashTunDeadSpaceLiters: 0.5,
+		hltDeadSpaceLiters: 0.0,
+		plumbingLossLiters: 0.0,
+		spargeMethod: 'Batch',
 		coolingShrinkagePercent: 4.0,
 		packagingLossLiters: 0.5
 	};

@@ -275,6 +275,9 @@ public record BatchVolumeProfileBackupDto(
     decimal MashTunDeadSpaceLiters,
     decimal CoolingShrinkagePercent,
     decimal PackagingLossLiters,
+    decimal HltDeadSpaceLiters = 0.0m,
+    decimal PlumbingLossLiters = 0.0m,
+    string SpargeMethod = "Batch",
     DateTime CreatedAt = default,
     DateTime UpdatedAt = default
 );
@@ -384,6 +387,8 @@ public record BatchBackupDto(
     Guid? BoilerId = null,
     Guid? FermenterId = null,
     Guid? PackagingVesselId = null,
+    Guid? HltId = null,
+    Guid? MashTunId = null,
     string? Notes = null,
     DateTime CreatedAt = default,
     DateTime UpdatedAt = default,

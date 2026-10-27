@@ -458,7 +458,7 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
 
         return type switch
         {
-            EquipmentType.Boiler => subtype.Value is EquipmentSubtype.AllInOne or EquipmentSubtype.Pan or EquipmentSubtype.Hlt or EquipmentSubtype.HermsRims or EquipmentSubtype.Other,
+            EquipmentType.Boiler => subtype.Value is EquipmentSubtype.AllInOne or EquipmentSubtype.Pan or EquipmentSubtype.Hlt or EquipmentSubtype.HermsRims or EquipmentSubtype.MashTun or EquipmentSubtype.LauterTun or EquipmentSubtype.Other,
             EquipmentType.Fermenter => subtype.Value is EquipmentSubtype.Bucket or EquipmentSubtype.ConicalFermenter or EquipmentSubtype.Carboy or EquipmentSubtype.PressureFermenter or EquipmentSubtype.StainlessBucket or EquipmentSubtype.Other,
             EquipmentType.Keg => subtype.Value is EquipmentSubtype.Cornelius or EquipmentSubtype.Minikeg or EquipmentSubtype.MiniBarrel or EquipmentSubtype.PetKeg or EquipmentSubtype.Other,
             EquipmentType.Sensor => subtype.Value is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor,
@@ -790,6 +790,16 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .When(x => x.MashTunDeadSpaceLiters.HasValue)
             .WithMessage("Mash tun dead space cannot be negative.");
 
+        RuleFor(x => x.HltDeadSpaceLiters)
+            .GreaterThanOrEqualTo(0m)
+            .When(x => x.HltDeadSpaceLiters.HasValue)
+            .WithMessage("HLT dead space cannot be negative.");
+
+        RuleFor(x => x.PlumbingLossLiters)
+            .GreaterThanOrEqualTo(0m)
+            .When(x => x.PlumbingLossLiters.HasValue)
+            .WithMessage("Plumbing transfer loss cannot be negative.");
+
         RuleFor(x => x.FermenterLossLiters)
             .GreaterThanOrEqualTo(0m)
             .When(x => x.FermenterLossLiters.HasValue)
@@ -1110,6 +1120,8 @@ public class CalculateWaterVolumeRequestValidator : AbstractValidator<CalculateW
         RuleFor(x => x.BoilOffRatePerHourLiters).InclusiveBetween(0m, 50m).When(x => x.BoilOffRatePerHourLiters.HasValue);
         RuleFor(x => x.GrainAbsorptionRateLPerKg).InclusiveBetween(0.1m, 3.0m).When(x => x.GrainAbsorptionRateLPerKg.HasValue);
         RuleFor(x => x.CoolingShrinkagePercent).InclusiveBetween(0m, 20m).When(x => x.CoolingShrinkagePercent.HasValue);
+        RuleFor(x => x.HltDeadSpaceLiters).InclusiveBetween(0m, 50m).When(x => x.HltDeadSpaceLiters.HasValue);
+        RuleFor(x => x.PlumbingLossLiters).InclusiveBetween(0m, 50m).When(x => x.PlumbingLossLiters.HasValue);
     }
 }
 

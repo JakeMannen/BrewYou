@@ -13,6 +13,9 @@ export interface VolumeCalculationInput {
 	kettleTrubLossLiters?: number;
 	fermenterLossLiters?: number;
 	mashTunDeadSpaceLiters?: number;
+	hltDeadSpaceLiters?: number;
+	plumbingLossLiters?: number;
+	spargeMethod?: string;
 	coolingShrinkagePercent?: number;
 	packagingLossLiters?: number;
 	mashThicknessLitersPerKg?: number;
@@ -35,6 +38,9 @@ export interface VolumeCalculationResult {
 	fermenterLossLiters: number;
 	packagingLossLiters: number;
 	mashTunDeadSpaceLossLiters: number;
+	hltDeadSpaceLossLiters: number;
+	plumbingLossLiters: number;
+	spargeMethod: string;
 }
 
 const LITERS_TO_GALLONS = 0.264172052;
@@ -57,6 +63,9 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 	const kettleTrub = input.kettleTrubLossLiters ?? 1.5;
 	const fermenterLoss = input.fermenterLossLiters ?? 1.5;
 	const mashTunDeadSpace = input.mashTunDeadSpaceLiters ?? 0.0;
+	const hltDeadSpace = input.hltDeadSpaceLiters ?? 0.0;
+	const plumbingLoss = input.plumbingLossLiters ?? 0.0;
+	const spargeMethod = input.spargeMethod ?? 'Batch';
 	const shrinkagePercent = input.coolingShrinkagePercent ?? 4.0;
 	const packagingLoss = input.packagingLossLiters ?? 0.5;
 	const mashThickness = input.mashThicknessLitersPerKg ?? 3.0;
@@ -93,8 +102,8 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 	// Grain absorption
 	const grainAbsorption = input.totalGrainWeightKg * grainAbsorptionRate;
 
-	// Total water
-	const totalWater = preBoilCold + grainAbsorption + mashTunDeadSpace;
+	// Total water (includes mash dead space, HLT dead space, and pump/transfer plumbing losses)
+	const totalWater = preBoilCold + grainAbsorption + mashTunDeadSpace + hltDeadSpace + plumbingLoss;
 
 	// Strike and sparge water split
 	const sparge = input.spargeEnabled ?? true;
@@ -102,8 +111,8 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 	let spargeWater: number;
 
 	if (sparge) {
-		// Traditional sparge: split water based on mash thickness ratio
-		strikeWater = input.totalGrainWeightKg * mashThickness + mashTunDeadSpace;
+		// Traditional sparge: split water based on mash thickness ratio + mash dead space + transfer plumbing
+		strikeWater = input.totalGrainWeightKg * mashThickness + mashTunDeadSpace + plumbingLoss;
 		spargeWater = Math.max(0, totalWater - strikeWater);
 	} else {
 		// No-sparge / BIAB: all water is strike water
@@ -127,7 +136,10 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 		shrinkageLossLiters: roundTo(postBoilHot - postBoilCold, 2),
 		fermenterLossLiters: roundTo(fermenterLoss, 2),
 		packagingLossLiters: roundTo(packagingLoss, 2),
-		mashTunDeadSpaceLossLiters: roundTo(mashTunDeadSpace, 2)
+		mashTunDeadSpaceLossLiters: roundTo(mashTunDeadSpace, 2),
+		hltDeadSpaceLossLiters: roundTo(hltDeadSpace, 2),
+		plumbingLossLiters: roundTo(plumbingLoss, 2),
+		spargeMethod
 	};
 }
 

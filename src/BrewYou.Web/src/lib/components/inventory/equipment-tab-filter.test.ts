@@ -13,6 +13,8 @@ const DEFAULT_CAPACITIES_LITERS: Record<EquipmentSubtype, number> = {
 	Pan: 50,
 	Hlt: 30,
 	HermsRims: 15,
+	MashTun: 35,
+	LauterTun: 35,
 	Bucket: 30,
 	ConicalFermenter: 27,
 	Carboy: 20,

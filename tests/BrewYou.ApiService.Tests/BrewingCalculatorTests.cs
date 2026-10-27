@@ -210,4 +210,25 @@ public class BrewingCalculatorTests
 
         strikeTemp.Should().Be(72.2m);
     }
+
+    [Fact]
+    public void CalculateHltTargetTemperature_AppliesHermsOffset()
+    {
+        // Target mash 66.0°C with 1.5°C offset -> 67.5°C
+        var hltTemp = BrewingCalculator.CalculateHltTargetTemperature(targetMashTempC: 66.0m, hermsOffsetC: 1.5m);
+        hltTemp.Should().Be(67.5m);
+    }
+
+    [Fact]
+    public void IsRunoffAtRiskOfTanninExtraction_CorrectlyFlagsLowGravityOrHighPh()
+    {
+        // Safe runoff: 1.020 SG, pH 5.4
+        BrewingCalculator.IsRunoffAtRiskOfTanninExtraction(1.020m, 5.4m).Should().BeFalse();
+
+        // At-risk: runoff dropped to 1.008 SG
+        BrewingCalculator.IsRunoffAtRiskOfTanninExtraction(1.008m, 5.4m).Should().BeTrue();
+
+        // At-risk: runoff pH rose to 6.0
+        BrewingCalculator.IsRunoffAtRiskOfTanninExtraction(1.015m, 6.0m).Should().BeTrue();
+    }
 }

@@ -24,7 +24,10 @@ public record VolumeCalculationInput(
     decimal MashTunDeadSpaceLiters = 0.0m,
     decimal CoolingShrinkagePercent = 4.0m,
     decimal PackagingLossLiters = 0.5m,
-    decimal MashThicknessLitersPerKg = 3.0m
+    decimal MashThicknessLitersPerKg = 3.0m,
+    decimal HltDeadSpaceLiters = 0.0m,
+    decimal PlumbingLossLiters = 0.0m,
+    string SpargeMethod = "Batch"
 );
 
 public record VolumeCalculationResult(
@@ -43,7 +46,9 @@ public record VolumeCalculationResult(
     decimal ShrinkageLossLiters,
     decimal FermenterLossLiters,
     decimal PackagingLossLiters,
-    decimal MashTunDeadSpaceLossLiters
+    decimal MashTunDeadSpaceLossLiters,
+    decimal HltDeadSpaceLossLiters = 0.0m,
+    decimal PlumbingLossLiters = 0.0m
 );
 
 public static class VolumeCalculator
@@ -92,8 +97,8 @@ public static class VolumeCalculator
         // 7. Grain absorption
         var grainAbsorption = input.TotalGrainWeightKg * input.GrainAbsorptionRate;
 
-        // 8. Total water
-        var totalWater = preBoilCold + grainAbsorption + input.MashTunDeadSpaceLiters;
+        // 8. Total water (including mash dead space, HLT dead space, and plumbing transfer losses)
+        var totalWater = preBoilCold + grainAbsorption + input.MashTunDeadSpaceLiters + input.HltDeadSpaceLiters + input.PlumbingLossLiters;
 
         // 9. Strike and sparge water split
         decimal strikeWater;
@@ -101,7 +106,7 @@ public static class VolumeCalculator
 
         if (input.SpargeEnabled)
         {
-            strikeWater = (input.TotalGrainWeightKg * input.MashThicknessLitersPerKg) + input.MashTunDeadSpaceLiters;
+            strikeWater = (input.TotalGrainWeightKg * input.MashThicknessLitersPerKg) + input.MashTunDeadSpaceLiters + input.PlumbingLossLiters;
             spargeWater = Math.Max(0m, totalWater - strikeWater);
         }
         else
@@ -126,7 +131,9 @@ public static class VolumeCalculator
             ShrinkageLossLiters: Math.Round(postBoilHot - postBoilCold, 2),
             FermenterLossLiters: Math.Round(input.FermenterLossLiters, 2),
             PackagingLossLiters: Math.Round(input.PackagingLossLiters, 2),
-            MashTunDeadSpaceLossLiters: Math.Round(input.MashTunDeadSpaceLiters, 2)
+            MashTunDeadSpaceLossLiters: Math.Round(input.MashTunDeadSpaceLiters, 2),
+            HltDeadSpaceLossLiters: Math.Round(input.HltDeadSpaceLiters, 2),
+            PlumbingLossLiters: Math.Round(input.PlumbingLossLiters, 2)
         );
     }
 

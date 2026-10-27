@@ -368,6 +368,8 @@ export type EquipmentSubtype =
 	| 'Pan'
 	| 'Hlt'
 	| 'HermsRims'
+	| 'MashTun'
+	| 'LauterTun'
 	| 'Bucket'
 	| 'ConicalFermenter'
 	| 'Carboy'
@@ -383,7 +385,7 @@ export type EquipmentSubtype =
 	| 'Other';
 
 export const EQUIPMENT_SUBTYPES_BY_TYPE: Record<EquipmentType, EquipmentSubtype[]> = {
-	Boiler: ['AllInOne', 'Pan', 'Hlt', 'HermsRims'],
+	Boiler: ['AllInOne', 'Pan', 'Hlt', 'HermsRims', 'MashTun', 'LauterTun'],
 	Fermenter: ['Bucket', 'ConicalFermenter', 'Carboy', 'PressureFermenter', 'StainlessBucket'],
 	Keg: ['Cornelius', 'Minikeg', 'MiniBarrel', 'PetKeg'],
 	Sensor: ['GenericSensor', 'Tilt', 'ISpindel'],
@@ -403,6 +405,8 @@ export const SUBTYPE_LABELS: Record<EquipmentSubtype, string> = {
 	Pan: 'Pan',
 	Hlt: 'Hot Liquor Tank (HLT)',
 	HermsRims: 'HERMS / RIMS',
+	MashTun: 'Mash Tun',
+	LauterTun: 'Lauter Tun',
 	Bucket: 'Bucket',
 	ConicalFermenter: 'Conical fermenter',
 	Carboy: 'Carboy / Demijohn',
@@ -423,6 +427,8 @@ export const SUBTYPE_DESCRIPTIONS: Record<EquipmentSubtype, string> = {
 	Pan: 'Traditional brew kettle & stock pot',
 	Hlt: 'Dedicated hot liquor / sparge water heater',
 	HermsRims: 'Recirculating heat exchanger module',
+	MashTun: 'Dedicated infusion mash tun with false bottom',
+	LauterTun: 'Dedicated lauter vessel with false bottom and runoff spigot',
 	Bucket: 'Food-grade plastic or stainless bucket',
 	ConicalFermenter: 'Unitank fermenter with 60° dump cone',
 	Carboy: 'Glass or PET narrow-neck carboy',
@@ -684,6 +690,12 @@ export interface BatchSummaryDto {
 	alcoholByVolume?: number | null;
 	colorSrm: number;
 	vesselTempC?: number | null;
+	hltId?: string | null;
+	hltName?: string | null;
+	mashTunId?: string | null;
+	mashTunName?: string | null;
+	boilerId?: string | null;
+	boilerName?: string | null;
 	fermenterId?: string | null;
 	fermenterName?: string | null;
 	targetBatchSizeLiters: number;
@@ -847,6 +859,10 @@ export interface BatchDetailDto {
 	measuredBatchSizeLiters?: number | null;
 	pitchTemperatureC?: number | null;
 
+	hltId?: string | null;
+	hltName?: string | null;
+	mashTunId?: string | null;
+	mashTunName?: string | null;
 	boilerId?: string | null;
 	boilerName?: string | null;
 	fermenterId?: string | null;
@@ -886,6 +902,9 @@ export interface BatchVolumeProfileDto {
 	kettleTrubLossLiters: number;
 	fermenterTrubLossLiters: number;
 	mashTunDeadSpaceLiters: number;
+	hltDeadSpaceLiters: number;
+	plumbingLossLiters: number;
+	spargeMethod: string;
 	coolingShrinkagePercent: number;
 	packagingLossLiters: number;
 }
@@ -915,6 +934,8 @@ export interface CreateBatchRequest {
 	targetColorSrm?: number | null;
 	boilTimeMinutes?: number | null;
 	efficiencyPercent?: number | null;
+	hltId?: string | null;
+	mashTunId?: string | null;
 	boilerId?: string | null;
 	fermenterId?: string | null;
 	measuredOg?: number | null;
@@ -926,6 +947,9 @@ export interface CreateBatchRequest {
 	boilOffRatePerHour?: number | null;
 	kettleTrubLossLiters?: number | null;
 	mashTunDeadSpaceLiters?: number | null;
+	hltDeadSpaceLiters?: number | null;
+	plumbingLossLiters?: number | null;
+	spargeMethod?: string | null;
 	fermenterLossLiters?: number | null;
 	spargeEnabled?: boolean | null;
 	packagingVesselId?: string | null;
@@ -963,9 +987,15 @@ export interface UpdateBatchRequest {
 	measuredFg?: number | null;
 	measuredBatchSizeLiters?: number | null;
 	pitchTemperatureC?: number | null;
+	hltId?: string | null;
+	mashTunId?: string | null;
 	boilerId?: string | null;
 	fermenterId?: string | null;
 	packagingVesselId?: string | null;
+	mashTunDeadSpaceLiters?: number | null;
+	hltDeadSpaceLiters?: number | null;
+	plumbingLossLiters?: number | null;
+	spargeMethod?: string | null;
 	measuredPreBoilVolumeLiters?: number | null;
 	measuredPreBoilGravity?: number | null;
 	measuredPostBoilVolumeLiters?: number | null;
@@ -995,6 +1025,9 @@ export interface CalculateWaterVolumeRequest {
 	grainAbsorptionRateLPerKg?: number | null;
 	fermenterLossLiters?: number | null;
 	mashTunDeadSpaceLiters?: number | null;
+	hltDeadSpaceLiters?: number | null;
+	plumbingLossLiters?: number | null;
+	spargeMethod?: string | null;
 	coolingShrinkagePercent?: number | null;
 	packagingLossLiters?: number | null;
 	mashThicknessLitersPerKg?: number | null;
@@ -1011,6 +1044,10 @@ export interface CalculateWaterVolumeResponse {
 	grainAbsorptionLossLiters: number;
 	boilOffLossLiters: number;
 	kettleTrubLossLiters: number;
+	mashTunDeadSpaceLossLiters?: number;
+	hltDeadSpaceLossLiters?: number;
+	plumbingLossLiters?: number;
+	spargeMethod?: string;
 	shrinkageLossLiters: number;
 	fermenterLossLiters: number;
 	packagingLossLiters: number;

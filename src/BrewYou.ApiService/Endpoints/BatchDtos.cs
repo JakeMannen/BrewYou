@@ -27,7 +27,13 @@ public record BatchSummaryDto(
     decimal TargetBatchSizeLiters,
     decimal? MeasuredBatchSizeLiters,
     DateTime CreatedAt,
-    DateTime UpdatedAt
+    DateTime UpdatedAt,
+    Guid? HltId = null,
+    string? HltName = null,
+    Guid? MashTunId = null,
+    string? MashTunName = null,
+    Guid? BoilerId = null,
+    string? BoilerName = null
 );
 
 public record BatchReadingDto(
@@ -134,7 +140,10 @@ public record BatchVolumeProfileDto(
     decimal FermenterTrubLossLiters,
     decimal MashTunDeadSpaceLiters,
     decimal CoolingShrinkagePercent,
-    decimal PackagingLossLiters
+    decimal PackagingLossLiters,
+    decimal HltDeadSpaceLiters = 0.0m,
+    decimal PlumbingLossLiters = 0.0m,
+    string SpargeMethod = "Batch"
 );
 
 public record BatchSensorAssignmentDto(
@@ -192,6 +201,10 @@ public record BatchDetailDto(
     string? FermenterName,
     Guid? PackagingVesselId,
     string? PackagingVesselName,
+    Guid? HltId,
+    string? HltName,
+    Guid? MashTunId,
+    string? MashTunName,
 
     string? Notes,
     DateTime CreatedAt,
@@ -224,6 +237,8 @@ public record CreateBatchRequest(
     Guid? BoilerId,
     Guid? FermenterId,
     Guid? PackagingVesselId = null,
+    Guid? HltId = null,
+    Guid? MashTunId = null,
     TargetVolumeBasis? TargetVolumeBasis = null,
     decimal? PackagingLossLiters = null,
     decimal? MeasuredOg = null,
@@ -235,6 +250,9 @@ public record CreateBatchRequest(
     decimal? BoilOffRatePerHour = null,
     decimal? KettleTrubLossLiters = null,
     decimal? MashTunDeadSpaceLiters = null,
+    decimal? HltDeadSpaceLiters = null,
+    decimal? PlumbingLossLiters = null,
+    string? SpargeMethod = null,
     decimal? FermenterLossLiters = null,
     bool? SpargeEnabled = null,
     List<BatchSensorAssignmentInput>? SensorAssignments = null
@@ -325,6 +343,8 @@ public record UpdateBatchRequest(
     Guid? BoilerId = null,
     Guid? FermenterId = null,
     Guid? PackagingVesselId = null,
+    Guid? HltId = null,
+    Guid? MashTunId = null,
     decimal? MeasuredPreBoilVolumeLiters = null,
     decimal? MeasuredPreBoilGravity = null,
     decimal? MeasuredPostBoilVolumeLiters = null,
@@ -345,6 +365,9 @@ public record CalculateWaterVolumeRequest(
     decimal? GrainAbsorptionRateLPerKg = null,
     decimal? FermenterLossLiters = null,
     decimal? MashTunDeadSpaceLiters = null,
+    decimal? HltDeadSpaceLiters = null,
+    decimal? PlumbingLossLiters = null,
+    string? SpargeMethod = null,
     decimal? CoolingShrinkagePercent = null,
     decimal? PackagingLossLiters = null,
     decimal? MashThicknessLitersPerKg = null
@@ -363,7 +386,9 @@ public record CalculateWaterVolumeResponse(
     decimal KettleTrubLossLiters,
     decimal ShrinkageLossLiters,
     decimal FermenterLossLiters,
-    decimal PackagingLossLiters
+    decimal PackagingLossLiters,
+    decimal HltDeadSpaceLossLiters = 0.0m,
+    decimal PlumbingLossLiters = 0.0m
 );
 
 public record BatchEquipmentReadingDto(
