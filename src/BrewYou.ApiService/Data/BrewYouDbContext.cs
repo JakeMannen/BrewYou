@@ -327,6 +327,16 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
                   .HasForeignKey(b => b.BrewerySetupId)
                   .OnDelete(DeleteBehavior.SetNull);
 
+            entity.HasOne(b => b.Hlt)
+                  .WithMany()
+                  .HasForeignKey(b => b.HltId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(b => b.MashTun)
+                  .WithMany()
+                  .HasForeignKey(b => b.MashTunId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
             entity.HasOne(b => b.Boiler)
                   .WithMany()
                   .HasForeignKey(b => b.BoilerId)
@@ -345,6 +355,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(b => new { b.UserId, b.BatchCode }).IsUnique();
             entity.HasIndex(b => new { b.UserId, b.Status });
             entity.HasIndex(b => new { b.UserId, b.BrewDate });
+            entity.HasIndex(b => b.HltId);
+            entity.HasIndex(b => b.MashTunId);
             entity.HasIndex(b => b.BoilerId);
             entity.HasIndex(b => b.FermenterId);
             entity.HasIndex(b => b.PackagingVesselId);
@@ -400,6 +412,10 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
 
         builder.Entity<BatchVolumeProfile>(entity =>
         {
+            entity.Property(p => p.HltDeadSpaceLiters).HasPrecision(6, 2);
+            entity.Property(p => p.PlumbingLossLiters).HasPrecision(6, 2);
+            entity.Property(p => p.SpargeMethod).HasMaxLength(30).HasDefaultValue("Batch");
+
             entity.HasOne(p => p.Batch)
                   .WithOne(b => b.VolumeProfile)
                   .HasForeignKey<BatchVolumeProfile>(p => p.BatchId)

@@ -41,6 +41,9 @@ public class BatchService : IBatchService
 
         var query = _db.Batches
             .AsNoTracking()
+            .Include(b => b.Hlt)
+            .Include(b => b.MashTun)
+            .Include(b => b.Boiler)
             .Include(b => b.Fermenter)
             .Where(b => b.UserId == userId);
 
@@ -92,7 +95,13 @@ public class BatchService : IBatchService
             b.TargetBatchSizeLiters,
             b.MeasuredBatchSizeLiters,
             b.CreatedAt,
-            b.UpdatedAt
+            b.UpdatedAt,
+            b.HltId,
+            b.Hlt?.Name,
+            b.MashTunId,
+            b.MashTun?.Name,
+            b.BoilerId,
+            b.Boiler?.Name
         )).ToList();
 
         var meta = new PaginationMeta(page, limit, total, totalPages);
@@ -104,6 +113,8 @@ public class BatchService : IBatchService
         var batch = await _db.Batches
             .AsNoTracking()
             .Include(b => b.Recipe)
+            .Include(b => b.Hlt)
+            .Include(b => b.MashTun)
             .Include(b => b.Boiler)
             .Include(b => b.Fermenter)
             .Include(b => b.PackagingVessel)
@@ -232,16 +243,53 @@ public class BatchService : IBatchService
             }
         }
 
+        Equipment? hlt = null;
+        if (request.HltId.HasValue)
+        {
+            hlt = await GetAccessibleEquipment(userId)
+                .FirstOrDefaultAsync(e => e.Id == request.HltId.Value);
+
+            if (hlt == null)
+            {
+                return (BatchAccessResult.NotFound, null, "HLT equipment not found.");
+            }
+
+            if (hlt.Type == EquipmentType.Sensor || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            {
+                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as hot liquor tanks.");
+            }
+        }
+
+        Equipment? mashTun = null;
+        if (request.MashTunId.HasValue)
+        {
+            mashTun = await GetAccessibleEquipment(userId)
+                .FirstOrDefaultAsync(e => e.Id == request.MashTunId.Value);
+
+            if (mashTun == null)
+            {
+                return (BatchAccessResult.NotFound, null, "Mash tun equipment not found.");
+            }
+
+            if (mashTun.Type == EquipmentType.Sensor || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            {
+                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as mash tuns.");
+            }
+        }
+
         var plannedVolume = request.TargetBatchSizeLiters ?? recipe?.BatchSizeLiters ?? 20.0m;
         var brewDate = request.BrewDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
 
         // Resolve loss parameters & setup early: Request override -> Equipment override -> BrewerySetup default -> System constant
-        var setup = boiler?.BrewerySetup ?? (request.BoilerId.HasValue ? null :
+        var setup = boiler?.BrewerySetup ?? mashTun?.BrewerySetup ?? hlt?.BrewerySetup ?? (request.BoilerId.HasValue ? null :
             await _db.BrewerySetups.FirstOrDefaultAsync(s => s.UserId == userId && s.IsDefault));
 
         var boilOffRate = request.BoilOffRatePerHour ?? boiler?.BoilOffRatePerHour ?? setup?.DefaultBoilOffRatePerHour ?? 3.0m;
         var kettleTrub = request.KettleTrubLossLiters ?? boiler?.TrubLossLiters ?? setup?.DefaultKettleTrubLossLiters ?? 1.5m;
-        var mashDeadSpace = request.MashTunDeadSpaceLiters ?? boiler?.MashTunDeadSpaceLiters ?? setup?.DefaultMashTunDeadSpaceLiters ?? 0.0m;
+        var mashDeadSpace = request.MashTunDeadSpaceLiters ?? mashTun?.MashTunDeadSpaceLiters ?? boiler?.MashTunDeadSpaceLiters ?? setup?.DefaultMashTunDeadSpaceLiters ?? 0.0m;
+        var hltDeadSpace = request.HltDeadSpaceLiters ?? hlt?.TrubLossLiters ?? 0.0m;
+        var plumbingLoss = request.PlumbingLossLiters ?? 0.0m;
+        var spargeMethod = request.SpargeMethod ?? "Batch";
         var fermenterLoss = request.FermenterLossLiters ?? fermenter?.TrubLossLiters ?? setup?.DefaultFermenterLossLiters ?? 1.5m;
         var grainAbsorption = setup?.DefaultGrainAbsorptionRate ?? 0.96m;
         var shrinkage = setup?.CoolingShrinkagePercent ?? 4.0m;
@@ -290,6 +338,8 @@ public class BatchService : IBatchService
             MeasuredOg = request.MeasuredOg,
             PitchTemperatureC = request.PitchTemperatureC,
             Notes = request.Notes?.Trim(),
+            HltId = hlt?.Id,
+            MashTunId = mashTun?.Id ?? boiler?.Id,
             BoilerId = boiler?.Id,
             FermenterId = fermenter?.Id,
             PackagingVesselId = packagingVessel?.Id,
@@ -465,7 +515,10 @@ public class BatchService : IBatchService
             FermenterLossLiters: fermenterLoss,
             MashTunDeadSpaceLiters: mashDeadSpace,
             CoolingShrinkagePercent: shrinkage,
-            PackagingLossLiters: packagingLoss
+            PackagingLossLiters: packagingLoss,
+            HltDeadSpaceLiters: hltDeadSpace,
+            PlumbingLossLiters: plumbingLoss,
+            SpargeMethod: spargeMethod
         );
 
         var volumeResult = VolumeCalculator.CalculateWaterRequirements(volumeInput);
@@ -485,6 +538,9 @@ public class BatchService : IBatchService
             KettleTrubLossLiters = kettleTrub,
             FermenterTrubLossLiters = fermenterLoss,
             MashTunDeadSpaceLiters = mashDeadSpace,
+            HltDeadSpaceLiters = hltDeadSpace,
+            PlumbingLossLiters = plumbingLoss,
+            SpargeMethod = spargeMethod,
             CoolingShrinkagePercent = shrinkage,
             PackagingLossLiters = packagingLoss
         };
@@ -1047,6 +1103,8 @@ public class BatchService : IBatchService
     {
         var batch = await _db.Batches
             .Include(b => b.Recipe)
+            .Include(b => b.Hlt)
+            .Include(b => b.MashTun)
             .Include(b => b.Boiler)
             .Include(b => b.Fermenter)
             .Include(b => b.PackagingVessel)
@@ -1103,6 +1161,78 @@ public class BatchService : IBatchService
 
                     batch.PackagingVesselId = vessel.Id;
                     batch.PackagingVessel = vessel;
+                }
+            }
+        }
+
+        if (request.HltId.HasValue)
+        {
+            if (request.HltId.Value == Guid.Empty)
+            {
+                batch.HltId = null;
+                batch.Hlt = null;
+            }
+            else
+            {
+                var hltEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.HltId.Value);
+                if (hltEq != null)
+                {
+                    batch.HltId = hltEq.Id;
+                    batch.Hlt = hltEq;
+                }
+            }
+        }
+
+        if (request.MashTunId.HasValue)
+        {
+            if (request.MashTunId.Value == Guid.Empty)
+            {
+                batch.MashTunId = null;
+                batch.MashTun = null;
+            }
+            else
+            {
+                var mtEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.MashTunId.Value);
+                if (mtEq != null)
+                {
+                    batch.MashTunId = mtEq.Id;
+                    batch.MashTun = mtEq;
+                }
+            }
+        }
+
+        if (request.BoilerId.HasValue)
+        {
+            if (request.BoilerId.Value == Guid.Empty)
+            {
+                batch.BoilerId = null;
+                batch.Boiler = null;
+            }
+            else
+            {
+                var bEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.BoilerId.Value);
+                if (bEq != null)
+                {
+                    batch.BoilerId = bEq.Id;
+                    batch.Boiler = bEq;
+                }
+            }
+        }
+
+        if (request.FermenterId.HasValue)
+        {
+            if (request.FermenterId.Value == Guid.Empty)
+            {
+                batch.FermenterId = null;
+                batch.Fermenter = null;
+            }
+            else
+            {
+                var fEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.FermenterId.Value);
+                if (fEq != null)
+                {
+                    batch.FermenterId = fEq.Id;
+                    batch.Fermenter = fEq;
                 }
             }
         }
@@ -1254,6 +1384,10 @@ public class BatchService : IBatchService
             FermenterName: b.Fermenter?.Name,
             PackagingVesselId: b.PackagingVesselId,
             PackagingVesselName: b.PackagingVessel?.Name,
+            HltId: b.HltId,
+            HltName: b.Hlt?.Name,
+            MashTunId: b.MashTunId,
+            MashTunName: b.MashTun?.Name,
             Notes: b.Notes,
             CreatedAt: b.CreatedAt,
             UpdatedAt: b.UpdatedAt,
@@ -1354,7 +1488,10 @@ public class BatchService : IBatchService
                 b.VolumeProfile.FermenterTrubLossLiters,
                 b.VolumeProfile.MashTunDeadSpaceLiters,
                 b.VolumeProfile.CoolingShrinkagePercent,
-                b.VolumeProfile.PackagingLossLiters
+                b.VolumeProfile.PackagingLossLiters,
+                b.VolumeProfile.HltDeadSpaceLiters,
+                b.VolumeProfile.PlumbingLossLiters,
+                b.VolumeProfile.SpargeMethod
             ) : null
         );
     }
@@ -1363,6 +1500,8 @@ public class BatchService : IBatchService
         Guid batchId, LogBatchTemperatureRequest request, string userId)
     {
         var batch = await _db.Batches
+            .Include(b => b.Hlt)
+            .Include(b => b.MashTun)
             .Include(b => b.Boiler)
             .Include(b => b.Fermenter)
             .Include(b => b.PackagingVessel)
@@ -1468,7 +1607,8 @@ public class BatchService : IBatchService
             // Default equipment based on stage
             Equipment? defaultEq = stage switch
             {
-                BrewStage.Mash or BrewStage.Boil => batch.Boiler,
+                BrewStage.Mash => batch.MashTun ?? batch.Boiler,
+                BrewStage.Boil => batch.Boiler,
                 BrewStage.Ferment or BrewStage.Condition => batch.Fermenter,
                 BrewStage.Package => batch.PackagingVessel,
                 _ => null

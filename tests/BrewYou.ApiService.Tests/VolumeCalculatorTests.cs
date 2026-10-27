@@ -478,4 +478,56 @@ public class VolumeCalculatorTests
         // Packaged target derived from actual fermenter measurement: 19.5 - 2.0 = 17.5L
         profile.TargetPackagedVolumeLiters.Should().Be(17.5m);
     }
+
+    [Fact]
+    public void CalculateWaterRequirements_MultiVesselSystem_IncludesHltAndPlumbingLosses()
+    {
+        // Arrange: 3-Vessel setup with 1.5L HLT dead space and 0.5L plumbing loss
+        var input = new VolumeCalculationInput(
+            TargetBatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            TotalGrainWeightKg: 5.0m,
+            MashTunDeadSpaceLiters: 1.0m,
+            HltDeadSpaceLiters: 1.5m,
+            PlumbingLossLiters: 0.5m,
+            MashThicknessLitersPerKg: 3.0m,
+            SpargeMethod: "Fly"
+        );
+
+        // Act
+        var result = VolumeCalculator.CalculateWaterRequirements(input);
+
+        // Assert:
+        // Strike water = (5.0 * 3.0) + 1.0 (mash dead space) + 0.5 (plumbing) = 16.5L
+        result.StrikeWaterLiters.Should().Be(16.5m);
+        result.HltDeadSpaceLossLiters.Should().Be(1.5m);
+        result.PlumbingLossLiters.Should().Be(0.5m);
+        result.TotalWaterLiters.Should().BeGreaterThan(result.StrikeWaterLiters);
+        result.SpargeWaterLiters.Should().Be(result.TotalWaterLiters - result.StrikeWaterLiters);
+    }
+
+    [Fact]
+    public void CalculateWaterRequirements_AllInOneWithSpargeHeater_CalculatesCorrectSplit()
+    {
+        // Arrange: All-In-One kettle (e.g. Grainfather) + external HLT sparge water heater
+        var input = new VolumeCalculationInput(
+            TargetBatchSizeLiters: 23.0m,
+            BoilTimeMinutes: 60,
+            TotalGrainWeightKg: 5.5m,
+            SpargeEnabled: true,
+            MashTunDeadSpaceLiters: 2.5m, // Under malt pipe
+            HltDeadSpaceLiters: 0.5m,      // HLT tap dead space
+            PlumbingLossLiters: 0.0m,
+            MashThicknessLitersPerKg: 2.7m
+        );
+
+        // Act
+        var result = VolumeCalculator.CalculateWaterRequirements(input);
+
+        // Assert:
+        // Strike water = (5.5 * 2.7) + 2.5 = 14.85 + 2.5 = 17.35L
+        result.StrikeWaterLiters.Should().Be(17.35m);
+        result.SpargeWaterLiters.Should().BeGreaterThan(10.0m);
+        result.TotalWaterLiters.Should().Be(result.StrikeWaterLiters + result.SpargeWaterLiters);
+    }
 }

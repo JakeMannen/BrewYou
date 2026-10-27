@@ -1237,6 +1237,12 @@ public class BackupService : IBackupService
                     Guid? mappedPkgId = batchDto.PackagingVesselId.HasValue && equipmentIdMap.TryGetValue(batchDto.PackagingVesselId.Value, out var pId)
                         ? pId
                         : null;
+                    Guid? mappedHltId = batchDto.HltId.HasValue && equipmentIdMap.TryGetValue(batchDto.HltId.Value, out var hId)
+                        ? hId
+                        : null;
+                    Guid? mappedMashTunId = batchDto.MashTunId.HasValue && equipmentIdMap.TryGetValue(batchDto.MashTunId.Value, out var mtId)
+                        ? mtId
+                        : null;
 
                     if (existingBatch != null)
                     {
@@ -1268,6 +1274,8 @@ public class BackupService : IBackupService
                             existingBatch.BoilerId = mappedBoilerId;
                             existingBatch.FermenterId = mappedFermenterId;
                             existingBatch.PackagingVesselId = mappedPkgId;
+                            existingBatch.HltId = mappedHltId;
+                            existingBatch.MashTunId = mappedMashTunId;
                             existingBatch.Notes = batchDto.Notes;
                             existingBatch.UpdatedAt = DateTime.UtcNow;
                             existingBatch.CompletedAt = batchDto.CompletedAt;
@@ -1344,6 +1352,8 @@ public class BackupService : IBackupService
                             BoilerId = mappedBoilerId,
                             FermenterId = mappedFermenterId,
                             PackagingVesselId = mappedPkgId,
+                            HltId = mappedHltId,
+                            MashTunId = mappedMashTunId,
                             Notes = batchDto.Notes,
                             CreatedAt = batchDto.CreatedAt == default ? DateTime.UtcNow : batchDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow,
@@ -1615,6 +1625,9 @@ public class BackupService : IBackupService
                 vp.MashTunDeadSpaceLiters,
                 vp.CoolingShrinkagePercent,
                 vp.PackagingLossLiters,
+                vp.HltDeadSpaceLiters,
+                vp.PlumbingLossLiters,
+                vp.SpargeMethod,
                 vp.CreatedAt,
                 vp.UpdatedAt);
         }
@@ -1647,6 +1660,8 @@ public class BackupService : IBackupService
             b.BoilerId,
             b.FermenterId,
             b.PackagingVesselId,
+            b.HltId,
+            b.MashTunId,
             b.Notes,
             b.CreatedAt,
             b.UpdatedAt,
@@ -2224,6 +2239,9 @@ public class BackupService : IBackupService
                 KettleTrubLossLiters = vp.KettleTrubLossLiters,
                 FermenterTrubLossLiters = vp.FermenterTrubLossLiters,
                 MashTunDeadSpaceLiters = vp.MashTunDeadSpaceLiters,
+                HltDeadSpaceLiters = vp.HltDeadSpaceLiters,
+                PlumbingLossLiters = vp.PlumbingLossLiters,
+                SpargeMethod = vp.SpargeMethod ?? "Batch",
                 CoolingShrinkagePercent = vp.CoolingShrinkagePercent,
                 PackagingLossLiters = vp.PackagingLossLiters,
                 CreatedAt = vp.CreatedAt == default ? DateTime.UtcNow : vp.CreatedAt,

@@ -88,6 +88,11 @@
 		);
 	});
 
+	let isTanninExtractionRisk = $derived.by(() => {
+		const grav = isEditing ? draftPreBoilGrav : batch.volumeProfile?.measuredPreBoilGravity;
+		return grav !== null && grav !== undefined && grav > 1.0 && grav < 1.01;
+	});
+
 	function startEditing() {
 		draftPreBoilVol = batch.volumeProfile?.measuredPreBoilVolumeLiters ?? null;
 		draftPreBoilGrav = batch.volumeProfile?.measuredPreBoilGravity ?? null;
@@ -200,6 +205,29 @@
 		>
 			<AlertTriangle class="h-4 w-4 shrink-0 text-red-500" />
 			<span>{error}</span>
+		</div>
+	{/if}
+
+	{#if isTanninExtractionRisk}
+		<div
+			role="alert"
+			class="mt-4 flex items-center gap-2.5 rounded-2xl border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+		>
+			<AlertTriangle class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+			<div>
+				<p class="font-bold">{t('batches.workspace.tannin_extraction_risk')}</p>
+				<p class="mt-0.5 text-[11px] leading-relaxed">
+					{t('batches.workspace.tannin_extraction_desc', {
+						plato: formatNumber(
+							(((isEditing ? draftPreBoilGrav : batch.volumeProfile?.measuredPreBoilGravity) ??
+								1.01) -
+								1.0) *
+								250,
+							1
+						)
+					})}
+				</p>
+			</div>
 		</div>
 	{/if}
 

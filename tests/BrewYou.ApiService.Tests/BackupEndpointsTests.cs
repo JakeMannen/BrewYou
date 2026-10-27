@@ -769,4 +769,113 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
         allEquip.Should().HaveCount(4);
     }
+
+    [Fact]
+    public async Task FullRoundTrip_MultiVesselBatch_PreservesHltMashTunAndMultiVesselLosses()
+    {
+        var (client, userId, email) = await CreateAuthenticatedUserAsync("Multi-Vessel Brewer");
+
+        // 1. Fetch default brewery setup
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var setups = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups.First(s => s.IsDefault).Id;
+
+        // 2. Create HLT, MashTun, and Boiler equipment
+        var hltRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "DigiBoil 35L HLT",
+            Type: EquipmentType.Boiler,
+            Capacity: 35.0m,
+            Subtype: EquipmentSubtype.Hlt
+        ));
+        hltRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var hlt = (await hltRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var mtRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Insulated 38L Mash Tun",
+            Type: EquipmentType.Boiler,
+            Capacity: 38.0m,
+            Subtype: EquipmentSubtype.MashTun,
+            MashTunDeadSpaceLiters: 1.2m
+        ));
+        mtRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var mashTun = (await mtRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var boilerRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewZilla 35L Gen 4",
+            Type: EquipmentType.Boiler,
+            Capacity: 35.0m,
+            Subtype: EquipmentSubtype.AllInOne
+        ));
+        boilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await boilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // 3. Create Multi-Vessel Batch
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: "B-MV-01",
+            Name: "West Coast IPA (3V Setup)",
+            BeerStyle: "American IPA",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20.0m,
+            TargetOg: 1.065m,
+            TargetFg: 1.012m,
+            TargetAbv: 7.0m,
+            TargetIbu: 60.0m,
+            TargetColorSrm: 6.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 78.0m,
+            BoilerId: boiler.Id,
+            MashTunId: mashTun.Id,
+            HltId: hlt.Id,
+            FermenterId: null,
+            HltDeadSpaceLiters: 0.8m,
+            PlumbingLossLiters: 0.4m,
+            SpargeMethod: "Fly"
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var createdBatch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        createdBatch.HltId.Should().Be(hlt.Id);
+        createdBatch.MashTunId.Should().Be(mashTun.Id);
+        createdBatch.BoilerId.Should().Be(boiler.Id);
+        createdBatch.VolumeProfile.Should().NotBeNull();
+        createdBatch.VolumeProfile!.HltDeadSpaceLiters.Should().Be(0.8m);
+        createdBatch.VolumeProfile!.PlumbingLossLiters.Should().Be(0.4m);
+        createdBatch.VolumeProfile!.SpargeMethod.Should().Be("Fly");
+
+        // 4. Export backup
+        var exportRes = await client.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var exportEnvelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+        exportEnvelope.Should().NotBeNull();
+
+        // 5. Restore backup onto fresh user
+        var (client2, userId2, email2) = await CreateAuthenticatedUserAsync("Restored Multi-Vessel Brewer");
+        var restoreRes = await client2.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(
+            exportEnvelope,
+            new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)
+        ));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 6. Verify restored batch preserves HLT, MashTun, and volume profile
+        var batchesRes2 = await client2.GetAsync("/api/v1/batches");
+        var batches2 = (await batchesRes2.Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        batches2.Should().ContainSingle(b => b.BatchCode == "B-MV-01");
+
+        var restoredBatchDetailRes = await client2.GetAsync($"/api/v1/batches/{batches2[0].Id}");
+        var restoredBatch = (await restoredBatchDetailRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        restoredBatch.HltId.Should().NotBeNull();
+        restoredBatch.MashTunId.Should().NotBeNull();
+        restoredBatch.BoilerId.Should().NotBeNull();
+        restoredBatch.HltName.Should().Be("DigiBoil 35L HLT");
+        restoredBatch.MashTunName.Should().Be("Insulated 38L Mash Tun");
+        restoredBatch.BoilerName.Should().Be("BrewZilla 35L Gen 4");
+        restoredBatch.VolumeProfile.Should().NotBeNull();
+        restoredBatch.VolumeProfile!.HltDeadSpaceLiters.Should().Be(0.8m);
+        restoredBatch.VolumeProfile!.PlumbingLossLiters.Should().Be(0.4m);
+        restoredBatch.VolumeProfile!.SpargeMethod.Should().Be("Fly");
+    }
 }

@@ -111,6 +111,19 @@ The Recipe Atelier and Formulator is an interactive brewing formulation workspac
 
 Batch Tracking guides you through a structured 10-stage brewing lifecycle: *Planning*, *Preparation*, *Mashing*, *Lautering*, *Boiling*, *Cooling*, *Fermenting*, *Conditioning*, *Bottling / Kegging*, and *Completed*. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
 
+#### Multi-Vessel & All-in-One Brewhouse Topologies
+
+BrewYou natively accommodates any brewhouse architecture via polymorphic vessel roles:
+- **1-Vessel (All-in-One / BIAB)**: Single kettle handles both mashing and boiling (e.g. Grainfather, BrewZilla, Speidel Braumeister, or BIAB stovetop pots).
+- **2-Vessel (All-in-One + Sparge Water Heater / HLT)**: The global homebrew standard pairing an All-in-One electric brewing system with a dedicated Hot Liquor Tank for sparge water.
+- **2-Vessel (Mash Tun + Boil Kettle)**: Traditional infusion cooler or dedicated mash tun separated from the boil kettle.
+- **3-Vessel System (HLT + Mash Tun + Boil Kettle)**: Classic 3-tier gravity or pumped HERMS/RIMS setup with dedicated vessels for hot liquor, mash infusion, and boil.
+
+When configuring multi-vessel batches:
+- **Comprehensive Water Budgeting**: Factored calculations incorporate HLT dead space loss, pump/transfer plumbing losses, grain absorption, and sparge methods (*Batch Sparge*, *Fly / Continuous Sparge*, or *No Sparge*).
+- **Live HLT Status Card**: Displays target sparge temperatures (~76°C) and real-time telemetry from connected HLT temperature probes alongside strike water guidance.
+- **Runoff Tannin & Astringency Protection**: Aligned with BJCP guidelines, if pre-boil runoff gravity drops below 1.010 SG (2.5°P), a prominent alert warns the brewer to halt sparging and prevent grain husk polyphenol extraction.
+
 #### Brew Station HUD Mode
 
 For real-time brewhouse execution in high-steam or wet-hands environments, the **Brew Station HUD** modal transforms the cockpit into a high-visibility, full-screen tactical interface:
@@ -120,7 +133,7 @@ For real-time brewhouse execution in high-steam or wet-hands environments, the *
 
 #### How to Use
 
-1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe (which automatically previews and inherits the fermentation profile and pitch temperature), and assign available equipment.
+1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe, choose your **Brewhouse Topology** (*1V*, *2V AIO+HLT*, *2V MLT+BK*, or *3V*), and assign vessels.
 2. **Run Brew Day & Launch Brew Station HUD**:
    - Open the batch to launch the **Brew Day Cockpit** (`/batches/[id]`).
    - Click the **Brew Station HUD** button in the header (or the expand icon on mash/boil timers) to enter full-screen high-contrast mode for hands-on brewing.
@@ -136,7 +149,7 @@ For real-time brewhouse execution in high-steam or wet-hands environments, the *
 
 ### Equipment & Vessel Inventory
 
-The Equipment Inventory provides digital twin management for your brewery's hardware, organized into Boilers (HLTs, electric all-in-one kettles), Fermenters (carboys, conical fermenters, unitanks), Kegs (Cornelius, minikegs), and Sensors. Equipment cards display interactive liquid-level animations based on volume capacity, operational status, and assigned batch locks. For sensor-equipped vessels, cards display real-time telemetry badges (temperature, gravity, pressure, battery, angle) and include an expandable telemetry inspector for viewing structured attributes and raw JSON payloads.
+The Equipment Inventory provides digital twin management for your brewery's hardware, organized into Boilers (HLTs, electric all-in-one kettles, mash tuns, and lauter tuns), Fermenters (carboys, conical fermenters, unitanks), Kegs (Cornelius, minikegs), and Sensors. Equipment cards display interactive liquid-level animations based on volume capacity, operational status, and assigned batch locks. For sensor-equipped vessels, cards display real-time telemetry badges (temperature, gravity, pressure, battery, angle) and include an expandable telemetry inspector for viewing structured attributes and raw JSON payloads.
 
 #### How to Use
 

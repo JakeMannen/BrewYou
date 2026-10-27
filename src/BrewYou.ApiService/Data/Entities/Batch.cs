@@ -65,6 +65,12 @@ public class Batch
     public decimal? PitchTemperatureC { get; set; }
 
     // Equipment assignments
+    public Guid? HltId { get; set; }
+    public Equipment? Hlt { get; set; }
+
+    public Guid? MashTunId { get; set; }
+    public Equipment? MashTun { get; set; }
+
     public Guid? BoilerId { get; set; }
     public Equipment? Boiler { get; set; }
 

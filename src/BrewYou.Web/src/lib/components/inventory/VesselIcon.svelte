@@ -36,6 +36,8 @@
 		'Pan',
 		'Hlt',
 		'HermsRims',
+		'MashTun',
+		'LauterTun',
 		'Bucket',
 		'ConicalFermenter',
 		'Carboy',
@@ -131,6 +133,10 @@
 				<rect x="14" y="13" width="20" height="26" rx="2" />
 			{:else if normalizedSubtype === 'HermsRims'}
 				<rect x="15" y="14" width="18" height="24" rx="2" />
+			{:else if normalizedSubtype === 'MashTun'}
+				<rect x="14" y="13" width="20" height="26" rx="2" />
+			{:else if normalizedSubtype === 'LauterTun'}
+				<rect x="14" y="14" width="20" height="25" rx="2" />
 			{:else if normalizedSubtype === 'Bucket'}
 				<path d="M14 13.5 L16.5 39.5 H31.5 L34 13.5 Z" />
 			{:else if normalizedSubtype === 'ConicalFermenter'}
@@ -325,6 +331,35 @@
 			<!-- Top Sensor Probe -->
 			<line x1="24" y1="13" x2="24" y2="7" stroke-width="1.8" />
 			<circle cx="24" cy="7" r="1.5" class="fill-current" />
+		{:else if normalizedSubtype === 'MashTun'}
+			<!-- Insulated Mash Tun with False Bottom -->
+			<rect x="13" y="12" width="22" height="27" rx="2" />
+			<!-- Insulated Double Wall Line Indicator -->
+			<rect x="15" y="14" width="18" height="23" rx="1" stroke-width="1" stroke-dasharray="2 1.5" />
+			<!-- False Bottom Perforated Plate -->
+			<line x1="16" y1="33" x2="32" y2="33" stroke-width="1.8" stroke-dasharray="1.5 1.5" />
+			<!-- Lid Rim & Handle -->
+			<line x1="11" y1="12" x2="37" y2="12" />
+			<path d="M21 8 H27 V12 H21 Z" />
+			<!-- Dial Thermometer -->
+			<circle cx="24" cy="22" r="3" stroke-width="1.4" />
+			<line x1="24" y1="22" x2="26" y2="20" stroke-width="1.2" />
+			<!-- Bottom Drain Ball Valve -->
+			<path d="M35 34 H40 V38" stroke-width="1.8" />
+		{:else if normalizedSubtype === 'LauterTun'}
+			<!-- Dedicated Lauter Tun with Sparge Ring & False Bottom -->
+			<rect x="13" y="13" width="22" height="26" rx="2" />
+			<!-- Top Sparge Ring Manifold -->
+			<line x1="16" y1="17" x2="32" y2="17" stroke-width="1.5" stroke-dasharray="2 2" />
+			<!-- False Bottom Slotted Screen -->
+			<line x1="15" y1="33" x2="33" y2="33" stroke-width="2" stroke-dasharray="1 1" />
+			<!-- Top Lid Rim -->
+			<line x1="11" y1="13" x2="37" y2="13" />
+			<path d="M21 9 H27 V13 H21 Z" />
+			<!-- Runoff Sight Tube -->
+			<line x1="11" y1="20" x2="11" y2="33" stroke-width="1.5" />
+			<!-- Runoff Spigot / Ball Valve -->
+			<path d="M35 34 H40 V38" stroke-width="1.8" />
 		{:else if normalizedSubtype === 'Bucket'}
 			<!-- Fermentation Bucket ("Jäshink") -->
 			<!-- 1. Tapered Bucket Silhouette Body -->

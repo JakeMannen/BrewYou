@@ -57,12 +57,18 @@
 	let beerStyle = $state('American IPA');
 	let brewDate = $state(new Date().toISOString().split('T')[0]);
 	let targetBatchSizeLiters = $state(20.0);
+	type BrewhouseTopology = '1V' | '2V_AIO_HLT' | '2V_MLT_BK' | '3V';
+
 	let targetVolumeBasis = $state<TargetVolumeBasis>('fermenter');
 	let showWaterInfo = $state(false);
-	let spargeEnabled = $state(true);
+	let brewhouseTopology = $state<BrewhouseTopology>('1V');
+	let spargeMethod = $state<'Batch' | 'Fly' | 'NoSparge'>('Batch');
+	let spargeEnabled = $derived(spargeMethod !== 'NoSparge');
 
 	// Equipment State
 	let selectedBoilerId = $state<string>('');
+	let selectedHltId = $state<string>('');
+	let selectedMashTunId = $state<string>('');
 	let selectedFermenterId = $state<string>('');
 	let selectedPackagingVesselId = $state<string>('');
 	let selectedFermentationSensorId = $state<string>('');
@@ -82,6 +88,26 @@
 
 	// Derived values
 	let boilers = $derived(equipment.filter((e) => e.type === 'Boiler'));
+	let hlts = $derived(
+		boilers.filter(
+			(e) =>
+				e.subtype === 'Hlt' ||
+				e.subtype === 'LauterTun' ||
+				e.subtype === 'MashTun' ||
+				e.subtype === 'AllInOne' ||
+				e.subtype === 'Pan'
+		)
+	);
+	let mashTuns = $derived(
+		boilers.filter(
+			(e) =>
+				e.subtype === 'MashTun' ||
+				e.subtype === 'LauterTun' ||
+				e.subtype === 'Hlt' ||
+				e.subtype === 'AllInOne' ||
+				e.subtype === 'Pan'
+		)
+	);
 	let fermenters = $derived(equipment.filter((e) => e.type === 'Fermenter'));
 	let packagingVessels = $derived(
 		equipment.filter((e) => e.type === 'Keg' || (e.type === 'Other' && isVesselFillable(e.subtype)))
@@ -91,6 +117,8 @@
 	);
 
 	let selectedBoiler = $derived(boilers.find((b) => b.id === selectedBoilerId) || null);
+	let selectedHlt = $derived(boilers.find((b) => b.id === selectedHltId) || null);
+	let selectedMashTun = $derived(boilers.find((b) => b.id === selectedMashTunId) || null);
 	let selectedFermenter = $derived(fermenters.find((f) => f.id === selectedFermenterId) || null);
 	let selectedPackagingVessel = $derived(
 		packagingVessels.find((p) => p.id === selectedPackagingVesselId) || null
@@ -103,6 +131,8 @@
 	let customBoilOffRate = $state<number>(3.0);
 	let customKettleTrub = $state<number>(1.5);
 	let customMashTunDeadSpace = $state<number>(0.0);
+	let customHltDeadSpace = $state<number>(0.0);
+	let customPlumbingLoss = $state<number>(0.0);
 	let customFermenterLoss = $state<number>(1.5);
 	let customPackagingLoss = $state<number>(0.5);
 
@@ -116,7 +146,44 @@
 			if (selectedBoiler) {
 				customBoilOffRate = selectedBoiler.boilOffRatePerHour ?? 3.0;
 				customKettleTrub = selectedBoiler.trubLossLiters ?? 1.5;
-				customMashTunDeadSpace = selectedBoiler.mashTunDeadSpaceLiters ?? 0.0;
+				if (brewhouseTopology === '1V' || brewhouseTopology === '2V_AIO_HLT') {
+					customMashTunDeadSpace = selectedBoiler.mashTunDeadSpaceLiters ?? 0.0;
+				}
+			}
+		}
+	});
+
+	$effect(() => {
+		if (brewhouseTopology === '1V') {
+			selectedMashTunId = selectedBoilerId;
+			selectedHltId = '';
+			customHltDeadSpace = 0.0;
+			customPlumbingLoss = 0.0;
+		} else if (brewhouseTopology === '2V_AIO_HLT') {
+			selectedMashTunId = selectedBoilerId;
+			if (!selectedHltId && hlts.length > 0) {
+				const defaultHlt =
+					hlts.find((h) => h.subtype === 'Hlt' || h.subtype === 'LauterTun') || hlts[0];
+				selectedHltId = defaultHlt.id;
+			}
+		} else if (brewhouseTopology === '2V_MLT_BK') {
+			selectedHltId = '';
+			customHltDeadSpace = 0.0;
+			if (!selectedMashTunId && mashTuns.length > 0) {
+				const defaultMt =
+					mashTuns.find((m) => m.subtype === 'MashTun' || m.subtype === 'LauterTun') || mashTuns[0];
+				selectedMashTunId = defaultMt.id;
+			}
+		} else if (brewhouseTopology === '3V') {
+			if (!selectedHltId && hlts.length > 0) {
+				const defaultHlt =
+					hlts.find((h) => h.subtype === 'Hlt' || h.subtype === 'LauterTun') || hlts[0];
+				selectedHltId = defaultHlt.id;
+			}
+			if (!selectedMashTunId && mashTuns.length > 0) {
+				const defaultMt =
+					mashTuns.find((m) => m.subtype === 'MashTun' || m.subtype === 'LauterTun') || mashTuns[0];
+				selectedMashTunId = defaultMt.id;
 			}
 		}
 	});
@@ -158,6 +225,18 @@
 			customMashTunDeadSpace = 0.0;
 		}
 
+		if (selectedMashTun && (brewhouseTopology === '2V_MLT_BK' || brewhouseTopology === '3V')) {
+			customMashTunDeadSpace = selectedMashTun.mashTunDeadSpaceLiters ?? 0.5;
+		}
+
+		if (selectedHlt && (brewhouseTopology === '2V_AIO_HLT' || brewhouseTopology === '3V')) {
+			customHltDeadSpace = selectedHlt.mashTunDeadSpaceLiters ?? 0.0;
+		} else {
+			customHltDeadSpace = 0.0;
+		}
+
+		customPlumbingLoss = brewhouseTopology === '1V' ? 0.0 : 0.5;
+
 		if (selectedFermenter) {
 			customFermenterLoss = selectedFermenter.trubLossLiters ?? 1.5;
 		} else {
@@ -181,6 +260,9 @@
 			boilOffRatePerHour: customBoilOffRate,
 			kettleTrubLossLiters: customKettleTrub,
 			mashTunDeadSpaceLiters: customMashTunDeadSpace,
+			hltDeadSpaceLiters: customHltDeadSpace,
+			plumbingLossLiters: customPlumbingLoss,
+			spargeMethod,
 			fermenterLossLiters: customFermenterLoss,
 			packagingLossLiters: customPackagingLoss,
 			coolingShrinkagePercent: 4.0,
@@ -265,7 +347,15 @@
 		)
 	);
 
-	let isStep2Valid = $derived(Boolean(selectedFermenterId && !isOverCapacity));
+	let isStep2Valid = $derived.by(() => {
+		if (!selectedFermenterId || isOverCapacity) return false;
+		if (brewhouseTopology === '1V') return true;
+		if (brewhouseTopology === '2V_AIO_HLT') return Boolean(selectedBoilerId && selectedHltId);
+		if (brewhouseTopology === '2V_MLT_BK') return Boolean(selectedBoilerId && selectedMashTunId);
+		if (brewhouseTopology === '3V')
+			return Boolean(selectedBoilerId && selectedMashTunId && selectedHltId);
+		return true;
+	});
 
 	onMount(async () => {
 		loading = true;
@@ -376,6 +466,16 @@
 				}
 			}
 
+			const effectiveMashTunId =
+				brewhouseTopology === '1V' || brewhouseTopology === '2V_AIO_HLT'
+					? selectedBoilerId || null
+					: selectedMashTunId || null;
+
+			const effectiveHltId =
+				brewhouseTopology === '2V_AIO_HLT' || brewhouseTopology === '3V'
+					? selectedHltId || null
+					: null;
+
 			const req: CreateBatchRequest = {
 				recipeId: isAdHoc ? null : selectedRecipeId || null,
 				batchCode: batchCode.trim(),
@@ -391,6 +491,8 @@
 				boilTimeMinutes,
 				efficiencyPercent,
 				boilerId: selectedBoilerId || null,
+				mashTunId: effectiveMashTunId,
+				hltId: effectiveHltId,
 				fermenterId: selectedFermenterId || null,
 				measuredOg: measuredOg,
 				pitchTemperatureC: pitchTemperatureC,
@@ -424,6 +526,9 @@
 				boilOffRatePerHour: customBoilOffRate,
 				kettleTrubLossLiters: customKettleTrub,
 				mashTunDeadSpaceLiters: customMashTunDeadSpace,
+				hltDeadSpaceLiters: customHltDeadSpace,
+				plumbingLossLiters: customPlumbingLoss,
+				spargeMethod,
 				fermenterLossLiters: customFermenterLoss,
 				spargeEnabled,
 				packagingVesselId: selectedPackagingVesselId || null,
@@ -813,13 +918,183 @@
 					</div>
 				{/if}
 
+				<!-- Brewhouse System Topology Selector -->
+				<div class="space-y-2">
+					<span class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+						{t('batches.wizard.brewhouse_topology')}
+					</span>
+					<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+						{t('batches.wizard.brewhouse_topology_desc')}
+					</p>
+
+					<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+						<!-- 1V Option -->
+						<button
+							type="button"
+							onclick={() => (brewhouseTopology = '1V')}
+							class="flex flex-col items-start rounded-2xl border p-3.5 text-left transition-all {brewhouseTopology ===
+							'1V'
+								? 'border-amber-500 bg-amber-500/10 shadow-xs ring-1 ring-amber-500/30'
+								: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-zinc-900 dark:hover:border-white/20'}"
+						>
+							<span class="text-xs font-bold text-zinc-900 dark:text-white">
+								{t('batches.wizard.topology_1v')}
+							</span>
+							<span class="mt-1 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
+								{t('batches.wizard.topology_1v_desc')}
+							</span>
+						</button>
+
+						<!-- 2V AIO + HLT Option -->
+						<button
+							type="button"
+							onclick={() => (brewhouseTopology = '2V_AIO_HLT')}
+							class="flex flex-col items-start rounded-2xl border p-3.5 text-left transition-all {brewhouseTopology ===
+							'2V_AIO_HLT'
+								? 'border-amber-500 bg-amber-500/10 shadow-xs ring-1 ring-amber-500/30'
+								: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-zinc-900 dark:hover:border-white/20'}"
+						>
+							<span class="text-xs font-bold text-zinc-900 dark:text-white">
+								{t('batches.wizard.topology_2v_aio_hlt')}
+							</span>
+							<span class="mt-1 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
+								{t('batches.wizard.topology_2v_aio_hlt_desc')}
+							</span>
+						</button>
+
+						<!-- 2V MLT + BK Option -->
+						<button
+							type="button"
+							onclick={() => (brewhouseTopology = '2V_MLT_BK')}
+							class="flex flex-col items-start rounded-2xl border p-3.5 text-left transition-all {brewhouseTopology ===
+							'2V_MLT_BK'
+								? 'border-amber-500 bg-amber-500/10 shadow-xs ring-1 ring-amber-500/30'
+								: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-zinc-900 dark:hover:border-white/20'}"
+						>
+							<span class="text-xs font-bold text-zinc-900 dark:text-white">
+								{t('batches.wizard.topology_2v_mlt_bk')}
+							</span>
+							<span class="mt-1 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
+								{t('batches.wizard.topology_2v_mlt_bk_desc')}
+							</span>
+						</button>
+
+						<!-- 3V Option -->
+						<button
+							type="button"
+							onclick={() => (brewhouseTopology = '3V')}
+							class="flex flex-col items-start rounded-2xl border p-3.5 text-left transition-all {brewhouseTopology ===
+							'3V'
+								? 'border-amber-500 bg-amber-500/10 shadow-xs ring-1 ring-amber-500/30'
+								: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-white/10 dark:bg-zinc-900 dark:hover:border-white/20'}"
+						>
+							<span class="text-xs font-bold text-zinc-900 dark:text-white">
+								{t('batches.wizard.topology_3v')}
+							</span>
+							<span class="mt-1 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
+								{t('batches.wizard.topology_3v_desc')}
+							</span>
+						</button>
+					</div>
+				</div>
+
+				<!-- Hot Liquor Tank Selection (when 2V AIO+HLT or 3V) -->
+				{#if brewhouseTopology === '2V_AIO_HLT' || brewhouseTopology === '3V'}
+					<div class="space-y-1.5">
+						<label
+							for="hlt-select"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.equipment.select_hlt')} *
+						</label>
+						<select
+							id="hlt-select"
+							bind:value={selectedHltId}
+							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						>
+							<option value="">-- {t('batches.equipment.select_hlt_placeholder')} --</option>
+							{#each hlts as h}
+								<option value={h.id}>
+									{h.name} [{getSubtypeName(h.subtype)}] ({h.capacityLiters}L){h.currentVolumeLiters >
+									0
+										? ` ${t('batches.equipment.in_use_suffix')}`
+										: ''}
+								</option>
+							{/each}
+						</select>
+						{#if selectedHlt}
+							<div class="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+								<span
+									class="inline-block rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-cyan-600 uppercase dark:text-cyan-400"
+								>
+									{t('batches.workspace.hot_liquor_tank')}
+								</span>
+								<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+									{getSubtypeName(selectedHlt.subtype)}
+								</span>
+								<span
+									class="rounded-lg border border-zinc-200 bg-zinc-100 px-2.5 py-0.5 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-900"
+								>
+									{t('batches.equipment.capacity', { liters: selectedHlt.capacityLiters })}
+								</span>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<!-- Mash Tun Selection (when 2V MLT+BK or 3V) -->
+				{#if brewhouseTopology === '2V_MLT_BK' || brewhouseTopology === '3V'}
+					<div class="space-y-1.5">
+						<label
+							for="mash-tun-select"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.equipment.select_mash_tun')} *
+						</label>
+						<select
+							id="mash-tun-select"
+							bind:value={selectedMashTunId}
+							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						>
+							<option value="">-- {t('batches.equipment.select_mash_tun_placeholder')} --</option>
+							{#each mashTuns as m}
+								<option value={m.id}>
+									{m.name} [{getSubtypeName(m.subtype)}] ({m.capacityLiters}L){m.currentVolumeLiters >
+									0
+										? ` ${t('batches.equipment.in_use_suffix')}`
+										: ''}
+								</option>
+							{/each}
+						</select>
+						{#if selectedMashTun}
+							<div class="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+								<span
+									class="inline-block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-600 uppercase dark:text-amber-400"
+								>
+									{t('batches.workspace.mash_tun')}
+								</span>
+								<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+									{getSubtypeName(selectedMashTun.subtype)}
+								</span>
+								<span
+									class="rounded-lg border border-zinc-200 bg-zinc-100 px-2.5 py-0.5 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-900"
+								>
+									{t('batches.equipment.capacity', { liters: selectedMashTun.capacityLiters })}
+								</span>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				<!-- Boiler Selection -->
 				<div class="space-y-1.5">
 					<label
 						for="boiler-select"
 						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 					>
-						{t('batches.equipment.select_boiler')}
+						{brewhouseTopology === '1V' || brewhouseTopology === '2V_AIO_HLT'
+							? t('batches.equipment.select_boiler')
+							: t('batches.workspace.boiler_kettle')}
 					</label>
 					<select
 						id="boiler-select"
@@ -1332,22 +1607,34 @@
 						</button>
 					</div>
 
-					<div class="mb-3 flex items-start gap-2">
-						<input
-							id="sparge-enabled"
-							type="checkbox"
-							bind:checked={spargeEnabled}
-							class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-amber-500 focus:ring-amber-500 dark:border-zinc-600"
-						/>
+					<div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+						<!-- Sparging Method -->
 						<div>
 							<label
-								for="sparge-enabled"
-								class="text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								for="sparge-method-select"
+								class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 							>
-								{t('batches.wizard.sparge_enabled')}
+								{t('batches.wizard.sparge_method_label')}
 							</label>
-							<p class="text-[11px] text-zinc-400">
-								{t('batches.wizard.sparge_enabled_help')}
+							<select
+								id="sparge-method-select"
+								bind:value={spargeMethod}
+								class="mt-1 h-9 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+							>
+								<option value="Batch">{t('batches.wizard.sparge_method_batch')}</option>
+								<option value="Fly">{t('batches.wizard.sparge_method_fly')}</option>
+								<option value="NoSparge">{t('batches.wizard.sparge_method_nosparge')}</option>
+							</select>
+						</div>
+
+						<!-- Sparge method description or toggle info -->
+						<div class="flex flex-col justify-end">
+							<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+								{#if spargeMethod === 'NoSparge'}
+									{t('batches.wizard.no_sparge_biab_help')}
+								{:else}
+									{t('batches.wizard.water_info_sparge_method')}
+								{/if}
 							</p>
 						</div>
 					</div>
@@ -1416,7 +1703,7 @@
 								</label>
 								<span class="text-[10px] text-zinc-400">
 									{t('batches.wizard.default_from_equipment', {
-										value: `${selectedBoiler?.mashTunDeadSpaceLiters ?? 0.0} L`
+										value: `${(brewhouseTopology === '2V_MLT_BK' || brewhouseTopology === '3V' ? selectedMashTun : selectedBoiler)?.mashTunDeadSpaceLiters ?? 0.0} L`
 									})}
 								</span>
 							</div>
@@ -1430,6 +1717,57 @@
 								class="mt-1 h-9 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 							/>
 						</div>
+
+						<!-- HLT Dead Space Loss (visible when HLT is in the topology) -->
+						{#if brewhouseTopology === '2V_AIO_HLT' || brewhouseTopology === '3V'}
+							<div>
+								<div class="flex items-center justify-between">
+									<label
+										for="hlt-deadspace-input"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('batches.wizard.hlt_dead_space')} (L)
+									</label>
+									<span class="text-[10px] text-zinc-400">
+										{t('batches.wizard.default_from_equipment', {
+											value: `${selectedHlt?.mashTunDeadSpaceLiters ?? 0.0} L`
+										})}
+									</span>
+								</div>
+								<input
+									id="hlt-deadspace-input"
+									type="number"
+									step="0.1"
+									min="0"
+									max="50"
+									bind:value={customHltDeadSpace}
+									class="mt-1 h-9 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+							</div>
+						{/if}
+
+						<!-- Plumbing & Pump Line Loss (visible for 2V / 3V systems) -->
+						{#if brewhouseTopology !== '1V'}
+							<div>
+								<div class="flex items-center justify-between">
+									<label
+										for="plumbing-loss-input"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('batches.wizard.plumbing_loss')} (L)
+									</label>
+								</div>
+								<input
+									id="plumbing-loss-input"
+									type="number"
+									step="0.1"
+									min="0"
+									max="50"
+									bind:value={customPlumbingLoss}
+									class="mt-1 h-9 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+							</div>
+						{/if}
 
 						<!-- Fermenter trub loss -->
 						<div>

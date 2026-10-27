@@ -15,11 +15,13 @@ public enum EquipmentType
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum EquipmentSubtype
 {
-    // Boilers
+    // Boilers & Hot-Side Vessels
     AllInOne,
     Pan,
     Hlt,
     HermsRims,
+    MashTun,
+    LauterTun,
 
     // Fermenters
     Bucket,

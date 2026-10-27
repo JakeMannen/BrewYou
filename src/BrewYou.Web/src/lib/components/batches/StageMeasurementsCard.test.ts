@@ -40,6 +40,9 @@ const mockBatch: BatchDetailDto = {
 		kettleTrubLossLiters: 2.0,
 		fermenterTrubLossLiters: 1.0,
 		mashTunDeadSpaceLiters: 0.5,
+		hltDeadSpaceLiters: 0.0,
+		plumbingLossLiters: 0.0,
+		spargeMethod: 'Batch',
 		coolingShrinkagePercent: 4.0,
 		packagingLossLiters: 0.5
 	},
@@ -216,5 +219,16 @@ describe('StageMeasurementsCard Volume Milestones & Water Schedule', () => {
 		// 33L total water - 27L target pre-boil - 0.5L dead space = 5.5L grain absorption
 		expect(plannedAbsorption).toBe(5.5);
 		expect(formatNumber(plannedAbsorption, 1)).toBe('5.5');
+	});
+
+	it('flags tannin extraction risk when runoff gravity drops below 1.010 SG', () => {
+		const isTanninRisk = (grav: number | null | undefined) =>
+			grav !== null && grav !== undefined && grav > 1.0 && grav < 1.01;
+
+		expect(isTanninRisk(1.008)).toBe(true);
+		expect(isTanninRisk(1.009)).toBe(true);
+		expect(isTanninRisk(1.01)).toBe(false);
+		expect(isTanninRisk(1.045)).toBe(false);
+		expect(isTanninRisk(null)).toBe(false);
 	});
 });

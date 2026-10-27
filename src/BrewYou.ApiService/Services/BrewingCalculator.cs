@@ -172,4 +172,34 @@ public static class BrewingCalculator
         var strikeTemp = targetMashTempC + ((0.41m / liquorToGristRatio) * (targetMashTempC - grainTempC)) + tunLossC;
         return Math.Round(strikeTemp, 1);
     }
+
+    /// <summary>
+    /// Calculates HLT water bath setpoint temperature in Celsius for HERMS coil recirculation.
+    /// Typically 1.0°C - 2.5°C above desired mash exit temperature to compensate for plumbing heat loss.
+    /// </summary>
+    public static decimal CalculateHltTargetTemperature(
+        decimal targetMashTempC,
+        decimal hermsOffsetC = 1.5m)
+    {
+        return Math.Round(targetMashTempC + Math.Max(0.0m, hermsOffsetC), 1);
+    }
+
+    /// <summary>
+    /// Evaluates whether sparge runoff has dropped below the safe gravity/pH threshold.
+    /// Runoff below 1.010 SG (2.5° Plato) risks extracting harsh polyphenols/tannins from grain husks.
+    /// </summary>
+    public static bool IsRunoffAtRiskOfTanninExtraction(decimal runoffSpecificGravity, decimal? runoffPh = null)
+    {
+        if (runoffSpecificGravity <= 1.010m && runoffSpecificGravity > 0m)
+        {
+            return true;
+        }
+
+        if (runoffPh.HasValue && runoffPh.Value > 5.8m)
+        {
+            return true;
+        }
+
+        return false;
+    }
 }

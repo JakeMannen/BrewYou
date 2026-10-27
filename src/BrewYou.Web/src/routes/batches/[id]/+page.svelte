@@ -48,6 +48,7 @@
 		Filter,
 		Timer,
 		Thermometer,
+		Droplets,
 		StepForward,
 		Clock,
 		Activity,
@@ -181,6 +182,12 @@
 	let fermentorSensorName = $derived(activeFermentorSensor?.name ?? batch?.fermenterName ?? null);
 	let fermentorSensorSubtype = $derived(activeFermentorSensor?.subtype ?? null);
 
+	let assignedHlt = $derived.by(() => {
+		const b = batch;
+		if (!b?.hltId) return null;
+		return equipmentList.find((e) => e.id === b.hltId) ?? null;
+	});
+
 	let currentStageEquipment = $derived.by(() => {
 		const currentBatch = batch;
 		if (!currentBatch) return null;
@@ -213,7 +220,16 @@
 		}
 
 		// 3. Stage vessel from batch profile
-		if (logTempStage === 'Mash' || logTempStage === 'Boil') {
+		if (logTempStage === 'Mash') {
+			const mashVesselId = currentBatch.mashTunId ?? currentBatch.boilerId;
+			if (mashVesselId) {
+				const eq = equipmentList.find((e) => e.id === mashVesselId);
+				return {
+					id: mashVesselId,
+					name: eq?.name ?? currentBatch.mashTunName ?? currentBatch.boilerName ?? 'Mash Tun'
+				};
+			}
+		} else if (logTempStage === 'Boil') {
 			if (currentBatch.boilerId) {
 				const eq = equipmentList.find((e) => e.id === currentBatch.boilerId);
 				return {
@@ -1315,6 +1331,61 @@
 							</div>
 						</div>
 					</div>
+
+					<!-- Hot Liquor Tank / Sparge Water Status Card -->
+					{#if batch.hltId || (batch.volumeProfile && batch.volumeProfile.spargeWaterLiters > 0)}
+						<div
+							class="glass-panel flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-cyan-500/20 bg-cyan-500/5 p-4 sm:p-5 dark:border-cyan-500/10 dark:bg-cyan-500/5"
+						>
+							<div class="flex items-center gap-3">
+								<div
+									class="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-500"
+								>
+									<Droplets class="h-5 w-5" />
+								</div>
+								<div>
+									<div class="flex items-center gap-2">
+										<h3 class="text-sm font-bold text-zinc-900 dark:text-white">
+											{t('batches.workspace.hlt_status_title')}
+										</h3>
+										<span
+											class="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold text-cyan-600 uppercase dark:text-cyan-400"
+										>
+											{batch.hltName ?? assignedHlt?.name ?? 'HLT'}
+										</span>
+									</div>
+									<p class="text-xs text-zinc-500 dark:text-zinc-400">
+										{batch.volumeProfile
+											? `${formatNumber(batch.volumeProfile.spargeWaterLiters, 1)} L`
+											: ''} • {t('batches.workspace.hlt_target_temp')}: {settings.formatTemperature(
+											estimatedSpargeTempC
+										)}
+									</p>
+								</div>
+							</div>
+
+							<div class="flex items-center gap-3">
+								{#if assignedHlt?.currentTemperatureC !== null && assignedHlt?.currentTemperatureC !== undefined}
+									<div class="text-right">
+										<span class="block text-[10px] font-semibold text-zinc-400 uppercase">
+											{t('batches.telemetry.current_temp')}
+										</span>
+										<span class="font-mono text-base font-bold text-cyan-600 dark:text-cyan-400">
+											{settings.formatTemperature(assignedHlt.currentTemperatureC)}
+										</span>
+									</div>
+								{/if}
+								<span
+									class="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-700 dark:text-cyan-300"
+								>
+									{assignedHlt?.currentTemperatureC &&
+									assignedHlt.currentTemperatureC >= estimatedSpargeTempC - 1
+										? t('batches.workspace.hlt_ready')
+										: t('batches.workspace.hlt_heating')}
+								</span>
+							</div>
+						</div>
+					{/if}
 
 					<!-- Mash Rest Timer & Step Progression Grid -->
 					<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">

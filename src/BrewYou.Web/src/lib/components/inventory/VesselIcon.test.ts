@@ -15,6 +15,8 @@ describe('VesselIcon Liquid Fill Geometry & Boundary Calculations', () => {
 		'Pan',
 		'Hlt',
 		'HermsRims',
+		'MashTun',
+		'LauterTun',
 		'Bucket',
 		'ConicalFermenter',
 		'Carboy',
@@ -166,6 +168,11 @@ describe('Vessel Brewing Animations & State Resolution', () => {
 		);
 	});
 
+	it('infers mash animation for mash tun and lauter tun vessels when active', () => {
+		expect(resolveVesselAnimationType('MashTun', { active: true })).toBe('mash');
+		expect(resolveVesselAnimationType('LauterTun', { active: true })).toBe('mash');
+	});
+
 	it('infers boil animation for boiler/kettle vessels when active', () => {
 		expect(resolveVesselAnimationType('Pan', { active: true })).toBe('boil');
 		expect(resolveVesselAnimationType('AllInOne', { active: true })).toBe('boil');
@@ -212,6 +219,8 @@ describe('Non-Fillable Auxiliary Sensors & Fill Level Rules', () => {
 			'Pan',
 			'Hlt',
 			'HermsRims',
+			'MashTun',
+			'LauterTun',
 			'Bucket',
 			'ConicalFermenter',
 			'Carboy',
