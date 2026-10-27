@@ -63,15 +63,19 @@
 	});
 
 	let filteredRecipes = $derived(
-		recipes.filter((r) => {
-			const term = searchTerm.toLowerCase().trim();
-			if (!term) return true;
-			return (
-				r.name.toLowerCase().includes(term) ||
-				r.beerStyle.toLowerCase().includes(term) ||
-				(r.authorName && r.authorName.toLowerCase().includes(term))
-			);
-		})
+		recipes
+			.filter((r) => {
+				const term = searchTerm.toLowerCase().trim();
+				if (!term) return true;
+				return (
+					r.name.toLowerCase().includes(term) ||
+					r.beerStyle.toLowerCase().includes(term) ||
+					(r.authorName && r.authorName.toLowerCase().includes(term))
+				);
+			})
+			.sort((a, b) =>
+				a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+			)
 	);
 
 	async function handleOpenExport(recipe: RecipeSummaryDto) {

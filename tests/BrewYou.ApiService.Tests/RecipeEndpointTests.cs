@@ -561,6 +561,29 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task GetRecipes_ReturnsRecipesSortedByNameAscending()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("sort_tester");
+
+        var names = new[] { "Zebra Dark Mild", "Alpha American IPA", "Mango Wheat Ale", "Bravo Brown Ale" };
+        foreach (var name in names)
+        {
+            var req = new CreateRecipeRequest(name, null, "Custom", 20m, 60, 70m, false, new());
+            var res = await client.PostAsJsonAsync("/api/v1/recipes", req);
+            res.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        var listRes = await client.GetAsync("/api/v1/recipes?scope=mine");
+        listRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = await listRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>();
+        envelope.Should().NotBeNull();
+        envelope!.Success.Should().BeTrue();
+
+        var recipeNames = envelope.Data!.Select(r => r.Name).ToList();
+        recipeNames.Should().ContainInOrder("Alpha American IPA", "Bravo Brown Ale", "Mango Wheat Ale", "Zebra Dark Mild");
+    }
+
+    [Fact]
     public async Task CreateRecipe_WithFermentationSteps_PersistsAndReturnsProfile()
     {
         var (client, _, _) = await CreateAuthenticatedUserAsync("ferm_tester");

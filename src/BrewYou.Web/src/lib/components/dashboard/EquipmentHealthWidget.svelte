@@ -1,10 +1,38 @@
+<script module lang="ts">
+	import type { BatchSummaryDto, EquipmentDto } from '$lib/types/api';
+
+	export function isEquipmentOccupied(equipId: string, batches: BatchSummaryDto[]): boolean {
+		return batches.some((b) => {
+			if (b.currentStage === 'Mash') {
+				return b.mashTunId === equipId || (b.boilerId === equipId && !b.mashTunId);
+			}
+			if (b.currentStage === 'Boil') {
+				return b.boilerId === equipId;
+			}
+			if (b.currentStage === 'Ferment' || b.currentStage === 'Condition') {
+				return b.fermenterId === equipId;
+			}
+			return false;
+		});
+	}
+
+	export function getOccupiedEquipmentCount(
+		equipment: EquipmentDto[],
+		batches: BatchSummaryDto[]
+	): number {
+		return equipment.filter((eq) => isEquipmentOccupied(eq.id, batches)).length;
+	}
+</script>
+
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
 	import { dashboard } from '$lib/stores/dashboard.svelte';
 	import { Wrench, Wifi, ChevronRight, CheckCircle2 } from '@lucide/svelte';
 
 	const totalEquipment = $derived(dashboard.equipment.length);
-	const occupiedVesselCount = $derived(dashboard.activeBatches.length);
+	const occupiedVesselCount = $derived(
+		getOccupiedEquipmentCount(dashboard.equipment, dashboard.activeBatches)
+	);
 	const availableVesselCount = $derived(Math.max(0, totalEquipment - occupiedVesselCount));
 </script>
 
@@ -73,12 +101,14 @@
 		{#if dashboard.equipment.length > 0}
 			<div class="space-y-1.5">
 				{#each dashboard.equipment.slice(0, 4) as equip (equip.id)}
-					{@const isOccupied = dashboard.activeBatches.some((b) => b.fermenterId === equip.id)}
+					{@const isOccupied = isEquipmentOccupied(equip.id, dashboard.activeBatches)}
 					<div
+						data-testid="equipment-row-{equip.id}"
 						class="flex items-center justify-between rounded-xl border border-zinc-200/60 bg-zinc-100/50 px-2.5 py-1.5 text-xs transition hover:bg-zinc-100 dark:border-white/5 dark:bg-zinc-900/30 dark:hover:bg-zinc-800/50"
 					>
 						<div class="flex min-w-0 items-center gap-2">
 							<span
+								data-testid="equipment-dot-{equip.id}"
 								class="h-2 w-2 shrink-0 rounded-full {isOccupied
 									? 'bg-amber-500 ring-2 ring-amber-500/20'
 									: 'bg-emerald-500 ring-2 ring-emerald-500/20'}"
@@ -87,7 +117,10 @@
 							>
 						</div>
 
-						<span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+						<span
+							data-testid="equipment-status-{equip.id}"
+							class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400"
+						>
 							{isOccupied ? t('dashboard.status_occupied') : t('dashboard.status_ready')}
 						</span>
 					</div>

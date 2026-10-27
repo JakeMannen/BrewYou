@@ -387,18 +387,22 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 		await expect(banner).toBeVisible();
 		await expect(banner).toContainText(/Boil|Kokning/i);
 
-		// Mash timer panel is hidden in Boil inspection view
+		// Mash timer panel is hidden in Boil inspection view, and boil timer is set to boil time value (60 mins)
 		const mashTimer = page.locator('[data-testid="mash-timer-panel"]');
 		await expect(mashTimer).toBeHidden();
+		const boilTimerDisplay = page.locator('[data-testid="boil-timer-display"]');
+		await expect(boilTimerDisplay).toHaveText('60:00');
 
 		// Click 'Return to active stage' button
 		const returnBtn = page.locator('[data-testid="return-to-active-stage-btn"]');
 		await expect(returnBtn).toBeVisible();
 		await returnBtn.click();
 
-		// Banner is hidden and Mash workspace returns
+		// Banner is hidden and Mash workspace returns with mash step timer
 		await expect(banner).toBeHidden();
 		await expect(mashTimer).toBeVisible();
+		const mashTimerDisplay = page.locator('[data-testid="mash-timer-display"]');
+		await expect(mashTimerDisplay).toHaveText('20:00');
 	});
 
 	test('supports keyboard navigation across BrewStageTracker stage progression', async ({
@@ -473,8 +477,13 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 		const boilNode = page.locator('[data-testid="stage-node-boil"]');
 		await expect(boilNode).toHaveAttribute('aria-current', 'step');
 
-		// Batch status updates to Boiling
-		await expect(page.getByText(/Boiling|Kokar/i)).toBeVisible();
+		// Batch status remains Brewing during boil stage
+		await expect(page.getByText(/Brewing|Brygger/i).first()).toBeVisible();
+
+		// Boil timer is set to boilTimeMinutes (60:00) when moving batch step from Mash to Boil
+		const boilTimerDisplay = page.locator('[data-testid="boil-timer-display"]');
+		await expect(boilTimerDisplay).toBeVisible();
+		await expect(boilTimerDisplay).toHaveText('60:00');
 	});
 
 	test('recalculates current ABV immediately during fermentation step when a new SG reading comes in without reload', async ({

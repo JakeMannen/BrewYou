@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BatchSummaryDto, EquipmentDto, BrewStage } from '$lib/types/api';
+import { getBatchEquipment, getBatchSubtype } from './ActiveCellarCards.svelte';
+import { isEquipmentOccupied, getOccupiedEquipmentCount } from './EquipmentHealthWidget.svelte';
 
 export function calculateCellarUtilization(
 	activeBatchCount: number,
@@ -206,5 +208,197 @@ describe('Dashboard Operational Logic & Calculations', () => {
 		expect(validateGravityReading(1.5).valid).toBe(false);
 		expect(validateGravityReading(NaN).valid).toBe(false);
 		expect(validateGravityReading(-1).valid).toBe(false);
+	});
+
+	describe('ActiveCellarCards equipment & subtype resolution', () => {
+		const testEquipment: EquipmentDto[] = [
+			{
+				id: 'boiler-1',
+				brewerySetupId: 's1',
+				name: 'BrewKettle 30L',
+				type: 'Boiler',
+				subtype: 'Pan',
+				capacity: 30,
+				unit: 'Liters',
+				capacityLiters: 30,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				createdAt: '',
+				updatedAt: ''
+			},
+			{
+				id: 'mash-1',
+				brewerySetupId: 's1',
+				name: 'Mash Tun 30L',
+				type: 'Other',
+				subtype: 'MashTun',
+				capacity: 30,
+				unit: 'Liters',
+				capacityLiters: 30,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				createdAt: '',
+				updatedAt: ''
+			},
+			{
+				id: 'ferm-1',
+				brewerySetupId: 's1',
+				name: 'Chronical FV 35L',
+				type: 'Fermenter',
+				subtype: 'ConicalFermenter',
+				capacity: 35,
+				unit: 'Liters',
+				capacityLiters: 35,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				createdAt: '',
+				updatedAt: ''
+			}
+		];
+
+		const baseBatch: BatchSummaryDto = {
+			id: 'b-test',
+			batchCode: '#B-100',
+			name: 'Test IPA',
+			beerStyle: 'IPA',
+			status: 'Brewing',
+			currentStage: 'Boil',
+			brewDate: '2026-10-27',
+			daysActive: 0,
+			targetOg: 1.06,
+			targetFg: 1.012,
+			colorSrm: 6,
+			targetBatchSizeLiters: 20,
+			mashTunId: 'mash-1',
+			boilerId: 'boiler-1',
+			fermenterId: 'ferm-1',
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		it('resolves boiler equipment and Pan subtype when batch is in Boil stage', () => {
+			const boilBatch: BatchSummaryDto = { ...baseBatch, currentStage: 'Boil' };
+			const equip = getBatchEquipment(boilBatch, testEquipment);
+			expect(equip?.id).toBe('boiler-1');
+			expect(equip?.name).toBe('BrewKettle 30L');
+
+			const subtype = getBatchSubtype(boilBatch, equip);
+			expect(subtype).toBe('Pan');
+		});
+
+		it('resolves mash tun equipment and MashTun subtype when batch is in Mash stage', () => {
+			const mashBatch: BatchSummaryDto = { ...baseBatch, currentStage: 'Mash' };
+			const equip = getBatchEquipment(mashBatch, testEquipment);
+			expect(equip?.id).toBe('mash-1');
+
+			const subtype = getBatchSubtype(mashBatch, equip);
+			expect(subtype).toBe('MashTun');
+		});
+
+		it('resolves fermenter equipment and ConicalFermenter subtype when batch is in Ferment stage', () => {
+			const fermBatch: BatchSummaryDto = {
+				...baseBatch,
+				currentStage: 'Ferment',
+				status: 'Fermenting'
+			};
+			const equip = getBatchEquipment(fermBatch, testEquipment);
+			expect(equip?.id).toBe('ferm-1');
+			expect(equip?.name).toBe('Chronical FV 35L');
+
+			const subtype = getBatchSubtype(fermBatch, equip);
+			expect(subtype).toBe('ConicalFermenter');
+		});
+
+		it('falls back to default subtypes when equipment record is not found', () => {
+			const emptyEquip: EquipmentDto[] = [];
+			expect(getBatchEquipment({ ...baseBatch, currentStage: 'Boil' }, emptyEquip)).toBeUndefined();
+			expect(getBatchSubtype({ ...baseBatch, currentStage: 'Boil' }, undefined)).toBe('Pan');
+			expect(getBatchSubtype({ ...baseBatch, currentStage: 'Mash' }, undefined)).toBe('AllInOne');
+			expect(getBatchSubtype({ ...baseBatch, currentStage: 'Ferment' }, undefined)).toBe(
+				'ConicalFermenter'
+			);
+			expect(getBatchSubtype({ ...baseBatch, currentStage: 'Condition' }, undefined)).toBe(
+				'Carboy'
+			);
+			expect(getBatchSubtype({ ...baseBatch, currentStage: 'Package' }, undefined)).toBe('Bottle');
+		});
+	});
+
+	describe('EquipmentHealthWidget stage-aware occupancy', () => {
+		const equipmentList: EquipmentDto[] = [
+			{
+				id: 'boiler-1',
+				brewerySetupId: 's1',
+				name: 'BrewKettle 30L',
+				type: 'Boiler',
+				subtype: 'Pan',
+				capacity: 30,
+				unit: 'Liters',
+				capacityLiters: 30,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				createdAt: '',
+				updatedAt: ''
+			},
+			{
+				id: 'ferm-1',
+				brewerySetupId: 's1',
+				name: 'Fermenter 35L',
+				type: 'Fermenter',
+				subtype: 'ConicalFermenter',
+				capacity: 35,
+				unit: 'Liters',
+				capacityLiters: 35,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				createdAt: '',
+				updatedAt: ''
+			}
+		];
+
+		const batchInBoil: BatchSummaryDto = {
+			id: 'b-boil',
+			batchCode: '#B-200',
+			name: 'Boil Batch',
+			beerStyle: 'IPA',
+			status: 'Brewing',
+			currentStage: 'Boil',
+			brewDate: '2026-10-27',
+			daysActive: 0,
+			targetOg: 1.055,
+			targetFg: 1.01,
+			colorSrm: 5,
+			targetBatchSizeLiters: 20,
+			boilerId: 'boiler-1',
+			fermenterId: 'ferm-1',
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		it('marks boiler as occupied and coming fermenter as NOT occupied when batch is in Boil stage', () => {
+			expect(isEquipmentOccupied('boiler-1', [batchInBoil])).toBe(true);
+			// Fermenter is the coming step, NOT currently occupied
+			expect(isEquipmentOccupied('ferm-1', [batchInBoil])).toBe(false);
+
+			expect(getOccupiedEquipmentCount(equipmentList, [batchInBoil])).toBe(1);
+		});
+
+		it('marks fermenter as occupied and boiler as NOT occupied once advanced to Ferment stage', () => {
+			const batchInFerment: BatchSummaryDto = {
+				...batchInBoil,
+				currentStage: 'Ferment',
+				status: 'Fermenting'
+			};
+
+			expect(isEquipmentOccupied('boiler-1', [batchInFerment])).toBe(false);
+			expect(isEquipmentOccupied('ferm-1', [batchInFerment])).toBe(true);
+
+			expect(getOccupiedEquipmentCount(equipmentList, [batchInFerment])).toBe(1);
+		});
 	});
 });
