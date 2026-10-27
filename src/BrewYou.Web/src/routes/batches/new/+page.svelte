@@ -366,7 +366,9 @@
 				api.equipment.list(),
 				api.batches.getNextCode()
 			]);
-			recipes = recipeList;
+			recipes = [...recipeList].sort((a, b) =>
+				a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+			);
 			equipment = equipList;
 			batchCode = codeRes.batchCode;
 

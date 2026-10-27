@@ -63,7 +63,8 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
         var totalPages = (int)Math.Ceiling(total / (double)limit);
 
         var items = await query
-            .OrderByDescending(r => r.UpdatedAt)
+            .OrderBy(r => r.Name)
+            .ThenByDescending(r => r.UpdatedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
             .Select(r => new RecipeSummaryDto(
