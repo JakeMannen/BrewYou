@@ -89,13 +89,21 @@
 	// Derived values
 	let boilers = $derived(equipment.filter((e) => e.type === 'Boiler'));
 	let hlts = $derived(
-		boilers.filter((e) => e.subtype === 'Hlt' || e.subtype === 'AllInOne' || e.subtype === 'Pan')
+		boilers.filter(
+			(e) =>
+				e.subtype === 'Hlt' ||
+				e.subtype === 'LauterTun' ||
+				e.subtype === 'MashTun' ||
+				e.subtype === 'AllInOne' ||
+				e.subtype === 'Pan'
+		)
 	);
 	let mashTuns = $derived(
 		boilers.filter(
 			(e) =>
 				e.subtype === 'MashTun' ||
 				e.subtype === 'LauterTun' ||
+				e.subtype === 'Hlt' ||
 				e.subtype === 'AllInOne' ||
 				e.subtype === 'Pan'
 		)
@@ -154,7 +162,8 @@
 		} else if (brewhouseTopology === '2V_AIO_HLT') {
 			selectedMashTunId = selectedBoilerId;
 			if (!selectedHltId && hlts.length > 0) {
-				const defaultHlt = hlts.find((h) => h.subtype === 'Hlt') || hlts[0];
+				const defaultHlt =
+					hlts.find((h) => h.subtype === 'Hlt' || h.subtype === 'LauterTun') || hlts[0];
 				selectedHltId = defaultHlt.id;
 			}
 		} else if (brewhouseTopology === '2V_MLT_BK') {
@@ -167,7 +176,8 @@
 			}
 		} else if (brewhouseTopology === '3V') {
 			if (!selectedHltId && hlts.length > 0) {
-				const defaultHlt = hlts.find((h) => h.subtype === 'Hlt') || hlts[0];
+				const defaultHlt =
+					hlts.find((h) => h.subtype === 'Hlt' || h.subtype === 'LauterTun') || hlts[0];
 				selectedHltId = defaultHlt.id;
 			}
 			if (!selectedMashTunId && mashTuns.length > 0) {
