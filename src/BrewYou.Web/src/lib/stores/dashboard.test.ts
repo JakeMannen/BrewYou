@@ -168,8 +168,37 @@ describe('Dashboard Store (dashboard.svelte.ts)', () => {
 
 		expect(dashboard.fermenters.length).toBe(1);
 		expect(dashboard.fermenters[0].id).toBe('eq1');
-		// 2 active batches with 1 fermenter => 100% cap
+		// 2 active cellar batches with 1 fermenter => 100% cap
 		expect(dashboard.cellarUtilizationPercent).toBe(100);
+	});
+
+	it('does not count boil or mash batches towards cellar utilization or volume under yeast', () => {
+		const boilBatch: BatchSummaryDto = {
+			id: 'b-boil',
+			batchCode: '#B004',
+			name: 'Boiling Stout',
+			beerStyle: 'Stout',
+			status: 'Brewing',
+			currentStage: 'Boil',
+			brewDate: '2026-10-27',
+			daysActive: 0,
+			targetOg: 1.06,
+			targetFg: 1.015,
+			colorSrm: 30,
+			targetBatchSizeLiters: 25,
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		// Only the boil batch
+		dashboard.batches = [boilBatch];
+		dashboard.equipment = [...mockEquipment];
+
+		expect(dashboard.activeBatches.length).toBe(1);
+		expect(dashboard.activeBatchCount).toBe(1);
+		expect(dashboard.activeCellarBatches.length).toBe(0);
+		expect(dashboard.cellarUtilizationPercent).toBe(0);
+		expect(dashboard.totalVolumeUnderYeast).toBe(0);
 	});
 
 	it('computes total volume under yeast correctly', () => {

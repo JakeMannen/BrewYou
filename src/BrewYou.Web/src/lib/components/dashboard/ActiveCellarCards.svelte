@@ -1,7 +1,86 @@
+<script module lang="ts">
+	import type { BatchSummaryDto, EquipmentDto, EquipmentSubtype } from '$lib/types/api';
+
+	export function getBatchEquipment(
+		batch: BatchSummaryDto,
+		equipment: EquipmentDto[]
+	): EquipmentDto | undefined {
+		switch (batch.currentStage) {
+			case 'Mash': {
+				if (batch.mashTunId) {
+					const mt = equipment.find((e) => e.id === batch.mashTunId);
+					if (mt) return mt;
+				}
+				if (batch.boilerId) {
+					const b = equipment.find((e) => e.id === batch.boilerId);
+					if (b?.subtype === 'AllInOne') return b;
+				}
+				return equipment.find(
+					(e) =>
+						e.subtype === 'MashTun' ||
+						e.subtype === 'AllInOne' ||
+						e.subtype === 'LauterTun' ||
+						e.type === 'Boiler'
+				);
+			}
+			case 'Boil': {
+				if (batch.boilerId) {
+					const b = equipment.find((e) => e.id === batch.boilerId);
+					if (b) return b;
+				}
+				return equipment.find(
+					(e) =>
+						e.type === 'Boiler' ||
+						e.subtype === 'Pan' ||
+						e.subtype === 'AllInOne' ||
+						e.subtype === 'HermsRims'
+				);
+			}
+			case 'Ferment':
+			case 'Condition':
+			default: {
+				if (batch.fermenterId) {
+					const f = equipment.find((e) => e.id === batch.fermenterId);
+					if (f) return f;
+				}
+				return equipment.find(
+					(e) =>
+						e.type === 'Fermenter' ||
+						e.subtype === 'ConicalFermenter' ||
+						e.subtype === 'Carboy' ||
+						e.subtype === 'PressureFermenter' ||
+						e.subtype === 'StainlessBucket' ||
+						e.subtype === 'Bucket'
+				);
+			}
+		}
+	}
+
+	export function getBatchSubtype(
+		batch: BatchSummaryDto,
+		equip?: EquipmentDto
+	): EquipmentSubtype | 'Bottle' | string {
+		if (equip?.subtype) return equip.subtype;
+		switch (batch.currentStage) {
+			case 'Mash':
+				return 'AllInOne';
+			case 'Boil':
+				return 'Pan';
+			case 'Ferment':
+				return 'ConicalFermenter';
+			case 'Condition':
+				return 'Carboy';
+			case 'Package':
+				return 'Bottle';
+			default:
+				return 'ConicalFermenter';
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import type { BatchSummaryDto, EquipmentDto } from '$lib/types/api';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import SrmSwatch from '$lib/components/brewery/SrmSwatch.svelte';
 	import {
@@ -22,16 +101,6 @@
 	}
 
 	let { batches, equipment, onLogReading, onAdvanceStage }: Props = $props();
-
-	function getBatchEquipment(batch: BatchSummaryDto): EquipmentDto | undefined {
-		if (batch.fermenterId) {
-			return equipment.find((e) => e.id === batch.fermenterId);
-		}
-		// Fallback: look for fermenter equipment by name or return first fermenter
-		return equipment.find(
-			(e) => e.type === 'Fermenter' || e.subtype === 'ConicalFermenter' || e.subtype === 'Carboy'
-		);
-	}
 
 	function calculateFillPercent(batch: BatchSummaryDto, equip?: EquipmentDto): number {
 		const vol = batch.measuredBatchSizeLiters ?? batch.targetBatchSizeLiters ?? 20;
@@ -75,11 +144,19 @@
 
 	<div class="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
 		{#each batches as batch (batch.id)}
-			{@const equip = getBatchEquipment(batch)}
+			{@const equip = getBatchEquipment(batch, equipment)}
 			{@const fill = calculateFillPercent(batch, equip)}
-			{@const subtype = equip?.subtype ?? 'ConicalFermenter'}
+			{@const subtype = getBatchSubtype(batch, equip)}
+			{@const equipName =
+				equip?.name ??
+				(batch.currentStage === 'Boil'
+					? batch.boilerName
+					: batch.currentStage === 'Mash'
+						? (batch.mashTunName ?? batch.boilerName)
+						: batch.fermenterName)}
 
 			<div
+				data-testid="batch-cellar-card-{batch.id}"
 				class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-4 transition-all duration-200 hover:border-amber-500/40 hover:shadow-md dark:border-white/10 dark:bg-zinc-900/40 dark:hover:border-amber-500/30"
 			>
 				<!-- Vessel & Primary Metrics Row -->
@@ -95,9 +172,10 @@
 							active={true}
 							animated={true}
 							animationStage={batch.currentStage.toLowerCase()}
-							title="{equip?.name || subtype} ({fill}% full)"
+							title="{equipName || subtype} ({fill}% full)"
 						/>
 						<span
+							data-testid="vessel-fill-badge-{batch.id}"
 							class="absolute -bottom-2 rounded-full border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
 						>
 							{fill}%
@@ -111,6 +189,12 @@
 								class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-amber-600 dark:text-amber-400"
 							>
 								{batch.batchCode}
+							</span>
+							<span
+								data-testid="batch-stage-badge-{batch.id}"
+								class="rounded-md bg-amber-500/20 px-2 py-0.5 font-mono text-xs font-bold text-amber-700 dark:text-amber-300"
+							>
+								{t(`batches.stages.${batch.currentStage.toLowerCase()}`)}
 							</span>
 							<span
 								class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
@@ -131,12 +215,14 @@
 							<span>
 								{t('dashboard.days_in_stage', {
 									day: batch.daysActive,
-									stage: batch.currentStage
+									stage: t(`batches.stages.${batch.currentStage.toLowerCase()}`)
 								})}
 							</span>
-							{#if equip?.name}
+							{#if equipName}
 								<span>•</span>
-								<span class="truncate">{equip.name}</span>
+								<span data-testid="batch-equipment-name-{batch.id}" class="truncate"
+									>{equipName}</span
+								>
 							{/if}
 						</p>
 					</div>

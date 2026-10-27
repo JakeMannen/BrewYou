@@ -87,19 +87,26 @@ class DashboardStore {
 		);
 	});
 
+	// Active cellar batches: batches currently in fermentation or conditioning
+	activeCellarBatches = $derived.by(() => {
+		return this.activeBatches.filter(
+			(b) => b.currentStage === 'Ferment' || b.currentStage === 'Condition'
+		);
+	});
+
 	// Cellar utilization %
 	cellarUtilizationPercent = $derived.by(() => {
 		const totalFermenters = this.fermenters.length;
 		if (totalFermenters === 0) {
-			return this.activeBatches.length > 0 ? 100 : 0;
+			return this.activeCellarBatches.length > 0 ? 100 : 0;
 		}
-		const occupiedCount = Math.min(this.activeBatches.length, totalFermenters);
+		const occupiedCount = Math.min(this.activeCellarBatches.length, totalFermenters);
 		return Math.min(100, Math.round((occupiedCount / totalFermenters) * 100));
 	});
 
 	// Total volume currently under fermentation/conditioning
 	totalVolumeUnderYeast = $derived.by(() => {
-		return this.activeBatches.reduce((sum, b) => {
+		return this.activeCellarBatches.reduce((sum, b) => {
 			const vol = b.measuredBatchSizeLiters ?? b.targetBatchSizeLiters ?? 0;
 			return sum + vol;
 		}, 0);
