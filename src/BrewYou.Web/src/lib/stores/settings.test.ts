@@ -409,12 +409,14 @@ describe('Color Unit Conversion Helpers', () => {
 		expect(fromDisplayColor(10, 'SRM')).toBe(10);
 	});
 
-	it('formats fermentable color with both EBC and SRM (EBC first)', () => {
+	it('formats fermentable color showing EBC by default and dual units when requested', () => {
 		expect(formatFermentableColor(null)).toBe('-');
 		expect(formatFermentableColor(undefined)).toBe('-');
-		expect(formatFermentableColor(1.8)).toBe('3.5 EBC (1.8 SRM)');
-		expect(formatFermentableColor(60)).toBe('118.2 EBC (60.0 SRM)');
-		expect(settings.formatFermentableColor(1.8)).toBe('3.5 EBC (1.8 SRM)');
+		expect(formatFermentableColor(1.8)).toBe('3.5 EBC');
+		expect(formatFermentableColor(60)).toBe('118.2 EBC');
+		expect(settings.formatFermentableColor(1.8)).toBe('3.5 EBC');
+		expect(formatFermentableColor(1.8, 1, true)).toBe('3.5 EBC (1.8 SRM)');
+		expect(settings.formatFermentableColor(1.8, 1, true)).toBe('3.5 EBC (1.8 SRM)');
 	});
 });
 

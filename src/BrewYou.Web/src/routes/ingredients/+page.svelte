@@ -359,14 +359,9 @@
 										<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
 											>{t('ingredients.color')}</span
 										>
-										<div class="flex items-baseline gap-1">
-											<span class="font-mono font-medium text-zinc-800 dark:text-zinc-200">
-												{formatNumber(srmToEbc(item.colorSrm ?? 0), 1)} EBC
-											</span>
-											<span class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-												({formatNumber(item.colorSrm ?? 0, 1)} SRM)
-											</span>
-										</div>
+										<span class="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+											{formatNumber(srmToEbc(item.colorSrm ?? 0), 1)} EBC
+										</span>
 									</div>
 									{#if item.colorSrm}
 										<div
