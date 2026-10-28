@@ -24,6 +24,7 @@
 	} from '$lib/components/recipes/FermentationStepsCard.svelte';
 	import RecipeImportModal from '$lib/components/recipes/RecipeImportModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
+	import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import type { ExportableRecipe } from '$lib/exporters/types';
@@ -648,19 +649,10 @@
 			const newItems: FormIngredientItem[] = [];
 
 			for (const ing of imported.ingredients) {
-				const lowerName = ing.name.trim().toLowerCase();
-				// Find matching ingredient in catalog (exact match first, then contains or contained by)
+				// Find matching ingredient in catalog (strict multi-tier matching first, fallback to first of type)
 				let catalogMatch =
-					activeCatalog.find((c) => c.name.toLowerCase() === lowerName) ??
-					activeCatalog.find(
-						(c) =>
-							c.name.toLowerCase().includes(lowerName) || lowerName.includes(c.name.toLowerCase())
-					);
-
-				// Fallback to first ingredient of corresponding type
-				if (!catalogMatch) {
-					catalogMatch = activeCatalog.find((c) => c.type === ing.type);
-				}
+					findCatalogIngredientMatch(ing, activeCatalog) ??
+					activeCatalog.find((c) => c.type === ing.type);
 
 				if (catalogMatch) {
 					newItems.push({

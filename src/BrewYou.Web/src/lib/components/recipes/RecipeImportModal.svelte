@@ -9,6 +9,7 @@
 	import { getLocalizedIngredientForm } from '$lib/i18n/ingredients';
 	import { parseBeerXml } from '$lib/parsers/beerxml';
 	import { parseBeerJson } from '$lib/parsers/beerjson';
+	import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
 	import RecipeRenameModal from '$lib/components/recipes/RecipeRenameModal.svelte';
 	import {
 		UploadCloud,
@@ -154,15 +155,13 @@
 
 		for (const ing of parsedRecipe.ingredients) {
 			const trimmedName = ing.name.trim();
+			if (!trimmedName) continue;
 			const lower = trimmedName.toLowerCase();
-			if (!lower) continue;
 
-			const match = catalogIngredients.some(
-				(c) => c.name.toLowerCase() === lower || c.name.toLowerCase().includes(lower)
-			);
+			const match = findCatalogIngredientMatch(ing, catalogIngredients);
 
-			if (!match && !seen.has(lower)) {
-				seen.add(lower);
+			if (!match && !seen.has(`${ing.type}:${lower}`)) {
+				seen.add(`${ing.type}:${lower}`);
 				missing.push({
 					name: trimmedName,
 					type: ing.type,
@@ -182,10 +181,7 @@
 	let matchedCount = $derived.by(() => {
 		if (!parsedRecipe) return 0;
 		return parsedRecipe.ingredients.filter((item) => {
-			const lower = item.name.trim().toLowerCase();
-			return catalogIngredients.some(
-				(c) => c.name.toLowerCase() === lower || c.name.toLowerCase().includes(lower)
-			);
+			return findCatalogIngredientMatch(item, catalogIngredients) !== null;
 		}).length;
 	});
 

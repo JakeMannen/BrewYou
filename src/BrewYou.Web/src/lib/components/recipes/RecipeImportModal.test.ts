@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IngredientDto, IngredientType } from '$lib/types/api';
 import type { ParsedRecipe } from '$lib/parsers/types';
+import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
 
 interface MissingIngredientItem {
 	name: string;
@@ -21,15 +22,13 @@ function detectMissingIngredients(
 
 	for (const ing of parsedRecipe.ingredients) {
 		const trimmedName = ing.name.trim();
+		if (!trimmedName) continue;
 		const lower = trimmedName.toLowerCase();
-		if (!lower) continue;
 
-		const match = catalogIngredients.some(
-			(c) => c.name.toLowerCase() === lower || c.name.toLowerCase().includes(lower)
-		);
+		const match = findCatalogIngredientMatch(ing, catalogIngredients);
 
-		if (!match && !seen.has(lower)) {
-			seen.add(lower);
+		if (!match && !seen.has(`${ing.type}:${lower}`)) {
+			seen.add(`${ing.type}:${lower}`);
 			missing.push({
 				name: trimmedName,
 				type: ing.type,
@@ -352,14 +351,9 @@ describe('Recipe Import Missing Ingredients Reconciliation', () => {
 
 		// Simulate RecipeFormulator/Recipe page reconciliation logic
 		const mappedItems = importedIngredients.map((ing) => {
-			const lower = ing.name.trim().toLowerCase();
 			const match =
-				activeCatalog.find(
-					(c) =>
-						c.name.toLowerCase() === lower ||
-						c.name.toLowerCase().includes(lower) ||
-						lower.includes(c.name.toLowerCase())
-				) || activeCatalog.find((c) => c.type === ing.type);
+				findCatalogIngredientMatch(ing, activeCatalog) ??
+				activeCatalog.find((c) => c.type === ing.type);
 
 			return {
 				ingredientId: match ? match.id : activeCatalog[0]?.id || '',
@@ -373,6 +367,85 @@ describe('Recipe Import Missing Ingredients Reconciliation', () => {
 
 		expect(mappedItems[1].ingredientId).toBe('created-misc-1');
 		expect(mappedItems[1].type).toBe('Other');
+	});
+
+	it('detects Weyermann - Barke Pilsner Malt as missing despite catalog having generic Pilsner Malt, then maps to created ingredient', () => {
+		const hellesRecipe: ParsedRecipe = {
+			name: 'Augustiner Lagerbier Hell Clone',
+			beerStyle: 'Munich Helles',
+			description: 'Clone recipe',
+			batchSizeLiters: 20,
+			boilTimeMinutes: 75,
+			efficiencyPercent: 72,
+			ingredients: [
+				{
+					name: 'Weyermann - Barke Pilsner Malt',
+					type: 'Fermentable',
+					amount: 4.4,
+					unit: 'kg',
+					durationMinutes: 75,
+					usage: 'Mash',
+					colorSrm: 1.8,
+					potentialGravity: 1.037
+				},
+				{
+					name: 'Weyermann - Munich Type 1',
+					type: 'Fermentable',
+					amount: 0.2,
+					unit: 'kg',
+					durationMinutes: 75,
+					usage: 'Mash',
+					colorSrm: 7.5,
+					potentialGravity: 1.036
+				}
+			],
+			mashSteps: [],
+			fermentationSteps: []
+		};
+
+		// Catalog contains generic Pilsner Malt (or Pilsnermalt)
+		const catalogWithGenericPilsner: IngredientDto[] = [
+			{
+				id: 'catalog-pilsner-id',
+				name: 'Pilsner Malt',
+				type: 'Fermentable',
+				potentialGravity: 1.037,
+				colorSrm: 1.6,
+				isCatalogItem: true
+			}
+		];
+
+		// 1. Should flag Barke Pilsner as missing (not falsely matched to generic Pilsner Malt)
+		const missing = detectMissingIngredients(hellesRecipe, catalogWithGenericPilsner);
+		expect(missing.map((m) => m.name)).toContain('Weyermann - Barke Pilsner Malt');
+		expect(missing.map((m) => m.name)).toContain('Weyermann - Munich Type 1');
+
+		// 2. Simulate user clicking "Create & Import": newly created ingredients are appended
+		const newlyCreatedBarke: IngredientDto = {
+			id: 'created-barke-pilsner-id',
+			name: 'Weyermann - Barke Pilsner Malt',
+			type: 'Fermentable',
+			potentialGravity: 1.037,
+			colorSrm: 1.8,
+			isCatalogItem: false
+		};
+
+		const activeCatalog = [...catalogWithGenericPilsner, newlyCreatedBarke];
+
+		// 3. When mapping items, Barke Pilsner must resolve to its exact newly created ID, NOT generic Pilsner Malt
+		const mapped = hellesRecipe.ingredients.map((ing) => {
+			const match =
+				findCatalogIngredientMatch(ing, activeCatalog) ??
+				activeCatalog.find((c) => c.type === ing.type);
+
+			return {
+				name: ing.name,
+				ingredientId: match?.id
+			};
+		});
+
+		expect(mapped[0].ingredientId).toBe('created-barke-pilsner-id');
+		expect(mapped[0].ingredientId).not.toBe('catalog-pilsner-id');
 	});
 
 	it('groups items into correct sections and ensures Other items are never grouped as Fermentables', () => {
