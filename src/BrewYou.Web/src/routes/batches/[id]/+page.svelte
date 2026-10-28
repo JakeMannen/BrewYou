@@ -2843,7 +2843,7 @@
 		onResetTimer={resetTimer}
 		onAdjustTimer={(seconds) => {
 			if (!batch) return;
-			batchTimer.adjust(batch.id, inspectedStage, seconds);
+			batchTimer.adjust(batch.id, inspectedStage, seconds, inspectedStagePlannedDurationSeconds);
 		}}
 		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : undefined}
 		onClose={() => (showBrewStationHud = false)}

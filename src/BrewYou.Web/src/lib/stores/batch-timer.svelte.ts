@@ -131,36 +131,31 @@ export class BatchTimerStore {
 
 	getTimer(batchId: string, stage: BrewStage, defaultDurationSeconds: number): TimerView {
 		const key = this.getKey(batchId, stage);
-		let timer = this.timers[key];
+		const timer = this.timers[key];
 
 		if (!timer) {
 			const safeDuration = Math.max(1, defaultDurationSeconds);
-			timer = {
-				batchId,
-				stage,
-				totalSeconds: safeDuration,
+			return {
 				remainingSeconds: safeDuration,
-				isRunning: false,
-				targetEndTime: null,
-				updatedAt: Date.now()
+				running: false,
+				totalSeconds: safeDuration
 			};
-			this.timers[key] = timer;
-			this.saveToStorage();
-		} else if (timer.isRunning && timer.targetEndTime) {
-			// Instant synchronizer in case ticker hasn't pulsed yet
+		}
+
+		let remaining = timer.remainingSeconds;
+		let running = timer.isRunning;
+
+		if (timer.isRunning && timer.targetEndTime) {
 			const now = Date.now();
-			const remaining = Math.max(0, Math.round((timer.targetEndTime - now) / 1000));
-			timer.remainingSeconds = remaining;
+			remaining = Math.max(0, Math.round((timer.targetEndTime - now) / 1000));
 			if (remaining === 0) {
-				timer.isRunning = false;
-				timer.targetEndTime = null;
-				this.saveToStorage();
+				running = false;
 			}
 		}
 
 		return {
-			remainingSeconds: timer.remainingSeconds,
-			running: timer.isRunning,
+			remainingSeconds: remaining,
+			running,
 			totalSeconds: timer.totalSeconds
 		};
 	}
@@ -228,12 +223,25 @@ export class BatchTimerStore {
 		this.saveToStorage();
 	}
 
-	adjust(batchId: string, stage: BrewStage, seconds: number): void {
+	adjust(batchId: string, stage: BrewStage, seconds: number, defaultDurationSeconds = 3600): void {
 		const key = this.getKey(batchId, stage);
-		const timer = this.timers[key];
-		if (!timer) return;
-
+		let timer = this.timers[key];
 		const now = Date.now();
+
+		if (!timer) {
+			const safeDuration = Math.max(1, defaultDurationSeconds);
+			timer = {
+				batchId,
+				stage,
+				totalSeconds: safeDuration,
+				remainingSeconds: safeDuration,
+				isRunning: false,
+				targetEndTime: null,
+				updatedAt: now
+			};
+			this.timers[key] = timer;
+		}
+
 		const newRemaining = Math.max(0, timer.remainingSeconds + seconds);
 		timer.remainingSeconds = newRemaining;
 

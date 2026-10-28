@@ -160,4 +160,23 @@ describe('BatchTimerStore', () => {
 		expect(timer.running).toBe(false);
 		expect(timer.remainingSeconds).toBe(3600);
 	});
+
+	it('is a pure reader in getTimer and does not mutate reactive state or localStorage', () => {
+		const initialStorageCount = Object.keys(
+			JSON.parse(mockStorage.getItem('brewyou-batch-timers') ?? '{}')
+		).length;
+
+		// Calling getTimer for an unstarted timer must be pure read
+		const timer = store.getTimer('batch-unstarted', 'Boil', 3600);
+		expect(timer.remainingSeconds).toBe(3600);
+		expect(timer.running).toBe(false);
+		expect(timer.totalSeconds).toBe(3600);
+
+		// Must not have mutated timers map or localStorage
+		expect(store.timers['batch-unstarted:Boil']).toBeUndefined();
+		const finalStorageCount = Object.keys(
+			JSON.parse(mockStorage.getItem('brewyou-batch-timers') ?? '{}')
+		).length;
+		expect(finalStorageCount).toBe(initialStorageCount);
+	});
 });
