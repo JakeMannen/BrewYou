@@ -1043,18 +1043,20 @@
 
 			<!-- Advance Stage & Primary CTA -->
 			<div class="flex items-center gap-2.5 self-start sm:self-auto">
-				<!-- Brew Station HUD Button -->
-				<button
-					type="button"
-					data-testid="open-brew-station-hud-btn"
-					onclick={() => (showBrewStationHud = true)}
-					class="tactile-pill flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-700 transition-all hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-300"
-					title={t('batches.workspace.brew_station_hud')}
-				>
-					<Flame class="h-4 w-4 animate-pulse text-amber-500" />
-					<span class="hidden sm:inline">{t('batches.workspace.brew_station_hud')}</span>
-					<Maximize2 class="h-3.5 w-3.5 opacity-70" />
-				</button>
+				<!-- Brew Station HUD Button (Active only during hands-on Mash & Boil stages) -->
+				{#if inspectedStage === 'Mash' || inspectedStage === 'Boil'}
+					<button
+						type="button"
+						data-testid="open-brew-station-hud-btn"
+						onclick={() => (showBrewStationHud = true)}
+						class="tactile-pill flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-700 transition-all hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-300"
+						title={t('batches.workspace.brew_station_hud')}
+					>
+						<Flame class="h-4 w-4 animate-pulse text-amber-500" />
+						<span class="hidden sm:inline">{t('batches.workspace.brew_station_hud')}</span>
+						<Maximize2 class="h-3.5 w-3.5 opacity-70" />
+					</button>
+				{/if}
 
 				{#if batch.status !== 'Completed'}
 					<button
@@ -2809,34 +2811,26 @@
 	onDeleted={() => goto('/batches')}
 />
 
-{#if batch}
+{#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}
 	<BrewStationHudModal
 		open={showBrewStationHud}
 		batchName={batch.name}
 		beerStyle={batch.beerStyle}
-		currentStage={batch.currentStage}
+		currentStage={inspectedStage}
 		{timerRemainingSeconds}
 		{timerRunning}
 		stageTotalSeconds={currentStageTotalSeconds}
-		stageIngredients={batch.currentStage === 'Boil' ? boilStageIngredients : []}
+		stageIngredients={inspectedStage === 'Boil' ? boilStageIngredients : []}
 		onToggleIngredient={handleToggleIngredient}
-		targetTemperatureC={batch.currentStage === 'Mash'
+		targetTemperatureC={inspectedStage === 'Mash'
 			? (currentSelectedMashStep?.targetTemperatureC ?? 65)
-			: batch.currentStage === 'Boil'
-				? 100
-				: batch.currentStage === 'Ferment'
-					? activeFermentationStepTargetTemp
-					: null}
+			: 100}
 		currentTemperatureC={batchEquipmentReadings.length > 0
 			? batchEquipmentReadings[batchEquipmentReadings.length - 1].temperatureC
 			: (currentSelectedMashStep?.actualTemperatureC ?? null)}
-		activeStepName={batch.currentStage === 'Mash'
+		activeStepName={inspectedStage === 'Mash'
 			? currentSelectedMashStep?.name
-			: batch.currentStage === 'Boil'
-				? `Boil (${batch.boilTimeMinutes ?? 60}m)`
-				: batch.currentStage === 'Ferment'
-					? activeFermentationStep?.name
-					: null}
+			: `Boil (${batch.boilTimeMinutes ?? 60}m)`}
 		{activeMashStepIndex}
 		totalMashSteps={batch.mashSteps?.length}
 		onToggleTimer={() => {
@@ -2851,7 +2845,7 @@
 			if (!batch) return;
 			batchTimer.adjust(batch.id, inspectedStage, seconds);
 		}}
-		onAdvanceStep={batch.currentStage === 'Mash' ? handleAdvanceMashStep : undefined}
+		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : undefined}
 		onClose={() => (showBrewStationHud = false)}
 	/>
 {/if}
