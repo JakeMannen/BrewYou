@@ -127,7 +127,8 @@ When configuring multi-vessel batches:
 #### Brew Station HUD Mode
 
 For real-time brewhouse execution in high-steam or wet-hands environments, the **Brew Station HUD** modal transforms the cockpit into a high-visibility, full-screen tactical interface:
-- **Oversized Countdown Timer**: Gigantic typography legible from across the brewhouse.
+- **Oversized Countdown Timer & Stage Progress Bar**: Gigantic typography legible from across the brewhouse paired with a live-filling progress bar (0% ➔ 100%) tracking elapsed stage duration with elastic scaling for quick time adjustments (+5m / -5m).
+- **Interactive Boil Addition Milestones**: Visual timeline pins positioned along the progress bar for scheduled hop and kettle additions, grouping simultaneous additions with rich quick-action inspection popovers and tap-to-complete checkboxes.
 - **Wet-Hands Touch Targets**: Generously sized (64px+) action buttons for Play, Pause, Reset, and Step Advance, plus keyboard shortcuts (`Space` to toggle, `R` to reset, `Esc` to close).
 - **Target & Live Sensor Instrumentation**: At-a-glance target mash/boil temperatures alongside live IoT probe readings.
 

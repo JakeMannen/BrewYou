@@ -31,6 +31,7 @@
 	import LogStepTemperatureModal from '$lib/components/batches/LogStepTemperatureModal.svelte';
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
+	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
 	import {
@@ -710,6 +711,26 @@
 		return filterCurrentStageOnly
 			? getIngredientsForStage(inspectedStage, batch.ingredients)
 			: sortIngredientsChronologically(batch.ingredients);
+	});
+
+	let boilStageIngredients = $derived.by<BatchIngredientDto[]>(() => {
+		if (!batch) return [];
+		return getIngredientsForStage('Boil', batch.ingredients);
+	});
+
+	let currentMashStepDurationSeconds = $derived.by<number>(() => {
+		const activeStep = batch?.mashSteps?.[activeMashStepIndex] ?? batch?.mashSteps?.[0];
+		return (activeStep?.durationMinutes ?? 60) * 60;
+	});
+
+	let boilDurationSeconds = $derived.by<number>(() => {
+		return (batch?.boilTimeMinutes ?? 60) * 60;
+	});
+
+	let currentStageTotalSeconds = $derived.by<number>(() => {
+		if (batch?.currentStage === 'Boil') return boilDurationSeconds;
+		if (batch?.currentStage === 'Mash') return currentMashStepDurationSeconds;
+		return 3600;
 	});
 
 	let advanceUpcomingIngredients = $derived.by<BatchIngredientDto[]>(() => {
@@ -1460,6 +1481,14 @@
 										{formatTime(timerRemainingSeconds)}
 									</span>
 								</div>
+
+								<StageProgressBar
+									totalSeconds={currentMashStepDurationSeconds}
+									remainingSeconds={timerRemainingSeconds}
+									running={timerRunning}
+									stage="Mash"
+									variant="default"
+								/>
 							</div>
 
 							<div class="flex flex-col gap-3">
@@ -1763,6 +1792,16 @@
 									{formatTime(timerRemainingSeconds)}
 								</span>
 							</div>
+
+							<StageProgressBar
+								totalSeconds={boilDurationSeconds}
+								remainingSeconds={timerRemainingSeconds}
+								running={timerRunning}
+								stage="Boil"
+								milestones={boilStageIngredients}
+								onToggleMilestone={handleToggleIngredient}
+								variant="default"
+							/>
 						</div>
 
 						<div class="flex items-center justify-center gap-3">
@@ -2805,6 +2844,9 @@
 		currentStage={batch.currentStage}
 		{timerRemainingSeconds}
 		{timerRunning}
+		stageTotalSeconds={currentStageTotalSeconds}
+		stageIngredients={batch.currentStage === 'Boil' ? boilStageIngredients : []}
+		onToggleIngredient={handleToggleIngredient}
 		targetTemperatureC={batch.currentStage === 'Mash'
 			? (currentSelectedMashStep?.targetTemperatureC ?? 65)
 			: batch.currentStage === 'Boil'
