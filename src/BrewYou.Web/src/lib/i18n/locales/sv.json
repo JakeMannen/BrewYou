@@ -210,6 +210,7 @@
 		"recipe_name": "Receptnamn",
 		"beer_style": "Ölstil (BJCP)",
 		"description": "Beskrivning & bryggarens anteckningar",
+		"description_placeholder": "Aromnoter, smakprofil, processinstruktioner eller bryggaranteckningar...",
 		"ingredients_bill": "Råvarugiva",
 		"add_grain": "+Malt",
 		"add_hop": "+Humle",

@@ -35,7 +35,8 @@
 		Info,
 		AlertCircle,
 		ChevronDown,
-		Sliders
+		Sliders,
+		FileText
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -1053,20 +1054,6 @@
 					/>
 				</div>
 
-				<div class="sm:col-span-2">
-					<label
-						for="recipe-description"
-						class="mb-1.5 block text-xs font-semibold text-zinc-600 dark:text-zinc-400"
-						>{t('formulator.description')}</label
-					>
-					<textarea
-						id="recipe-description"
-						bind:value={description}
-						rows="2"
-						class="w-full resize-none rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2.5 text-base text-zinc-900 transition-colors focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20 focus:outline-none sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-					></textarea>
-				</div>
-
 				<!-- Public Visibility Checkbox -->
 				<div class="flex items-center gap-3 pt-1 sm:col-span-2">
 					<input
@@ -1162,6 +1149,34 @@
 					/>
 				</div>
 			</div>
+		</div>
+	</div>
+
+	<!-- Description & Brewer Notes Card (Full Width) -->
+	<div
+		class="glass-panel space-y-4 rounded-2xl border border-zinc-200/80 p-6 dark:border-white/[0.08]"
+	>
+		<div class="flex items-center justify-between">
+			<h2 class="flex items-center gap-2 text-base font-bold text-zinc-900 dark:text-white">
+				<FileText class="h-4 w-4 text-amber-500" />
+				{t('formulator.description')}
+			</h2>
+			<span class="text-xs text-zinc-500 dark:text-zinc-400">
+				{t('common.optional')}
+			</span>
+		</div>
+
+		<div>
+			<label for="recipe-description" class="sr-only">
+				{t('formulator.description')}
+			</label>
+			<textarea
+				id="recipe-description"
+				bind:value={description}
+				rows="3"
+				placeholder={t('formulator.description_placeholder')}
+				class="w-full resize-y rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2.5 text-base text-zinc-900 transition-colors focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20 focus:outline-none sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+			></textarea>
 		</div>
 	</div>
 
