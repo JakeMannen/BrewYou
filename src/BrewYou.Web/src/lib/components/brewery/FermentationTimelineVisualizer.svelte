@@ -55,7 +55,7 @@
 <script lang="ts">
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
-	import { Activity, Clock, Thermometer } from '@lucide/svelte';
+	import { Activity, Clock } from '@lucide/svelte';
 
 	interface Props {
 		steps: FermentationStepVisualItem[];
@@ -135,27 +135,6 @@
 							{step.name || t(`fermentation_profile.type_${step.type.toLowerCase()}`)}
 						</span>
 					</div>
-				</div>
-			{/each}
-		</div>
-
-		<!-- Step Detail Badges -->
-		<div class="flex flex-wrap gap-2 pt-1">
-			{#each steps as step (step.id || step.name)}
-				{@const style = getStageStyle(step.type)}
-				<div
-					class="inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all {style.badgeClass}"
-				>
-					<Thermometer class="h-3 w-3 shrink-0" />
-					<span class="font-semibold"
-						>{step.name || t(`fermentation_profile.type_${step.type.toLowerCase()}`)}:</span
-					>
-					<span class="font-mono"
-						>{getDisplayTemp(step.targetTemperatureC)}{settings.tempShort}</span
-					>
-					<span class="text-[10px] opacity-80"
-						>({step.durationDays} {t('fermentation_profile.days')})</span
-					>
 				</div>
 			{/each}
 		</div>

@@ -8,7 +8,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
 	import type { BatchSummaryDto, BatchStatus, EquipmentTelemetryUpdateDto } from '$lib/types/api';
-	import SrmSwatch from '$lib/components/brewery/SrmSwatch.svelte';
+	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import BrewStageTracker, {
 		type BrewStage as UiBrewStage
 	} from '$lib/components/brewery/BrewStageTracker.svelte';
@@ -365,21 +365,20 @@
 						<div
 							class="flex items-start justify-between gap-3 border-b border-zinc-200/60 pb-3 dark:border-white/5"
 						>
-							<div class="space-y-1">
+							<div class="min-w-0 flex-1 space-y-1">
 								<div class="flex items-center gap-2">
 									<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
 										{batch.batchCode}
 									</span>
 									<span class="text-zinc-300 dark:text-zinc-700">•</span>
-									<span class="text-xs text-zinc-500">{batch.beerStyle}</span>
+									<span class="truncate text-xs text-zinc-500">{batch.beerStyle}</span>
 								</div>
 								<h2 class="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
 									{batch.name}
 								</h2>
 							</div>
 
-							<div class="flex items-center gap-2">
-								<SrmSwatch srm={batch.colorSrm} size="sm" shape="pill" />
+							<div class="flex shrink-0 items-center gap-3">
 								<div
 									class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-wide uppercase {badge.class}"
 								>
@@ -395,6 +394,7 @@
 									</span>
 									<span>{badge.label}</span>
 								</div>
+								<BeerGlass srm={batch.colorSrm} size="sm" showLabel class="shrink-0 self-start" />
 							</div>
 						</div>
 

@@ -59,7 +59,7 @@
 <script lang="ts">
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
-	import { Flame, Clock, Thermometer } from '@lucide/svelte';
+	import { Flame, Clock } from '@lucide/svelte';
 
 	interface Props {
 		steps: MashStepVisualItem[];
@@ -119,7 +119,7 @@
 					title="{step.name ||
 						t('mash_profile.step_order_badge', { order: index + 1 })}: {getDisplayTemp(
 						step.temperatureC
-					)}{settings.tempShort} ({step.durationMinutes} min)"
+					)}{settings.tempShort} ({step.durationMinutes} min) • {t(zone.key)}"
 				>
 					<!-- Top Temperature Marker -->
 					<div class="flex items-center justify-between gap-1">
@@ -141,23 +141,6 @@
 							{step.name || t('mash_profile.step_order_badge', { order: index + 1 })}
 						</span>
 					</div>
-				</div>
-			{/each}
-		</div>
-
-		<!-- Step Enzymatic Callout Badges -->
-		<div class="flex flex-wrap gap-2 pt-1">
-			{#each steps as step, index (step.id || index)}
-				{@const zone = getEnzymeZone(step.temperatureC)}
-				<div
-					class="inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all {zone.badgeClass}"
-				>
-					<Thermometer class="h-3 w-3 shrink-0" />
-					<span class="font-semibold"
-						>{step.name || t('mash_profile.step_order_badge', { order: index + 1 })}:</span
-					>
-					<span class="font-mono">{getDisplayTemp(step.temperatureC)}{settings.tempShort}</span>
-					<span class="text-[10px] opacity-80">• {t(zone.key)}</span>
 				</div>
 			{/each}
 		</div>

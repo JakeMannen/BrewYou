@@ -37,4 +37,17 @@ describe('MashEnzymeVisualizer', () => {
 		expect(zone.key).toBe('mash_profile.zone_mash_out');
 		expect(zone.barColor).toBe('#ef4444');
 	});
+
+	it('categorizes boundary temperatures accurately across transition points', () => {
+		expect(getEnzymeZone(54.9).key).toBe('mash_profile.zone_protein');
+		expect(getEnzymeZone(55.0).key).toBe('mash_profile.zone_beta_glucan');
+		expect(getEnzymeZone(61.9).key).toBe('mash_profile.zone_beta_glucan');
+		expect(getEnzymeZone(62.0).key).toBe('mash_profile.zone_beta_amylase');
+		expect(getEnzymeZone(65.0).key).toBe('mash_profile.zone_beta_amylase');
+		expect(getEnzymeZone(65.1).key).toBe('mash_profile.zone_balanced');
+		expect(getEnzymeZone(68.0).key).toBe('mash_profile.zone_balanced');
+		expect(getEnzymeZone(68.1).key).toBe('mash_profile.zone_alpha_amylase');
+		expect(getEnzymeZone(74.0).key).toBe('mash_profile.zone_alpha_amylase');
+		expect(getEnzymeZone(74.1).key).toBe('mash_profile.zone_mash_out');
+	});
 });
