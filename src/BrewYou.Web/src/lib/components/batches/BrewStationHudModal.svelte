@@ -13,7 +13,8 @@
 </script>
 
 <script lang="ts">
-	import type { BrewStage } from '$lib/types/api';
+	import type { BatchIngredientDto, BrewStage } from '$lib/types/api';
+	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import {
@@ -34,6 +35,8 @@
 		currentStage: BrewStage;
 		timerRemainingSeconds: number;
 		timerRunning: boolean;
+		stageTotalSeconds?: number;
+		stageIngredients?: BatchIngredientDto[];
 		targetTemperatureC?: number | null;
 		currentTemperatureC?: number | null;
 		activeStepName?: string | null;
@@ -43,6 +46,7 @@
 		onResetTimer: () => void;
 		onAdjustTimer?: (seconds: number) => void;
 		onAdvanceStep?: () => void;
+		onToggleIngredient?: (ingredientId: string, currentChecked: boolean) => void;
 		onClose: () => void;
 	}
 
@@ -53,6 +57,8 @@
 		currentStage,
 		timerRemainingSeconds,
 		timerRunning,
+		stageTotalSeconds,
+		stageIngredients = [],
 		targetTemperatureC,
 		currentTemperatureC,
 		activeStepName,
@@ -62,6 +68,7 @@
 		onResetTimer,
 		onAdjustTimer,
 		onAdvanceStep,
+		onToggleIngredient,
 		onClose
 	}: Props = $props();
 
@@ -155,7 +162,7 @@
 
 			<!-- Giant Countdown Display -->
 			<div
-				class="relative my-2 flex flex-col items-center justify-center rounded-3xl border border-white/10 bg-zinc-900/60 px-6 py-6 shadow-2xl backdrop-blur-md sm:px-14 sm:py-10"
+				class="relative my-2 flex w-full max-w-3xl flex-col items-center justify-center rounded-3xl border border-white/10 bg-zinc-900/60 px-6 py-6 shadow-2xl backdrop-blur-md sm:px-14 sm:py-8"
 			>
 				<span
 					data-testid="hud-countdown-timer"
@@ -177,6 +184,21 @@
 					<span class="mt-1 font-mono text-xs font-medium text-zinc-400 uppercase sm:text-sm">
 						{timerRunning ? t('common.loading') : 'PAUSED (Space to resume)'}
 					</span>
+				{/if}
+
+				<!-- HUD Stage Progress Bar -->
+				{#if stageTotalSeconds && (currentStage === 'Boil' || currentStage === 'Mash')}
+					<div class="mt-4 w-full border-t border-white/10 pt-3">
+						<StageProgressBar
+							totalSeconds={stageTotalSeconds}
+							remainingSeconds={timerRemainingSeconds}
+							running={timerRunning}
+							stage={currentStage}
+							milestones={stageIngredients}
+							onToggleMilestone={onToggleIngredient}
+							variant="hud"
+						/>
+					</div>
 				{/if}
 			</div>
 

@@ -31,6 +31,8 @@
 	import LogStepTemperatureModal from '$lib/components/batches/LogStepTemperatureModal.svelte';
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
+	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
+	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
 	import {
@@ -281,24 +283,6 @@
 	let currentStageEquipmentId = $derived(currentStageEquipment?.id ?? null);
 	let currentStageEquipmentName = $derived(currentStageEquipment?.name ?? null);
 
-	// Boil & Mash Timers
-	let timerRunning = $state(false);
-	let timerRemainingSeconds = $state(3600); // 60 mins default
-	let timerInterval = $state<ReturnType<typeof setInterval> | null>(null);
-
-	function syncTimerForStage(stage: BrewStage, currentBatch?: BatchDetailDto | null) {
-		const targetBatch = currentBatch ?? batch;
-		if (stage === 'Boil' && targetBatch?.boilTimeMinutes) {
-			timerRemainingSeconds = targetBatch.boilTimeMinutes * 60;
-		} else if (stage === 'Mash') {
-			const activeStep =
-				targetBatch?.mashSteps?.[activeMashStepIndex] ?? targetBatch?.mashSteps?.[0];
-			timerRemainingSeconds = (activeStep?.durationMinutes ?? 60) * 60;
-		} else {
-			timerRemainingSeconds = 3600;
-		}
-	}
-
 	const batchId = $derived(page.params.id);
 
 	let streamAbortController: AbortController | null = null;
@@ -457,9 +441,6 @@
 				selectedMashStepGraphId = batch.mashSteps[activeMashStepIndex]?.id ?? null;
 			}
 
-			if (!timerRunning) {
-				syncTimerForStage(batch.currentStage, batch);
-			}
 			determineNextStage(batch.currentStage);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('batches.errors.load_failed');
@@ -712,6 +693,11 @@
 			: sortIngredientsChronologically(batch.ingredients);
 	});
 
+	let boilStageIngredients = $derived.by<BatchIngredientDto[]>(() => {
+		if (!batch) return [];
+		return getIngredientsForStage('Boil', batch.ingredients);
+	});
+
 	let advanceUpcomingIngredients = $derived.by<BatchIngredientDto[]>(() => {
 		if (!batch) return [];
 		return getIngredientsForStage(nextStage, batch.ingredients);
@@ -742,6 +728,31 @@
 		if (!batch?.mashSteps || batch.mashSteps.length === 0) return null;
 		return batch.mashSteps[activeMashStepIndex] ?? batch.mashSteps[0];
 	});
+
+	let currentMashStepDurationSeconds = $derived.by<number>(() => {
+		const activeStep = currentSelectedMashStep;
+		return (activeStep?.durationMinutes ?? 60) * 60;
+	});
+
+	let boilDurationSeconds = $derived.by<number>(() => {
+		return (batch?.boilTimeMinutes ?? 60) * 60;
+	});
+
+	let inspectedStagePlannedDurationSeconds = $derived.by<number>(() => {
+		if (inspectedStage === 'Boil') return boilDurationSeconds;
+		if (inspectedStage === 'Mash') return currentMashStepDurationSeconds;
+		return 3600;
+	});
+
+	let activeTimerView = $derived(
+		batch
+			? batchTimer.getTimer(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds)
+			: { remainingSeconds: 3600, running: false, totalSeconds: 3600 }
+	);
+
+	let timerRemainingSeconds = $derived(activeTimerView.remainingSeconds);
+	let timerRunning = $derived(activeTimerView.running);
+	let currentStageTotalSeconds = $derived(activeTimerView.totalSeconds);
 
 	let strikeRatio = $derived.by(() => {
 		const strikeVol = batch?.volumeProfile?.strikeWaterLiters;
@@ -796,7 +807,7 @@
 		activeMashStepIndex = index;
 		selectedMashStepGraphId = batch.mashSteps[index].id;
 		pauseTimer();
-		timerRemainingSeconds = batch.mashSteps[index].durationMinutes * 60;
+		batchTimer.reset(batch.id, 'Mash', batch.mashSteps[index].durationMinutes * 60);
 	}
 
 	async function handleToggleMashStep(stepId: string, currentCompleted: boolean) {
@@ -912,7 +923,6 @@
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
 			pauseTimer();
-			syncTimerForStage(updated.currentStage, updated);
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
@@ -958,28 +968,18 @@
 	}
 
 	function startTimer() {
-		if (timerRunning) return;
-		timerRunning = true;
-		timerInterval = setInterval(() => {
-			if (timerRemainingSeconds > 0) {
-				timerRemainingSeconds--;
-			} else {
-				pauseTimer();
-			}
-		}, 1000);
+		if (!batch) return;
+		batchTimer.start(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
 	}
 
 	function pauseTimer() {
-		timerRunning = false;
-		if (timerInterval) {
-			clearInterval(timerInterval);
-			timerInterval = null;
-		}
+		if (!batch) return;
+		batchTimer.pause(batch.id, inspectedStage);
 	}
 
 	function resetTimer() {
-		pauseTimer();
-		syncTimerForStage(inspectedStage);
+		if (!batch) return;
+		batchTimer.reset(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
 	}
 
 	function formatTime(seconds: number) {
@@ -1043,18 +1043,20 @@
 
 			<!-- Advance Stage & Primary CTA -->
 			<div class="flex items-center gap-2.5 self-start sm:self-auto">
-				<!-- Brew Station HUD Button -->
-				<button
-					type="button"
-					data-testid="open-brew-station-hud-btn"
-					onclick={() => (showBrewStationHud = true)}
-					class="tactile-pill flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-700 transition-all hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-300"
-					title={t('batches.workspace.brew_station_hud')}
-				>
-					<Flame class="h-4 w-4 animate-pulse text-amber-500" />
-					<span class="hidden sm:inline">{t('batches.workspace.brew_station_hud')}</span>
-					<Maximize2 class="h-3.5 w-3.5 opacity-70" />
-				</button>
+				<!-- Brew Station HUD Button (Active only during hands-on Mash & Boil stages) -->
+				{#if inspectedStage === 'Mash' || inspectedStage === 'Boil'}
+					<button
+						type="button"
+						data-testid="open-brew-station-hud-btn"
+						onclick={() => (showBrewStationHud = true)}
+						class="tactile-pill flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-700 transition-all hover:bg-amber-500/20 active:scale-[0.98] dark:text-amber-300"
+						title={t('batches.workspace.brew_station_hud')}
+					>
+						<Flame class="h-4 w-4 animate-pulse text-amber-500" />
+						<span class="hidden sm:inline">{t('batches.workspace.brew_station_hud')}</span>
+						<Maximize2 class="h-3.5 w-3.5 opacity-70" />
+					</button>
+				{/if}
 
 				{#if batch.status !== 'Completed'}
 					<button
@@ -1092,9 +1094,6 @@
 					const found = stageOrder.find((st) => st.toLowerCase() === s.id.toLowerCase());
 					if (found) {
 						inspectedStage = found;
-						if (!timerRunning) {
-							syncTimerForStage(found);
-						}
 					}
 				}}
 			/>
@@ -1128,9 +1127,6 @@
 					data-testid="return-to-active-stage-btn"
 					onclick={() => {
 						inspectedStage = batch!.currentStage;
-						if (!timerRunning) {
-							syncTimerForStage(batch!.currentStage);
-						}
 					}}
 					class="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-800 transition-colors hover:bg-amber-500/30 active:scale-95 dark:text-amber-300"
 				>
@@ -1460,6 +1456,14 @@
 										{formatTime(timerRemainingSeconds)}
 									</span>
 								</div>
+
+								<StageProgressBar
+									totalSeconds={currentMashStepDurationSeconds}
+									remainingSeconds={timerRemainingSeconds}
+									running={timerRunning}
+									stage="Mash"
+									variant="default"
+								/>
 							</div>
 
 							<div class="flex flex-col gap-3">
@@ -1763,6 +1767,16 @@
 									{formatTime(timerRemainingSeconds)}
 								</span>
 							</div>
+
+							<StageProgressBar
+								totalSeconds={boilDurationSeconds}
+								remainingSeconds={timerRemainingSeconds}
+								running={timerRunning}
+								stage="Boil"
+								milestones={boilStageIngredients}
+								onToggleMilestone={handleToggleIngredient}
+								variant="default"
+							/>
 						</div>
 
 						<div class="flex items-center justify-center gap-3">
@@ -2797,31 +2811,26 @@
 	onDeleted={() => goto('/batches')}
 />
 
-{#if batch}
+{#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}
 	<BrewStationHudModal
 		open={showBrewStationHud}
 		batchName={batch.name}
 		beerStyle={batch.beerStyle}
-		currentStage={batch.currentStage}
+		currentStage={inspectedStage}
 		{timerRemainingSeconds}
 		{timerRunning}
-		targetTemperatureC={batch.currentStage === 'Mash'
+		stageTotalSeconds={currentStageTotalSeconds}
+		stageIngredients={inspectedStage === 'Boil' ? boilStageIngredients : []}
+		onToggleIngredient={handleToggleIngredient}
+		targetTemperatureC={inspectedStage === 'Mash'
 			? (currentSelectedMashStep?.targetTemperatureC ?? 65)
-			: batch.currentStage === 'Boil'
-				? 100
-				: batch.currentStage === 'Ferment'
-					? activeFermentationStepTargetTemp
-					: null}
+			: 100}
 		currentTemperatureC={batchEquipmentReadings.length > 0
 			? batchEquipmentReadings[batchEquipmentReadings.length - 1].temperatureC
 			: (currentSelectedMashStep?.actualTemperatureC ?? null)}
-		activeStepName={batch.currentStage === 'Mash'
+		activeStepName={inspectedStage === 'Mash'
 			? currentSelectedMashStep?.name
-			: batch.currentStage === 'Boil'
-				? `Boil (${batch.boilTimeMinutes ?? 60}m)`
-				: batch.currentStage === 'Ferment'
-					? activeFermentationStep?.name
-					: null}
+			: `Boil (${batch.boilTimeMinutes ?? 60}m)`}
 		{activeMashStepIndex}
 		totalMashSteps={batch.mashSteps?.length}
 		onToggleTimer={() => {
@@ -2833,9 +2842,10 @@
 		}}
 		onResetTimer={resetTimer}
 		onAdjustTimer={(seconds) => {
-			timerRemainingSeconds = Math.max(0, timerRemainingSeconds + seconds);
+			if (!batch) return;
+			batchTimer.adjust(batch.id, inspectedStage, seconds, inspectedStagePlannedDurationSeconds);
 		}}
-		onAdvanceStep={batch.currentStage === 'Mash' ? handleAdvanceMashStep : undefined}
+		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : undefined}
 		onClose={() => (showBrewStationHud = false)}
 	/>
 {/if}
