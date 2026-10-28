@@ -135,7 +135,12 @@ public class IngredientEndpointTests : IClassFixture<WebApplicationFactory<Progr
         var carafa = fermentables.FirstOrDefault(f => f.Name == "Carafa Special III");
         carafa.Should().NotBeNull();
         carafa!.PotentialGravity.Should().Be(1.032m);
-        carafa.ColorSrm.Should().Be(520.0m);
+        carafa.ColorSrm.Should().Be(710.7m);
+
+        var caramunich = fermentables.FirstOrDefault(f => f.Name == "CaraMunich II");
+        caramunich.Should().NotBeNull();
+        caramunich!.PotentialGravity.Should().Be(1.034m);
+        caramunich.ColorSrm.Should().Be(60.9m);
 
         var galaxy = hops.FirstOrDefault(h => h.Name == "Galaxy");
         galaxy.Should().NotBeNull();
@@ -439,9 +444,14 @@ public class IngredientEndpointTests : IClassFixture<WebApplicationFactory<Progr
 
         // Verify Wheat, Reinheitsgebot, and craft malts
         fermentables.Should().Contain(f => f.Name == "Malted Wheat" && f.ColorSrm == 2.5m);
-        fermentables.Should().Contain(f => f.Name == "Dark Wheat Malt" && f.ColorSrm == 7.0m);
+        fermentables.Should().Contain(f => f.Name == "Dark Wheat Malt" && f.ColorSrm == 9.0m);
         fermentables.Should().Contain(f => f.Name == "Acidulated Malt" && f.PotentialGravity == 1.034m);
-        fermentables.Should().Contain(f => f.Name == "Melanoidin Malt" && f.ColorSrm == 28.0m);
+        fermentables.Should().Contain(f => f.Name == "Melanoidin Malt" && f.ColorSrm == 35.5m);
+        fermentables.Should().Contain(f => f.Name == "CaraMunich II" && f.ColorSrm == 60.9m);
+        fermentables.Should().Contain(f => f.Name == "Carafa Special III" && f.ColorSrm == 710.7m);
+        fermentables.Should().Contain(f => f.Name == "Roasted Barley" && f.ColorSrm == 600.0m);
+        fermentables.Should().Contain(f => f.Name == "Pale Chocolate Malt" && f.ColorSrm == 280.0m);
+        fermentables.Should().Contain(f => f.Name == "Black Patent / Black Malt" && f.ColorSrm == 685.0m);
         fermentables.Should().Contain(f => f.Name == "Smoked Malt (Rauchmalz)" && f.PotentialGravity == 1.037m);
         fermentables.Should().Contain(f => f.Name == "Golden Promise" && f.PotentialGravity == 1.038m);
 
