@@ -17,6 +17,7 @@
 	import DeleteRecipeModal from '$lib/components/recipes/DeleteRecipeModal.svelte';
 	import RecipeImportModal from '$lib/components/recipes/RecipeImportModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
+	import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
 	import {
 		BookOpen,
 		Plus,
@@ -234,14 +235,9 @@
 			}
 
 			const ingredients = parsed.ingredients.map((ing) => {
-				const lower = ing.name.trim().toLowerCase();
 				const match =
-					activeCatalog.find(
-						(c) =>
-							c.name.toLowerCase() === lower ||
-							c.name.toLowerCase().includes(lower) ||
-							lower.includes(c.name.toLowerCase())
-					) || activeCatalog.find((c) => c.type === ing.type);
+					findCatalogIngredientMatch(ing, activeCatalog) ??
+					activeCatalog.find((c) => c.type === ing.type);
 
 				return {
 					ingredientId: match ? match.id : activeCatalog[0]?.id || '',
