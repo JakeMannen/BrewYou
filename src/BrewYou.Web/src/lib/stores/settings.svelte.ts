@@ -153,6 +153,12 @@ export function formatColor(
 	return `${formatNumber(srm, decimals)} SRM`;
 }
 
+export function formatFermentableColor(srm: number | null | undefined, decimals = 1): string {
+	if (srm == null || isNaN(srm)) return '-';
+	const ebc = srmToEbc(srm);
+	return `${formatNumber(ebc, decimals)} EBC (${formatNumber(srm, decimals)} SRM)`;
+}
+
 export function toDisplayColor(srm: number, unit: ColorUnit): number {
 	return unit === 'EBC' ? srmToEbc(srm) : Math.round(srm * 10) / 10;
 }
@@ -342,6 +348,10 @@ class SettingsState {
 
 	formatColor(srm: number | null | undefined, decimals = 1): string {
 		return formatColor(srm, this.colorUnit, decimals);
+	}
+
+	formatFermentableColor(srm: number | null | undefined, decimals = 1): string {
+		return formatFermentableColor(srm, decimals);
 	}
 
 	formatCarb(vols: number | null | undefined, decimals = 2): string {

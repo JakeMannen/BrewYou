@@ -14,6 +14,7 @@ import {
 	fahrenheitToCelsius,
 	formatCarbonation,
 	formatColor,
+	formatFermentableColor,
 	formatGrainWeight,
 	formatGravity,
 	formatHopWeight,
@@ -406,6 +407,14 @@ describe('Color Unit Conversion Helpers', () => {
 		expect(toDisplayColor(10, 'EBC')).toBe(19.7);
 		expect(fromDisplayColor(19.7, 'EBC')).toBe(10);
 		expect(fromDisplayColor(10, 'SRM')).toBe(10);
+	});
+
+	it('formats fermentable color with both EBC and SRM (EBC first)', () => {
+		expect(formatFermentableColor(null)).toBe('-');
+		expect(formatFermentableColor(undefined)).toBe('-');
+		expect(formatFermentableColor(1.8)).toBe('3.5 EBC (1.8 SRM)');
+		expect(formatFermentableColor(60)).toBe('118.2 EBC (60.0 SRM)');
+		expect(settings.formatFermentableColor(1.8)).toBe('3.5 EBC (1.8 SRM)');
 	});
 });
 

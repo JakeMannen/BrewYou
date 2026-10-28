@@ -2,6 +2,8 @@
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { srmToHexColor, sgToPpg, ppgToSg } from '$lib/calculators/brewing';
+	import { srmToEbc, ebcToSrm } from '$lib/stores/settings.svelte';
+	import { formatNumber } from '$lib/utils/formatNumber';
 	import type { IngredientDto, IngredientType, CreateIngredientRequest } from '$lib/types/api';
 	import { X, Loader2, Wheat, Flower2, Dna, Sparkles, Check } from '@lucide/svelte';
 
@@ -27,7 +29,8 @@
 	let type = $state<IngredientType>('Fermentable');
 	let potentialUnit = $state<'SG' | 'PPG'>('SG');
 	let potentialValue = $state<number | ''>(1.037);
-	let colorSrm = $state<number | ''>(2.0);
+	let colorUnit = $state<'EBC' | 'SRM'>('EBC');
+	let colorValue = $state<number | ''>(3.5);
 	let alphaAcidPercent = $state<number | ''>(5.5);
 	let attenuationPercent = $state<number | ''>(75);
 	let description = $state('');
@@ -48,9 +51,17 @@
 		});
 	});
 
-	let srmHexColor = $derived(
-		srmToHexColor(typeof colorSrm === 'number' && colorSrm >= 0 ? colorSrm : 0)
-	);
+	let effectiveColorSrm = $derived.by(() => {
+		if (typeof colorValue !== 'number' || isNaN(colorValue) || colorValue < 0) return 0;
+		return colorUnit === 'EBC' ? ebcToSrm(colorValue) : colorValue;
+	});
+
+	let effectiveColorEbc = $derived.by(() => {
+		if (typeof colorValue !== 'number' || isNaN(colorValue) || colorValue < 0) return 0;
+		return colorUnit === 'EBC' ? colorValue : srmToEbc(colorValue);
+	});
+
+	let srmHexColor = $derived(srmToHexColor(effectiveColorSrm));
 
 	let hopPurposeHint = $derived(
 		typeof alphaAcidPercent === 'number' && alphaAcidPercent > 10
@@ -73,7 +84,8 @@
 				type = ingredient.type;
 				potentialUnit = 'SG';
 				potentialValue = ingredient.potentialGravity ?? '';
-				colorSrm = ingredient.colorSrm ?? '';
+				colorUnit = 'EBC';
+				colorValue = ingredient.colorSrm != null ? srmToEbc(ingredient.colorSrm) : '';
 				alphaAcidPercent = ingredient.alphaAcidPercent ?? '';
 				attenuationPercent = ingredient.attenuationPercent ?? '';
 				description = ingredient.description ?? '';
@@ -85,7 +97,8 @@
 				type = initialType;
 				potentialUnit = 'SG';
 				potentialValue = initialType === 'Fermentable' ? 1.037 : '';
-				colorSrm = initialType === 'Fermentable' ? 2.0 : '';
+				colorUnit = 'EBC';
+				colorValue = initialType === 'Fermentable' ? 3.5 : '';
 				alphaAcidPercent = initialType === 'Hop' ? 5.5 : '';
 				attenuationPercent = initialType === 'Yeast' ? 75 : '';
 				description = '';
@@ -121,12 +134,25 @@
 		}
 	}
 
+	function setColorUnit(unit: 'EBC' | 'SRM') {
+		if (colorUnit === unit) return;
+		if (typeof colorValue === 'number' && !isNaN(colorValue)) {
+			if (unit === 'EBC') {
+				colorValue = srmToEbc(colorValue);
+			} else {
+				colorValue = ebcToSrm(colorValue);
+			}
+		}
+		colorUnit = unit;
+		fieldErrors = { ...fieldErrors, colorsrm: '' };
+	}
+
 	function handleTypeChange(newType: IngredientType) {
 		type = newType;
 		if (!ingredient) {
 			if (newType === 'Fermentable') {
 				if (potentialValue === '') potentialValue = potentialUnit === 'SG' ? 1.037 : 37;
-				if (colorSrm === '') colorSrm = 2.0;
+				if (colorValue === '') colorValue = colorUnit === 'EBC' ? 3.5 : 1.8;
 				stockUnit = 'kg';
 				form = '';
 			} else if (newType === 'Hop') {
@@ -186,9 +212,15 @@
 					}
 				}
 			}
-			if (typeof colorSrm === 'number') {
-				if (colorSrm < 0 || colorSrm > 1000) {
-					errors.colorSrm = t('ingredients.err_srm_range');
+			if (typeof colorValue === 'number') {
+				if (colorUnit === 'EBC') {
+					if (colorValue < 0 || colorValue > 2000) {
+						errors.colorsrm = t('ingredients.err_ebc_range');
+					}
+				} else {
+					if (colorValue < 0 || colorValue > 1000) {
+						errors.colorsrm = t('ingredients.err_srm_range');
+					}
 				}
 			}
 		} else if (type === 'Hop') {
@@ -232,7 +264,12 @@
 			} else {
 				reqPotentialGravity = null;
 			}
-			reqColorSrm = typeof colorSrm === 'number' ? colorSrm : null;
+			reqColorSrm =
+				typeof colorValue === 'number'
+					? colorUnit === 'EBC'
+						? ebcToSrm(colorValue)
+						: colorValue
+					: null;
 		} else if (type === 'Hop') {
 			reqAlphaAcidPercent = typeof alphaAcidPercent === 'number' ? alphaAcidPercent : null;
 		} else if (type === 'Yeast') {
@@ -475,36 +512,84 @@
 							{/if}
 						</div>
 
-						<!-- Color (SRM) with Live Preview -->
+						<!-- Color (EBC / SRM) with Live Preview -->
 						<div>
-							<label
-								for="ingredient-srm"
-								class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-							>
-								{t('ingredients.color_label')}
-							</label>
+							<div class="flex items-center justify-between">
+								<label
+									for="ingredient-color"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{colorUnit === 'EBC'
+										? t('ingredients.color_ebc_label')
+										: t('ingredients.color_srm_label')}
+								</label>
+								<div
+									class="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 text-[10px] font-semibold dark:border-zinc-800 dark:bg-zinc-800/80"
+								>
+									<button
+										type="button"
+										onclick={() => setColorUnit('EBC')}
+										class="rounded-md px-1.5 py-0.5 transition-colors {colorUnit === 'EBC'
+											? 'bg-white font-bold text-amber-600 shadow-xs dark:bg-zinc-700 dark:text-amber-400'
+											: 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+									>
+										{t('ingredients.unit_ebc')}
+									</button>
+									<button
+										type="button"
+										onclick={() => setColorUnit('SRM')}
+										class="rounded-md px-1.5 py-0.5 transition-colors {colorUnit === 'SRM'
+											? 'bg-white font-bold text-amber-600 shadow-xs dark:bg-zinc-700 dark:text-amber-400'
+											: 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+									>
+										{t('ingredients.unit_srm')}
+									</button>
+								</div>
+							</div>
 							<div class="mt-1.5 flex items-center gap-2">
 								<input
-									id="ingredient-srm"
+									id="ingredient-color"
 									type="number"
 									step="0.1"
 									min="0"
-									max="1000"
-									bind:value={colorSrm}
-									placeholder={t('ingredients.color_placeholder')}
+									max={colorUnit === 'EBC' ? 2000 : 1000}
+									bind:value={colorValue}
+									placeholder={colorUnit === 'EBC'
+										? t('ingredients.color_placeholder_ebc')
+										: t('ingredients.color_placeholder_srm')}
 									class="h-10 flex-1 rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								<div
-									class="flex h-10 w-16 items-center justify-center rounded-xl border border-zinc-300 text-[11px] font-bold shadow-xs transition-colors dark:border-zinc-700"
-									style="background-color: {srmHexColor}; color: {(Number(colorSrm) || 0) > 15
+									class="flex h-10 w-24 items-center justify-center rounded-xl border border-zinc-300 text-[11px] font-bold shadow-xs transition-colors dark:border-zinc-700"
+									style="background-color: {srmHexColor}; color: {effectiveColorSrm > 15
 										? '#ffffff'
 										: '#18181b'};"
-									title={t('ingredients.color_swatch_label', { srm: colorSrm || 0 })}
-									aria-label={t('ingredients.color_swatch_label', { srm: colorSrm || 0 })}
+									title={t('ingredients.color_swatch_label', {
+										ebc: formatNumber(effectiveColorEbc, 1),
+										srm: formatNumber(effectiveColorSrm, 1)
+									})}
+									aria-label={t('ingredients.color_swatch_label', {
+										ebc: formatNumber(effectiveColorEbc, 1),
+										srm: formatNumber(effectiveColorSrm, 1)
+									})}
 								>
-									{colorSrm || 0}°
+									{formatNumber(colorUnit === 'EBC' ? effectiveColorEbc : effectiveColorSrm, 1)}
+									{colorUnit}
 								</div>
 							</div>
+							{#if typeof colorValue === 'number' && !isNaN(colorValue) && !fieldErrors.colorsrm}
+								<p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+									{#if colorUnit === 'EBC'}
+										{t('ingredients.srm_equivalent', {
+											srm: formatNumber(ebcToSrm(colorValue), 1)
+										})}
+									{:else}
+										{t('ingredients.ebc_equivalent', {
+											ebc: formatNumber(srmToEbc(colorValue), 1)
+										})}
+									{/if}
+								</p>
+							{/if}
 							{#if fieldErrors.colorsrm}
 								<p class="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">
 									{fieldErrors.colorsrm}
