@@ -32,6 +32,7 @@
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
+	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
 	import {
@@ -282,24 +283,6 @@
 	let currentStageEquipmentId = $derived(currentStageEquipment?.id ?? null);
 	let currentStageEquipmentName = $derived(currentStageEquipment?.name ?? null);
 
-	// Boil & Mash Timers
-	let timerRunning = $state(false);
-	let timerRemainingSeconds = $state(3600); // 60 mins default
-	let timerInterval = $state<ReturnType<typeof setInterval> | null>(null);
-
-	function syncTimerForStage(stage: BrewStage, currentBatch?: BatchDetailDto | null) {
-		const targetBatch = currentBatch ?? batch;
-		if (stage === 'Boil' && targetBatch?.boilTimeMinutes) {
-			timerRemainingSeconds = targetBatch.boilTimeMinutes * 60;
-		} else if (stage === 'Mash') {
-			const activeStep =
-				targetBatch?.mashSteps?.[activeMashStepIndex] ?? targetBatch?.mashSteps?.[0];
-			timerRemainingSeconds = (activeStep?.durationMinutes ?? 60) * 60;
-		} else {
-			timerRemainingSeconds = 3600;
-		}
-	}
-
 	const batchId = $derived(page.params.id);
 
 	let streamAbortController: AbortController | null = null;
@@ -458,9 +441,6 @@
 				selectedMashStepGraphId = batch.mashSteps[activeMashStepIndex]?.id ?? null;
 			}
 
-			if (!timerRunning) {
-				syncTimerForStage(batch.currentStage, batch);
-			}
 			determineNextStage(batch.currentStage);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('batches.errors.load_failed');
@@ -718,21 +698,6 @@
 		return getIngredientsForStage('Boil', batch.ingredients);
 	});
 
-	let currentMashStepDurationSeconds = $derived.by<number>(() => {
-		const activeStep = batch?.mashSteps?.[activeMashStepIndex] ?? batch?.mashSteps?.[0];
-		return (activeStep?.durationMinutes ?? 60) * 60;
-	});
-
-	let boilDurationSeconds = $derived.by<number>(() => {
-		return (batch?.boilTimeMinutes ?? 60) * 60;
-	});
-
-	let currentStageTotalSeconds = $derived.by<number>(() => {
-		if (batch?.currentStage === 'Boil') return boilDurationSeconds;
-		if (batch?.currentStage === 'Mash') return currentMashStepDurationSeconds;
-		return 3600;
-	});
-
 	let advanceUpcomingIngredients = $derived.by<BatchIngredientDto[]>(() => {
 		if (!batch) return [];
 		return getIngredientsForStage(nextStage, batch.ingredients);
@@ -763,6 +728,31 @@
 		if (!batch?.mashSteps || batch.mashSteps.length === 0) return null;
 		return batch.mashSteps[activeMashStepIndex] ?? batch.mashSteps[0];
 	});
+
+	let currentMashStepDurationSeconds = $derived.by<number>(() => {
+		const activeStep = currentSelectedMashStep;
+		return (activeStep?.durationMinutes ?? 60) * 60;
+	});
+
+	let boilDurationSeconds = $derived.by<number>(() => {
+		return (batch?.boilTimeMinutes ?? 60) * 60;
+	});
+
+	let inspectedStagePlannedDurationSeconds = $derived.by<number>(() => {
+		if (inspectedStage === 'Boil') return boilDurationSeconds;
+		if (inspectedStage === 'Mash') return currentMashStepDurationSeconds;
+		return 3600;
+	});
+
+	let activeTimerView = $derived(
+		batch
+			? batchTimer.getTimer(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds)
+			: { remainingSeconds: 3600, running: false, totalSeconds: 3600 }
+	);
+
+	let timerRemainingSeconds = $derived(activeTimerView.remainingSeconds);
+	let timerRunning = $derived(activeTimerView.running);
+	let currentStageTotalSeconds = $derived(activeTimerView.totalSeconds);
 
 	let strikeRatio = $derived.by(() => {
 		const strikeVol = batch?.volumeProfile?.strikeWaterLiters;
@@ -817,7 +807,7 @@
 		activeMashStepIndex = index;
 		selectedMashStepGraphId = batch.mashSteps[index].id;
 		pauseTimer();
-		timerRemainingSeconds = batch.mashSteps[index].durationMinutes * 60;
+		batchTimer.reset(batch.id, 'Mash', batch.mashSteps[index].durationMinutes * 60);
 	}
 
 	async function handleToggleMashStep(stepId: string, currentCompleted: boolean) {
@@ -933,7 +923,6 @@
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
 			pauseTimer();
-			syncTimerForStage(updated.currentStage, updated);
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
@@ -979,28 +968,18 @@
 	}
 
 	function startTimer() {
-		if (timerRunning) return;
-		timerRunning = true;
-		timerInterval = setInterval(() => {
-			if (timerRemainingSeconds > 0) {
-				timerRemainingSeconds--;
-			} else {
-				pauseTimer();
-			}
-		}, 1000);
+		if (!batch) return;
+		batchTimer.start(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
 	}
 
 	function pauseTimer() {
-		timerRunning = false;
-		if (timerInterval) {
-			clearInterval(timerInterval);
-			timerInterval = null;
-		}
+		if (!batch) return;
+		batchTimer.pause(batch.id, inspectedStage);
 	}
 
 	function resetTimer() {
-		pauseTimer();
-		syncTimerForStage(inspectedStage);
+		if (!batch) return;
+		batchTimer.reset(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
 	}
 
 	function formatTime(seconds: number) {
@@ -1113,9 +1092,6 @@
 					const found = stageOrder.find((st) => st.toLowerCase() === s.id.toLowerCase());
 					if (found) {
 						inspectedStage = found;
-						if (!timerRunning) {
-							syncTimerForStage(found);
-						}
 					}
 				}}
 			/>
@@ -1149,9 +1125,6 @@
 					data-testid="return-to-active-stage-btn"
 					onclick={() => {
 						inspectedStage = batch!.currentStage;
-						if (!timerRunning) {
-							syncTimerForStage(batch!.currentStage);
-						}
 					}}
 					class="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-800 transition-colors hover:bg-amber-500/30 active:scale-95 dark:text-amber-300"
 				>
@@ -2875,7 +2848,8 @@
 		}}
 		onResetTimer={resetTimer}
 		onAdjustTimer={(seconds) => {
-			timerRemainingSeconds = Math.max(0, timerRemainingSeconds + seconds);
+			if (!batch) return;
+			batchTimer.adjust(batch.id, inspectedStage, seconds);
 		}}
 		onAdvanceStep={batch.currentStage === 'Mash' ? handleAdvanceMashStep : undefined}
 		onClose={() => (showBrewStationHud = false)}
