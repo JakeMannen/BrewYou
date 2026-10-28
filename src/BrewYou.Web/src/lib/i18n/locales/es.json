@@ -658,7 +658,7 @@
 		"name_placeholder": "ej. Citra IPA",
 		"beer_style": "Estilo de cerveza",
 		"beer_style_placeholder": "ej. American IPA (opcional)",
-		"description": "Descripción y notas del cervecero",
+		"description": "Descripción",
 		"description_placeholder": "Perfiles de aroma, notas de cata, instrucciones del proceso o notas del cervecero...",
 		"ingredients_bill": "Lista de ingredientes",
 		"add_grain": "+ Grano",

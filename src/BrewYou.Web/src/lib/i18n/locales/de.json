@@ -658,7 +658,7 @@
 		"name_placeholder": "z. B. Citra IPA",
 		"beer_style": "Bierstil",
 		"beer_style_placeholder": "z. B. American IPA (optional)",
-		"description": "Beschreibung & Brauernotizen",
+		"description": "Beschreibung",
 		"description_placeholder": "Aromaprofile, Verkostungsnotizen, Prozessanweisungen oder Brauernotizen...",
 		"ingredients_bill": "Zutatenliste",
 		"add_grain": "+ Malz",

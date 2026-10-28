@@ -38,7 +38,7 @@
 		UserCheck,
 		Globe,
 		User,
-		Info,
+		FileText,
 		Sliders,
 		Wheat,
 		Flower2,
@@ -499,16 +499,16 @@
 			</div>
 		</div>
 
-		<!-- Overview & Brewhouse Calibration -->
+		<!-- Description & Brewhouse Calibration -->
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
 			<div
 				class="glass-panel space-y-3 rounded-2xl border border-zinc-200/80 p-6 lg:col-span-2 dark:border-white/[0.08]"
 			>
 				<h2 class="flex items-center gap-2 text-base font-bold text-zinc-900 dark:text-white">
-					<Info class="h-4 w-4 text-amber-500" />
-					{t('formulator.recipe_overview')}
+					<FileText class="h-4 w-4 text-amber-500" />
+					{t('formulator.description')}
 				</h2>
-				<p class="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+				<p class="text-sm leading-relaxed whitespace-pre-line text-zinc-600 dark:text-zinc-300">
 					{recipe.description || t('recipes.subtitle')}
 				</p>
 			</div>
