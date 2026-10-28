@@ -82,7 +82,7 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
-	import SrmSwatch from '$lib/components/brewery/SrmSwatch.svelte';
+	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import {
 		Activity,
 		ChevronRight,
@@ -160,72 +160,75 @@
 				class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-4 transition-all duration-200 hover:border-amber-500/40 hover:shadow-md dark:border-white/10 dark:bg-zinc-900/40 dark:hover:border-amber-500/30"
 			>
 				<!-- Vessel & Primary Metrics Row -->
-				<div class="flex items-start gap-4">
-					<!-- Visual Tank Badge Graphic -->
-					<div
-						class="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-zinc-200/80 bg-zinc-100/80 p-2 shadow-inner transition group-hover:scale-105 dark:border-white/10 dark:bg-zinc-900/60"
-					>
-						<VesselIcon
-							{subtype}
-							fillPercent={fill}
-							size={56}
-							active={true}
-							animated={true}
-							animationStage={batch.currentStage.toLowerCase()}
-							title="{equipName || subtype} ({fill}% full)"
-						/>
-						<span
-							data-testid="vessel-fill-badge-{batch.id}"
-							class="absolute -bottom-2 rounded-full border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+				<div class="flex items-start justify-between gap-3 sm:gap-4">
+					<div class="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+						<!-- Visual Tank Badge Graphic -->
+						<div
+							class="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-zinc-200/80 bg-zinc-100/80 p-2 shadow-inner transition group-hover:scale-105 dark:border-white/10 dark:bg-zinc-900/60"
 						>
-							{fill}%
-						</span>
-					</div>
-
-					<!-- Batch Meta -->
-					<div class="min-w-0 flex-1 space-y-1.5">
-						<div class="flex flex-wrap items-center gap-2">
+							<VesselIcon
+								{subtype}
+								fillPercent={fill}
+								size={56}
+								active={true}
+								animated={true}
+								animationStage={batch.currentStage.toLowerCase()}
+								title="{equipName || subtype} ({fill}% full)"
+							/>
 							<span
-								class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-amber-600 dark:text-amber-400"
+								data-testid="vessel-fill-badge-{batch.id}"
+								class="absolute -bottom-2 rounded-full border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
 							>
-								{batch.batchCode}
-							</span>
-							<span
-								data-testid="batch-stage-badge-{batch.id}"
-								class="rounded-md bg-amber-500/20 px-2 py-0.5 font-mono text-xs font-bold text-amber-700 dark:text-amber-300"
-							>
-								{t(`batches.stages.${batch.currentStage.toLowerCase()}`)}
-							</span>
-							<span
-								class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-							>
-								<SrmSwatch srm={batch.colorSrm} size="sm" shape="pill" showLabel={false} />
-								<span class="max-w-[120px] truncate">{batch.beerStyle}</span>
+								{fill}%
 							</span>
 						</div>
 
-						<h3 class="truncate text-base font-bold text-zinc-900 dark:text-white">
-							<a href="/batches/{batch.id}" class="transition-colors hover:text-amber-500">
-								{batch.name}
-							</a>
-						</h3>
-
-						<p class="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
-							<Clock class="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
-							<span>
-								{t('dashboard.days_in_stage', {
-									day: batch.daysActive,
-									stage: t(`batches.stages.${batch.currentStage.toLowerCase()}`)
-								})}
-							</span>
-							{#if equipName}
-								<span>•</span>
-								<span data-testid="batch-equipment-name-{batch.id}" class="truncate"
-									>{equipName}</span
+						<!-- Batch Meta -->
+						<div class="min-w-0 flex-1 space-y-1.5">
+							<div class="flex flex-wrap items-center gap-2">
+								<span
+									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-amber-600 dark:text-amber-400"
 								>
-							{/if}
-						</p>
+									{batch.batchCode}
+								</span>
+								<span
+									data-testid="batch-stage-badge-{batch.id}"
+									class="rounded-md bg-amber-500/20 px-2 py-0.5 font-mono text-xs font-bold text-amber-700 dark:text-amber-300"
+								>
+									{t(`batches.stages.${batch.currentStage.toLowerCase()}`)}
+								</span>
+								<span
+									class="inline-flex items-center rounded-md border border-zinc-200/80 bg-zinc-100/80 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300"
+								>
+									<span class="max-w-[120px] truncate">{batch.beerStyle}</span>
+								</span>
+							</div>
+
+							<h3 class="truncate text-base font-bold text-zinc-900 dark:text-white">
+								<a href="/batches/{batch.id}" class="transition-colors hover:text-amber-500">
+									{batch.name}
+								</a>
+							</h3>
+
+							<p class="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+								<Clock class="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
+								<span>
+									{t('dashboard.days_in_stage', {
+										day: batch.daysActive,
+										stage: t(`batches.stages.${batch.currentStage.toLowerCase()}`)
+									})}
+								</span>
+								{#if equipName}
+									<span>•</span>
+									<span data-testid="batch-equipment-name-{batch.id}" class="truncate"
+										>{equipName}</span
+									>
+								{/if}
+							</p>
+						</div>
 					</div>
+
+					<BeerGlass srm={batch.colorSrm} size="sm" showLabel class="shrink-0 self-start" />
 				</div>
 
 				<!-- Telemetry HUD Bar (Temperature & Gravity) -->
