@@ -27,18 +27,50 @@ public static class DbSeeder
             }
 
             var catalogIngredients = GetDefaultCatalogIngredients();
-            var existingNames = await db.Ingredients
+            var existingCatalogIngredients = await db.Ingredients
                 .Where(i => i.IsCatalogItem)
-                .Select(i => i.Name)
                 .ToListAsync();
 
-            var missingIngredients = catalogIngredients
-                .Where(i => !existingNames.Contains(i.Name))
-                .ToList();
+            var existingLookup = existingCatalogIngredients
+                .GroupBy(i => (i.Name, i.Type))
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var missingIngredients = new List<Ingredient>();
+            var modifiedAny = false;
+
+            foreach (var catalogItem in catalogIngredients)
+            {
+                if (existingLookup.TryGetValue((catalogItem.Name, catalogItem.Type), out var existing))
+                {
+                    if (existing.ColorSrm != catalogItem.ColorSrm ||
+                        existing.PotentialGravity != catalogItem.PotentialGravity ||
+                        existing.AlphaAcidPercent != catalogItem.AlphaAcidPercent ||
+                        existing.AttenuationPercent != catalogItem.AttenuationPercent ||
+                        existing.Form != catalogItem.Form ||
+                        existing.Description != catalogItem.Description)
+                    {
+                        existing.ColorSrm = catalogItem.ColorSrm;
+                        existing.PotentialGravity = catalogItem.PotentialGravity;
+                        existing.AlphaAcidPercent = catalogItem.AlphaAcidPercent;
+                        existing.AttenuationPercent = catalogItem.AttenuationPercent;
+                        existing.Form = catalogItem.Form;
+                        existing.Description = catalogItem.Description;
+                        modifiedAny = true;
+                    }
+                }
+                else
+                {
+                    missingIngredients.Add(catalogItem);
+                }
+            }
 
             if (missingIngredients.Count > 0)
             {
                 await db.Ingredients.AddRangeAsync(missingIngredients);
+            }
+
+            if (missingIngredients.Count > 0 || modifiedAny)
+            {
                 await db.SaveChangesAsync();
             }
 
@@ -236,7 +268,7 @@ public static class DbSeeder
             Name = "CaraMunich II",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.034m,
-            ColorSrm = 48.0m,
+            ColorSrm = 60.9m,
             Description = "Benchmark German caramel malt imparting rich toffee, bread crust, and deep copper hue for Märzen and Bocks."
         },
         new()
@@ -252,7 +284,7 @@ public static class DbSeeder
             Name = "Melanoidin Malt",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.034m,
-            ColorSrm = 28.0m,
+            ColorSrm = 35.5m,
             Description = "Provides intensely malty, crusty bread and honeyed biscuit notes simulating traditional decoction mashing."
         },
         new()
@@ -294,7 +326,7 @@ public static class DbSeeder
             Name = "Pale Chocolate Malt",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.030m,
-            ColorSrm = 220.0m,
+            ColorSrm = 280.0m,
             Description = "Gentle roast malt offering hazelnut, smooth cocoa, and milk chocolate character without sharp acrid bitterness."
         },
         new()
@@ -302,7 +334,7 @@ public static class DbSeeder
             Name = "Roasted Barley",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.025m,
-            ColorSrm = 300.0m,
+            ColorSrm = 600.0m,
             Description = "Unmalted roasted grain imparting deep black color, espresso, and signature dry roasty bite."
         },
         new()
@@ -310,7 +342,7 @@ public static class DbSeeder
             Name = "Black Patent / Black Malt",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.025m,
-            ColorSrm = 500.0m,
+            ColorSrm = 685.0m,
             Description = "Intensely roasted malt providing sharp, ashen charcoal bitterness and deep jet-black coloration."
         },
         new()
@@ -318,7 +350,7 @@ public static class DbSeeder
             Name = "Carafa Special III",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.032m,
-            ColorSrm = 520.0m,
+            ColorSrm = 710.7m,
             Description = "De-husked roasted malt providing pitch-black color and smooth coffee notes without harsh astringency."
         },
 
@@ -336,7 +368,7 @@ public static class DbSeeder
             Name = "Dark Wheat Malt",
             Type = IngredientType.Fermentable,
             PotentialGravity = 1.037m,
-            ColorSrm = 7.0m,
+            ColorSrm = 9.0m,
             Description = "Deep bready crust, rich wheat dough, light caramel, and soft sweetness for Dunkelweizen and Weizenbock."
         },
         new()

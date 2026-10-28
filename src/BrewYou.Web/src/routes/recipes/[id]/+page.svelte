@@ -603,14 +603,14 @@
 									<div
 										class="h-6 w-6 shrink-0 rounded-md border border-zinc-300 shadow-inner dark:border-zinc-700"
 										style="background-color: {srmToHexColor(item.colorSrm ?? 2.0)}"
-										title={settings.formatColor(item.colorSrm ?? 2.0)}
+										title={settings.formatFermentableColor(item.colorSrm ?? 2.0)}
 									></div>
 									<div>
 										<div class="text-sm font-semibold text-zinc-900 dark:text-white">
 											{getLocalizedIngredientName({ name: item.ingredientName })}
 										</div>
 										<div class="text-xs text-zinc-500 dark:text-zinc-400">
-											{settings.formatColor(item.colorSrm ?? 2.0)} •
+											{settings.formatFermentableColor(item.colorSrm ?? 2.0)} •
 											{formatPotentialGravity(item.potentialGravity)}
 										</div>
 									</div>

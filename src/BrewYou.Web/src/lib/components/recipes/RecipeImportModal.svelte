@@ -570,7 +570,7 @@
 											{/if}
 											{#if item.type === 'Fermentable'}
 												<span>
-													{settings.formatColor(item.colorSrm ?? 2.0)}
+													{settings.formatFermentableColor(item.colorSrm ?? 2.0)}
 													{#if item.potentialGravity}
 														• {formatPotentialGravity(item.potentialGravity)}
 													{/if}

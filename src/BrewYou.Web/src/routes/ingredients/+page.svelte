@@ -14,6 +14,7 @@
 		Pencil
 	} from '@lucide/svelte';
 	import { srmToHexColor, sgToPpg } from '$lib/calculators/brewing';
+	import { srmToEbc } from '$lib/stores/settings.svelte';
 	import { t, i18n } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import {
@@ -358,15 +359,18 @@
 										<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
 											>{t('ingredients.color')}</span
 										>
-										<span class="font-mono font-medium text-zinc-800 dark:text-zinc-200"
-											>{item.colorSrm ?? 0} SRM</span
-										>
+										<span class="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+											{formatNumber(srmToEbc(item.colorSrm ?? 0), 1)} EBC
+										</span>
 									</div>
 									{#if item.colorSrm}
 										<div
 											class="h-4 w-4 rounded-full border border-zinc-300 shadow-sm dark:border-zinc-600"
 											style="background-color: {srmToHexColor(item.colorSrm)}"
-											title="{item.colorSrm} SRM"
+											title="{formatNumber(srmToEbc(item.colorSrm), 1)} EBC ({formatNumber(
+												item.colorSrm,
+												1
+											)} SRM)"
 										></div>
 									{/if}
 								</div>

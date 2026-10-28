@@ -173,7 +173,7 @@
 							<div
 								class="h-6 w-6 flex-shrink-0 rounded-md border border-zinc-300 shadow-inner dark:border-zinc-700"
 								style="background-color: {srmToHexColor(ing?.colorSrm ?? 2.0)}"
-								title={settings.formatColor(ing?.colorSrm ?? 2.0)}
+								title={settings.formatFermentableColor(ing?.colorSrm ?? 2.0)}
 							></div>
 							<select
 								bind:value={item.ingredientId}
@@ -186,7 +186,7 @@
 								{/if}
 								{#each availableFermentables as f}
 									<option value={f.id}>
-										{getLocalizedIngredientName(f)} ({settings.formatColor(f.colorSrm)} • {formatPotentialGravity(
+										{getLocalizedIngredientName(f)} ({settings.formatFermentableColor(f.colorSrm)} • {formatPotentialGravity(
 											f.potentialGravity
 										)})
 									</option>

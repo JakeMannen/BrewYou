@@ -50,6 +50,8 @@ describe('IngredientModal Validation & Calculation Logic', () => {
 		potentialGravity?: number | '';
 		potentialUnit?: 'SG' | 'PPG';
 		colorSrm?: number | '';
+		colorValue?: number | '';
+		colorUnit?: 'EBC' | 'SRM';
 		alphaAcidPercent?: number | '';
 		attenuationPercent?: number | '';
 		description?: string;
@@ -86,7 +88,18 @@ describe('IngredientModal Validation & Calculation Logic', () => {
 					}
 				}
 			}
-			if (typeof input.colorSrm === 'number') {
+			if (typeof input.colorValue === 'number') {
+				const cUnit = input.colorUnit || 'EBC';
+				if (cUnit === 'EBC') {
+					if (input.colorValue < 0 || input.colorValue > 2000) {
+						errors.colorSrm = 'Invalid EBC range';
+					}
+				} else {
+					if (input.colorValue < 0 || input.colorValue > 1000) {
+						errors.colorSrm = 'Invalid SRM range';
+					}
+				}
+			} else if (typeof input.colorSrm === 'number') {
 				if (input.colorSrm < 0 || input.colorSrm > 1000) {
 					errors.colorSrm = 'Invalid SRM range';
 				}
@@ -237,6 +250,22 @@ describe('IngredientModal Validation & Calculation Logic', () => {
 		// Valid SRM
 		expect(
 			validateIngredient({ name: 'Malt', type: 'Fermentable', colorSrm: 15.0 }).colorSrm
+		).toBeUndefined();
+
+		// Invalid EBC
+		expect(
+			validateIngredient({ name: 'Malt', type: 'Fermentable', colorValue: -1, colorUnit: 'EBC' })
+				.colorSrm
+		).toBe('Invalid EBC range');
+		expect(
+			validateIngredient({ name: 'Malt', type: 'Fermentable', colorValue: 2001, colorUnit: 'EBC' })
+				.colorSrm
+		).toBe('Invalid EBC range');
+
+		// Valid EBC
+		expect(
+			validateIngredient({ name: 'Malt', type: 'Fermentable', colorValue: 7.0, colorUnit: 'EBC' })
+				.colorSrm
 		).toBeUndefined();
 	});
 
