@@ -18,10 +18,15 @@ public static class TelemetryEndpoints
         // Public IoT device ingestion endpoint (authenticated by cryptographically unguessable token in route)
         publicGroup.MapPost("/equipment/{token}", async (
             string token,
-            [FromBody] JsonElement payload,
+            [FromBody] JsonElement? payload,
             ITelemetryService telemetryService) =>
         {
-            var result = await telemetryService.IngestTelemetryAsync(token, payload);
+            if (!payload.HasValue || payload.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            {
+                return Results.BadRequest(ApiResponse.Fail("INVALID_PAYLOAD", "A request body is required."));
+            }
+
+            var result = await telemetryService.IngestTelemetryAsync(token, payload.Value);
 
             return result.Status switch
             {
@@ -49,7 +54,7 @@ public static class TelemetryEndpoints
         // Public IoT device ingestion endpoint (authenticated by X-BrewYou-Device-Token or Bearer header)
         publicGroup.MapPost("/equipment", async (
             HttpContext context,
-            [FromBody] JsonElement payload,
+            [FromBody] JsonElement? payload,
             ITelemetryService telemetryService) =>
         {
             var token = context.Request.Headers["X-BrewYou-Device-Token"].FirstOrDefault();
@@ -67,7 +72,12 @@ public static class TelemetryEndpoints
                 return Results.BadRequest(ApiResponse.Fail("MISSING_TOKEN", "Device token must be supplied in X-BrewYou-Device-Token header or Bearer authorization header."));
             }
 
-            var result = await telemetryService.IngestTelemetryAsync(token, payload);
+            if (!payload.HasValue || payload.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            {
+                return Results.BadRequest(ApiResponse.Fail("INVALID_PAYLOAD", "A request body is required."));
+            }
+
+            var result = await telemetryService.IngestTelemetryAsync(token, payload.Value);
             return result.Status switch
             {
                 TelemetryIngestStatus.NotFound =>

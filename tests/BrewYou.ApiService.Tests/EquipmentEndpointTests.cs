@@ -910,4 +910,44 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         created.ConnectionConfigJson.Should().NotContain("SuperSecretBrokerPass123!");
         created.ConnectionConfigJson.Should().Contain("\"hasPassword\":true");
     }
+
+    [Fact]
+    public async Task CreateEquipment_NoBody_ReturnsBadRequest()
+    {
+        var (client, _, _, _) = await CreateAuthenticatedUserAsync();
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inventory/equipment");
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+        env.Error!.Code.Should().Be("BAD_REQUEST");
+    }
+
+    [Fact]
+    public async Task UpdateEquipment_NoBody_ReturnsBadRequest()
+    {
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync();
+
+        var createReq = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Fermenter {Guid.NewGuid():N}",
+            Type: EquipmentType.Fermenter,
+            Capacity: 60.0m
+        );
+        var createRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", createReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = (await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/inventory/equipment/{created.Id}");
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+        env.Error!.Code.Should().Be("BAD_REQUEST");
+    }
 }

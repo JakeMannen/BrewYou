@@ -110,6 +110,50 @@ public class TokenServiceAndMiddlewareTests
     }
 
     [Fact]
+    public async Task GlobalExceptionHandler_TryHandleAsync_BadHttpRequestException_Sets400AndWritesBadRequest()
+    {
+        var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance);
+        var context = new DefaultHttpContext();
+        var bodyStream = new MemoryStream();
+        context.Response.Body = bodyStream;
+
+        var exception = new BadHttpRequestException("Required parameter payload was not provided from body.", StatusCodes.Status400BadRequest);
+        var handled = await handler.TryHandleAsync(context, exception, CancellationToken.None);
+
+        handled.Should().BeTrue();
+        context.Response.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        context.Response.ContentType.Should().StartWith("application/json");
+
+        bodyStream.Seek(0, SeekOrigin.Begin);
+        using var reader = new StreamReader(bodyStream);
+        var bodyText = await reader.ReadToEndAsync();
+        bodyText.Should().Contain("BAD_REQUEST");
+        bodyText.Should().Contain("Required parameter payload was not provided from body.");
+    }
+
+    [Fact]
+    public async Task GlobalExceptionHandler_TryHandleAsync_JsonException_Sets400AndWritesInvalidPayload()
+    {
+        var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance);
+        var context = new DefaultHttpContext();
+        var bodyStream = new MemoryStream();
+        context.Response.Body = bodyStream;
+
+        var exception = new System.Text.Json.JsonException("The input does not contain any JSON tokens.");
+        var handled = await handler.TryHandleAsync(context, exception, CancellationToken.None);
+
+        handled.Should().BeTrue();
+        context.Response.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        context.Response.ContentType.Should().StartWith("application/json");
+
+        bodyStream.Seek(0, SeekOrigin.Begin);
+        using var reader = new StreamReader(bodyStream);
+        var bodyText = await reader.ReadToEndAsync();
+        bodyText.Should().Contain("INVALID_PAYLOAD");
+        bodyText.Should().Contain("Invalid JSON payload.");
+    }
+
+    [Fact]
     public void UpdateEquipmentRequestValidator_ValidatesRules()
     {
         var validator = new UpdateEquipmentRequestValidator();

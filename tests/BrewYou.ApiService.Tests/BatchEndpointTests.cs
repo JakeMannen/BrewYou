@@ -1492,4 +1492,40 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         batch.VolumeProfile!.PlumbingLossLiters.Should().Be(0.8m);
         batch.VolumeProfile!.SpargeMethod.Should().Be("Fly");
     }
+
+    [Fact]
+    public async Task LogBatchEquipmentReading_NoBody_ReturnsBadRequest()
+    {
+        var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var createReq = new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: $"B-{Guid.NewGuid():N}",
+            Name: "Test Ale",
+            BeerStyle: "American Pale Ale",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20.0m,
+            TargetOg: 1.050m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.2m,
+            TargetIbu: 35.0m,
+            TargetColorSrm: 7.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75.0m,
+            BoilerId: boilerId,
+            FermenterId: fermenterId
+        );
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", createReq);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/batches/{batch.Id}/equipment-readings");
+        // No body
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+        env.Error!.Code.Should().Be("BAD_REQUEST");
+    }
 }
