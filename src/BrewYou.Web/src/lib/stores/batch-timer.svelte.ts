@@ -3,6 +3,7 @@ import type { BrewStage } from '$lib/types/api';
 export interface BatchTimerRecord {
 	batchId: string;
 	stage: BrewStage;
+	stepId?: string | null;
 	totalSeconds: number;
 	remainingSeconds: number;
 	isRunning: boolean;
@@ -69,7 +70,10 @@ export class BatchTimerStore {
 		}
 	}
 
-	private getKey(batchId: string, stage: BrewStage): string {
+	private getKey(batchId: string, stage: BrewStage, stepId?: string | null): string {
+		if (stage === 'Mash' && stepId) {
+			return `${batchId}:${stage}:${stepId}`;
+		}
 		return `${batchId}:${stage}`;
 	}
 
@@ -129,8 +133,13 @@ export class BatchTimerStore {
 		}, 1000);
 	}
 
-	getTimer(batchId: string, stage: BrewStage, defaultDurationSeconds: number): TimerView {
-		const key = this.getKey(batchId, stage);
+	getTimer(
+		batchId: string,
+		stage: BrewStage,
+		defaultDurationSeconds: number,
+		stepId?: string | null
+	): TimerView {
+		const key = this.getKey(batchId, stage, stepId);
 		const timer = this.timers[key];
 
 		if (!timer) {
@@ -160,8 +169,13 @@ export class BatchTimerStore {
 		};
 	}
 
-	start(batchId: string, stage: BrewStage, defaultDurationSeconds = 3600): void {
-		const key = this.getKey(batchId, stage);
+	start(
+		batchId: string,
+		stage: BrewStage,
+		defaultDurationSeconds = 3600,
+		stepId?: string | null
+	): void {
+		const key = this.getKey(batchId, stage, stepId);
 		let timer = this.timers[key];
 
 		if (!timer) {
@@ -169,6 +183,7 @@ export class BatchTimerStore {
 			timer = {
 				batchId,
 				stage,
+				stepId: stage === 'Mash' ? (stepId ?? null) : null,
 				totalSeconds: safeDuration,
 				remainingSeconds: safeDuration,
 				isRunning: false,
@@ -190,8 +205,38 @@ export class BatchTimerStore {
 		this.ensureTicker();
 	}
 
-	pause(batchId: string, stage: BrewStage): void {
-		const key = this.getKey(batchId, stage);
+	pause(batchId: string, stage: BrewStage, stepId?: string | null): void {
+		const key = this.getKey(batchId, stage, stepId);
+		this.pauseByKey(key);
+	}
+
+	pauseStage(batchId: string, stage: BrewStage): void {
+		const stageKey = `${batchId}:${stage}`;
+		const stepPrefix = `${stageKey}:`;
+		let changed = false;
+		const now = Date.now();
+
+		for (const key of Object.keys(this.timers)) {
+			if (key === stageKey || key.startsWith(stepPrefix)) {
+				const timer = this.timers[key];
+				if (timer?.isRunning) {
+					if (timer.targetEndTime) {
+						timer.remainingSeconds = Math.max(0, Math.round((timer.targetEndTime - now) / 1000));
+					}
+					timer.isRunning = false;
+					timer.targetEndTime = null;
+					timer.updatedAt = now;
+					changed = true;
+				}
+			}
+		}
+
+		if (changed) {
+			this.saveToStorage();
+		}
+	}
+
+	private pauseByKey(key: string): void {
 		const timer = this.timers[key];
 		if (!timer || !timer.isRunning) return;
 
@@ -206,13 +251,19 @@ export class BatchTimerStore {
 		this.saveToStorage();
 	}
 
-	reset(batchId: string, stage: BrewStage, defaultDurationSeconds: number): void {
-		const key = this.getKey(batchId, stage);
+	reset(
+		batchId: string,
+		stage: BrewStage,
+		defaultDurationSeconds: number,
+		stepId?: string | null
+	): void {
+		const key = this.getKey(batchId, stage, stepId);
 		const safeDuration = Math.max(1, defaultDurationSeconds);
 
 		this.timers[key] = {
 			batchId,
 			stage,
+			stepId: stage === 'Mash' ? (stepId ?? null) : null,
 			totalSeconds: safeDuration,
 			remainingSeconds: safeDuration,
 			isRunning: false,
@@ -223,8 +274,14 @@ export class BatchTimerStore {
 		this.saveToStorage();
 	}
 
-	adjust(batchId: string, stage: BrewStage, seconds: number, defaultDurationSeconds = 3600): void {
-		const key = this.getKey(batchId, stage);
+	adjust(
+		batchId: string,
+		stage: BrewStage,
+		seconds: number,
+		defaultDurationSeconds = 3600,
+		stepId?: string | null
+	): void {
+		const key = this.getKey(batchId, stage, stepId);
 		let timer = this.timers[key];
 		const now = Date.now();
 
@@ -233,6 +290,7 @@ export class BatchTimerStore {
 			timer = {
 				batchId,
 				stage,
+				stepId: stage === 'Mash' ? (stepId ?? null) : null,
 				totalSeconds: safeDuration,
 				remainingSeconds: safeDuration,
 				isRunning: false,
@@ -257,10 +315,18 @@ export class BatchTimerStore {
 		this.saveToStorage();
 	}
 
-	clear(batchId: string, stage?: BrewStage): void {
-		if (stage) {
-			const key = this.getKey(batchId, stage);
+	clear(batchId: string, stage?: BrewStage, stepId?: string | null): void {
+		if (stage && stepId) {
+			const key = this.getKey(batchId, stage, stepId);
 			delete this.timers[key];
+		} else if (stage) {
+			const stageKey = `${batchId}:${stage}`;
+			const stepPrefix = `${stageKey}:`;
+			for (const key of Object.keys(this.timers)) {
+				if (key === stageKey || key.startsWith(stepPrefix)) {
+					delete this.timers[key];
+				}
+			}
 		} else {
 			for (const key of Object.keys(this.timers)) {
 				if (key.startsWith(`${batchId}:`)) {

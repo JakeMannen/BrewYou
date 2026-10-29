@@ -312,7 +312,14 @@
 		if (reading.specificGravity !== null && reading.specificGravity !== undefined && batch) {
 			batch.currentGravity = reading.specificGravity;
 			recalculateBatchAbv();
-			if (!batch.readings.some((r) => r.id === reading.id)) {
+			const readingTimeMs = new Date(reading.timestamp).getTime();
+			const alreadyInReadings = batch.readings.some(
+				(r) =>
+					r.id === reading.id ||
+					(r.specificGravity === reading.specificGravity &&
+						Math.abs(new Date(r.timestamp).getTime() - readingTimeMs) < 2000)
+			);
+			if (!alreadyInReadings) {
 				batch.readings = [
 					...batch.readings,
 					{
@@ -334,6 +341,17 @@
 			const step = batch.mashSteps.find((s) => s.id === reading.batchMashStepId);
 			if (step) {
 				step.actualTemperatureC = reading.temperatureC;
+			}
+		} else if (
+			(reading.stage === 'Ferment' || reading.stage === 'Condition') &&
+			batch?.fermentationSteps?.length
+		) {
+			const activeFerm =
+				[...batch.fermentationSteps]
+					.sort((a, b) => a.stepOrder - b.stepOrder)
+					.find((s) => !s.isCompleted) ?? null;
+			if (activeFerm) {
+				activeFerm.actualTemperatureC = reading.temperatureC;
 			}
 		}
 	}
@@ -488,6 +506,7 @@
 		const stageOrder: BrewStage[] = ['Mash', 'Boil', 'Ferment', 'Condition', 'Package'];
 		const currentIndex = stageOrder.indexOf(batch.currentStage);
 
+		const mashVessel = equipmentList.find((e) => e.id === (batch!.mashTunId ?? batch!.boilerId));
 		const boiler = equipmentList.find((e) => e.id === batch!.boilerId);
 		const fermenter = equipmentList.find((e) => e.id === batch!.fermenterId);
 		const pkgVessel = equipmentList.find((e) => e.id === batch!.packagingVesselId);
@@ -517,14 +536,14 @@
 			let equipmentName: string | undefined = undefined;
 
 			if (s === 'Mash') {
-				equipmentSubtype = boiler?.subtype ?? 'AllInOne';
-				equipmentName = batch!.boilerName ?? boiler?.name;
+				equipmentSubtype = mashVessel?.subtype ?? 'AllInOne';
+				equipmentName = batch!.mashTunName ?? batch!.boilerName ?? mashVessel?.name;
 				const mashVol =
 					batch!.volumeProfile?.strikeWaterLiters ??
 					batch!.volumeProfile?.targetPreBoilVolumeLiters ??
 					batch!.targetBatchSizeLiters;
-				if (boiler && boiler.capacityLiters > 0) {
-					fillPercent = Math.min(100, Math.round((mashVol / boiler.capacityLiters) * 100));
+				if (mashVessel && mashVessel.capacityLiters > 0) {
+					fillPercent = Math.min(100, Math.round((mashVol / mashVessel.capacityLiters) * 100));
 				} else {
 					fillPercent = 75;
 				}
@@ -763,9 +782,18 @@
 		return 3600;
 	});
 
+	let inspectedTimerStepId = $derived<string | null>(
+		inspectedStage === 'Mash' ? (currentSelectedMashStep?.id ?? null) : null
+	);
+
 	let activeTimerView = $derived(
 		batch
-			? batchTimer.getTimer(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds)
+			? batchTimer.getTimer(
+					batch.id,
+					inspectedStage,
+					inspectedStagePlannedDurationSeconds,
+					inspectedTimerStepId
+				)
 			: { remainingSeconds: 3600, running: false, totalSeconds: 3600 }
 	);
 
@@ -825,8 +853,6 @@
 		if (!batch?.mashSteps || index < 0 || index >= batch.mashSteps.length) return;
 		activeMashStepIndex = index;
 		selectedMashStepGraphId = batch.mashSteps[index].id;
-		pauseTimer();
-		batchTimer.reset(batch.id, 'Mash', batch.mashSteps[index].durationMinutes * 60);
 	}
 
 	async function handleToggleMashStep(stepId: string, currentCompleted: boolean) {
@@ -889,6 +915,9 @@
 	async function handleAdvanceMashStep() {
 		if (!batch?.mashSteps || activeMashStepIndex >= batch.mashSteps.length) return;
 		const currentStep = batch.mashSteps[activeMashStepIndex];
+		if (currentStep) {
+			batchTimer.pause(batch.id, 'Mash', currentStep.id);
+		}
 		if (currentStep && !currentStep.isCompleted) {
 			await handleToggleMashStep(currentStep.id, false);
 		}
@@ -944,12 +973,13 @@
 				measuredPostBoilVolumeLiters: nextStage === 'Ferment' ? advancePostBoilVolume : null,
 				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null
 			};
+			const previousStage = batch.currentStage;
 			const updated = await api.batches.advanceStage(batch.id, req);
+			batchTimer.pauseStage(batch.id, previousStage);
 			batch = updated;
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
-			pauseTimer();
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
@@ -996,17 +1026,27 @@
 
 	function startTimer() {
 		if (!batch) return;
-		batchTimer.start(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
+		batchTimer.start(
+			batch.id,
+			inspectedStage,
+			inspectedStagePlannedDurationSeconds,
+			inspectedTimerStepId
+		);
 	}
 
 	function pauseTimer() {
 		if (!batch) return;
-		batchTimer.pause(batch.id, inspectedStage);
+		batchTimer.pause(batch.id, inspectedStage, inspectedTimerStepId);
 	}
 
 	function resetTimer() {
 		if (!batch) return;
-		batchTimer.reset(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
+		batchTimer.reset(
+			batch.id,
+			inspectedStage,
+			inspectedStagePlannedDurationSeconds,
+			inspectedTimerStepId
+		);
 	}
 
 	function formatTime(seconds: number) {
@@ -2042,6 +2082,14 @@
 										</label>
 
 										<div class="flex items-center gap-3 self-end sm:self-center">
+											{#if !step.isCompleted && step.triggerGravity !== null && step.triggerGravity !== undefined && batch.currentGravity !== null && batch.currentGravity !== undefined && batch.currentGravity <= step.triggerGravity}
+												<span
+													data-testid="fermentation-step-trigger-ready-{step.id}"
+													class="rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
+												>
+													{t('batches.workspace.trigger_gravity_reached')}
+												</span>
+											{/if}
 											<span class="font-mono text-sm font-bold text-cyan-600 dark:text-cyan-400">
 												{settings.formatTemperature(step.targetTemperatureC)}
 											</span>
@@ -2829,9 +2877,7 @@
 		? (batch?.mashSteps?.find((s) => s.id === logTempMashStepId)?.targetTemperatureC ?? 65)
 		: logTempStage === 'Boil'
 			? 100
-			: logTempStage === 'Ferment'
-				? (batch?.pitchTemperatureC ?? 20)
-				: 2}
+			: activeFermentationStepTargetTemp}
 	onClose={() => (showLogTempModal = false)}
 	onSubmit={handleLogStepTemperature}
 />
@@ -2884,7 +2930,13 @@
 		onResetTimer={resetTimer}
 		onAdjustTimer={(seconds) => {
 			if (!batch) return;
-			batchTimer.adjust(batch.id, inspectedStage, seconds, inspectedStagePlannedDurationSeconds);
+			batchTimer.adjust(
+				batch.id,
+				inspectedStage,
+				seconds,
+				inspectedStagePlannedDurationSeconds,
+				inspectedTimerStepId
+			);
 		}}
 		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : undefined}
 		onClose={() => (showBrewStationHud = false)}

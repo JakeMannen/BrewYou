@@ -349,7 +349,11 @@ public record UpdateBatchRequest(
     decimal? MeasuredPreBoilGravity = null,
     decimal? MeasuredPostBoilVolumeLiters = null,
     decimal? MeasuredPackagedVolumeLiters = null,
-    List<BatchSensorAssignmentInput>? SensorAssignments = null
+    List<BatchSensorAssignmentInput>? SensorAssignments = null,
+    decimal? MashTunDeadSpaceLiters = null,
+    decimal? HltDeadSpaceLiters = null,
+    decimal? PlumbingLossLiters = null,
+    string? SpargeMethod = null
 );
 
 public record NextBatchCodeResponse(string BatchCode);
@@ -388,7 +392,9 @@ public record CalculateWaterVolumeResponse(
     decimal FermenterLossLiters,
     decimal PackagingLossLiters,
     decimal HltDeadSpaceLossLiters = 0.0m,
-    decimal PlumbingLossLiters = 0.0m
+    decimal PlumbingLossLiters = 0.0m,
+    decimal MashTunDeadSpaceLossLiters = 0.0m,
+    string SpargeMethod = "Batch"
 );
 
 public record BatchEquipmentReadingDto(

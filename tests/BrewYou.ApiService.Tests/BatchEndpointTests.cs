@@ -1592,4 +1592,53 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             $"/api/v1/batches/{batchA.Id}/ingredients/{ingId}?isChecked=false", null);
         toggleCompletedRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
+
+    [Fact]
+    public async Task UpdateBatch_PersistsVolumeLossOverrides_AndCalculateWater_ReturnsDeadSpaceAndSpargeMethod()
+    {
+        var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var batch = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-P2-VOL", "Volume Sync IPA", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.011m, 5.8m, 45m, 7m, 60, 75m, boilerId, fermenterId,
+            CustomIngredients: [new("2-Row Pale", IngredientType.Fermentable, 5.0m, "kg", IngredientUsage.Mash, null, null)]
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Update MashTunDeadSpaceLiters, HltDeadSpaceLiters, PlumbingLossLiters, and SpargeMethod = NoSparge
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(
+            MashTunDeadSpaceLiters: 1.5m,
+            HltDeadSpaceLiters: 1.0m,
+            PlumbingLossLiters: 0.5m,
+            SpargeMethod: "NoSparge"
+        ));
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = (await updateRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        updated.VolumeProfile.Should().NotBeNull();
+        updated.VolumeProfile!.MashTunDeadSpaceLiters.Should().Be(1.5m);
+        updated.VolumeProfile.HltDeadSpaceLiters.Should().Be(1.0m);
+        updated.VolumeProfile.PlumbingLossLiters.Should().Be(0.5m);
+        updated.VolumeProfile.SpargeMethod.Should().Be("NoSparge");
+        updated.VolumeProfile.SpargeWaterLiters.Should().Be(0m);
+        updated.VolumeProfile.StrikeWaterLiters.Should().Be(updated.VolumeProfile.TotalWaterLiters);
+
+        // 2. Verify /api/v1/recipes/calculate-water returns MashTunDeadSpaceLossLiters, SpargeMethod, and respects TargetBasis + NoSparge
+        var calcRes = await client.PostAsJsonAsync("/api/v1/recipes/calculate-water", new CalculateWaterVolumeRequest(
+            BatchSizeLiters: 19.0m,
+            BoilTimeMinutes: 60,
+            TotalGrainWeightKg: 5.0m,
+            TargetBasis: TargetVolumeBasis.Packaged,
+            MashTunDeadSpaceLiters: 1.25m,
+            HltDeadSpaceLiters: 0.75m,
+            PlumbingLossLiters: 0.5m,
+            SpargeMethod: "Fly"
+        ));
+        calcRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var calc = (await calcRes.Content.ReadFromJsonAsync<ApiResponse<CalculateWaterVolumeResponse>>())!.Data!;
+        calc.EstimatedPackagedVolumeLiters.Should().Be(19.0m);
+        calc.EstimatedIntoFermenterVolumeLiters.Should().BeGreaterThan(19.0m);
+        calc.MashTunDeadSpaceLossLiters.Should().Be(1.25m);
+        calc.HltDeadSpaceLossLiters.Should().Be(0.75m);
+        calc.PlumbingLossLiters.Should().Be(0.5m);
+        calc.SpargeMethod.Should().Be("Fly");
+    }
 }

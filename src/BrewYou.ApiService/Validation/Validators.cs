@@ -829,6 +829,11 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .Must(steps => steps == null || !steps.Any() || steps.Select(s => s.StepOrder).Distinct().Count() == steps.Count)
             .WithMessage("Fermentation step orders must be unique.");
 
+        RuleFor(x => x.SpargeMethod)
+            .Must(m => m is "Batch" or "Fly" or "NoSparge")
+            .When(x => !string.IsNullOrEmpty(x.SpargeMethod))
+            .WithMessage("Sparge method must be Batch, Fly, or NoSparge.");
+
         RuleFor(x => x.SensorAssignments)
             .Must(sensors => sensors == null || sensors.Count <= 20)
             .WithMessage("Cannot assign more than 20 sensors to a batch.");
@@ -1133,6 +1138,26 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
             .GreaterThan(0m)
             .When(x => x.MeasuredPackagedVolumeLiters.HasValue)
             .WithMessage("Packaged volume must be positive.");
+
+        RuleFor(x => x.MashTunDeadSpaceLiters)
+            .InclusiveBetween(0m, 500m)
+            .When(x => x.MashTunDeadSpaceLiters.HasValue)
+            .WithMessage("Mash tun dead space must be between 0 and 500 liters.");
+
+        RuleFor(x => x.HltDeadSpaceLiters)
+            .InclusiveBetween(0m, 500m)
+            .When(x => x.HltDeadSpaceLiters.HasValue)
+            .WithMessage("HLT dead space must be between 0 and 500 liters.");
+
+        RuleFor(x => x.PlumbingLossLiters)
+            .InclusiveBetween(0m, 500m)
+            .When(x => x.PlumbingLossLiters.HasValue)
+            .WithMessage("Plumbing loss must be between 0 and 500 liters.");
+
+        RuleFor(x => x.SpargeMethod)
+            .Must(m => m is "Batch" or "Fly" or "NoSparge")
+            .When(x => !string.IsNullOrEmpty(x.SpargeMethod))
+            .WithMessage("Sparge method must be Batch, Fly, or NoSparge.");
 
         RuleFor(x => x.SensorAssignments)
             .Must(sensors => sensors == null || sensors.Count <= 20)

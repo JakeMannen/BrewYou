@@ -109,7 +109,7 @@ The Recipe Atelier and Formulator is an interactive brewing formulation workspac
 
 ### Batch Tracking & Live Brew Day Execution
 
-Batch Tracking guides you through a structured 10-stage brewing lifecycle: *Planning*, *Preparation*, *Mashing*, *Lautering*, *Boiling*, *Cooling*, *Fermenting*, *Conditioning*, *Bottling / Kegging*, and *Completed*. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
+Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: *Mash* ➔ *Boil* ➔ *Ferment* ➔ *Condition* ➔ *Package* (with clean support for skipping optional stages such as *Condition* while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
 
 #### Multi-Vessel & All-in-One Brewhouse Topologies
 
@@ -458,7 +458,7 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 | **Equipment** | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}` | Equipment digital twins & hardware calibrations |
 | **Telemetry** | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream` | IoT ingestion webhook & SSE telemetry stream |
 | **Recipes** | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}` | Recipe formulations, BJCP metrics, BeerXML/BeerJSON |
-| **Batches** | `GET/POST /api/v1/batches`, `POST /api/v1/batches/{id}/advance-stage` | 10-stage brew lifecycle, mash/boil logs, attenuation |
+| **Batches** | `GET/POST /api/v1/batches`, `PATCH /api/v1/batches/{id}/stage` | 5-stage brew lifecycle, per-step mash/fermentation execution, multi-vessel occupancy & attenuation |
 | **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore |
 
 ---

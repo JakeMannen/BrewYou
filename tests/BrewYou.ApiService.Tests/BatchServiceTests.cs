@@ -1046,4 +1046,108 @@ public class BatchServiceTests
         sensors.Should().ContainSingle();
         sensors![0].StepName.Should().Be(batchB.MashSteps[0].Name);
     }
+
+    [Fact]
+    public async Task ThreeVesselOccupancy_FermentationStepStartedAt_AndBackdatedReadingSafeguard_WorkAcrossLifecycle()
+    {
+        var userId = $"brewer_3v_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "3V Brewhouse", IsDefault = true };
+        var hlt = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "HLT 40L", Type = EquipmentType.Boiler, Subtype = EquipmentSubtype.Hlt, Capacity = 40m, CapacityLiters = 40m };
+        var mlt = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "MLT 40L", Type = EquipmentType.Boiler, Subtype = EquipmentSubtype.MashTun, Capacity = 40m, CapacityLiters = 40m };
+        var kettle = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Boil Kettle 50L", Type = EquipmentType.Boiler, Subtype = EquipmentSubtype.Pan, Capacity = 50m, CapacityLiters = 50m };
+        var fermenter = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Conical 30L", Type = EquipmentType.Fermenter, Subtype = EquipmentSubtype.ConicalFermenter, Capacity = 30m, CapacityLiters = 30m };
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.AddRange(hlt, mlt, kettle, fermenter);
+        await _db.SaveChangesAsync();
+
+        var (createRes, created, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: "B-3V-01",
+            Name: "3V Pilsner",
+            BeerStyle: "German Pils",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.048m,
+            TargetFg: 1.008m,
+            TargetAbv: 5.2m,
+            TargetIbu: 34m,
+            TargetColorSrm: 3.5m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: kettle.Id,
+            FermenterId: fermenter.Id,
+            HltId: hlt.Id,
+            MashTunId: mlt.Id,
+            CustomIngredients:
+            [
+                new BatchIngredientInputDto("Pilsner Malt", IngredientType.Fermentable, 4.5m, "kg", IngredientUsage.Mash, null, null)
+            ],
+            CustomFermentationSteps:
+            [
+                new BatchFermentationStepInputDto(1, "Primary Lager Rest", FermentationStepType.Primary, 10.0m, 10, TriggerGravity: 1.020m),
+                new BatchFermentationStepInputDto(2, "Diacetyl Rest", FermentationStepType.DiacetylRest, 16.0m, 3)
+            ]
+        ), userId);
+
+        createRes.Should().Be(BatchAccessResult.Success);
+        created!.HltName.Should().Be("HLT 40L");
+        created.MashTunName.Should().Be("MLT 40L");
+        created.BoilerName.Should().Be("Boil Kettle 50L");
+
+        // During Mash in 3V: MLT holds strike water, HLT holds sparge water, Boil Kettle is still 0L
+        mlt.CurrentVolumeLiters.Should().BeGreaterThan(0m);
+        hlt.CurrentVolumeLiters.Should().BeGreaterThan(0m);
+        kettle.CurrentVolumeLiters.Should().Be(0m);
+
+        // Advance Mash -> Boil: MLT and HLT freed, Boil Kettle occupied
+        var (boilRes, _, _) = await _batchService.AdvanceStageAsync(
+            created.Id, new AdvanceBatchStageRequest(BrewStage.Boil, MeasuredPreBoilVolumeLiters: 25.5m), userId);
+        boilRes.Should().Be(BatchAccessResult.Success);
+        mlt.CurrentVolumeLiters.Should().Be(0m);
+        hlt.CurrentVolumeLiters.Should().Be(0m);
+        kettle.CurrentVolumeLiters.Should().Be(25.5m);
+
+        // Advance Boil -> Ferment: Boil Kettle freed, Fermenter occupied, Fermentation Step 1 StartedAt initialized
+        var (fermRes, fermBatch, _) = await _batchService.AdvanceStageAsync(
+            created.Id, new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.050m, MeasuredBatchSizeLiters: 20.0m), userId);
+        fermRes.Should().Be(BatchAccessResult.Success);
+        kettle.CurrentVolumeLiters.Should().Be(0m);
+        fermenter.CurrentVolumeLiters.Should().Be(20.0m);
+        fermBatch!.FermentationSteps[0].StartedAt.Should().NotBeNull();
+        fermBatch.FermentationSteps[1].StartedAt.Should().BeNull();
+
+        // Complete Fermentation Step 1 -> Step 2 StartedAt automatically initialized
+        var (toggleFermRes, _, _) = await _batchService.ToggleFermentationStepAsync(
+            created.Id, fermBatch.FermentationSteps[0].Id, new ToggleBatchFermentationStepRequest(true, 10.2m), userId);
+        toggleFermRes.Should().Be(BatchAccessResult.Success);
+
+        var (_, afterStepToggle) = await _batchService.GetBatchByIdAsync(created.Id, userId);
+        afterStepToggle!.FermentationSteps[1].StartedAt.Should().NotBeNull();
+
+        // Manual temp log during Ferment uses active Step 2 TargetTemperatureC (16.0°C) and records ActualTemperatureC
+        var (logRes, tempDto, _) = await _batchService.LogTemperatureReadingAsync(
+            created.Id, new LogBatchTemperatureRequest(15.8m), userId);
+        logRes.Should().Be(BatchAccessResult.Success);
+        tempDto!.TargetTemperatureC.Should().Be(16.0m);
+        tempDto.StepName.Should().Be("Diacetyl Rest");
+
+        // Add current gravity reading (1.014 at T0), then add a backdated reading (1.032 at T0 - 2 days)
+        var t0 = DateTime.UtcNow;
+        await _batchService.AddReadingAsync(created.Id, new AddBatchReadingRequest(t0, 1.014m, 15.8m, "Latest"), userId);
+        await _batchService.AddReadingAsync(created.Id, new AddBatchReadingRequest(t0.AddDays(-2), 1.032m, 10.5m, "Backdated"), userId);
+
+        var (_, afterBackdated) = await _batchService.GetBatchByIdAsync(created.Id, userId);
+        afterBackdated!.CurrentGravity.Should().Be(1.014m);
+
+        // DeleteBatchAsync frees all vessels (including HLT and MashTun if occupied)
+        hlt.CurrentVolumeLiters = 10m;
+        mlt.CurrentVolumeLiters = 12m;
+        await _db.SaveChangesAsync();
+
+        var delRes = await _batchService.DeleteBatchAsync(created.Id, userId);
+        delRes.Should().Be(BatchAccessResult.Success);
+        hlt.CurrentVolumeLiters.Should().Be(0m);
+        mlt.CurrentVolumeLiters.Should().Be(0m);
+        fermenter.CurrentVolumeLiters.Should().Be(0m);
+    }
 }
