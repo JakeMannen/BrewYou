@@ -2830,9 +2830,18 @@
 			: (currentSelectedMashStep?.actualTemperatureC ?? null)}
 		activeStepName={inspectedStage === 'Mash'
 			? currentSelectedMashStep?.name
-			: `Boil (${batch.boilTimeMinutes ?? 60}m)`}
+			: `${t('batches.stages.boil')} (${batch.boilTimeMinutes ?? 60}m)`}
 		{activeMashStepIndex}
 		totalMashSteps={batch.mashSteps?.length}
+		spargeEnabled={Boolean(
+			(batch.volumeProfile && batch.volumeProfile.spargeWaterLiters > 0) || batch.hltId
+		)}
+		spargeWaterTempC={estimatedSpargeTempC}
+		spargeLiveTempC={assignedHlt?.currentTemperatureC ?? null}
+		spargeEquipmentName={batch.hltName ?? assignedHlt?.name ?? null}
+		targetPostBoilVolumeLiters={batch.volumeProfile?.targetPostBoilVolumeLiters ??
+			batch.targetBatchSizeLiters}
+		boilOffRatePerHour={batch.volumeProfile?.boilOffRatePerHour ?? null}
 		onToggleTimer={() => {
 			if (timerRunning) {
 				pauseTimer();

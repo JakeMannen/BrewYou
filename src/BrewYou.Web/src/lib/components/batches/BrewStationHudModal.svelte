@@ -1,4 +1,6 @@
 <script module lang="ts">
+	import type { BatchIngredientDto } from '$lib/types/api';
+
 	export function formatHudTime(totalSeconds: number): string {
 		const safeSec = Math.max(0, Math.floor(totalSeconds));
 		const hours = Math.floor(safeSec / 3600);
@@ -10,13 +12,39 @@
 		}
 		return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 	}
+
+	export interface NextAdditionResult extends BatchIngredientDto {
+		isDueNow: boolean;
+	}
+
+	export function getNextAddition(
+		stageIngredients: BatchIngredientDto[] = [],
+		timerRemainingSeconds: number
+	): NextAdditionResult | null {
+		const unchecked = stageIngredients.filter((i) => !i.isChecked);
+		if (unchecked.length === 0) return null;
+
+		const dueNow = unchecked.find(
+			(i) => timerRemainingSeconds <= (i.additionTimeMinutes ?? 0) * 60
+		);
+		if (dueNow) {
+			return { ...dueNow, isDueNow: true };
+		}
+
+		const upcoming = unchecked
+			.filter((i) => (i.additionTimeMinutes ?? 0) * 60 < timerRemainingSeconds)
+			.sort((a, b) => (b.additionTimeMinutes ?? 0) - (a.additionTimeMinutes ?? 0))[0];
+
+		return upcoming ? { ...upcoming, isDueNow: false } : { ...unchecked[0], isDueNow: false };
+	}
 </script>
 
 <script lang="ts">
-	import type { BatchIngredientDto, BrewStage } from '$lib/types/api';
+	import type { BrewStage } from '$lib/types/api';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
+	import { formatNumber } from '$lib/utils/formatNumber';
 	import {
 		Play,
 		Pause,
@@ -25,7 +53,8 @@
 		Flame,
 		Thermometer,
 		StepForward,
-		Sparkles
+		Sparkles,
+		Droplets
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -42,6 +71,12 @@
 		activeStepName?: string | null;
 		activeMashStepIndex?: number;
 		totalMashSteps?: number;
+		spargeEnabled?: boolean;
+		spargeWaterTempC?: number | null;
+		spargeLiveTempC?: number | null;
+		spargeEquipmentName?: string | null;
+		targetPostBoilVolumeLiters?: number | null;
+		boilOffRatePerHour?: number | null;
 		onToggleTimer: () => void;
 		onResetTimer: () => void;
 		onAdjustTimer?: (seconds: number) => void;
@@ -64,6 +99,12 @@
 		activeStepName,
 		activeMashStepIndex,
 		totalMashSteps,
+		spargeEnabled = true,
+		spargeWaterTempC,
+		spargeLiveTempC,
+		spargeEquipmentName,
+		targetPostBoilVolumeLiters,
+		boilOffRatePerHour,
 		onToggleTimer,
 		onResetTimer,
 		onAdjustTimer,
@@ -71,6 +112,13 @@
 		onToggleIngredient,
 		onClose
 	}: Props = $props();
+
+	const nextAddition = $derived.by(() => {
+		if (currentStage !== 'Boil' || !stageIngredients || stageIngredients.length === 0) {
+			return null;
+		}
+		return getNextAddition(stageIngredients, timerRemainingSeconds);
+	});
 
 	function getDisplayTemp(celsius?: number | null): string {
 		if (celsius === null || celsius === undefined) return '—';
@@ -182,7 +230,9 @@
 					</span>
 				{:else}
 					<span class="mt-1 font-mono text-xs font-medium text-zinc-400 uppercase sm:text-sm">
-						{timerRunning ? t('common.loading') : 'PAUSED (Space to resume)'}
+						{timerRunning
+							? t('batches.workspace.timer_running_hint')
+							: t('batches.workspace.timer_paused_hint')}
 					</span>
 				{/if}
 
@@ -215,10 +265,10 @@
 				>
 					{#if timerRunning}
 						<Pause class="h-6 w-6 fill-current stroke-none" />
-						<span>PAUSE</span>
+						<span>{t('batches.workspace.hud_pause')}</span>
 					{:else}
 						<Play class="h-6 w-6 fill-current stroke-none" />
-						<span>START</span>
+						<span>{t('batches.workspace.hud_start')}</span>
 					{/if}
 				</button>
 
@@ -228,8 +278,8 @@
 					data-testid="hud-reset-timer-btn"
 					onclick={onResetTimer}
 					class="flex min-h-[64px] min-w-[64px] cursor-pointer items-center justify-center rounded-2xl border border-white/20 bg-zinc-900 text-zinc-300 transition-all hover:border-white/40 hover:bg-zinc-800 active:scale-95"
-					title="Reset Timer (R)"
-					aria-label="Reset Timer"
+					title={t('batches.workspace.reset_timer_title')}
+					aria-label={t('batches.workspace.reset_timer')}
 				>
 					<RotateCcw class="h-6 w-6" />
 				</button>
@@ -239,6 +289,8 @@
 					<button
 						type="button"
 						onclick={() => onAdjustTimer(300)}
+						title={t('batches.workspace.adjust_timer_forward')}
+						aria-label={t('batches.workspace.adjust_timer_forward')}
 						class="flex min-h-[64px] cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-zinc-900 px-4 font-mono text-sm font-bold text-zinc-300 transition-all hover:bg-zinc-800 active:scale-95"
 					>
 						+5m
@@ -246,6 +298,8 @@
 					<button
 						type="button"
 						onclick={() => onAdjustTimer(-300)}
+						title={t('batches.workspace.adjust_timer_backward')}
+						aria-label={t('batches.workspace.adjust_timer_backward')}
 						class="flex min-h-[64px] cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-zinc-900 px-4 font-mono text-sm font-bold text-zinc-300 transition-all hover:bg-zinc-800 active:scale-95"
 					>
 						-5m
@@ -258,10 +312,11 @@
 						type="button"
 						data-testid="hud-advance-step-btn"
 						onclick={onAdvanceStep}
+						aria-label={t('batches.workspace.next_step')}
 						class="flex min-h-[64px] cursor-pointer items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 active:scale-95"
 					>
 						<StepForward class="h-5 w-5" />
-						<span>Next Step</span>
+						<span>{t('batches.workspace.next_step')}</span>
 					</button>
 				{/if}
 			</div>
@@ -287,7 +342,7 @@
 				class="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 p-3"
 			>
 				<span class="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
-					Live Wort Sensor
+					{t('batches.workspace.live_sensor_hud')}
 				</span>
 				<div class="mt-1 flex items-baseline gap-1.5 font-mono text-2xl font-bold text-emerald-400">
 					<Thermometer class="h-5 w-5 text-emerald-500" />
@@ -295,17 +350,127 @@
 				</div>
 			</div>
 
-			<!-- Steam-Friendly Mode Confirmation Stamp -->
-			<div
-				class="col-span-2 flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 p-3 sm:col-span-1"
-			>
-				<span class="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
-					{t('batches.workspace.steam_friendly_mode')}
-				</span>
-				<span class="mt-1 flex items-center gap-1 font-mono text-xs font-bold text-amber-300">
-					<Sparkles class="h-3.5 w-3.5" /> High-Contrast Active
-				</span>
-			</div>
+			<!-- Dynamic Stage-Contextual Tile: Sparge Water (Mash) / Next Addition & Post-Boil Metrics (Boil) -->
+			{#if currentStage === 'Mash'}
+				<div
+					data-testid="hud-sparge-temp-tile"
+					class="col-span-2 flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 p-3 sm:col-span-1"
+				>
+					<span class="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
+						{t('batches.workspace.sparge_water_hud')}
+					</span>
+					{#if spargeEnabled}
+						<div
+							data-testid="hud-sparge-temp-value"
+							class="mt-1 flex items-baseline gap-1.5 font-mono text-2xl font-bold text-cyan-400"
+						>
+							<Droplets class="h-5 w-5 text-cyan-500" />
+							<span>{getDisplayTemp(spargeLiveTempC ?? spargeWaterTempC)}</span>
+							{#if spargeLiveTempC !== null && spargeLiveTempC !== undefined && spargeWaterTempC !== null && spargeWaterTempC !== undefined && spargeLiveTempC !== spargeWaterTempC}
+								<span class="text-xs font-normal text-zinc-400">
+									/ {getDisplayTemp(spargeWaterTempC)}
+								</span>
+							{/if}
+						</div>
+						{#if spargeEquipmentName}
+							<span class="mt-0.5 max-w-full truncate text-[10px] font-medium text-zinc-400">
+								{spargeEquipmentName}
+							</span>
+						{/if}
+					{:else}
+						<div
+							data-testid="hud-sparge-temp-value"
+							class="mt-1 flex items-baseline gap-1.5 font-mono text-2xl font-bold text-zinc-500"
+						>
+							<span>N/A</span>
+						</div>
+						<span class="mt-0.5 text-[10px] font-medium text-zinc-400">
+							{t('batches.workspace.sparge_temp_na')}
+						</span>
+					{/if}
+				</div>
+			{:else if currentStage === 'Boil'}
+				<div
+					data-testid="hud-boil-info-tile"
+					class="col-span-2 flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 p-3 sm:col-span-1"
+				>
+					{#if nextAddition}
+						<div class="flex items-center gap-1.5">
+							<span class="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
+								{t('batches.workspace.next_addition_hud')}
+							</span>
+							{#if nextAddition.isDueNow}
+								<span
+									class="py-0.2 animate-pulse rounded-md bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-400 uppercase"
+								>
+									{t('batches.workspace.due_now_badge')}
+								</span>
+							{/if}
+						</div>
+						<div
+							data-testid="hud-boil-info-value"
+							class="mt-1 flex max-w-full items-baseline gap-1.5 font-mono text-xl font-bold sm:text-2xl {nextAddition.isDueNow
+								? 'animate-pulse text-amber-400'
+								: 'text-amber-300'}"
+						>
+							<Flame class="h-5 w-5 shrink-0 text-amber-500" />
+							<span class="truncate">{nextAddition.additionTimeMinutes}m • {nextAddition.name}</span
+							>
+						</div>
+						<div
+							class="mt-0.5 flex max-w-full items-center gap-1.5 truncate text-[10px] font-medium text-zinc-400"
+						>
+							<span>{nextAddition.amount}{nextAddition.unit}</span>
+							{#if targetPostBoilVolumeLiters}
+								<span>•</span>
+								<span>
+									{t('batches.workspace.target_post_boil_short')}: {formatNumber(
+										targetPostBoilVolumeLiters,
+										1
+									)}L
+								</span>
+							{/if}
+						</div>
+					{:else}
+						<span class="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
+							{t('batches.workspace.post_boil_vol_hud')}
+						</span>
+						<div
+							data-testid="hud-boil-info-value"
+							class="mt-1 flex items-baseline gap-1.5 font-mono text-2xl font-bold text-amber-400"
+						>
+							<Droplets class="h-5 w-5 shrink-0 text-amber-500" />
+							<span>
+								{targetPostBoilVolumeLiters
+									? `${formatNumber(targetPostBoilVolumeLiters, 1)}L`
+									: '—'}
+							</span>
+						</div>
+						<span class="mt-0.5 text-[10px] font-medium text-zinc-400">
+							{#if boilOffRatePerHour}
+								{t('batches.workspace.boil_off_rate_hint', {
+									rate: formatNumber(boilOffRatePerHour, 1)
+								})}
+							{:else}
+								{t('batches.workspace.all_milestones_completed')}
+							{/if}
+						</span>
+					{/if}
+				</div>
+			{:else}
+				<!-- Fallback / generic stage confirmation -->
+				<div
+					class="col-span-2 flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 p-3 sm:col-span-1"
+				>
+					<span class="text-[11px] font-bold tracking-wider text-zinc-400 uppercase">
+						{t('batches.workspace.steam_friendly_mode')}
+					</span>
+					<span class="mt-1 flex items-center gap-1 font-mono text-xs font-bold text-amber-300">
+						<Sparkles class="h-3.5 w-3.5" />
+						{t('batches.workspace.high_contrast_active')}
+					</span>
+				</div>
+			{/if}
 		</footer>
 	</div>
 {/if}
