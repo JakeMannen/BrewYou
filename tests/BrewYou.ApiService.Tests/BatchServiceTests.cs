@@ -787,4 +787,263 @@ public class BatchServiceTests
         updated!.CurrentGravity.Should().Be(1.010m);
         updated.AlcoholByVolume.Should().Be(5.25m);
     }
+
+    [Fact]
+    public async Task AdvanceStageAsync_RejectsBackwardTransition_MarksSkippedIntermediateStages_AndCompletesPackageCleanly()
+    {
+        var userId = $"brewer_stage_{Guid.NewGuid():N}";
+        var dryHop = new Ingredient { Id = Guid.NewGuid(), Name = "Mosaic", Type = IngredientType.Hop };
+        _db.Ingredients.Add(dryHop);
+        _db.IngredientStocks.Add(new IngredientStock { UserId = userId, IngredientId = dryHop.Id, Amount = 200m, Unit = "g" });
+        await _db.SaveChangesAsync();
+
+        var (_, created, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: "B-STAGE-01",
+            Name: "Stage Machine Ale",
+            BeerStyle: "Pale Ale",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.050m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.2m,
+            TargetIbu: 35m,
+            TargetColorSrm: 6m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: null,
+            CustomIngredients:
+            [
+                new BatchIngredientInputDto("Mosaic", IngredientType.Hop, 50m, "g", IngredientUsage.DryHop, 3, null)
+            ]
+        ), userId);
+
+        // Advance Mash -> Boil
+        var (boilRes, boilBatch, _) = await _batchService.AdvanceStageAsync(
+            created!.Id, new AdvanceBatchStageRequest(BrewStage.Boil), userId);
+        boilRes.Should().Be(BatchAccessResult.Success);
+        boilBatch!.CurrentStage.Should().Be(BrewStage.Boil);
+
+        // Backward Boil -> Mash must return Conflict
+        var (backRes, _, backErr) = await _batchService.AdvanceStageAsync(
+            created.Id, new AdvanceBatchStageRequest(BrewStage.Mash), userId);
+        backRes.Should().Be(BatchAccessResult.Conflict);
+        backErr.Should().Contain("backward");
+
+        // Same-stage Boil -> Boil must return Conflict
+        var (sameRes, _, _) = await _batchService.AdvanceStageAsync(
+            created.Id, new AdvanceBatchStageRequest(BrewStage.Boil), userId);
+        sameRes.Should().Be(BatchAccessResult.Conflict);
+
+        // Skip Ferment & Condition: Boil -> Package
+        var (pkgRes, pkgBatch, _) = await _batchService.AdvanceStageAsync(
+            created.Id, new AdvanceBatchStageRequest(BrewStage.Package, MeasuredFg: 1.010m), userId);
+        pkgRes.Should().Be(BatchAccessResult.Success);
+        pkgBatch!.Status.Should().Be(BatchStatus.Completed);
+        pkgBatch.CurrentStage.Should().Be(BrewStage.Package);
+
+        pkgBatch.StageHistory.First(h => h.Stage == BrewStage.Mash).Status.Should().Be(StageStatus.Completed);
+        pkgBatch.StageHistory.First(h => h.Stage == BrewStage.Boil).Status.Should().Be(StageStatus.Completed);
+        pkgBatch.StageHistory.First(h => h.Stage == BrewStage.Ferment).Status.Should().Be(StageStatus.Skipped);
+        pkgBatch.StageHistory.First(h => h.Stage == BrewStage.Condition).Status.Should().Be(StageStatus.Skipped);
+
+        var packageHistory = pkgBatch.StageHistory.First(h => h.Stage == BrewStage.Package);
+        packageHistory.Status.Should().Be(StageStatus.Completed);
+        packageHistory.CompletedAt.Should().NotBeNull();
+
+        // Skipped Ferment DryHop ingredient was auto-deducted
+        var stock = await _db.IngredientStocks.FirstAsync(s => s.UserId == userId && s.IngredientId == dryHop.Id);
+        stock.Amount.Should().Be(150m);
+    }
+
+    [Fact]
+    public async Task ToggleIngredientAsync_RefundsAdHocNamedStock_AndRejectsCompletedOrArchivedBatch()
+    {
+        var userId = $"brewer_refund_{Guid.NewGuid():N}";
+        var citra = new Ingredient { Id = Guid.NewGuid(), Name = "Citra", Type = IngredientType.Hop };
+        _db.Ingredients.Add(citra);
+        _db.IngredientStocks.Add(new IngredientStock { UserId = userId, IngredientId = citra.Id, Amount = 100m, Unit = "g" });
+
+        var batch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-REFUND-01",
+            Name = "Ad-hoc Citra IPA",
+            Status = BatchStatus.Brewing,
+            CurrentStage = BrewStage.Boil,
+            BrewDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        var adHocHop = new BatchIngredient
+        {
+            Id = Guid.NewGuid(),
+            BatchId = batch.Id,
+            Batch = batch,
+            SourceIngredientId = null, // Ad-hoc ingredient matched by name
+            Name = "citra",
+            Type = IngredientType.Hop,
+            Amount = 40m,
+            Unit = "g",
+            AdditionStage = IngredientUsage.Boil
+        };
+        _db.Batches.Add(batch);
+        _db.BatchIngredients.Add(adHocHop);
+        await _db.SaveChangesAsync();
+
+        // Check -> deducts 40g
+        var (checkRes, checkedDto, _) = await _batchService.ToggleIngredientAsync(batch.Id, adHocHop.Id, true, userId);
+        checkRes.Should().Be(BatchAccessResult.Success);
+        checkedDto!.IsDeducted.Should().BeTrue();
+        (await _db.IngredientStocks.FirstAsync(s => s.UserId == userId && s.IngredientId == citra.Id)).Amount.Should().Be(60m);
+
+        // Uncheck -> refunds 40g via case-insensitive name fallback
+        var (uncheckRes, uncheckedDto, _) = await _batchService.ToggleIngredientAsync(batch.Id, adHocHop.Id, false, userId);
+        uncheckRes.Should().Be(BatchAccessResult.Success);
+        uncheckedDto!.IsDeducted.Should().BeFalse();
+        (await _db.IngredientStocks.FirstAsync(s => s.UserId == userId && s.IngredientId == citra.Id)).Amount.Should().Be(100m);
+
+        // Completed batch -> Conflict
+        batch.Status = BatchStatus.Completed;
+        await _db.SaveChangesAsync();
+        var (conflictRes, _, conflictErr) = await _batchService.ToggleIngredientAsync(batch.Id, adHocHop.Id, true, userId);
+        conflictRes.Should().Be(BatchAccessResult.Conflict);
+        conflictErr.Should().Contain("completed or archived");
+    }
+
+    [Fact]
+    public async Task ToggleMashStepAsync_AutoDeductsOnlyMashAdditions_LeavingBoilAndBottlingFermentablesUndeducted()
+    {
+        var userId = $"brewer_mash_only_{Guid.NewGuid():N}";
+        var pilsner = new Ingredient { Id = Guid.NewGuid(), Name = "Pilsner", Type = IngredientType.Fermentable };
+        var candiSugar = new Ingredient { Id = Guid.NewGuid(), Name = "Candi Sugar", Type = IngredientType.Fermentable };
+        var priming = new Ingredient { Id = Guid.NewGuid(), Name = "Dextrose", Type = IngredientType.Fermentable };
+        _db.Ingredients.AddRange(pilsner, candiSugar, priming);
+        _db.IngredientStocks.AddRange(
+            new IngredientStock { UserId = userId, IngredientId = pilsner.Id, Amount = 10m, Unit = "kg" },
+            new IngredientStock { UserId = userId, IngredientId = candiSugar.Id, Amount = 2m, Unit = "kg" },
+            new IngredientStock { UserId = userId, IngredientId = priming.Id, Amount = 1000m, Unit = "g" }
+        );
+
+        var batch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-TRIPEL-01",
+            Name = "Belgian Tripel",
+            Status = BatchStatus.Brewing,
+            CurrentStage = BrewStage.Mash,
+            BrewDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        var mashIng = new BatchIngredient { Id = Guid.NewGuid(), BatchId = batch.Id, Batch = batch, SourceIngredientId = pilsner.Id, Name = "Pilsner", Type = IngredientType.Fermentable, Amount = 6m, Unit = "kg", AdditionStage = IngredientUsage.Mash };
+        var boilIng = new BatchIngredient { Id = Guid.NewGuid(), BatchId = batch.Id, Batch = batch, SourceIngredientId = candiSugar.Id, Name = "Candi Sugar", Type = IngredientType.Fermentable, Amount = 1m, Unit = "kg", AdditionStage = IngredientUsage.Boil };
+        var bottleIng = new BatchIngredient { Id = Guid.NewGuid(), BatchId = batch.Id, Batch = batch, SourceIngredientId = priming.Id, Name = "Dextrose", Type = IngredientType.Fermentable, Amount = 150m, Unit = "g", AdditionStage = IngredientUsage.Bottling };
+        var mashStep = new BatchMashStep { Id = Guid.NewGuid(), BatchId = batch.Id, Batch = batch, StepOrder = 1, Name = "Beta Rest", Type = MashStepType.Temperature, TargetTemperatureC = 63m, DurationMinutes = 45 };
+
+        _db.Batches.Add(batch);
+        _db.BatchIngredients.AddRange(mashIng, boilIng, bottleIng);
+        _db.BatchMashSteps.Add(mashStep);
+        await _db.SaveChangesAsync();
+
+        var (res, _, _) = await _batchService.ToggleMashStepAsync(batch.Id, mashStep.Id, new ToggleBatchMashStepRequest(true), userId);
+        res.Should().Be(BatchAccessResult.Success);
+
+        (await _db.BatchIngredients.FindAsync(mashIng.Id))!.IsDeducted.Should().BeTrue();
+        (await _db.BatchIngredients.FindAsync(boilIng.Id))!.IsDeducted.Should().BeFalse();
+        (await _db.BatchIngredients.FindAsync(bottleIng.Id))!.IsDeducted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ConvertUnitAmount_AndGrainCalculations_HandleImperialAndGramUnitsAndCatalogPotentialGravity()
+    {
+        BatchService.ConvertUnitAmount(10m, "lb", "kg").Should().BeApproximately(4.5359m, 0.001m);
+        BatchService.ConvertUnitAmount(1m, "lb", "oz").Should().BeApproximately(16m, 0.001m);
+        BatchService.ConvertUnitAmount(500m, "g", "lb").Should().BeApproximately(1.1023m, 0.001m);
+        BatchService.ConvertUnitAmount(500m, "ml", "L").Should().Be(0.5m);
+
+        var userId = $"brewer_ppg_{Guid.NewGuid():N}";
+        var marisOtter = new Ingredient { Id = Guid.NewGuid(), Name = "Maris Otter Pale", Type = IngredientType.Fermentable, PotentialGravity = 1.038m };
+        var crystal60 = new Ingredient { Id = Guid.NewGuid(), Name = "Crystal 60L", Type = IngredientType.Fermentable, PotentialGravity = 1.034m };
+        _db.Ingredients.AddRange(marisOtter, crystal60);
+        await _db.SaveChangesAsync();
+
+        // Create batch with 10 lb base malt + 500 g specialty malt
+        var (createRes, created, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: "B-IMP-01",
+            Name: "ESB Imperial Units",
+            BeerStyle: "Strong Bitter",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.052m,
+            TargetFg: 1.012m,
+            TargetAbv: 5.2m,
+            TargetIbu: 38m,
+            TargetColorSrm: 12m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: null,
+            CustomIngredients:
+            [
+                new BatchIngredientInputDto("Maris Otter Pale", IngredientType.Fermentable, 10m, "lb", IngredientUsage.Mash, null, null),
+                new BatchIngredientInputDto("Crystal 60L", IngredientType.Fermentable, 500m, "g", IngredientUsage.Mash, null, null)
+            ]
+        ), userId);
+
+        createRes.Should().Be(BatchAccessResult.Success);
+        // Total grain = ~5.036 kg -> strike water at 3 L/kg should be ~15.11 L (NOT 0 L!)
+        created!.VolumeProfile!.StrikeWaterLiters.Should().BeApproximately(15.11m, 0.1m);
+
+        // Update MeasuredOg = 1.052 at 20L (~5.284 gal) -> total points = 52 * 5.28344 = ~274.74
+        // Max potential = (10 * 38) + (1.10231 * 34) = 380 + 37.48 = ~417.48 -> efficiency ~65.8%
+        var (updRes, updated, _) = await _batchService.UpdateBatchAsync(
+            created.Id, new UpdateBatchRequest(MeasuredOg: 1.052m, MeasuredBatchSizeLiters: 20m), userId);
+        updRes.Should().Be(BatchAccessResult.Success);
+        updated!.BrewhouseEfficiency.Should().NotBeNull();
+        updated.BrewhouseEfficiency!.Value.Should().BeInRange(64.0m, 68.0m);
+    }
+
+    [Fact]
+    public async Task SensorAssignments_RejectCrossBatchMashStepId_AcrossCreateUpdateAndUpdateSensors()
+    {
+        var userId = $"brewer_idor_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Setup", IsDefault = true };
+        var probe = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Mash Probe", Type = EquipmentType.Sensor, Subtype = EquipmentSubtype.GenericSensor };
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.Add(probe);
+        await _db.SaveChangesAsync();
+
+        var (_, batchA, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-IDOR-A", "Batch A", "IPA", DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, null), userId);
+        var (_, batchB, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-IDOR-B", "Batch B", "IPA", DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, null), userId);
+
+        var foreignStepId = batchA!.MashSteps[0].Id;
+        var ownStepId = batchB!.MashSteps[0].Id;
+
+        // 1. CreateBatchAsync with foreign mash step ID -> ValidationFailed
+        var (createBadRes, _, createBadErr) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-IDOR-C", "Batch C", "IPA", DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, null,
+            SensorAssignments: [new BatchSensorAssignmentInput(probe.Id, BrewStage.Mash, foreignStepId)]), userId);
+        createBadRes.Should().Be(BatchAccessResult.ValidationFailed);
+        createBadErr.Should().Contain("does not belong to this batch");
+
+        // 2. UpdateBatchAsync with foreign mash step ID -> ValidationFailed
+        var (updBadRes, _, _) = await _batchService.UpdateBatchAsync(
+            batchB.Id, new UpdateBatchRequest(SensorAssignments: [new BatchSensorAssignmentInput(probe.Id, BrewStage.Mash, foreignStepId)]), userId);
+        updBadRes.Should().Be(BatchAccessResult.ValidationFailed);
+
+        // 3. UpdateBatchSensorsAsync with foreign mash step ID -> ValidationFailed
+        var (sensBadRes, _, _) = await _batchService.UpdateBatchSensorsAsync(
+            batchB.Id, [new BatchSensorAssignmentInput(probe.Id, BrewStage.Mash, foreignStepId)], userId);
+        sensBadRes.Should().Be(BatchAccessResult.ValidationFailed);
+
+        // 4. UpdateBatchSensorsAsync with own mash step ID -> Success and populates StepName!
+        var (sensOkRes, sensors, _) = await _batchService.UpdateBatchSensorsAsync(
+            batchB.Id, [new BatchSensorAssignmentInput(probe.Id, BrewStage.Mash, ownStepId)], userId);
+        sensOkRes.Should().Be(BatchAccessResult.Success);
+        sensors.Should().ContainSingle();
+        sensors![0].StepName.Should().Be(batchB.MashSteps[0].Name);
+    }
 }

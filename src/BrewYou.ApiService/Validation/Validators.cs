@@ -740,7 +740,7 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .WithMessage("Batch name contains invalid characters.");
 
         RuleFor(x => x.BatchCode)
-            .MaximumLength(50).WithMessage("Batch code cannot exceed 50 characters.")
+            .MaximumLength(30).WithMessage("Batch code cannot exceed 30 characters.")
             .Matches(@"^[a-zA-Z0-9\-_#]+$")
             .When(x => !string.IsNullOrEmpty(x.BatchCode))
             .WithMessage("Batch code contains invalid characters. Use alphanumeric, dash, underscore, or hash.");
@@ -828,6 +828,32 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
         RuleFor(x => x.CustomFermentationSteps)
             .Must(steps => steps == null || !steps.Any() || steps.Select(s => s.StepOrder).Distinct().Count() == steps.Count)
             .WithMessage("Fermentation step orders must be unique.");
+
+        RuleFor(x => x.SensorAssignments)
+            .Must(sensors => sensors == null || sensors.Count <= 20)
+            .WithMessage("Cannot assign more than 20 sensors to a batch.");
+        RuleForEach(x => x.SensorAssignments)
+            .SetValidator(new BatchSensorAssignmentInputValidator())
+            .When(x => x.SensorAssignments != null);
+    }
+}
+
+public class BatchSensorAssignmentInputValidator : AbstractValidator<BatchSensorAssignmentInput>
+{
+    public BatchSensorAssignmentInputValidator()
+    {
+        RuleFor(x => x.EquipmentId)
+            .NotEmpty().WithMessage("Sensor equipment ID is required.");
+
+        RuleFor(x => x.Stage)
+            .IsInEnum()
+            .When(x => x.Stage.HasValue)
+            .WithMessage("Invalid brew stage specified for sensor assignment.");
+
+        RuleFor(x => x.BatchMashStepId)
+            .Must(id => id != Guid.Empty)
+            .When(x => x.BatchMashStepId.HasValue)
+            .WithMessage("Mash step ID cannot be empty.");
     }
 }
 
@@ -1107,6 +1133,13 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
             .GreaterThan(0m)
             .When(x => x.MeasuredPackagedVolumeLiters.HasValue)
             .WithMessage("Packaged volume must be positive.");
+
+        RuleFor(x => x.SensorAssignments)
+            .Must(sensors => sensors == null || sensors.Count <= 20)
+            .WithMessage("Cannot assign more than 20 sensors to a batch.");
+        RuleForEach(x => x.SensorAssignments)
+            .SetValidator(new BatchSensorAssignmentInputValidator())
+            .When(x => x.SensorAssignments != null);
     }
 }
 

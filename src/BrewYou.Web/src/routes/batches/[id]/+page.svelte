@@ -127,19 +127,32 @@
 
 	// Inspected Stage State (Decoupled from batch.currentStage)
 	let inspectedStage = $state<BrewStage>('Mash');
-	let isInspectingActiveStage = $derived(batch ? inspectedStage === batch.currentStage : true);
-	let canLogInspectedStage = $derived(
-		isInspectingActiveStage && batch?.status !== 'Completed' && batch?.status !== 'Archived'
+	let isReadOnlyBatch = $derived(
+		batch ? batch.status === 'Completed' || batch.status === 'Archived' : false
 	);
-	let inspectedStageStatus = $derived.by<'completed' | 'in_progress' | 'pending'>(() => {
-		if (!batch) return 'pending';
-		if (batch.status === 'Completed') return 'completed';
+	let isInspectingActiveStage = $derived(batch ? inspectedStage === batch.currentStage : true);
+	let canLogInspectedStage = $derived(isInspectingActiveStage && !isReadOnlyBatch);
+	let inspectedStageStatus = $derived.by<'completed' | 'in_progress' | 'pending' | 'skipped'>(
+		() => {
+			if (!batch) return 'pending';
+			const hist = batch.stageHistory.find((h) => h.stage === inspectedStage);
+			if (hist?.status === 'Skipped') return 'skipped';
+			if (batch.status === 'Completed' || hist?.status === 'Completed') return 'completed';
+			const stageOrder: BrewStage[] = ['Mash', 'Boil', 'Ferment', 'Condition', 'Package'];
+			const currentIndex = stageOrder.indexOf(batch.currentStage);
+			const targetIndex = stageOrder.indexOf(inspectedStage);
+			if (targetIndex < currentIndex) return 'completed';
+			if (targetIndex === currentIndex) return 'in_progress';
+			return 'pending';
+		}
+	);
+
+	let forwardStageOptions = $derived.by<BrewStage[]>(() => {
+		if (!batch) return ['Boil', 'Ferment', 'Condition', 'Package'];
+		if (batch.currentStage === 'Package') return ['Package'];
 		const stageOrder: BrewStage[] = ['Mash', 'Boil', 'Ferment', 'Condition', 'Package'];
 		const currentIndex = stageOrder.indexOf(batch.currentStage);
-		const targetIndex = stageOrder.indexOf(inspectedStage);
-		if (targetIndex < currentIndex) return 'completed';
-		if (targetIndex === currentIndex) return 'in_progress';
-		return 'pending';
+		return currentIndex >= 0 ? stageOrder.slice(currentIndex + 1) : stageOrder.slice(1);
 	});
 
 	async function handleSaveStageMeasurements(req: UpdateBatchRequest) {
@@ -480,8 +493,11 @@
 		const pkgVessel = equipmentList.find((e) => e.id === batch!.packagingVesselId);
 
 		return stageOrder.map((s, idx) => {
-			let status: 'completed' | 'in_progress' | 'pending' = 'pending';
-			if (batch!.status === 'Completed') {
+			const hist = batch!.stageHistory.find((h) => h.stage === s);
+			let status: 'completed' | 'in_progress' | 'pending' | 'skipped' = 'pending';
+			if (hist?.status === 'Skipped') {
+				status = 'skipped';
+			} else if (batch!.status === 'Completed' || hist?.status === 'Completed') {
 				status = 'completed';
 			} else if (idx < currentIndex) {
 				status = 'completed';
@@ -489,7 +505,6 @@
 				status = 'in_progress';
 			}
 
-			const hist = batch!.stageHistory.find((h) => h.stage === s);
 			let timestamp: string | undefined = undefined;
 			if (s === 'Ferment' && batch!.daysActive !== undefined) {
 				timestamp = `${batch!.daysActive}d`;
@@ -612,12 +627,12 @@
 	}
 
 	async function handleToggleIngredient(ingredientId: string, current: boolean) {
-		if (!batch) return;
+		if (!batch || isReadOnlyBatch) return;
 		try {
-			await api.batches.toggleIngredient(batch.id, ingredientId, !current);
+			const updated = await api.batches.toggleIngredient(batch.id, ingredientId, !current);
 			const idx = batch.ingredients.findIndex((i) => i.id === ingredientId);
 			if (idx !== -1) {
-				batch.ingredients[idx].isChecked = !current;
+				batch.ingredients[idx] = updated;
 			}
 		} catch (err: unknown) {
 			console.error('Failed to toggle ingredient', err);
@@ -631,33 +646,33 @@
 		let filtered: BatchIngredientDto[];
 		switch (stage) {
 			case 'Mash':
-				filtered = ingredients.filter(
-					(i) =>
-						i.additionStage === 'Mash' ||
-						(i.type === 'Fermentable' &&
-							i.additionStage !== 'Boil' &&
-							i.additionStage !== 'Bottling')
-				);
+				filtered = ingredients.filter((i) => i.additionStage === 'Mash');
 				break;
 			case 'Boil':
 				filtered = ingredients.filter(
 					(i) =>
 						i.additionStage === 'Boil' ||
 						i.additionStage === 'Whirlpool' ||
-						(i.type === 'Hop' && i.additionStage !== 'DryHop' && i.additionStage !== 'Mash')
+						(i.type === 'Hop' &&
+							i.additionStage !== 'DryHop' &&
+							i.additionStage !== 'Mash' &&
+							i.additionStage !== 'Primary' &&
+							i.additionStage !== 'Secondary' &&
+							i.additionStage !== 'Bottling')
 				);
 				break;
 			case 'Ferment':
 				filtered = ingredients.filter(
-					(i) => i.additionStage === 'Primary' || i.additionStage === 'DryHop' || i.type === 'Yeast'
+					(i) =>
+						i.additionStage === 'Primary' ||
+						i.additionStage === 'DryHop' ||
+						(i.type === 'Yeast' &&
+							i.additionStage !== 'Secondary' &&
+							i.additionStage !== 'Bottling')
 				);
 				break;
 			case 'Condition':
-				filtered = ingredients.filter(
-					(i) =>
-						i.additionStage === 'Secondary' ||
-						(i.additionStage === 'DryHop' && (i.additionTimeMinutes ?? 0) <= 3)
-				);
+				filtered = ingredients.filter((i) => i.additionStage === 'Secondary');
 				break;
 			case 'Package':
 				filtered = ingredients.filter((i) => i.additionStage === 'Bottling');
@@ -703,16 +718,20 @@
 		return getIngredientsForStage(nextStage, batch.ingredients);
 	});
 
+	function convertMassToKg(amount: number, unit: string): number {
+		const u = unit.trim().toLowerCase();
+		if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return amount;
+		if (u === 'g' || u === 'gram' || u === 'grams') return amount / 1000;
+		if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return amount * 0.45359237;
+		if (u === 'oz' || u === 'ounce' || u === 'ounces') return amount * 0.0283495231;
+		return 0;
+	}
+
 	let totalMashGrainKg = $derived.by(() => {
 		if (!batch) return 0;
 		return batch.ingredients
-			.filter(
-				(i) =>
-					i.type === 'Fermentable' &&
-					(i.additionStage === 'Mash' ||
-						(i.additionStage !== 'Boil' && i.additionStage !== 'Bottling'))
-			)
-			.reduce((sum, i) => sum + (i.unit === 'g' ? i.amount / 1000 : i.amount), 0);
+			.filter((i) => i.type === 'Fermentable' && i.additionStage === 'Mash')
+			.reduce((sum, i) => sum + convertMassToKg(i.amount, i.unit), 0);
 	});
 
 	let activeMashStepIndex = $state(0);
@@ -811,7 +830,7 @@
 	}
 
 	async function handleToggleMashStep(stepId: string, currentCompleted: boolean) {
-		if (!batch) return;
+		if (!batch || isReadOnlyBatch) return;
 		try {
 			const updatedStep = await api.batches.toggleMashStep(batch.id, stepId, {
 				isCompleted: !currentCompleted
@@ -820,13 +839,21 @@
 			if (idx !== -1) {
 				batch.mashSteps[idx] = updatedStep;
 			}
+			if (updatedStep.isCompleted) {
+				for (const ing of batch.ingredients) {
+					if (ing.additionStage === 'Mash' && !ing.isDeducted) {
+						ing.isChecked = true;
+						ing.isDeducted = true;
+					}
+				}
+			}
 		} catch (err: unknown) {
 			console.error('Failed to toggle mash step', err);
 		}
 	}
 
 	async function handleToggleFermentationStep(stepId: string, currentCompleted: boolean) {
-		if (!batch) return;
+		if (!batch || isReadOnlyBatch) return;
 		try {
 			const updatedStep = await api.batches.toggleFermentationStep(batch.id, stepId, {
 				isCompleted: !currentCompleted
@@ -1058,7 +1085,7 @@
 					</button>
 				{/if}
 
-				{#if batch.status !== 'Completed'}
+				{#if !isReadOnlyBatch}
 					<button
 						type="button"
 						data-testid="advance-stage-btn"
@@ -1498,7 +1525,7 @@
 									</button>
 								</div>
 
-								{#if batch.mashSteps && batch.mashSteps.length > 1}
+								{#if !isReadOnlyBatch && batch.mashSteps && batch.mashSteps.length > 1}
 									<button
 										type="button"
 										data-testid="advance-mash-step-btn"
@@ -1553,6 +1580,7 @@
 													type="checkbox"
 													data-testid="mash-step-checkbox-{step.id}"
 													checked={step.isCompleted}
+													disabled={isReadOnlyBatch}
 													onchange={() => handleToggleMashStep(step.id, step.isCompleted)}
 													class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
 												/>
@@ -1692,8 +1720,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -1859,8 +1888,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -1975,6 +2005,7 @@
 												type="checkbox"
 												data-testid="fermentation-step-checkbox-{step.id}"
 												checked={step.isCompleted}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleFermentationStep(step.id, step.isCompleted)}
 												class="h-4 w-4 rounded-md border-zinc-300 text-cyan-600 focus:ring-cyan-500/30 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
@@ -2072,8 +2103,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -2189,8 +2221,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -2285,10 +2318,9 @@
 						bind:value={nextStage}
 						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 					>
-						<option value="Boil">{t('batches.stages.boil')}</option>
-						<option value="Ferment">{t('batches.stages.ferment')}</option>
-						<option value="Condition">{t('batches.stages.condition')}</option>
-						<option value="Package">{t('batches.stages.package')}</option>
+						{#each forwardStageOptions as stageOpt (stageOpt)}
+							<option value={stageOpt}>{t(`batches.stages.${stageOpt.toLowerCase()}`)}</option>
+						{/each}
 					</select>
 				</div>
 

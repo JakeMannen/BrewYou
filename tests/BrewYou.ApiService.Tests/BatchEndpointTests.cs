@@ -1500,7 +1500,7 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         var createReq = new CreateBatchRequest(
             RecipeId: null,
-            BatchCode: $"B-{Guid.NewGuid():N}",
+            BatchCode: $"B-{Guid.NewGuid():N}"[..18],
             Name: "Test Ale",
             BeerStyle: "American Pale Ale",
             BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
@@ -1527,5 +1527,69 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         env!.Success.Should().BeFalse();
         env.Error.Should().NotBeNull();
         env.Error!.Code.Should().Be("BAD_REQUEST");
+    }
+
+    [Fact]
+    public async Task BatchEndpoints_EnforceForwardOnlyStage_CompletedIngredientGuard_AndSensorStepOwnership()
+    {
+        var (client, _, boilerId, fermenterId, kegId) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var setups = (await (await client.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups.First(s => s.IsDefault).Id;
+
+        var sensor = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, "Mash Probe #1", EquipmentType.Sensor, 0m, Subtype: EquipmentSubtype.GenericSensor
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var batchA = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-P1-A", "Batch A", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, boilerId, fermenterId,
+            CustomIngredients: [new("Cascade", IngredientType.Hop, 25m, "g", IngredientUsage.Boil, 60, null)]
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var batchB = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-P1-B", "Batch B", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, boilerId, fermenterId
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Cross-batch BatchMashStepId on PUT /sensors and PUT /batches/{id} -> 400 BadRequest
+        var badSensorsRes = await client.PutAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(sensor.Id, BrewStage.Mash, batchB.MashSteps[0].Id) });
+        badSensorsRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var badUpdateRes = await client.PutAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}",
+            new UpdateBatchRequest(SensorAssignments: [new(sensor.Id, BrewStage.Mash, batchB.MashSteps[0].Id)]));
+        badUpdateRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 2. Advance Mash -> Boil, then attempt backward Boil -> Mash -> 409 Conflict
+        var toBoilRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Boil));
+        toBoilRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var backwardRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Mash));
+        backwardRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 3. Advance Boil -> Ferment -> Package (skipping Condition)
+        var toFermRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.051m));
+        toFermRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var toPkgRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: kegId, MeasuredFg: 1.010m));
+        toPkgRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var completedBatch = (await toPkgRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        completedBatch.StageHistory.First(h => h.Stage == BrewStage.Condition).Status.Should().Be(StageStatus.Skipped);
+        completedBatch.StageHistory.First(h => h.Stage == BrewStage.Package).Status.Should().Be(StageStatus.Completed);
+
+        // 4. Attempting to toggle ingredient on completed batch -> 409 Conflict
+        var ingId = completedBatch.Ingredients[0].Id;
+        var toggleCompletedRes = await client.PatchAsync(
+            $"/api/v1/batches/{batchA.Id}/ingredients/{ingId}?isChecked=false", null);
+        toggleCompletedRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 }
