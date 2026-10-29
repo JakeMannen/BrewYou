@@ -132,6 +132,7 @@ describe('StageProgressBar Logic & Calculations', () => {
 			'milestone_due',
 			'milestone_completed',
 			'milestone_items_count',
+			'milestone_pin_aria',
 			'close_popover'
 		] as const;
 

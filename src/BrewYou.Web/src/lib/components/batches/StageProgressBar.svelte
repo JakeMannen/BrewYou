@@ -138,7 +138,11 @@
 			: 'text-xs text-zinc-600 dark:text-zinc-400'}"
 	>
 		<span class="flex items-center gap-1.5 font-semibold">
-			<span>{t('batches.workspace.progress_title', { stage })}</span>
+			<span
+				>{t('batches.workspace.progress_title', {
+					stage: t(`batches.stages.${stage.toLowerCase()}`)
+				})}</span
+			>
 			{#if isComplete}
 				<span
 					class="py-0.2 rounded-md bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-400 uppercase"
@@ -192,8 +196,12 @@
 							type="button"
 							data-testid="milestone-pin-{group.additionTimeMinutes}"
 							onclick={() => handleTogglePin(group.additionTimeMinutes)}
-							title="{group.additionTimeMinutes}m ({group.ingredients.length} items)"
-							aria-label="{group.additionTimeMinutes}m milestone"
+							title="{group.additionTimeMinutes}m ({t('batches.workspace.milestone_items_count', {
+								count: group.ingredients.length
+							})})"
+							aria-label={t('batches.workspace.milestone_pin_aria', {
+								time: group.additionTimeMinutes
+							})}
 							class="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold shadow-md transition-all active:scale-95 {group.allChecked
 								? 'border-emerald-500/50 bg-emerald-950/90 text-emerald-300 hover:border-emerald-400 hover:bg-emerald-900'
 								: group.isDue
