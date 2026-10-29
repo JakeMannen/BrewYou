@@ -1388,4 +1388,185 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         equipment.CurrentBatteryPercent.Should().Be(75.0m); // (3.95 - 3.2) / 1.0 * 100 = 75%
         equipment.LatestMetricsJson.Should().Contain("12345");
     }
+
+    [Fact]
+    public async Task IngestTelemetry_NoBody_ReturnsBadRequest()
+    {
+        var (userClient, _, setupId) = await CreateUserAsync();
+
+        var eqReq = new CreateEquipmentRequest(
+            setupId,
+            $"Probe EmptyBody {Guid.NewGuid():N}",
+            EquipmentType.Sensor,
+            30m,
+            EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush);
+
+        var createRes = await userClient.PostAsJsonAsync("/api/v1/inventory/equipment", eqReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eqEnv = await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        var token = eqEnv!.Data!.ConnectionToken;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/telemetry/equipment/{token}");
+        // No content/body attached
+        var pushRes = await _client.SendAsync(request);
+        var body = await pushRes.Content.ReadAsStringAsync();
+        pushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"Expected 400 Bad Request but received body: {body}");
+        var env = JsonSerializer.Deserialize<ApiResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+        env.Error!.Code.Should().Be("INVALID_PAYLOAD");
+    }
+
+    [Fact]
+    public async Task IngestTelemetry_EmptyStringBody_ReturnsBadRequest()
+    {
+        var (userClient, _, setupId) = await CreateUserAsync();
+
+        var eqReq = new CreateEquipmentRequest(
+            setupId,
+            $"Probe EmptyString {Guid.NewGuid():N}",
+            EquipmentType.Sensor,
+            30m,
+            EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush);
+
+        var createRes = await userClient.PostAsJsonAsync("/api/v1/inventory/equipment", eqReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eqEnv = await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        var token = eqEnv!.Data!.ConnectionToken;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/telemetry/equipment/{token}")
+        {
+            Content = new StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json")
+        };
+        var pushRes = await _client.SendAsync(request);
+        var body = await pushRes.Content.ReadAsStringAsync();
+        pushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"Expected 400 Bad Request but received body: {body}");
+        var env = JsonSerializer.Deserialize<ApiResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task IngestTelemetry_NullLiteralBody_ReturnsBadRequest()
+    {
+        var (userClient, _, setupId) = await CreateUserAsync();
+
+        var eqReq = new CreateEquipmentRequest(
+            setupId,
+            $"Probe NullLiteral {Guid.NewGuid():N}",
+            EquipmentType.Sensor,
+            30m,
+            EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush);
+
+        var createRes = await userClient.PostAsJsonAsync("/api/v1/inventory/equipment", eqReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eqEnv = await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        var token = eqEnv!.Data!.ConnectionToken;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/telemetry/equipment/{token}")
+        {
+            Content = new StringContent("null", System.Text.Encoding.UTF8, "application/json")
+        };
+        var pushRes = await _client.SendAsync(request);
+        var body = await pushRes.Content.ReadAsStringAsync();
+        pushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"Expected 400 Bad Request but received body: {body}");
+        var env = JsonSerializer.Deserialize<ApiResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+        env.Error!.Code.Should().Be("INVALID_PAYLOAD");
+    }
+
+    [Fact]
+    public async Task IngestTelemetry_MalformedJson_ReturnsBadRequest()
+    {
+        var (userClient, _, setupId) = await CreateUserAsync();
+
+        var eqReq = new CreateEquipmentRequest(
+            setupId,
+            $"Probe MalformedJson {Guid.NewGuid():N}",
+            EquipmentType.Sensor,
+            30m,
+            EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush);
+
+        var createRes = await userClient.PostAsJsonAsync("/api/v1/inventory/equipment", eqReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eqEnv = await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        var token = eqEnv!.Data!.ConnectionToken;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/telemetry/equipment/{token}")
+        {
+            Content = new StringContent("{ not valid json: 123", System.Text.Encoding.UTF8, "application/json")
+        };
+        var pushRes = await _client.SendAsync(request);
+        var body = await pushRes.Content.ReadAsStringAsync();
+        pushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"Expected 400 Bad Request but received body: {body}");
+        var env = JsonSerializer.Deserialize<ApiResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task IngestTelemetryWithHeader_NoBody_ReturnsBadRequest()
+    {
+        var (userClient, _, setupId) = await CreateUserAsync();
+
+        var eqReq = new CreateEquipmentRequest(
+            setupId,
+            $"Probe HeaderNoBody {Guid.NewGuid():N}",
+            EquipmentType.Sensor,
+            30m,
+            EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush);
+
+        var createRes = await userClient.PostAsJsonAsync("/api/v1/inventory/equipment", eqReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eqEnv = await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        var token = eqEnv!.Data!.ConnectionToken;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment");
+        request.Headers.Add("X-BrewYou-Device-Token", token);
+        // No content/body attached
+        var pushRes = await _client.SendAsync(request);
+        var body = await pushRes.Content.ReadAsStringAsync();
+        pushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"Expected 400 Bad Request but received body: {body}");
+        var env = JsonSerializer.Deserialize<ApiResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+        env.Error!.Code.Should().Be("INVALID_PAYLOAD");
+    }
+
+    [Fact]
+    public async Task IngestTelemetryWithHeader_EmptyStringBody_ReturnsBadRequest()
+    {
+        var (userClient, _, setupId) = await CreateUserAsync();
+
+        var eqReq = new CreateEquipmentRequest(
+            setupId,
+            $"Probe HeaderEmptyString {Guid.NewGuid():N}",
+            EquipmentType.Sensor,
+            30m,
+            EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush);
+
+        var createRes = await userClient.PostAsJsonAsync("/api/v1/inventory/equipment", eqReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eqEnv = await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        var token = eqEnv!.Data!.ConnectionToken;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment")
+        {
+            Content = new StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("X-BrewYou-Device-Token", token);
+        var pushRes = await _client.SendAsync(request);
+        var body = await pushRes.Content.ReadAsStringAsync();
+        pushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"Expected 400 Bad Request but received body: {body}");
+        var env = JsonSerializer.Deserialize<ApiResponse>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        env!.Success.Should().BeFalse();
+        env.Error.Should().NotBeNull();
+    }
 }
