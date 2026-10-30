@@ -192,21 +192,6 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
                   .OnDelete(DeleteBehavior.Restrict);
         });
 
-        builder.Entity<BatchIngredient>(entity =>
-        {
-            entity.HasKey(bi => bi.Id);
-            entity.Property(bi => bi.Name).HasMaxLength(150).IsRequired();
-            entity.Property(bi => bi.Amount).HasPrecision(8, 3);
-            entity.Property(bi => bi.Unit).HasMaxLength(20);
-            entity.Property(bi => bi.Form).HasMaxLength(50);
-            entity.Property(bi => bi.Notes).HasMaxLength(1000);
-
-            entity.HasOne(bi => bi.Batch)
-                  .WithMany(b => b.Ingredients)
-                  .HasForeignKey(bi => bi.BatchId)
-                  .OnDelete(DeleteBehavior.Cascade);
-        });
-
         builder.Entity<Equipment>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -385,6 +370,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(bi => bi.AdditionStage).HasConversion<string>().HasMaxLength(30).IsRequired();
             entity.Property(bi => bi.Amount).HasPrecision(8, 3).IsRequired();
             entity.Property(bi => bi.Unit).HasMaxLength(20).IsRequired();
+            entity.Property(bi => bi.Form).HasMaxLength(50);
             entity.Property(bi => bi.Notes).HasMaxLength(1000);
 
             entity.HasOne(bi => bi.Batch)

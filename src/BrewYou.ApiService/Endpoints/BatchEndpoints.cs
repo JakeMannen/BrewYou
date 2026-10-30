@@ -244,12 +244,14 @@ public static class BatchEndpoints
             return result switch
             {
                 BatchAccessResult.Success => Results.Ok(ApiResponse<BatchIngredientDto>.Ok(ingredient!)),
+                BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("INVALID_STATE", errorMsg ?? "Batch is in an invalid state.")),
                 _ => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Ingredient not found."))
             };
         })
         .WithName($"ToggleBatchIngredient_{prefixTag}")
         .Produces<ApiResponse<BatchIngredientDto>>(StatusCodes.Status200OK)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         // 7.5 Toggle Mash Step
         group.MapPatch("/{id:guid}/mash-steps/{stepId:guid}", async (
@@ -348,12 +350,16 @@ public static class BatchEndpoints
             return result switch
             {
                 BatchAccessResult.Success => Results.Ok(ApiResponse<BatchDetailDto>.Ok(batch!)),
+                BatchAccessResult.ValidationFailed => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", errorMsg ?? "Validation failed for batch update.")),
+                BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("CONFLICT", errorMsg ?? "Batch cannot be modified.")),
                 _ => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Batch not found."))
             };
         })
         .WithName($"UpdateBatch_{prefixTag}")
         .Produces<ApiResponse<BatchDetailDto>>(StatusCodes.Status200OK)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         // 9. Delete Batch
         group.MapDelete("/{id:guid}", async (
@@ -539,6 +545,7 @@ public static class BatchEndpoints
         group.MapPut("/{id:guid}/sensors", async (
             Guid id,
             [FromBody] List<BatchSensorAssignmentInput> sensorInputs,
+            IValidator<BatchSensorAssignmentInput> validator,
             ClaimsPrincipal principal,
             IBatchService batchService) =>
         {
@@ -548,17 +555,39 @@ public static class BatchEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
+            if (sensorInputs.Count > 20)
+            {
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Cannot assign more than 20 sensors to a batch."));
+            }
+
+            var validationDetails = new List<ApiErrorDetail>();
+            for (var i = 0; i < sensorInputs.Count; i++)
+            {
+                var itemResult = await validator.ValidateAsync(sensorInputs[i]);
+                if (!itemResult.IsValid)
+                {
+                    validationDetails.AddRange(itemResult.Errors.Select(e => new ApiErrorDetail($"[{i}].{e.PropertyName}", e.ErrorMessage)));
+                }
+            }
+
+            if (validationDetails.Count > 0)
+            {
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Validation failed for sensor assignments.", validationDetails));
+            }
+
             var (result, sensors, errorMsg) = await batchService.UpdateBatchSensorsAsync(id, sensorInputs, userId);
             return result switch
             {
                 BatchAccessResult.Success => Results.Ok(ApiResponse<List<BatchSensorAssignmentDto>>.Ok(sensors!)),
                 BatchAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Batch not found.")),
                 BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("CONFLICT", errorMsg ?? "Batch cannot be modified.")),
+                BatchAccessResult.ValidationFailed => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", errorMsg ?? "Validation failed for sensor assignments.")),
                 _ => Results.BadRequest(ApiResponse.Fail("BAD_REQUEST", errorMsg ?? "Failed to update sensor assignments."))
             };
         })
         .WithName($"UpdateBatchSensors_{prefixTag}")
         .Produces<ApiResponse<List<BatchSensorAssignmentDto>>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
         .Produces<ApiResponse>(StatusCodes.Status409Conflict);

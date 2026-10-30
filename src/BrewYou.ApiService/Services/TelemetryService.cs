@@ -521,12 +521,15 @@ public class TelemetryService : ITelemetryService
         // Check if this equipment is currently in use for the active stage of an in-progress batch
         var activeBatch = await _db.Batches
             .Include(b => b.MashSteps)
+            .Include(b => b.FermentationSteps)
+            .Include(b => b.Readings)
             .Include(b => b.SensorAssignments)
             .FirstOrDefaultAsync(b =>
-                b.UserId == equipment.UserId &&
+                (b.UserId == equipment.UserId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
                 (b.Status == BatchStatus.Brewing || b.Status == BatchStatus.Fermenting || b.Status == BatchStatus.Conditioning) &&
                 (
-                    (equipment.Id == b.BoilerId && (b.CurrentStage == BrewStage.Mash || b.CurrentStage == BrewStage.Boil)) ||
+                    ((equipment.Id == b.MashTunId || equipment.Id == b.BoilerId || equipment.Id == b.HltId) && b.CurrentStage == BrewStage.Mash) ||
+                    (equipment.Id == b.BoilerId && b.CurrentStage == BrewStage.Boil) ||
                     (equipment.Id == b.FermenterId && (b.CurrentStage == BrewStage.Ferment || b.CurrentStage == BrewStage.Condition)) ||
                     (equipment.Id == b.PackagingVesselId && b.CurrentStage == BrewStage.Package) ||
                     ((equipment.Type == EquipmentType.Sensor || equipment.Type == EquipmentType.Other) && b.SensorAssignments.Any(sa =>
@@ -576,15 +579,25 @@ public class TelemetryService : ITelemetryService
                         reading.StepName = "Boil";
                         targetTempC = 100.0m;
                     }
-                    else if (activeBatch.CurrentStage == BrewStage.Ferment)
+                    else if (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition)
                     {
-                        reading.StepName = "Ferment";
-                        targetTempC = activeBatch.PitchTemperatureC ?? 20.0m;
-                    }
-                    else if (activeBatch.CurrentStage == BrewStage.Condition)
-                    {
-                        reading.StepName = "Condition";
-                        targetTempC = 2.0m;
+                        var activeFermStep = BatchService.ResolveActiveFermentationStep(activeBatch.FermentationSteps);
+                        if (activeFermStep != null)
+                        {
+                            reading.StepName = activeFermStep.Name;
+                            targetTempC = activeFermStep.TargetTemperatureC;
+                            if (!activeFermStep.IsCompleted)
+                            {
+                                activeFermStep.ActualTemperatureC = tempC;
+                            }
+                        }
+                        else
+                        {
+                            reading.StepName = activeBatch.CurrentStage == BrewStage.Ferment ? "Ferment" : "Condition";
+                            targetTempC = activeBatch.CurrentStage == BrewStage.Ferment
+                                ? (activeBatch.PitchTemperatureC ?? 20.0m)
+                                : 2.0m;
+                        }
                     }
                     else if (activeBatch.CurrentStage == BrewStage.Package)
                     {
@@ -592,13 +605,20 @@ public class TelemetryService : ITelemetryService
                     }
                 }
             }
-            else if (equipment.Id == activeBatch.BoilerId && (activeBatch.CurrentStage == BrewStage.Mash || activeBatch.CurrentStage == BrewStage.Boil))
+            else if (activeBatch.CurrentStage == BrewStage.Mash &&
+                     (equipment.Id == activeBatch.HltId || equipment.Id == activeBatch.MashTunId || equipment.Id == activeBatch.BoilerId))
             {
-                if (activeBatch.CurrentStage == BrewStage.Mash)
-                {
-                    reading.BatchId = activeBatch.Id;
-                    reading.Stage = BrewStage.Mash;
+                var primaryMashVesselId = activeBatch.MashTunId ?? activeBatch.BoilerId;
+                reading.BatchId = activeBatch.Id;
+                reading.Stage = BrewStage.Mash;
 
+                if (equipment.Id == activeBatch.HltId && activeBatch.HltId != primaryMashVesselId)
+                {
+                    reading.StepName = "HLT";
+                    targetTempC = 76.0m;
+                }
+                else
+                {
                     var activeStep = activeBatch.MashSteps
                         .OrderBy(s => s.StepOrder)
                         .FirstOrDefault(s => !s.IsCompleted);
@@ -615,27 +635,36 @@ public class TelemetryService : ITelemetryService
                         reading.StepName = "Mash";
                     }
                 }
-                else if (activeBatch.CurrentStage == BrewStage.Boil)
-                {
-                    reading.BatchId = activeBatch.Id;
-                    reading.Stage = BrewStage.Boil;
-                    reading.StepName = "Boil";
-                    targetTempC = 100.0m;
-                }
+            }
+            else if (equipment.Id == activeBatch.BoilerId && activeBatch.CurrentStage == BrewStage.Boil)
+            {
+                reading.BatchId = activeBatch.Id;
+                reading.Stage = BrewStage.Boil;
+                reading.StepName = "Boil";
+                targetTempC = 100.0m;
             }
             else if (equipment.Id == activeBatch.FermenterId && (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition))
             {
-                if (activeBatch.CurrentStage == BrewStage.Ferment)
+                reading.BatchId = activeBatch.Id;
+                reading.Stage = activeBatch.CurrentStage;
+
+                var activeFermStep = BatchService.ResolveActiveFermentationStep(activeBatch.FermentationSteps);
+                if (activeFermStep != null)
                 {
-                    reading.BatchId = activeBatch.Id;
-                    reading.Stage = BrewStage.Ferment;
+                    reading.StepName = activeFermStep.Name;
+                    targetTempC = activeFermStep.TargetTemperatureC;
+                    if (!activeFermStep.IsCompleted)
+                    {
+                        activeFermStep.ActualTemperatureC = tempC;
+                    }
+                }
+                else if (activeBatch.CurrentStage == BrewStage.Ferment)
+                {
                     reading.StepName = "Ferment";
                     targetTempC = activeBatch.PitchTemperatureC ?? 20.0m;
                 }
-                else if (activeBatch.CurrentStage == BrewStage.Condition)
+                else
                 {
-                    reading.BatchId = activeBatch.Id;
-                    reading.Stage = BrewStage.Condition;
                     reading.StepName = "Condition";
                     targetTempC = 2.0m;
                 }
@@ -647,28 +676,48 @@ public class TelemetryService : ITelemetryService
                 reading.StepName = "Package";
             }
 
-            // If reading is associated with a fermentation or conditioning stage batch and carries gravity, persist BatchReading
+            // If reading is associated with a fermentation or conditioning stage batch and carries gravity, update live metrics and persist throttled BatchReading
             if (reading.BatchId.HasValue &&
                 (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition) &&
                 gravity.HasValue)
             {
                 recordedGravity = gravity.Value;
-                var batchReading = new BatchReading
-                {
-                    Id = Guid.NewGuid(),
-                    BatchId = activeBatch.Id,
-                    Timestamp = timestamp,
-                    SpecificGravity = gravity.Value,
-                    TemperatureC = tempC,
-                    Notes = $"Telemetry from {equipment.Name} ({source})"
-                };
-                _db.BatchReadings.Add(batchReading);
-
                 activeBatch.CurrentGravity = gravity.Value;
+                if (activeBatch.CurrentStage == BrewStage.Condition)
+                {
+                    activeBatch.MeasuredFg = gravity.Value;
+                }
+
                 var effectiveOg = activeBatch.MeasuredOg ?? (activeBatch.TargetOg > 1.000m ? activeBatch.TargetOg : (decimal?)null);
                 if (effectiveOg.HasValue && effectiveOg.Value > gravity.Value)
                 {
                     activeBatch.AlcoholByVolume = BrewingCalculator.CalculateActualAbv(effectiveOg.Value, gravity.Value);
+                }
+
+                if (activeBatch.Readings.Count < 1000)
+                {
+                    var latestBatchReading = activeBatch.Readings
+                        .OrderByDescending(r => r.Timestamp)
+                        .FirstOrDefault();
+
+                    var shouldPersistSnapshot = latestBatchReading == null ||
+                        Math.Abs((timestamp - latestBatchReading.Timestamp).TotalMinutes) >= 15.0 ||
+                        Math.Abs(latestBatchReading.SpecificGravity - gravity.Value) >= 0.001m;
+
+                    if (shouldPersistSnapshot)
+                    {
+                        var batchReading = new BatchReading
+                        {
+                            Id = Guid.NewGuid(),
+                            BatchId = activeBatch.Id,
+                            Timestamp = timestamp,
+                            SpecificGravity = gravity.Value,
+                            TemperatureC = tempC,
+                            Notes = $"Telemetry from {equipment.Name} ({source})"
+                        };
+                        activeBatch.Readings.Add(batchReading);
+                        _db.BatchReadings.Add(batchReading);
+                    }
                 }
             }
         }

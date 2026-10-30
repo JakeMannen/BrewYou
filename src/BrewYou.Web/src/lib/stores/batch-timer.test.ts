@@ -179,4 +179,30 @@ describe('BatchTimerStore', () => {
 		).length;
 		expect(finalStorageCount).toBe(initialStorageCount);
 	});
+
+	it('maintains independent per-step Mash timers and pauses all running Mash timers via pauseStage', () => {
+		store.start('batch-1', 'Mash', 1200, 'mash-step-1'); // 20m step 1
+		vi.advanceTimersByTime(15000); // 15s elapsed on step 1
+
+		// Inspecting step 2 does not disturb step 1
+		const step2Initial = store.getTimer('batch-1', 'Mash', 3600, 'mash-step-2');
+		expect(step2Initial.running).toBe(false);
+		expect(step2Initial.remainingSeconds).toBe(3600);
+
+		const step1Running = store.getTimer('batch-1', 'Mash', 1200, 'mash-step-1');
+		expect(step1Running.running).toBe(true);
+		expect(step1Running.remainingSeconds).toBe(1185);
+
+		// Start step 2 concurrently, advance 10s, then pause entire Mash stage
+		store.start('batch-1', 'Mash', 3600, 'mash-step-2');
+		vi.advanceTimersByTime(10000);
+		store.pauseStage('batch-1', 'Mash');
+
+		const step1Paused = store.getTimer('batch-1', 'Mash', 1200, 'mash-step-1');
+		const step2Paused = store.getTimer('batch-1', 'Mash', 3600, 'mash-step-2');
+		expect(step1Paused.running).toBe(false);
+		expect(step1Paused.remainingSeconds).toBe(1175);
+		expect(step2Paused.running).toBe(false);
+		expect(step2Paused.remainingSeconds).toBe(3590);
+	});
 });

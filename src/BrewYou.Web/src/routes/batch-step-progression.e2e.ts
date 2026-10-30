@@ -530,4 +530,87 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 		// Verify that current ABV is recalculated and displayed immediately without reload!
 		await expect(abvTile).toHaveText('5.51%');
 	});
+
+	test('preserves active Mash Step 1 timer when inspecting Mash Step 2 and syncs Mash checklist on step completion', async ({
+		page
+	}) => {
+		// Set Mash ingredient unchecked initially so we can verify auto-check on Mash step completion
+		mockBatch.ingredients = [
+			{
+				id: 'ing-mash-1',
+				batchId,
+				name: 'Pilsner Malt',
+				type: 'Fermentable',
+				amount: 5.0,
+				unit: 'kg',
+				additionStage: 'Mash',
+				isChecked: false,
+				isDeducted: false
+			},
+			{
+				id: 'ing-boil-sugar',
+				batchId,
+				name: 'Candi Sugar',
+				type: 'Fermentable',
+				amount: 0.5,
+				unit: 'kg',
+				additionStage: 'Boil',
+				additionTimeMinutes: 10,
+				isChecked: false,
+				isDeducted: false
+			}
+		];
+
+		await page.goto(`/batches/${batchId}`);
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		const timerDisplay = page.locator('[data-testid="mash-timer-display"]');
+		await expect(timerDisplay).toHaveText('20:00');
+
+		// Start Mash Step 1 timer
+		const timerPanel = page.locator('[data-testid="mash-timer-panel"]');
+		await timerPanel.getByRole('button', { name: /Start|Starta/i }).click();
+		await page.waitForTimeout(1150);
+
+		// Inspect Mash Step 2 (60m) -> shows 60:00 unstarted without resetting Step 1
+		await page.locator('[data-testid="mash-step-select-mash-2"]').click();
+		await expect(timerDisplay).toHaveText('60:00');
+
+		// Return to Mash Step 1 -> timer is still running (< 20:00, not reset to 20:00)
+		await page.locator('[data-testid="mash-step-select-mash-1"]').click();
+		await expect(timerDisplay).not.toHaveText('20:00');
+
+		// Complete Mash Step 1 -> Mash ingredient checkbox becomes checked immediately
+		const step1Checkbox = page.locator('[data-testid="mash-step-checkbox-mash-1"]');
+		await step1Checkbox.check();
+		await expect(step1Checkbox).toBeChecked();
+
+		const mashChecklistCounter = page.getByText('1 / 1');
+		await expect(mashChecklistCounter).toBeVisible();
+	});
+
+	test('renders TriggerGravity readiness badge when currentGravity reaches step triggerGravity', async ({
+		page
+	}) => {
+		mockBatch.currentStage = 'Ferment';
+		mockBatch.status = 'Fermenting';
+		mockBatch.measuredOg = 1.054;
+		mockBatch.currentGravity = 1.018;
+		mockBatch.fermentationSteps[0].triggerGravity = 1.015;
+
+		await page.goto(`/batches/${batchId}`);
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		const triggerBadge = page.locator('[data-testid="fermentation-step-trigger-ready-ferm-1"]');
+		await expect(triggerBadge).toBeHidden();
+
+		// Log SG reading 1.014 (<= 1.015 triggerGravity)
+		await page.locator('[data-testid="log-sg-reading-btn"]').click();
+		const readingModal = page.locator('div[role="dialog"]');
+		await readingModal.locator('input[type="number"]').first().fill('1.014');
+		await readingModal.locator('[data-testid="submit-reading-btn"]').click();
+		await expect(readingModal).toBeHidden();
+
+		await expect(triggerBadge).toBeVisible();
+	});
 });

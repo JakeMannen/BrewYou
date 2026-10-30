@@ -1500,7 +1500,7 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         var createReq = new CreateBatchRequest(
             RecipeId: null,
-            BatchCode: $"B-{Guid.NewGuid():N}",
+            BatchCode: $"B-{Guid.NewGuid():N}"[..18],
             Name: "Test Ale",
             BeerStyle: "American Pale Ale",
             BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
@@ -1527,5 +1527,118 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         env!.Success.Should().BeFalse();
         env.Error.Should().NotBeNull();
         env.Error!.Code.Should().Be("BAD_REQUEST");
+    }
+
+    [Fact]
+    public async Task BatchEndpoints_EnforceForwardOnlyStage_CompletedIngredientGuard_AndSensorStepOwnership()
+    {
+        var (client, _, boilerId, fermenterId, kegId) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var setups = (await (await client.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups.First(s => s.IsDefault).Id;
+
+        var sensor = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, "Mash Probe #1", EquipmentType.Sensor, 0m, Subtype: EquipmentSubtype.GenericSensor
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var batchA = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-P1-A", "Batch A", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, boilerId, fermenterId,
+            CustomIngredients: [new("Cascade", IngredientType.Hop, 25m, "g", IngredientUsage.Boil, 60, null)]
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var batchB = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-P1-B", "Batch B", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, boilerId, fermenterId
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Cross-batch BatchMashStepId on PUT /sensors and PUT /batches/{id} -> 400 BadRequest
+        var badSensorsRes = await client.PutAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(sensor.Id, BrewStage.Mash, batchB.MashSteps[0].Id) });
+        badSensorsRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var badUpdateRes = await client.PutAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}",
+            new UpdateBatchRequest(SensorAssignments: [new(sensor.Id, BrewStage.Mash, batchB.MashSteps[0].Id)]));
+        badUpdateRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 2. Advance Mash -> Boil, then attempt backward Boil -> Mash -> 409 Conflict
+        var toBoilRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Boil));
+        toBoilRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var backwardRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Mash));
+        backwardRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 3. Advance Boil -> Ferment -> Package (skipping Condition)
+        var toFermRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.051m));
+        toFermRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var toPkgRes = await client.PatchAsJsonAsync(
+            $"/api/v1/batches/{batchA.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: kegId, MeasuredFg: 1.010m));
+        toPkgRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var completedBatch = (await toPkgRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        completedBatch.StageHistory.First(h => h.Stage == BrewStage.Condition).Status.Should().Be(StageStatus.Skipped);
+        completedBatch.StageHistory.First(h => h.Stage == BrewStage.Package).Status.Should().Be(StageStatus.Completed);
+
+        // 4. Attempting to toggle ingredient on completed batch -> 409 Conflict
+        var ingId = completedBatch.Ingredients[0].Id;
+        var toggleCompletedRes = await client.PatchAsync(
+            $"/api/v1/batches/{batchA.Id}/ingredients/{ingId}?isChecked=false", null);
+        toggleCompletedRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UpdateBatch_PersistsVolumeLossOverrides_AndCalculateWater_ReturnsDeadSpaceAndSpargeMethod()
+    {
+        var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var batch = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-P2-VOL", "Volume Sync IPA", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.011m, 5.8m, 45m, 7m, 60, 75m, boilerId, fermenterId,
+            CustomIngredients: [new("2-Row Pale", IngredientType.Fermentable, 5.0m, "kg", IngredientUsage.Mash, null, null)]
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Update MashTunDeadSpaceLiters, HltDeadSpaceLiters, PlumbingLossLiters, and SpargeMethod = NoSparge
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(
+            MashTunDeadSpaceLiters: 1.5m,
+            HltDeadSpaceLiters: 1.0m,
+            PlumbingLossLiters: 0.5m,
+            SpargeMethod: "NoSparge"
+        ));
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = (await updateRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        updated.VolumeProfile.Should().NotBeNull();
+        updated.VolumeProfile!.MashTunDeadSpaceLiters.Should().Be(1.5m);
+        updated.VolumeProfile.HltDeadSpaceLiters.Should().Be(1.0m);
+        updated.VolumeProfile.PlumbingLossLiters.Should().Be(0.5m);
+        updated.VolumeProfile.SpargeMethod.Should().Be("NoSparge");
+        updated.VolumeProfile.SpargeWaterLiters.Should().Be(0m);
+        updated.VolumeProfile.StrikeWaterLiters.Should().Be(updated.VolumeProfile.TotalWaterLiters);
+
+        // 2. Verify /api/v1/recipes/calculate-water returns MashTunDeadSpaceLossLiters, SpargeMethod, and respects TargetBasis + NoSparge
+        var calcRes = await client.PostAsJsonAsync("/api/v1/recipes/calculate-water", new CalculateWaterVolumeRequest(
+            BatchSizeLiters: 19.0m,
+            BoilTimeMinutes: 60,
+            TotalGrainWeightKg: 5.0m,
+            TargetBasis: TargetVolumeBasis.Packaged,
+            MashTunDeadSpaceLiters: 1.25m,
+            HltDeadSpaceLiters: 0.75m,
+            PlumbingLossLiters: 0.5m,
+            SpargeMethod: "Fly"
+        ));
+        calcRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var calc = (await calcRes.Content.ReadFromJsonAsync<ApiResponse<CalculateWaterVolumeResponse>>())!.Data!;
+        calc.EstimatedPackagedVolumeLiters.Should().Be(19.0m);
+        calc.EstimatedIntoFermenterVolumeLiters.Should().BeGreaterThan(19.0m);
+        calc.MashTunDeadSpaceLossLiters.Should().Be(1.25m);
+        calc.HltDeadSpaceLossLiters.Should().Be(0.75m);
+        calc.PlumbingLossLiters.Should().Be(0.5m);
+        calc.SpargeMethod.Should().Be("Fly");
     }
 }

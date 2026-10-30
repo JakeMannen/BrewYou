@@ -115,6 +115,49 @@ describe('StageProgressBar Logic & Calculations', () => {
 		expect(groups[1].isDue).toBe(false); // 30m remaining > 15m
 	});
 
+	it('plots Whirlpool additions at 0:00 flameout (100%) and only marks due at 0s remaining', () => {
+		const mockIngredients: BatchIngredientDto[] = [
+			{
+				id: 'hop-boil',
+				batchId: 'b-1',
+				name: 'Centennial',
+				type: 'Hop',
+				amount: 20,
+				unit: 'g',
+				additionStage: 'Boil',
+				additionTimeMinutes: 20,
+				isChecked: false
+			},
+			{
+				id: 'hop-wp',
+				batchId: 'b-1',
+				name: 'Citra (20m Whirlpool)',
+				type: 'Hop',
+				amount: 50,
+				unit: 'g',
+				additionStage: 'Whirlpool',
+				additionTimeMinutes: 20,
+				isChecked: false
+			}
+		];
+
+		// At 10m remaining (600s): 20m boil hop is due, but 20m whirlpool hop is at 0m (100%) and NOT due yet
+		const midBoilGroups = groupMilestones(mockIngredients, 3600, 600);
+		expect(midBoilGroups).toHaveLength(2);
+
+		expect(midBoilGroups[0].additionTimeMinutes).toBe(20);
+		expect(midBoilGroups[0].isDue).toBe(true);
+
+		expect(midBoilGroups[1].additionTimeMinutes).toBe(0);
+		expect(midBoilGroups[1].positionPercentage).toBe(100);
+		expect(midBoilGroups[1].isDue).toBe(false);
+
+		// At flameout (0s remaining): Whirlpool milestone becomes due
+		const flameoutGroups = groupMilestones(mockIngredients, 3600, 0);
+		expect(flameoutGroups[1].additionTimeMinutes).toBe(0);
+		expect(flameoutGroups[1].isDue).toBe(true);
+	});
+
 	it('formats progress time consistently with MM:SS and H:MM:SS', () => {
 		expect(formatProgressTime(0)).toBe('00:00');
 		expect(formatProgressTime(45)).toBe('00:45');
@@ -133,7 +176,8 @@ describe('StageProgressBar Logic & Calculations', () => {
 			'milestone_completed',
 			'milestone_items_count',
 			'milestone_pin_aria',
-			'close_popover'
+			'close_popover',
+			'trigger_gravity_reached'
 		] as const;
 
 		for (const key of requiredKeys) {
