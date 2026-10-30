@@ -581,7 +581,8 @@
 			"reading_notes_placeholder": "Aroma, krausen status, airlock activity...",
 			"stage_notes_placeholder": "Add notes for this brewing stage...",
 			"fermentation_steps_title": "Fermentation Profile & Temperature Schedule",
-			"step_completed": "Completed"
+			"step_completed": "Completed",
+			"trigger_gravity_reached": "Gravity target reached"
 		},
 		"telemetry": {
 			"gravity_sg": "Specific Gravity (SG)",

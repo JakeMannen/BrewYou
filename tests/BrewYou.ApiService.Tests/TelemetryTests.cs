@@ -1569,4 +1569,97 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         env!.Success.Should().BeFalse();
         env.Error.Should().NotBeNull();
     }
+
+    [Fact]
+    public async Task TelemetryIngestion_SupportsThreeVesselMashAndHlt_ActiveFermentationSteps_AndThrottledBatchReadings()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        var hlt = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, $"3V HLT {Guid.NewGuid():N}", EquipmentType.Boiler, 40m, EquipmentSubtype.Hlt,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var mlt = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, $"3V MLT {Guid.NewGuid():N}", EquipmentType.Boiler, 40m, EquipmentSubtype.MashTun,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var kettle = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, $"3V Kettle {Guid.NewGuid():N}", EquipmentType.Boiler, 50m, EquipmentSubtype.Pan,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var tilt = (await (await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, $"Ferment Tilt {Guid.NewGuid():N}", EquipmentType.Sensor, 0m, EquipmentSubtype.Tilt,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var batch = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "3V Telemetry Batch",
+            BeerStyle: "Czech Pils",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.050m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.2m,
+            TargetIbu: 35m,
+            TargetColorSrm: 4m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: kettle.Id,
+            FermenterId: null,
+            HltId: hlt.Id,
+            MashTunId: mlt.Id,
+            CustomMashSteps: [new(1, "Beta Rest", MashStepType.Infusion, 63.0m, 45)],
+            CustomFermentationSteps: [new(1, "Lager Primary", FermentationStepType.Primary, 11.0m, 10)],
+            SensorAssignments: [new(tilt.Id, BrewStage.Ferment, null)]
+        ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var publicClient = _factory.CreateClient();
+
+        // 1. Ingest HLT reading (76.4°C) and MLT reading (63.2°C) during Mash
+        (await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{hlt.ConnectionToken}", new { temperature = 76.4, unit = "C" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{mlt.ConnectionToken}", new { temperature = 63.2, unit = "C" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var mashReadings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stage=Mash"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        mashReadings.Should().HaveCount(2);
+        mashReadings.Should().Contain(r => r.EquipmentId == hlt.Id && r.StepName == "HLT");
+        mashReadings.Should().Contain(r => r.EquipmentId == mlt.Id && r.StepName == "Beta Rest" && r.BatchMashStepId == batch.MashSteps[0].Id);
+
+        // Verify HLT reading did NOT overwrite MashStep[0].ActualTemperatureC (remains 63.2°C from MLT)
+        var afterMashBatch = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        afterMashBatch.MashSteps[0].ActualTemperatureC.Should().Be(63.2m);
+
+        // 2. Advance to Ferment and ingest two rapid gravity readings (< 15 min apart, delta 0.0002 < 0.001) + one distinct SG drop
+        (await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage", new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.050m)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{tilt.ConnectionToken}", new { temperature = 11.2, unit = "C", gravity = 1.030 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{tilt.ConnectionToken}", new { temperature = 11.3, unit = "C", gravity = 1.0298 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{tilt.ConnectionToken}", new { temperature = 11.4, unit = "C", gravity = 1.025 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var afterFermBatch = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // Live CurrentGravity reflects the latest reading (1.025), FermentationSteps[0].ActualTemperatureC updated to 11.4°C,
+        // and BatchReadings only persisted 2 snapshots (1.030 and 1.025), throttling the duplicate 1.0298 snapshot!
+        afterFermBatch.CurrentGravity.Should().Be(1.025m);
+        afterFermBatch.FermentationSteps[0].ActualTemperatureC.Should().Be(11.4m);
+        afterFermBatch.Readings.Should().HaveCount(2);
+
+        var fermEqReadings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stage=Ferment"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        fermEqReadings.Should().HaveCount(3);
+        fermEqReadings.All(r => r.TargetTemperatureC == 11.0m && r.StepName == "Lager Primary").Should().BeTrue();
+    }
 }

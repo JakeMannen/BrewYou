@@ -36,7 +36,7 @@
 
 		const map: Record<number, BatchIngredientDto[]> = {};
 		for (const ing of ingredients) {
-			const time = ing.additionTimeMinutes ?? 0;
+			const time = ing.additionStage === 'Whirlpool' ? 0 : (ing.additionTimeMinutes ?? 0);
 			if (!map[time]) {
 				map[time] = [];
 			}
@@ -281,6 +281,9 @@
 								<span class="block text-[11px] text-zinc-500">
 									{ing.type}
 									{#if ing.form}• {ing.form}{/if}
+									{#if ing.additionStage === 'Whirlpool' && ing.additionTimeMinutes}
+										• {ing.additionStage} ({ing.additionTimeMinutes}m)
+									{/if}
 								</span>
 							</div>
 						</label>

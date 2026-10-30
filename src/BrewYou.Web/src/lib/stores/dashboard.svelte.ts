@@ -314,7 +314,9 @@ class DashboardStore {
 		// Active batches that require live telemetry
 		const activeIds = new Set(
 			this.activeBatches
-				.filter((b) => b.status === 'Fermenting' || b.status === 'Brewing')
+				.filter(
+					(b) => b.status === 'Fermenting' || b.status === 'Brewing' || b.status === 'Conditioning'
+				)
 				.map((b) => b.id)
 		);
 
@@ -416,7 +418,9 @@ class DashboardStore {
 		if (!browser || !auth.isAuthenticated) return;
 
 		const isStillActive = this.activeBatches.some(
-			(b) => b.id === batchId && (b.status === 'Fermenting' || b.status === 'Brewing')
+			(b) =>
+				b.id === batchId &&
+				(b.status === 'Fermenting' || b.status === 'Brewing' || b.status === 'Conditioning')
 		);
 		if (!isStillActive) return;
 
@@ -592,8 +596,9 @@ class DashboardStore {
 				const batch = this.batches[bIdx];
 				const nextGravity = reading.specificGravity ?? batch.currentGravity;
 				let nextAbv = batch.alcoholByVolume;
-				if (nextGravity && batch.measuredOg && batch.measuredOg > nextGravity) {
-					nextAbv = Math.round((batch.measuredOg - nextGravity) * 131.25 * 10) / 10;
+				const og = batch.measuredOg ?? batch.targetOg;
+				if (nextGravity && og && og > nextGravity) {
+					nextAbv = Number(calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2));
 				}
 				this.batches[bIdx] = {
 					...batch,

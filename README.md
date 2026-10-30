@@ -109,7 +109,7 @@ The Recipe Atelier and Formulator is an interactive brewing formulation workspac
 
 ### Batch Tracking & Live Brew Day Execution
 
-Batch Tracking guides you through a structured 10-stage brewing lifecycle: _Planning_, _Preparation_, _Mashing_, _Lautering_, _Boiling_, _Cooling_, _Fermenting_, _Conditioning_, _Bottling / Kegging_, and _Completed_. The live Brew Day Cockpit provides interactive timers for mash steps and boil additions, real-time temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile for checklist tracking, while interactive attenuation curves dynamically plot live density and temperature readings against active step temperature targets.
+Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: _Mash_ ➔ _Boil_ ➔ _Ferment_ ➔ _Condition_ ➔ _Package_ (with clean support for skipping optional stages such as _Condition_ while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
 
 #### Multi-Vessel & All-in-One Brewhouse Topologies
 
@@ -445,25 +445,25 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 
 ### Key API Endpoints Overview
 
-| Area                 | Method & Route                                                                             | Description                                                                      |
-| :------------------- | :----------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------- |
-| **Authentication**   | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`       | User registration, JWT login, and token refresh                                  |
-| **Brewery Setups**   | `GET/POST /api/v1/brewery-setups`, `PUT/DELETE /api/v1/brewery-setups/{id}`                | Manage personal and shared brewery setups                                        |
-| **Collaboration**    | `GET /api/v1/brewery-setups/{id}/members`                                                  | List brewery members and assigned roles                                          |
-|                      | `POST /api/v1/brewery-setups/{id}/invites`                                                 | Invite brewer by email (Owner only)                                              |
-|                      | `GET /api/v1/brewery-setups/{id}/invites`                                                  | List pending invitations (Owner only)                                            |
-|                      | `DELETE /api/v1/brewery-setups/{id}/invites/{inviteId}`                                    | Revoke pending invitation (Owner only)                                           |
-|                      | `PATCH /api/v1/brewery-setups/{id}/members/{userId}`                                       | Update member role (Owner only)                                                  |
-|                      | `DELETE /api/v1/brewery-setups/{id}/members/{userId}`                                      | Remove member from setup (Owner only)                                            |
-|                      | `POST /api/v1/brewery-setups/{id}/leave`                                                   | Leave shared brewery setup                                                       |
-|                      | `GET /api/v1/invites/{code}/validate`                                                      | Validate invitation code (anonymous/authenticated)                               |
-|                      | `POST /api/v1/invites/accept`                                                              | Accept invitation and join brewery setup                                         |
-| **Ingredients**      | `GET/POST /api/v1/ingredients`, `PUT/DELETE /api/v1/ingredients/{id}`                      | Calibrated ingredients catalog, stock tracking, and custom items                 |
-| **Equipment**        | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}`      | Equipment digital twins & hardware calibrations                                  |
-| **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                     |
-| **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                              |
-| **Batches**          | `GET/POST /api/v1/batches`, `POST /api/v1/batches/{id}/advance-stage`                      | 10-stage brew lifecycle, mash/boil logs, attenuation                             |
-| **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore |
+| Area                 | Method & Route                                                                             | Description                                                                                        |
+| :------------------- | :----------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| **Authentication**   | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`       | User registration, JWT login, and token refresh                                                    |
+| **Brewery Setups**   | `GET/POST /api/v1/brewery-setups`, `PUT/DELETE /api/v1/brewery-setups/{id}`                | Manage personal and shared brewery setups                                                          |
+| **Collaboration**    | `GET /api/v1/brewery-setups/{id}/members`                                                  | List brewery members and assigned roles                                                            |
+|                      | `POST /api/v1/brewery-setups/{id}/invites`                                                 | Invite brewer by email (Owner only)                                                                |
+|                      | `GET /api/v1/brewery-setups/{id}/invites`                                                  | List pending invitations (Owner only)                                                              |
+|                      | `DELETE /api/v1/brewery-setups/{id}/invites/{inviteId}`                                    | Revoke pending invitation (Owner only)                                                             |
+|                      | `PATCH /api/v1/brewery-setups/{id}/members/{userId}`                                       | Update member role (Owner only)                                                                    |
+|                      | `DELETE /api/v1/brewery-setups/{id}/members/{userId}`                                      | Remove member from setup (Owner only)                                                              |
+|                      | `POST /api/v1/brewery-setups/{id}/leave`                                                   | Leave shared brewery setup                                                                         |
+|                      | `GET /api/v1/invites/{code}/validate`                                                      | Validate invitation code (anonymous/authenticated)                                                 |
+|                      | `POST /api/v1/invites/accept`                                                              | Accept invitation and join brewery setup                                                           |
+| **Ingredients**      | `GET/POST /api/v1/ingredients`, `PUT/DELETE /api/v1/ingredients/{id}`                      | Calibrated ingredients catalog, stock tracking, and custom items                                   |
+| **Equipment**        | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}`      | Equipment digital twins & hardware calibrations                                                    |
+| **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                                       |
+| **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                                                |
+| **Batches**          | `GET/POST /api/v1/batches`, `PATCH /api/v1/batches/{id}/stage`                             | 5-stage brew lifecycle, per-step mash/fermentation execution, multi-vessel occupancy & attenuation |
+| **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore                   |
 
 ---
 

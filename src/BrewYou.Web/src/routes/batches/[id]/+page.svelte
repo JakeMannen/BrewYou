@@ -127,19 +127,32 @@
 
 	// Inspected Stage State (Decoupled from batch.currentStage)
 	let inspectedStage = $state<BrewStage>('Mash');
-	let isInspectingActiveStage = $derived(batch ? inspectedStage === batch.currentStage : true);
-	let canLogInspectedStage = $derived(
-		isInspectingActiveStage && batch?.status !== 'Completed' && batch?.status !== 'Archived'
+	let isReadOnlyBatch = $derived(
+		batch ? batch.status === 'Completed' || batch.status === 'Archived' : false
 	);
-	let inspectedStageStatus = $derived.by<'completed' | 'in_progress' | 'pending'>(() => {
-		if (!batch) return 'pending';
-		if (batch.status === 'Completed') return 'completed';
+	let isInspectingActiveStage = $derived(batch ? inspectedStage === batch.currentStage : true);
+	let canLogInspectedStage = $derived(isInspectingActiveStage && !isReadOnlyBatch);
+	let inspectedStageStatus = $derived.by<'completed' | 'in_progress' | 'pending' | 'skipped'>(
+		() => {
+			if (!batch) return 'pending';
+			const hist = batch.stageHistory.find((h) => h.stage === inspectedStage);
+			if (hist?.status === 'Skipped') return 'skipped';
+			if (batch.status === 'Completed' || hist?.status === 'Completed') return 'completed';
+			const stageOrder: BrewStage[] = ['Mash', 'Boil', 'Ferment', 'Condition', 'Package'];
+			const currentIndex = stageOrder.indexOf(batch.currentStage);
+			const targetIndex = stageOrder.indexOf(inspectedStage);
+			if (targetIndex < currentIndex) return 'completed';
+			if (targetIndex === currentIndex) return 'in_progress';
+			return 'pending';
+		}
+	);
+
+	let forwardStageOptions = $derived.by<BrewStage[]>(() => {
+		if (!batch) return ['Boil', 'Ferment', 'Condition', 'Package'];
+		if (batch.currentStage === 'Package') return ['Package'];
 		const stageOrder: BrewStage[] = ['Mash', 'Boil', 'Ferment', 'Condition', 'Package'];
 		const currentIndex = stageOrder.indexOf(batch.currentStage);
-		const targetIndex = stageOrder.indexOf(inspectedStage);
-		if (targetIndex < currentIndex) return 'completed';
-		if (targetIndex === currentIndex) return 'in_progress';
-		return 'pending';
+		return currentIndex >= 0 ? stageOrder.slice(currentIndex + 1) : stageOrder.slice(1);
 	});
 
 	async function handleSaveStageMeasurements(req: UpdateBatchRequest) {
@@ -299,7 +312,14 @@
 		if (reading.specificGravity !== null && reading.specificGravity !== undefined && batch) {
 			batch.currentGravity = reading.specificGravity;
 			recalculateBatchAbv();
-			if (!batch.readings.some((r) => r.id === reading.id)) {
+			const readingTimeMs = new Date(reading.timestamp).getTime();
+			const alreadyInReadings = batch.readings.some(
+				(r) =>
+					r.id === reading.id ||
+					(r.specificGravity === reading.specificGravity &&
+						Math.abs(new Date(r.timestamp).getTime() - readingTimeMs) < 2000)
+			);
+			if (!alreadyInReadings) {
 				batch.readings = [
 					...batch.readings,
 					{
@@ -321,6 +341,17 @@
 			const step = batch.mashSteps.find((s) => s.id === reading.batchMashStepId);
 			if (step) {
 				step.actualTemperatureC = reading.temperatureC;
+			}
+		} else if (
+			(reading.stage === 'Ferment' || reading.stage === 'Condition') &&
+			batch?.fermentationSteps?.length
+		) {
+			const activeFerm =
+				[...batch.fermentationSteps]
+					.sort((a, b) => a.stepOrder - b.stepOrder)
+					.find((s) => !s.isCompleted) ?? null;
+			if (activeFerm) {
+				activeFerm.actualTemperatureC = reading.temperatureC;
 			}
 		}
 	}
@@ -475,13 +506,17 @@
 		const stageOrder: BrewStage[] = ['Mash', 'Boil', 'Ferment', 'Condition', 'Package'];
 		const currentIndex = stageOrder.indexOf(batch.currentStage);
 
+		const mashVessel = equipmentList.find((e) => e.id === (batch!.mashTunId ?? batch!.boilerId));
 		const boiler = equipmentList.find((e) => e.id === batch!.boilerId);
 		const fermenter = equipmentList.find((e) => e.id === batch!.fermenterId);
 		const pkgVessel = equipmentList.find((e) => e.id === batch!.packagingVesselId);
 
 		return stageOrder.map((s, idx) => {
-			let status: 'completed' | 'in_progress' | 'pending' = 'pending';
-			if (batch!.status === 'Completed') {
+			const hist = batch!.stageHistory.find((h) => h.stage === s);
+			let status: 'completed' | 'in_progress' | 'pending' | 'skipped' = 'pending';
+			if (hist?.status === 'Skipped') {
+				status = 'skipped';
+			} else if (batch!.status === 'Completed' || hist?.status === 'Completed') {
 				status = 'completed';
 			} else if (idx < currentIndex) {
 				status = 'completed';
@@ -489,7 +524,6 @@
 				status = 'in_progress';
 			}
 
-			const hist = batch!.stageHistory.find((h) => h.stage === s);
 			let timestamp: string | undefined = undefined;
 			if (s === 'Ferment' && batch!.daysActive !== undefined) {
 				timestamp = `${batch!.daysActive}d`;
@@ -502,14 +536,14 @@
 			let equipmentName: string | undefined = undefined;
 
 			if (s === 'Mash') {
-				equipmentSubtype = boiler?.subtype ?? 'AllInOne';
-				equipmentName = batch!.boilerName ?? boiler?.name;
+				equipmentSubtype = mashVessel?.subtype ?? 'AllInOne';
+				equipmentName = batch!.mashTunName ?? batch!.boilerName ?? mashVessel?.name;
 				const mashVol =
 					batch!.volumeProfile?.strikeWaterLiters ??
 					batch!.volumeProfile?.targetPreBoilVolumeLiters ??
 					batch!.targetBatchSizeLiters;
-				if (boiler && boiler.capacityLiters > 0) {
-					fillPercent = Math.min(100, Math.round((mashVol / boiler.capacityLiters) * 100));
+				if (mashVessel && mashVessel.capacityLiters > 0) {
+					fillPercent = Math.min(100, Math.round((mashVol / mashVessel.capacityLiters) * 100));
 				} else {
 					fillPercent = 75;
 				}
@@ -612,12 +646,12 @@
 	}
 
 	async function handleToggleIngredient(ingredientId: string, current: boolean) {
-		if (!batch) return;
+		if (!batch || isReadOnlyBatch) return;
 		try {
-			await api.batches.toggleIngredient(batch.id, ingredientId, !current);
+			const updated = await api.batches.toggleIngredient(batch.id, ingredientId, !current);
 			const idx = batch.ingredients.findIndex((i) => i.id === ingredientId);
 			if (idx !== -1) {
-				batch.ingredients[idx].isChecked = !current;
+				batch.ingredients[idx] = updated;
 			}
 		} catch (err: unknown) {
 			console.error('Failed to toggle ingredient', err);
@@ -631,14 +665,7 @@
 		let filtered: BatchIngredientDto[];
 		switch (stage) {
 			case 'Mash':
-				filtered = ingredients.filter(
-					(i) =>
-						i.additionStage === 'Mash' ||
-						(i.type === 'Fermentable' &&
-							i.additionStage !== 'FirstWort' &&
-							i.additionStage !== 'Boil' &&
-							i.additionStage !== 'Bottling')
-				);
+				filtered = ingredients.filter((i) => i.additionStage === 'Mash');
 				break;
 			case 'Boil':
 				filtered = ingredients.filter(
@@ -646,20 +673,26 @@
 						i.additionStage === 'FirstWort' ||
 						i.additionStage === 'Boil' ||
 						i.additionStage === 'Whirlpool' ||
-						(i.type === 'Hop' && i.additionStage !== 'DryHop' && i.additionStage !== 'Mash')
+						(i.type === 'Hop' &&
+							i.additionStage !== 'DryHop' &&
+							i.additionStage !== 'Mash' &&
+							i.additionStage !== 'Primary' &&
+							i.additionStage !== 'Secondary' &&
+							i.additionStage !== 'Bottling')
 				);
 				break;
 			case 'Ferment':
 				filtered = ingredients.filter(
-					(i) => i.additionStage === 'Primary' || i.additionStage === 'DryHop' || i.type === 'Yeast'
+					(i) =>
+						i.additionStage === 'Primary' ||
+						i.additionStage === 'DryHop' ||
+						(i.type === 'Yeast' &&
+							i.additionStage !== 'Secondary' &&
+							i.additionStage !== 'Bottling')
 				);
 				break;
 			case 'Condition':
-				filtered = ingredients.filter(
-					(i) =>
-						i.additionStage === 'Secondary' ||
-						(i.additionStage === 'DryHop' && (i.additionTimeMinutes ?? 0) <= 3)
-				);
+				filtered = ingredients.filter((i) => i.additionStage === 'Secondary');
 				break;
 			case 'Package':
 				filtered = ingredients.filter((i) => i.additionStage === 'Bottling');
@@ -705,18 +738,20 @@
 		return getIngredientsForStage(nextStage, batch.ingredients);
 	});
 
+	function convertMassToKg(amount: number, unit: string): number {
+		const u = unit.trim().toLowerCase();
+		if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return amount;
+		if (u === 'g' || u === 'gram' || u === 'grams') return amount / 1000;
+		if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return amount * 0.45359237;
+		if (u === 'oz' || u === 'ounce' || u === 'ounces') return amount * 0.0283495231;
+		return 0;
+	}
+
 	let totalMashGrainKg = $derived.by(() => {
 		if (!batch) return 0;
 		return batch.ingredients
-			.filter(
-				(i) =>
-					i.type === 'Fermentable' &&
-					(i.additionStage === 'Mash' ||
-						(i.additionStage !== 'FirstWort' &&
-							i.additionStage !== 'Boil' &&
-							i.additionStage !== 'Bottling'))
-			)
-			.reduce((sum, i) => sum + (i.unit === 'g' ? i.amount / 1000 : i.amount), 0);
+			.filter((i) => i.type === 'Fermentable' && i.additionStage === 'Mash')
+			.reduce((sum, i) => sum + convertMassToKg(i.amount, i.unit), 0);
 	});
 
 	let activeMashStepIndex = $state(0);
@@ -748,9 +783,18 @@
 		return 3600;
 	});
 
+	let inspectedTimerStepId = $derived<string | null>(
+		inspectedStage === 'Mash' ? (currentSelectedMashStep?.id ?? null) : null
+	);
+
 	let activeTimerView = $derived(
 		batch
-			? batchTimer.getTimer(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds)
+			? batchTimer.getTimer(
+					batch.id,
+					inspectedStage,
+					inspectedStagePlannedDurationSeconds,
+					inspectedTimerStepId
+				)
 			: { remainingSeconds: 3600, running: false, totalSeconds: 3600 }
 	);
 
@@ -810,12 +854,10 @@
 		if (!batch?.mashSteps || index < 0 || index >= batch.mashSteps.length) return;
 		activeMashStepIndex = index;
 		selectedMashStepGraphId = batch.mashSteps[index].id;
-		pauseTimer();
-		batchTimer.reset(batch.id, 'Mash', batch.mashSteps[index].durationMinutes * 60);
 	}
 
 	async function handleToggleMashStep(stepId: string, currentCompleted: boolean) {
-		if (!batch) return;
+		if (!batch || isReadOnlyBatch) return;
 		try {
 			const updatedStep = await api.batches.toggleMashStep(batch.id, stepId, {
 				isCompleted: !currentCompleted
@@ -824,13 +866,21 @@
 			if (idx !== -1) {
 				batch.mashSteps[idx] = updatedStep;
 			}
+			if (updatedStep.isCompleted) {
+				for (const ing of batch.ingredients) {
+					if (ing.additionStage === 'Mash' && !ing.isDeducted) {
+						ing.isChecked = true;
+						ing.isDeducted = true;
+					}
+				}
+			}
 		} catch (err: unknown) {
 			console.error('Failed to toggle mash step', err);
 		}
 	}
 
 	async function handleToggleFermentationStep(stepId: string, currentCompleted: boolean) {
-		if (!batch) return;
+		if (!batch || isReadOnlyBatch) return;
 		try {
 			const updatedStep = await api.batches.toggleFermentationStep(batch.id, stepId, {
 				isCompleted: !currentCompleted
@@ -866,6 +916,9 @@
 	async function handleAdvanceMashStep() {
 		if (!batch?.mashSteps || activeMashStepIndex >= batch.mashSteps.length) return;
 		const currentStep = batch.mashSteps[activeMashStepIndex];
+		if (currentStep) {
+			batchTimer.pause(batch.id, 'Mash', currentStep.id);
+		}
 		if (currentStep && !currentStep.isCompleted) {
 			await handleToggleMashStep(currentStep.id, false);
 		}
@@ -921,12 +974,13 @@
 				measuredPostBoilVolumeLiters: nextStage === 'Ferment' ? advancePostBoilVolume : null,
 				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null
 			};
+			const previousStage = batch.currentStage;
 			const updated = await api.batches.advanceStage(batch.id, req);
+			batchTimer.pauseStage(batch.id, previousStage);
 			batch = updated;
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
-			pauseTimer();
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
@@ -973,17 +1027,27 @@
 
 	function startTimer() {
 		if (!batch) return;
-		batchTimer.start(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
+		batchTimer.start(
+			batch.id,
+			inspectedStage,
+			inspectedStagePlannedDurationSeconds,
+			inspectedTimerStepId
+		);
 	}
 
 	function pauseTimer() {
 		if (!batch) return;
-		batchTimer.pause(batch.id, inspectedStage);
+		batchTimer.pause(batch.id, inspectedStage, inspectedTimerStepId);
 	}
 
 	function resetTimer() {
 		if (!batch) return;
-		batchTimer.reset(batch.id, inspectedStage, inspectedStagePlannedDurationSeconds);
+		batchTimer.reset(
+			batch.id,
+			inspectedStage,
+			inspectedStagePlannedDurationSeconds,
+			inspectedTimerStepId
+		);
 	}
 
 	function formatTime(seconds: number) {
@@ -1062,7 +1126,7 @@
 					</button>
 				{/if}
 
-				{#if batch.status !== 'Completed'}
+				{#if !isReadOnlyBatch}
 					<button
 						type="button"
 						data-testid="advance-stage-btn"
@@ -1502,7 +1566,7 @@
 									</button>
 								</div>
 
-								{#if batch.mashSteps && batch.mashSteps.length > 1}
+								{#if !isReadOnlyBatch && batch.mashSteps && batch.mashSteps.length > 1}
 									<button
 										type="button"
 										data-testid="advance-mash-step-btn"
@@ -1557,6 +1621,7 @@
 													type="checkbox"
 													data-testid="mash-step-checkbox-{step.id}"
 													checked={step.isCompleted}
+													disabled={isReadOnlyBatch}
 													onchange={() => handleToggleMashStep(step.id, step.isCompleted)}
 													class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
 												/>
@@ -1696,8 +1761,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -1863,8 +1929,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -1979,6 +2046,7 @@
 												type="checkbox"
 												data-testid="fermentation-step-checkbox-{step.id}"
 												checked={step.isCompleted}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleFermentationStep(step.id, step.isCompleted)}
 												class="h-4 w-4 rounded-md border-zinc-300 text-cyan-600 focus:ring-cyan-500/30 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
@@ -2015,6 +2083,14 @@
 										</label>
 
 										<div class="flex items-center gap-3 self-end sm:self-center">
+											{#if !step.isCompleted && step.triggerGravity !== null && step.triggerGravity !== undefined && batch.currentGravity !== null && batch.currentGravity !== undefined && batch.currentGravity <= step.triggerGravity}
+												<span
+													data-testid="fermentation-step-trigger-ready-{step.id}"
+													class="rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
+												>
+													{t('batches.workspace.trigger_gravity_reached')}
+												</span>
+											{/if}
 											<span class="font-mono text-sm font-bold text-cyan-600 dark:text-cyan-400">
 												{settings.formatTemperature(step.targetTemperatureC)}
 											</span>
@@ -2076,8 +2152,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -2193,8 +2270,9 @@
 											<input
 												type="checkbox"
 												checked={ing.isChecked}
+												disabled={isReadOnlyBatch}
 												onchange={() => handleToggleIngredient(ing.id, ing.isChecked)}
-												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
 											/>
 											<div class="space-y-0.5">
 												<span
@@ -2289,10 +2367,9 @@
 						bind:value={nextStage}
 						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 					>
-						<option value="Boil">{t('batches.stages.boil')}</option>
-						<option value="Ferment">{t('batches.stages.ferment')}</option>
-						<option value="Condition">{t('batches.stages.condition')}</option>
-						<option value="Package">{t('batches.stages.package')}</option>
+						{#each forwardStageOptions as stageOpt (stageOpt)}
+							<option value={stageOpt}>{t(`batches.stages.${stageOpt.toLowerCase()}`)}</option>
+						{/each}
 					</select>
 				</div>
 
@@ -2801,9 +2878,7 @@
 		? (batch?.mashSteps?.find((s) => s.id === logTempMashStepId)?.targetTemperatureC ?? 65)
 		: logTempStage === 'Boil'
 			? 100
-			: logTempStage === 'Ferment'
-				? (batch?.pitchTemperatureC ?? 20)
-				: 2}
+			: activeFermentationStepTargetTemp}
 	onClose={() => (showLogTempModal = false)}
 	onSubmit={handleLogStepTemperature}
 />
@@ -2856,7 +2931,13 @@
 		onResetTimer={resetTimer}
 		onAdjustTimer={(seconds) => {
 			if (!batch) return;
-			batchTimer.adjust(batch.id, inspectedStage, seconds, inspectedStagePlannedDurationSeconds);
+			batchTimer.adjust(
+				batch.id,
+				inspectedStage,
+				seconds,
+				inspectedStagePlannedDurationSeconds,
+				inspectedTimerStepId
+			);
 		}}
 		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : undefined}
 		onClose={() => (showBrewStationHud = false)}

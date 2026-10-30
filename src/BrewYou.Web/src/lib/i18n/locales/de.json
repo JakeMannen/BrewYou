@@ -585,7 +585,8 @@
 			"reading_notes_placeholder": "Sensorische Eindrücke, Probenotizen...",
 			"stage_notes_placeholder": "Notizen zu dieser Stufe...",
 			"fermentation_steps_title": "Gärstufen & Temperaturprofil",
-			"step_completed": "Schritt abgeschlossen"
+			"step_completed": "Schritt abgeschlossen",
+			"trigger_gravity_reached": "Zieldichte erreicht"
 		},
 		"telemetry": {
 			"gravity_sg": "Dichte (SG)",

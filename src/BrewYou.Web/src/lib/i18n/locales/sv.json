@@ -826,7 +826,8 @@
 			"reading_notes_placeholder": "Aroma, krausen status, airlock activity...",
 			"stage_notes_placeholder": "Add notes for this brewing stage...",
 			"fermentation_steps_title": "Jäsningsprofil & temperaturschema",
-			"step_completed": "Slutförd"
+			"step_completed": "Slutförd",
+			"trigger_gravity_reached": "Måldensitet uppnådd"
 		},
 		"telemetry": {
 			"gravity_sg": "Densitet (SG)",

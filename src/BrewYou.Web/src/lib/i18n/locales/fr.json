@@ -585,7 +585,8 @@
 			"reading_notes_placeholder": "Sensations, notes de dégustation...",
 			"stage_notes_placeholder": "Notes relatives à cette étape...",
 			"fermentation_steps_title": "Profil de fermentation et paliers",
-			"step_completed": "Étape terminée"
+			"step_completed": "Étape terminée",
+			"trigger_gravity_reached": "Densité cible atteinte"
 		},
 		"telemetry": {
 			"gravity_sg": "Densité (SG)",

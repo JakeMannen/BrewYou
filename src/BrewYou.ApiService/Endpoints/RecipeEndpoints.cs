@@ -212,10 +212,15 @@ public static class RecipeEndpoints
                 return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Invalid water volume calculation request.", details));
             }
 
+            var spargeMethod = string.IsNullOrWhiteSpace(request.SpargeMethod) ? "Batch" : request.SpargeMethod.Trim();
+            var spargeEnabled = request.SpargeEnabled ?? !string.Equals(spargeMethod, "NoSparge", StringComparison.OrdinalIgnoreCase);
+
             var input = new VolumeCalculationInput(
                 TargetBatchSizeLiters: request.BatchSizeLiters,
                 BoilTimeMinutes: request.BoilTimeMinutes,
                 TotalGrainWeightKg: request.TotalGrainWeightKg,
+                TargetBasis: request.TargetBasis ?? TargetVolumeBasis.Fermenter,
+                SpargeEnabled: spargeEnabled,
                 BoilOffRatePerHour: request.BoilOffRatePerHourLiters ?? 3.0m,
                 GrainAbsorptionRate: request.GrainAbsorptionRateLPerKg ?? 0.96m,
                 KettleTrubLossLiters: request.KettleTrubLossLiters ?? 1.5m,
@@ -226,7 +231,7 @@ public static class RecipeEndpoints
                 MashThicknessLitersPerKg: request.MashThicknessLitersPerKg ?? 3.0m,
                 HltDeadSpaceLiters: request.HltDeadSpaceLiters ?? 0.0m,
                 PlumbingLossLiters: request.PlumbingLossLiters ?? 0.0m,
-                SpargeMethod: request.SpargeMethod ?? "Batch"
+                SpargeMethod: spargeMethod
             );
 
             var result = VolumeCalculator.CalculateWaterRequirements(input);
@@ -246,7 +251,9 @@ public static class RecipeEndpoints
                 FermenterLossLiters: result.FermenterLossLiters,
                 PackagingLossLiters: result.PackagingLossLiters,
                 HltDeadSpaceLossLiters: result.HltDeadSpaceLossLiters,
-                PlumbingLossLiters: result.PlumbingLossLiters
+                PlumbingLossLiters: result.PlumbingLossLiters,
+                MashTunDeadSpaceLossLiters: result.MashTunDeadSpaceLossLiters,
+                SpargeMethod: spargeMethod
             );
 
             return Results.Ok(ApiResponse<CalculateWaterVolumeResponse>.Ok(response));
