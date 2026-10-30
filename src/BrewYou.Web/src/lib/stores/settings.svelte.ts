@@ -296,6 +296,21 @@ class SettingsState {
 		const envUrl =
 			metaEnv?.PUBLIC_APP_URL ||
 			(typeof process !== 'undefined' ? process.env?.PUBLIC_APP_URL : undefined);
+		if (
+			envUrl &&
+			typeof envUrl === 'string' &&
+			envUrl.trim().length > 0 &&
+			!isLocalhostUrl(envUrl)
+		) {
+			return envUrl.trim().replace(/\/+$/, '');
+		}
+		if (
+			typeof window !== 'undefined' &&
+			window.location?.origin &&
+			!isLocalhostUrl(window.location.origin)
+		) {
+			return window.location.origin.replace(/\/+$/, '');
+		}
 		if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
 			return envUrl.trim().replace(/\/+$/, '');
 		}
@@ -320,6 +335,22 @@ class SettingsState {
 		const envUrl =
 			metaEnv?.PUBLIC_API_URL ||
 			(typeof process !== 'undefined' ? process.env?.PUBLIC_API_URL : undefined);
+		if (
+			envUrl &&
+			typeof envUrl === 'string' &&
+			envUrl.trim().length > 0 &&
+			!isLocalhostUrl(envUrl)
+		) {
+			return envUrl.trim().replace(/\/+$/, '');
+		}
+		// If application base URL resolved to a custom non-localhost address
+		const resolvedApp = this.resolvedAppBaseUrl;
+		if (resolvedApp && !isLocalhostUrl(resolvedApp)) {
+			if (resolvedApp.includes(':3000')) {
+				return resolvedApp.replace(':3000', ':5000');
+			}
+			return resolvedApp;
+		}
 		if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
 			return envUrl.trim().replace(/\/+$/, '');
 		}

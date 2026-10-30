@@ -37,6 +37,14 @@ describe('batchQr utils', () => {
 			});
 			expect(getAppBaseUrl()).toBe('http://192.168.1.50:3000');
 		});
+
+		it('prioritizes non-localhost window.location.origin over default localhost PUBLIC_APP_URL', () => {
+			vi.stubEnv('PUBLIC_APP_URL', 'http://localhost:3000');
+			vi.stubGlobal('window', {
+				location: { origin: 'http://192.168.1.150:3000' }
+			});
+			expect(getAppBaseUrl()).toBe('http://192.168.1.150:3000');
+		});
 	});
 
 	describe('buildBatchQrUrl', () => {

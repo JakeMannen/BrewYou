@@ -54,6 +54,23 @@ export function getAppBaseUrl(): string {
 		metaEnv?.PUBLIC_APP_URL ||
 		(typeof process !== 'undefined' ? process.env?.PUBLIC_APP_URL : undefined);
 
+	if (
+		configured &&
+		typeof configured === 'string' &&
+		configured.trim().length > 0 &&
+		!isLocalhostUrl(configured)
+	) {
+		return configured.trim().replace(/\/+$/, '');
+	}
+
+	if (
+		typeof window !== 'undefined' &&
+		window.location?.origin &&
+		!isLocalhostUrl(window.location.origin)
+	) {
+		return window.location.origin.replace(/\/+$/, '');
+	}
+
 	if (configured && typeof configured === 'string' && configured.trim().length > 0) {
 		return configured.trim().replace(/\/+$/, '');
 	}

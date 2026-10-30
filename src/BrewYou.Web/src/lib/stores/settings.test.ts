@@ -769,4 +769,26 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 
 		updateSpy.mockRestore();
 	});
+
+	it('prioritizes non-localhost browser origin over localhost fallback in resolvedAppBaseUrl', () => {
+		settings.appBaseUrl = '';
+		settings.webhookBaseUrl = '';
+
+		// 1. When env is default localhost and browser is LAN IP
+		vi.stubEnv('PUBLIC_APP_URL', 'http://localhost:3000');
+		vi.stubGlobal('window', {
+			location: { origin: 'http://192.168.1.150:3000' }
+		});
+		expect(settings.resolvedAppBaseUrl).toBe('http://192.168.1.150:3000');
+		expect(settings.resolvedWebhookBaseUrl).toBe('http://192.168.1.150:5000');
+		expect(settings.isAppUrlLocalhost).toBe(false);
+
+		// 2. When env is configured with explicit production domain
+		vi.stubEnv('PUBLIC_APP_URL', 'https://craftbrew.example.com');
+		expect(settings.resolvedAppBaseUrl).toBe('https://craftbrew.example.com');
+		expect(settings.resolvedWebhookBaseUrl).toBe('https://craftbrew.example.com');
+
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
 });

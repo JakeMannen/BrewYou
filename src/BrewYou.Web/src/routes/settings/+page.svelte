@@ -108,7 +108,7 @@
 	let connectivityError = $state<string | null>(null);
 
 	// Network hostnames form state
-	let appBaseUrl = $state(settings.appBaseUrl);
+	let appBaseUrl = $state(settings.appBaseUrl || settings.resolvedAppBaseUrl);
 	let webhookBaseUrl = $state(settings.webhookBaseUrl);
 	let useCustomWebhookUrl = $state(
 		!!(
@@ -122,10 +122,12 @@
 	let networkError = $state<string | null>(null);
 
 	$effect(() => {
-		if (settings.appBaseUrl && !appBaseUrl) {
+		if (settings.appBaseUrl) {
 			appBaseUrl = settings.appBaseUrl;
+		} else if (!appBaseUrl && settings.resolvedAppBaseUrl) {
+			appBaseUrl = settings.resolvedAppBaseUrl;
 		}
-		if (settings.webhookBaseUrl && !webhookBaseUrl) {
+		if (settings.webhookBaseUrl) {
 			webhookBaseUrl = settings.webhookBaseUrl;
 			if (settings.webhookBaseUrl.trim() && settings.webhookBaseUrl !== settings.appBaseUrl) {
 				useCustomWebhookUrl = true;
@@ -444,16 +446,13 @@
 	}
 
 	function handleDetectHost() {
-		if (typeof window !== 'undefined') {
-			const hostname = window.location.hostname;
-			const protocol = window.location.protocol;
-			if (window.location.port) {
-				appBaseUrl = `${protocol}//${hostname}:${window.location.port}`;
-			} else {
-				appBaseUrl = `${protocol}//${hostname}`;
-			}
+		if (typeof window !== 'undefined' && window.location?.origin) {
+			const origin = window.location.origin.replace(/\/+$/, '');
+			appBaseUrl = origin;
 			if (useCustomWebhookUrl) {
-				webhookBaseUrl = `${protocol}//${hostname}:5000`;
+				webhookBaseUrl = origin.includes(':3000')
+					? origin.replace(':3000', ':5000')
+					: `${origin}:5000`;
 			} else {
 				webhookBaseUrl = '';
 			}
@@ -2001,7 +2000,8 @@
 							data-testid="app-base-url-input"
 							type="text"
 							bind:value={appBaseUrl}
-							placeholder={t('settings.connectivity.app_base_url_placeholder')}
+							placeholder={settings.resolvedAppBaseUrl ||
+								t('settings.connectivity.app_base_url_placeholder')}
 							class="mt-1 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
 						/>
 						<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -2045,7 +2045,8 @@
 									data-testid="webhook-base-url-input"
 									type="text"
 									bind:value={webhookBaseUrl}
-									placeholder={t('settings.connectivity.webhook_base_url_placeholder')}
+									placeholder={settings.resolvedWebhookBaseUrl ||
+										t('settings.connectivity.webhook_base_url_placeholder')}
 									class="mt-1 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
 								/>
 								<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
