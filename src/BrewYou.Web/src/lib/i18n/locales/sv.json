@@ -540,6 +540,18 @@
 			"deleting": "Tar bort...",
 			"error": "Kunde inte ta bort batch."
 		},
+		"qr": {
+			"button_label": "QR",
+			"open_title": "Visa QR-kod & etikett",
+			"open_aria": "Visa QR-kod och etikett för {code} {name}",
+			"title": "Batch-QR & Etikett",
+			"copy_link": "Kopiera länk",
+			"link_copied": "Länk kopierad!",
+			"download_svg": "Ladda ner SVG",
+			"download_png": "Ladda ner PNG",
+			"print": "Skriv ut etikett",
+			"close": "Stäng"
+		},
 		"wizard": {
 			"stepper_nav": "Steg för batchskapande",
 			"step1_title": "Recept & information",

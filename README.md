@@ -23,6 +23,7 @@ BrewYou is strictly open-source craft brewing software: **all features are unive
    - [Brewery Collaboration & Shared Setups](#brewery-collaboration--shared-setups)
    - [Recipe Management & Recipe Formulator](#recipe-management--recipe-formulator)
    - [Batch Tracking & Live Brew Day Execution](#batch-tracking--live-brew-day-execution)
+   - [Batch QR Code Tracking & Cellar Labels](#batch-qr-code-tracking--cellar-labels)
    - [Equipment & Vessel Inventory](#equipment--vessel-inventory)
    - [Ingredient Stock & Inventory](#ingredient-stock--inventory)
    - [IoT Telemetry & Real-Time Monitoring](#iot-telemetry--real-time-monitoring)
@@ -150,6 +151,16 @@ For real-time brewhouse execution in high-steam or wet-hands environments, the *
 4. **Package & Complete**:
    - Transition through **Conditioning** to **Bottling / Kegging**.
    - Log packaged bottle counts, keg volumes, and priming sugar amounts to calculate final yield efficiency, then mark the batch **Completed**.
+
+### Batch QR Code Tracking & Cellar Labels
+
+Physical cellar tracking bridges the gap between digital batch logs and physical fermenters, kegs, and packaging. Every batch is assigned a unique, immutable deep-link encoded into a high-contrast QR code label:
+
+- **Instant Mobile Navigation**: Scan the QR code with any standard smartphone camera to jump directly to the live batch cockpit (`/batches/[id]`). Sign-in is preserved and prompted automatically without exposing unauthenticated endpoints.
+- **Dual-Layer Identification**: Labels prominently feature the canonical batch code (e.g. `B-2026-10-30-01`), recipe name, beer style, and brew date underneath the QR code for instant human readability in the cellar.
+- **High-Contrast Optical Rendering**: Rendered as crisp vector SVG with standard quiet zones to ensure reliable scans under poor cellar lighting conditions and cold condensation.
+- **One-Click Export & Print**: Export labels as vector SVGs, high-resolution PNG images (720×980) for digital records, copy canonical deep links, or trigger browser print preview styled exclusively for sticker printing.
+- **Accessible Everywhere**: Available from the **QR** button to the left of *Batchöversikt* on `/batches` cards, as well as in the **Brew Day Cockpit** (`/batches/[id]`) action bar.
 
 ### Equipment & Vessel Inventory
 
@@ -419,6 +430,7 @@ Configured via `.env` or container environment variables:
 | Variable                        | Description                                       | Default Value            |
 | :------------------------------ | :------------------------------------------------ | :----------------------- |
 | `PUBLIC_API_URL`                | Base URL used by browser clients to query the API | `http://localhost:5000`  |
+| `PUBLIC_APP_URL`                | Public application base URL for mobile QR code deep-links | `http://localhost:3000`  |
 | `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server | `http://apiservice:5000` |
 | `PORT`                          | Listening port for the SvelteKit node server      | `3000`                   |
 | `HOST`                          | Interface binding for SvelteKit server            | `0.0.0.0`                |

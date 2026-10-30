@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { sanitizeFilename, triggerFileDownload } from './downloadFile';
+import { sanitizeFilename, triggerFileDownload, triggerBlobDownload } from './downloadFile';
 
 describe('downloadFile utils', () => {
 	describe('sanitizeFilename', () => {
@@ -59,6 +59,43 @@ describe('downloadFile utils', () => {
 
 			expect(createObjectURLMock).toHaveBeenCalled();
 			expect(appendChildMock).toHaveBeenCalledWith(mockAnchor);
+			expect(clickMock).toHaveBeenCalled();
+		});
+	});
+
+	describe('triggerBlobDownload', () => {
+		it('downloads blob directly via object URL in DOM environment', () => {
+			const createObjectURLMock = vi.fn().mockReturnValue('blob:http://localhost/456');
+			const revokeObjectURLMock = vi.fn();
+			vi.stubGlobal('URL', {
+				createObjectURL: createObjectURLMock,
+				revokeObjectURL: revokeObjectURLMock
+			});
+
+			const clickMock = vi.fn();
+			const appendChildMock = vi.fn();
+			const removeChildMock = vi.fn();
+
+			const mockAnchor = {
+				href: '',
+				download: '',
+				style: { display: '' },
+				click: clickMock,
+				parentNode: { removeChild: removeChildMock }
+			};
+
+			vi.stubGlobal('window', {});
+			vi.stubGlobal('document', {
+				createElement: vi.fn().mockReturnValue(mockAnchor),
+				body: { appendChild: appendChildMock }
+			});
+
+			const blob = new Blob(['image data'], { type: 'image/png' });
+			triggerBlobDownload(blob, 'label.png');
+
+			expect(createObjectURLMock).toHaveBeenCalledWith(blob);
+			expect(appendChildMock).toHaveBeenCalledWith(mockAnchor);
+			expect(mockAnchor.download).toBe('label.png');
 			expect(clickMock).toHaveBeenCalled();
 		});
 	});

@@ -299,6 +299,18 @@
 			"deleting": "Suppression en cours...",
 			"error": "Impossible de supprimer le brassin."
 		},
+		"qr": {
+			"button_label": "QR",
+			"open_title": "Afficher le QR code et l'étiquette",
+			"open_aria": "Afficher le QR code et l'étiquette pour {code} {name}",
+			"title": "QR Code et Étiquette de Brassin",
+			"copy_link": "Copier le lien",
+			"link_copied": "Lien copié !",
+			"download_svg": "Télécharger SVG",
+			"download_png": "Télécharger PNG",
+			"print": "Imprimer l'étiquette",
+			"close": "Fermer"
+		},
 		"wizard": {
 			"stepper_nav": "Navigation de l'assistant",
 			"step1_title": "Recette & Détails du brassin",

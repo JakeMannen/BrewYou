@@ -299,6 +299,18 @@
 			"deleting": "Eliminando...",
 			"error": "No se pudo eliminar el lote."
 		},
+		"qr": {
+			"button_label": "QR",
+			"open_title": "Mostrar código QR y etiqueta",
+			"open_aria": "Mostrar código QR y etiqueta para {code} {name}",
+			"title": "QR y Etiqueta del Lote",
+			"copy_link": "Copiar enlace",
+			"link_copied": "¡Enlace copiado!",
+			"download_svg": "Descargar SVG",
+			"download_png": "Descargar PNG",
+			"print": "Imprimir etiqueta",
+			"close": "Cerrar"
+		},
 		"wizard": {
 			"stepper_nav": "Navegación del asistente",
 			"step1_title": "Receta y detalles del lote",
