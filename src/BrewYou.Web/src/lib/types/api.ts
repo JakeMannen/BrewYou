@@ -8,7 +8,7 @@ export type FermentationStepType =
 	'Primary' | 'DiacetylRest' | 'Ramp' | 'FreeRise' | 'Secondary' | 'ColdCrash' | 'Conditioning';
 
 export type IngredientUsage =
-	'Mash' | 'Boil' | 'Whirlpool' | 'Primary' | 'Secondary' | 'DryHop' | 'Bottling';
+	'Mash' | 'FirstWort' | 'Boil' | 'Whirlpool' | 'Primary' | 'Secondary' | 'DryHop' | 'Bottling';
 
 export interface ApiErrorDetail {
 	field: string;
@@ -176,6 +176,9 @@ export interface CalculateRecipeRequest {
 	efficiencyPercent: number;
 	boilTimeMinutes: number;
 	ingredients: RecipeIngredientInputDto[];
+	bitternessFormula?: BitternessFormulaPreference | null;
+	colorFormula?: ColorFormulaPreference | null;
+	abvFormula?: AbvFormulaPreference | null;
 }
 
 export interface CalculateRecipeResponse {

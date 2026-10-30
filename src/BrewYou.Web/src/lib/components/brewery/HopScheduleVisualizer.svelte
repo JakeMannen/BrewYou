@@ -19,6 +19,13 @@
 		barColor: string;
 		badgeClass: string;
 	} {
+		if (usage === 'FirstWort') {
+			return {
+				key: 'formulator.phase_first_wort',
+				barColor: '#e11d48',
+				badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+			};
+		}
 		if (usage === 'Boil' && duration >= 45) {
 			return {
 				key: 'formulator.phase_bittering',
@@ -66,7 +73,8 @@
 	import type { IngredientDto } from '$lib/types/api';
 	import { t } from '$lib/i18n/index.svelte';
 	import { getLocalizedIngredientName } from '$lib/i18n/ingredients';
-	import { tinsethIbu } from '$lib/calculators/brewing';
+	import { calculateSingleHopIbu } from '$lib/calculators/brewing';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import { Flower2, Sparkles, Clock } from '@lucide/svelte';
 
@@ -86,6 +94,31 @@
 		class: className = ''
 	}: Props = $props();
 
+	function getHopStagePriority(usage: IngredientUsage): number {
+		switch (usage) {
+			case 'Mash':
+				return 0;
+			case 'FirstWort':
+				return 1;
+			case 'Boil':
+				return 2;
+			case 'Whirlpool':
+				return 3;
+			default:
+				return 4;
+		}
+	}
+
+	function formatHopTimingLabel(usage: IngredientUsage, durationMinutes: number): string {
+		if (usage === 'DryHop') {
+			const mins = Number(durationMinutes) || 0;
+			if (mins <= 0) return t('formulator.phase_dry_hop');
+			const days = Math.round((mins >= 120 ? mins / 1440 : mins) * 10) / 10;
+			return `${days}${t('common.days_short')}`;
+		}
+		return `${durationMinutes || 0}m`;
+	}
+
 	// Compute sorted hops and individual IBU contributions
 	const processedHops = $derived.by(() => {
 		const list = hops.map((h) => {
@@ -93,10 +126,16 @@
 			const alpha = ing?.alphaAcidPercent ?? 5.0;
 			const weightGrams = Number(h.amount) || 0;
 			const time = Number(h.durationMinutes) || 0;
-			const ibu =
-				h.usage === 'DryHop' || h.usage === 'Secondary' || h.usage === 'Bottling'
-					? 0
-					: tinsethIbu(weightGrams, alpha, time, estimatedOg, batchSizeLiters);
+			const ibu = calculateSingleHopIbu(
+				weightGrams,
+				alpha,
+				time,
+				estimatedOg,
+				batchSizeLiters,
+				settings.bitternessFormula,
+				h.usage,
+				h.form ?? ing?.form
+			);
 			const phase = getHopPhase(h.usage, time);
 			return {
 				...h,
@@ -107,10 +146,10 @@
 			};
 		});
 
-		// Sort by boil timing: descending boil minutes, then Whirlpool, then DryHop
+		// Sort chronologically: Mash -> FirstWort -> Boil (desc min) -> Whirlpool (desc min) -> DryHop
 		return list.sort((a, b) => {
-			if (a.usage === 'DryHop' && b.usage !== 'DryHop') return 1;
-			if (b.usage === 'DryHop' && a.usage !== 'DryHop') return -1;
+			const stageDiff = getHopStagePriority(a.usage) - getHopStagePriority(b.usage);
+			if (stageDiff !== 0) return stageDiff;
 			return (b.durationMinutes || 0) - (a.durationMinutes || 0);
 		});
 	});
@@ -167,7 +206,7 @@
 						<span class="font-mono font-bold text-zinc-700 dark:text-zinc-200">{hop.amount}g</span>
 						<span class="flex items-center gap-0.5 font-mono">
 							<Clock class="h-2.5 w-2.5" />
-							{hop.usage === 'DryHop' ? 'Dry' : `${hop.durationMinutes}m`}
+							{formatHopTimingLabel(hop.usage, hop.durationMinutes)}
 						</span>
 					</div>
 

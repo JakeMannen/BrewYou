@@ -57,7 +57,10 @@
 		"close_dialog": "Cerrar diálogo",
 		"confirm": "Confirmar",
 		"notes": "Notas",
-		"optional": "Opcional"
+		"optional": "Opcional",
+		"days": "Días",
+		"days_short": "d",
+		"minutes_short": "min"
 	},
 	"metrics": {
 		"og": "Densidad inicial (OG)",
@@ -75,7 +78,11 @@
 		"plato": "Grados Plato (°P)",
 		"fg_plato": "Densidad final (°P)",
 		"telemetry": "Telemetría de lote en vivo",
-		"active_fermentation": "Fermentación activa"
+		"active_fermentation": "Fermentación activa",
+		"bu_gu": "BU:GU",
+		"bu_gu_desc": "Relación de amargor",
+		"attenuation": "Atenuación",
+		"attenuation_desc": "Atenuación aparente"
 	},
 	"srm_descriptors": {
 		"pale_straw": "Paja pálido",
@@ -150,6 +157,7 @@
 		"delete_success": "Receta eliminada con éxito.",
 		"delete_error": "No se pudo eliminar la receta.",
 		"duplicate_error": "Ya existe una receta con este nombre en tu biblioteca. Elige un nombre único.",
+		"no_description": "No se proporcionaron notas del cervecero ni descripción.",
 		"delete_modal": {
 			"title": "Eliminar receta",
 			"confirm_prompt": "¿Seguro que deseas eliminar «{name}»? Esta acción no se puede deshacer.",
@@ -190,7 +198,16 @@
 			"mash_steps_found": "Perfil de maceración: {count} escalón(es) comenzando a {temp}",
 			"fermentation_steps_found": "Perfil de fermentación: {count} etapa(s) comenzando a {temp}",
 			"checking_name": "Comprobando nombre de receta...",
-			"name_conflict_detected": "Ya existe una receta con este nombre. Se creará una copia."
+			"name_conflict_detected": "Ya existe una receta con este nombre. Se creará una copia.",
+			"missing_prompt_interactive": "Algunos ingredientes no coincidieron automáticamente. Elige una coincidencia cercana, un ingrediente existente del catálogo o crea un nuevo ingrediente.",
+			"create_custom_option": "+ Crear como nuevo ingrediente personalizado",
+			"suggested_matches_group": "Coincidencias cercanas sugeridas",
+			"all_catalog_group": "Todos los ingredientes del catálogo",
+			"close_match_badge": "Coincidencia cercana",
+			"resolve_and_import": "Confirmar selecciones e importar",
+			"visibility_label": "Visibilidad de la receta",
+			"visibility_private_label": "Privada para mi cervecería",
+			"visibility_public_label": "Compartir públicamente con la comunidad"
 		},
 		"rename_modal": {
 			"title": "Renombrar receta",
@@ -743,6 +760,9 @@
 		"phase_aroma": "Aroma",
 		"phase_whirlpool": "Whirlpool",
 		"phase_dry_hop": "Dry Hop",
+		"phase_first_wort": "Primer mosto",
+		"aroma_zero_ibu": "Aroma / 0 IBU",
+		"step_fallback": "Paso {order}",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Flor / Cono",

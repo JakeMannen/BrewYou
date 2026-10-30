@@ -52,7 +52,7 @@ function mapMashStepType(type: string | null): MashStepType {
 
 function mapHopUsage(use: string | null): IngredientUsage {
 	const normalized = (use || '').toLowerCase().trim();
-	if (normalized.includes('first') || normalized.includes('fwh')) return 'Boil';
+	if (normalized.includes('first') || normalized.includes('fwh')) return 'FirstWort';
 	if (normalized.includes('whirlpool') || normalized.includes('aroma')) return 'Whirlpool';
 	if (normalized.includes('dry')) return 'DryHop';
 	if (normalized.includes('mash')) return 'Mash';
@@ -225,12 +225,26 @@ export function parseBeerXml(rawXml: string): ParsedRecipe[] {
 					form = 'Leaf';
 				}
 
+				let durationMinutes: number;
+				if (usage === 'DryHop') {
+					const rawDaysOrMins = isNaN(time) || time <= 0 ? 3 : time;
+					// BeerXML 1.0 defines Dry Hop <TIME> in days (e.g. 3 -> 4320 min); legacy tools may emit minutes (>= 120)
+					durationMinutes =
+						rawDaysOrMins < 120 ? Math.round(rawDaysOrMins * 1440) : Math.round(rawDaysOrMins);
+				} else {
+					durationMinutes = isNaN(time)
+						? usage === 'Whirlpool'
+							? 20
+							: boilTimeMinutes
+						: Math.round(time);
+				}
+
 				ingredients.push({
 					name: ingName,
 					type: 'Hop' as IngredientType,
 					amount: isNaN(amountG) || amountG <= 0 ? 25 : Math.round(amountG * 10) / 10,
 					unit: 'g',
-					durationMinutes: isNaN(time) ? 60 : Math.round(time),
+					durationMinutes,
 					usage,
 					alphaAcidPercent: isNaN(alpha) ? 5.0 : alpha,
 					notes: cleanText(extractTagContent(block, 'NOTES')),
@@ -337,15 +351,45 @@ export function parseBeerXml(rawXml: string): ParsedRecipe[] {
 				const ingName = cleanText(extractTagContent(block, 'NAME'));
 				if (!ingName) continue;
 
-				const rawAmount = parseFloat(extractTagContent(block, 'AMOUNT') || '1.0');
-				const amountUnit =
-					cleanText(extractTagContent(block, 'AMOUNT_IS_WEIGHT')) === 'TRUE' ? 'g' : 'g';
+				const rawAmount = parseFloat(extractTagContent(block, 'AMOUNT') || '0.005');
+				const amountIsWeightRaw = cleanText(extractTagContent(block, 'AMOUNT_IS_WEIGHT'))
+					.toUpperCase()
+					.trim();
+				const isVolume = amountIsWeightRaw === 'FALSE';
+
+				let amount: number;
+				let amountUnit: string;
+
+				if (isVolume) {
+					// BeerXML 1.0 defines volume <MISC><AMOUNT> in liters (e.g. 0.015 L = 15 ml).
+					if (isNaN(rawAmount) || rawAmount <= 0) {
+						amount = 5;
+						amountUnit = 'ml';
+					} else if (rawAmount < 1.0) {
+						amount = Math.round(rawAmount * 1000 * 10) / 10;
+						amountUnit = 'ml';
+					} else {
+						amount = Math.round(rawAmount * 100) / 100;
+						amountUnit = rawAmount >= 10 ? 'ml' : 'L';
+					}
+				} else {
+					// BeerXML 1.0 defines weight <MISC><AMOUNT> in kilograms (e.g. 0.005 kg = 5 g).
+					if (isNaN(rawAmount) || rawAmount <= 0) {
+						amount = 5;
+						amountUnit = 'g';
+					} else {
+						const amountG = rawAmount <= 1.0 ? rawAmount * 1000 : rawAmount;
+						amount = Math.round(amountG * 10) / 10;
+						amountUnit = 'g';
+					}
+				}
+
 				const time = parseFloat(extractTagContent(block, 'TIME') || '15');
 
 				ingredients.push({
 					name: ingName,
 					type: 'Other' as IngredientType,
-					amount: isNaN(rawAmount) ? 1.0 : rawAmount,
+					amount,
 					unit: amountUnit,
 					durationMinutes: isNaN(time) ? 15 : Math.round(time),
 					usage: mapMiscUsage(extractTagContent(block, 'USE')),

@@ -4,6 +4,7 @@ export function getStageOrderPriority(usage: IngredientUsage): number {
 	switch (usage) {
 		case 'Mash':
 			return 1;
+		case 'FirstWort':
 		case 'Boil':
 			return 2;
 		case 'Whirlpool':
@@ -23,8 +24,8 @@ export function getStageOrderPriority(usage: IngredientUsage): number {
 
 /**
  * Sorts batch ingredients in strict chronological addition order:
- * 1. Stages ordered by process: Mash -> Boil -> Whirlpool -> Primary -> Secondary -> DryHop -> Bottling.
- * 2. Boil & Whirlpool additions: AdditionTimeMinutes represents minutes remaining in the boil/whirlpool.
+ * 1. Stages ordered by process: Mash -> FirstWort -> Boil -> Whirlpool -> Primary -> Secondary -> DryHop -> Bottling.
+ * 2. FirstWort, Boil & Whirlpool additions: AdditionTimeMinutes represents minutes remaining in the boil/whirlpool.
  *    Therefore, the first addition added to the kettle (e.g. 60m) is FIRST in the list (descending time).
  * 3. Mash additions: Grains first (by amount descending), followed by salts/enzymes.
  * 4. Primary: Yeast pitched first, then mid-fermentation additions.
@@ -38,8 +39,16 @@ export function sortIngredientsChronologically(
 		const pB = getStageOrderPriority(b.additionStage);
 		if (pA !== pB) return pA - pB;
 
-		// Boil & Whirlpool: higher minutes remaining first (e.g. 60m before 15m, 15m before 0m)
-		if (a.additionStage === 'Boil' || a.additionStage === 'Whirlpool') {
+		// FirstWort comes right after Mash and before regular Boil additions
+		if (a.additionStage === 'FirstWort' && b.additionStage !== 'FirstWort') return -1;
+		if (b.additionStage === 'FirstWort' && a.additionStage !== 'FirstWort') return 1;
+
+		// FirstWort, Boil & Whirlpool: higher minutes remaining first (e.g. 60m before 15m, 15m before 0m)
+		if (
+			a.additionStage === 'FirstWort' ||
+			a.additionStage === 'Boil' ||
+			a.additionStage === 'Whirlpool'
+		) {
 			const tA = a.additionTimeMinutes ?? -1;
 			const tB = b.additionTimeMinutes ?? -1;
 			if (tA !== tB) return tB - tA;

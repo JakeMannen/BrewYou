@@ -9,7 +9,13 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { getLocalizedIngredientName, getLocalizedIngredientForm } from '$lib/i18n/ingredients';
 	import { formatNumber } from '$lib/utils/formatNumber';
-	import { srmToHexColor, tinsethIbu, formatPotentialGravity } from '$lib/calculators/brewing';
+	import {
+		srmToHexColor,
+		calculateSingleHopIbu,
+		calculateBuGuRatio,
+		calculateApparentAttenuation,
+		formatPotentialGravity
+	} from '$lib/calculators/brewing';
 	import type {
 		IngredientDto,
 		IngredientUsage,
@@ -99,10 +105,37 @@
 	let yeasts = $derived((recipe?.ingredients ?? []).filter((i) => i.ingredientType === 'Yeast'));
 	let miscs = $derived((recipe?.ingredients ?? []).filter((i) => i.ingredientType === 'Other'));
 
+	function toGrainKg(amount: number, unit?: string): number {
+		const raw = Number(amount) || 0;
+		const u = (unit || 'kg').trim().toLowerCase();
+		if (u === 'g' || u === 'gram' || u === 'grams') return raw / 1000;
+		if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return raw * 0.45359237;
+		if (u === 'oz' || u === 'ounce' || u === 'ounces') return raw * 0.0283495231;
+		return raw;
+	}
+
+	function toHopGrams(amount: number, unit?: string): number {
+		const raw = Number(amount) || 0;
+		const u = (unit || 'g').trim().toLowerCase();
+		if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return raw * 1000;
+		if (u === 'oz' || u === 'ounce' || u === 'ounces') return raw * 28.3495231;
+		if (u === 'lb' || u === 'lbs') return raw * 453.59237;
+		return raw;
+	}
+
 	let totalGrainWeight = $derived(
-		fermentables.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0)
+		fermentables.reduce((acc, curr) => acc + toGrainKg(curr.amount, curr.unit), 0)
 	);
-	let totalHopWeight = $derived(hops.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+	let totalHopWeight = $derived(
+		hops.reduce((acc, curr) => acc + toHopGrams(curr.amount, curr.unit), 0)
+	);
+
+	let buGuRatio = $derived(
+		recipe ? calculateBuGuRatio(recipe.originalGravity, recipe.bitternessIbu) : 0
+	);
+	let apparentAttenuation = $derived(
+		recipe ? calculateApparentAttenuation(recipe.originalGravity, recipe.finalGravity) : 0
+	);
 
 	let visualHops = $derived<HopVisualItem[]>(
 		hops.map((h) => ({
@@ -194,17 +227,27 @@
 
 	function getHopIbuContribution(item: RecipeIngredientOutputDto): number {
 		if (!recipe) return 0;
-		if (item.usage === 'DryHop' || item.usage === 'Secondary' || item.usage === 'Bottling') {
-			return 0;
-		}
 		const alpha = item.alphaAcidPercent ?? 5.0;
-		return tinsethIbu(
-			Number(item.amount) || 0,
+		return calculateSingleHopIbu(
+			toHopGrams(item.amount, item.unit),
 			alpha,
 			Number(item.durationMinutes) || 0,
 			recipe.originalGravity,
-			recipe.batchSizeLiters
+			recipe.batchSizeLiters,
+			settings.bitternessFormula,
+			item.usage,
+			item.form
 		);
+	}
+
+	function formatHopDuration(item: RecipeIngredientOutputDto): string {
+		if (item.usage === 'DryHop') {
+			const mins = Number(item.durationMinutes) || 0;
+			if (mins <= 0) return `0 ${t('common.days')}`;
+			const days = Math.round((mins >= 120 ? mins / 1440 : mins) * 10) / 10;
+			return `${formatNumber(days, days % 1 === 0 ? 0 : 1)} ${t('common.days')}`;
+		}
+		return `${item.durationMinutes ?? 0} ${t('common.minutes')}`;
 	}
 
 	async function handleCloneRecipe() {
@@ -412,7 +455,7 @@
 
 		<!-- Vital Brewing Metrics HUD -->
 		<div
-			class="glass-panel grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200/80 p-4 shadow-md sm:grid-cols-3 md:grid-cols-5 dark:border-white/[0.08]"
+			class="glass-panel grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200/80 p-4 shadow-md sm:grid-cols-4 xl:grid-cols-7 dark:border-white/[0.08]"
 		>
 			<!-- OG -->
 			<div
@@ -478,6 +521,38 @@
 				>
 			</div>
 
+			<!-- BU:GU -->
+			<div
+				class="flex flex-col rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+			>
+				<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+					>{t('metrics.bu_gu')}</span
+				>
+				<span
+					class="mt-1 font-mono text-xl font-bold text-indigo-600 lg:text-2xl dark:text-indigo-400"
+				>
+					{formatNumber(buGuRatio, 2)}
+				</span>
+				<span class="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500"
+					>{t('metrics.bu_gu_desc')}</span
+				>
+			</div>
+
+			<!-- Apparent Attenuation -->
+			<div
+				class="flex flex-col rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+			>
+				<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+					>{t('metrics.attenuation')}</span
+				>
+				<span class="mt-1 font-mono text-xl font-bold text-teal-600 lg:text-2xl dark:text-teal-400">
+					{formatNumber(apparentAttenuation, 1)}%
+				</span>
+				<span class="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500"
+					>{t('metrics.attenuation_desc')}</span
+				>
+			</div>
+
 			<!-- Color SRM / EBC -->
 			<div
 				class="col-span-2 flex items-stretch justify-between rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 sm:col-span-1 dark:border-zinc-800/80 dark:bg-zinc-900/60"
@@ -509,7 +584,7 @@
 					{t('formulator.description')}
 				</h2>
 				<p class="text-sm leading-relaxed whitespace-pre-line text-zinc-600 dark:text-zinc-300">
-					{recipe.description || t('recipes.subtitle')}
+					{recipe.description || t('recipes.no_description')}
 				</p>
 			</div>
 
@@ -595,7 +670,9 @@
 					<div class="divide-y divide-zinc-200/60 dark:divide-white/5">
 						{#each fermentables as item (item.id)}
 							{@const gristPercent =
-								totalGrainWeight > 0 ? ((Number(item.amount) || 0) / totalGrainWeight) * 100 : 0}
+								totalGrainWeight > 0
+									? (toGrainKg(item.amount, item.unit) / totalGrainWeight) * 100
+									: 0}
 							<div
 								class="flex flex-col items-stretch justify-between gap-3 p-4 sm:flex-row sm:items-center"
 							>
@@ -613,6 +690,11 @@
 											{settings.formatFermentableColor(item.colorSrm ?? 2.0)} •
 											{formatPotentialGravity(item.potentialGravity)}
 										</div>
+										{#if item.notes}
+											<div class="mt-0.5 text-xs text-zinc-500 italic dark:text-zinc-400">
+												{item.notes}
+											</div>
+										{/if}
 									</div>
 								</div>
 
@@ -711,17 +793,21 @@
 											• {getLocalizedIngredientForm(item.form)}
 										{/if}
 									</div>
+									{#if item.notes}
+										<div class="mt-0.5 text-xs text-zinc-500 italic dark:text-zinc-400">
+											{item.notes}
+										</div>
+									{/if}
 								</div>
 
 								<div class="flex flex-wrap items-center gap-3">
 									<span class="font-mono text-sm font-bold text-zinc-900 dark:text-white">
-										{settings.formatHop(item.amount)}
+										{settings.formatHop(toHopGrams(item.amount, item.unit))}
 									</span>
 									<span
 										class="rounded-lg border border-zinc-200/80 bg-zinc-100 px-2.5 py-1 font-mono text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300"
 									>
-										{item.durationMinutes ?? 0}
-										{t('common.minutes')}
+										{formatHopDuration(item)}
 									</span>
 									<span
 										class="rounded-lg border border-zinc-200/80 bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300"
@@ -783,6 +869,11 @@
 											{getLocalizedIngredientForm(item.form)}
 										</div>
 									{/if}
+									{#if item.notes}
+										<div class="mt-0.5 text-xs text-zinc-500 italic dark:text-zinc-400">
+											{item.notes}
+										</div>
+									{/if}
 								</div>
 
 								<div class="flex flex-wrap items-center gap-3">
@@ -838,8 +929,15 @@
 							<div
 								class="flex flex-col items-stretch justify-between gap-3 p-4 sm:flex-row sm:items-center"
 							>
-								<div class="text-sm font-semibold text-zinc-900 dark:text-white">
-									{getLocalizedIngredientName({ name: item.ingredientName })}
+								<div>
+									<div class="text-sm font-semibold text-zinc-900 dark:text-white">
+										{getLocalizedIngredientName({ name: item.ingredientName })}
+									</div>
+									{#if item.notes}
+										<div class="mt-0.5 text-xs text-zinc-500 italic dark:text-zinc-400">
+											{item.notes}
+										</div>
+									{/if}
 								</div>
 								<div class="flex items-center gap-3">
 									<span class="font-mono text-sm font-bold text-zinc-900 dark:text-white">

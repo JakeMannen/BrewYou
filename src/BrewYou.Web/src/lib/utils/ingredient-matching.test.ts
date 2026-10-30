@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { IngredientDto } from '$lib/types/api';
 import {
+	buildMissingIngredientKey,
 	findCatalogIngredientMatch,
+	findCloseCatalogIngredientMatches,
 	isIngredientMatch,
 	normalizeIngredientName,
 	stripManufacturerPrefix,
@@ -259,6 +261,58 @@ describe('Ingredient Matching Utility', () => {
 					catalog.find((c) => c.id === 'ing-pilsner')!
 				)
 			).toBe(false);
+		});
+	});
+
+	describe('Close Catalog Match Suggestions (findCloseCatalogIngredientMatches)', () => {
+		it('suggests Pilsner Malt as a close match for Weyermann - Barke Pilsner Malt without auto-matching', () => {
+			expect(
+				findCatalogIngredientMatch(
+					{ name: 'Weyermann - Barke Pilsner Malt', type: 'Fermentable' },
+					catalog
+				)
+			).toBeNull();
+
+			const close = findCloseCatalogIngredientMatches(
+				{ name: 'Weyermann - Barke Pilsner Malt', type: 'Fermentable' },
+				catalog
+			);
+			expect(close.length).toBeGreaterThan(0);
+			expect(close[0].id).toBe('ing-pilsner');
+		});
+
+		it('suggests Munich Malt (Light) for Weyermann - Munich Type 1 and Centennial for typo Centenial', () => {
+			const munichClose = findCloseCatalogIngredientMatches(
+				{ name: 'Weyermann - Munich Type 1', type: 'Fermentable' },
+				catalog
+			);
+			expect(munichClose.map((c) => c.id)).toContain('ing-munich-1');
+
+			const typoHopClose = findCloseCatalogIngredientMatches(
+				{ name: 'Centenial', type: 'Hop' },
+				catalog
+			);
+			expect(typoHopClose[0]?.id).toBe('ing-centennial');
+		});
+
+		it('does not suggest unrelated ingredients or cross-type ingredients', () => {
+			const unrelated = findCloseCatalogIngredientMatches(
+				{ name: 'Golden Promise', type: 'Fermentable' },
+				catalog
+			);
+			expect(unrelated).toHaveLength(0);
+
+			const wrongType = findCloseCatalogIngredientMatches(
+				{ name: 'Centennial', type: 'Fermentable' },
+				catalog
+			);
+			expect(wrongType).toHaveLength(0);
+		});
+
+		it('builds canonical missing ingredient lookup keys', () => {
+			expect(buildMissingIngredientKey({ name: '  Citra Cryo  ', type: 'Hop' })).toBe(
+				'Hop:citra cryo'
+			);
 		});
 	});
 });

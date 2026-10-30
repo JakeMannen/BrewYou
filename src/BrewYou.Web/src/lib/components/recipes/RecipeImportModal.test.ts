@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { IngredientDto, IngredientType } from '$lib/types/api';
 import type { ParsedRecipe } from '$lib/parsers/types';
-import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
+import {
+	buildMissingIngredientKey,
+	findCatalogIngredientMatch,
+	findCloseCatalogIngredientMatches
+} from '$lib/utils/ingredient-matching';
+import {
+	CREATE_CUSTOM_INGREDIENT_RESOLUTION,
+	type RecipeImportOptions
+} from '$lib/components/recipes/RecipeImportModal.svelte';
 
 interface MissingIngredientItem {
 	name: string;
@@ -641,6 +649,141 @@ describe('Recipe Import Missing Ingredients Reconciliation', () => {
 
 			expect(wasImportCancelled).toBe(true);
 			expect(createdIngredients).toHaveLength(0);
+		});
+	});
+
+	describe('Interactive Unmatched Resolution & Default Private Visibility', () => {
+		it('resolves user-selected existing close match without creating duplicate custom ingredients and defaults to private', () => {
+			const importedRecipe: ParsedRecipe = {
+				name: 'Barke & Citra Cryo Pale',
+				beerStyle: 'Pale Ale',
+				description: 'Testing interactive resolution',
+				batchSizeLiters: 20,
+				boilTimeMinutes: 60,
+				efficiencyPercent: 75,
+				ingredients: [
+					{
+						name: 'Weyermann - Barke Pilsner Malt',
+						type: 'Fermentable',
+						amount: 4.5,
+						unit: 'kg',
+						durationMinutes: 60,
+						usage: 'Mash'
+					},
+					{
+						name: 'Centenial',
+						type: 'Hop',
+						amount: 30,
+						unit: 'g',
+						durationMinutes: 60,
+						usage: 'FirstWort'
+					},
+					{
+						name: 'Rare Experimental Hop X-99',
+						type: 'Hop',
+						amount: 40,
+						unit: 'g',
+						durationMinutes: 4320,
+						usage: 'DryHop'
+					}
+				],
+				mashSteps: [],
+				fermentationSteps: []
+			};
+
+			const catalogWithPilsner: IngredientDto[] = [
+				...sampleCatalog,
+				{
+					id: 'catalog-pilsner',
+					name: 'Pilsner Malt',
+					type: 'Fermentable',
+					potentialGravity: 1.037,
+					colorSrm: 1.7,
+					isCatalogItem: true
+				}
+			];
+
+			// Close match finder surfaces Pilsner Malt for Barke Pilsner and Centennial for Centenial
+			const barkeClose = findCloseCatalogIngredientMatches(
+				{ name: 'Weyermann - Barke Pilsner Malt', type: 'Fermentable' },
+				catalogWithPilsner
+			);
+			expect(barkeClose.map((c) => c.id)).toContain('catalog-pilsner');
+
+			const centenialClose = findCloseCatalogIngredientMatches(
+				{ name: 'Centenial', type: 'Hop' },
+				catalogWithPilsner
+			);
+			expect(centenialClose[0]?.id).toBe('ing-2');
+
+			// User selects existing catalog items for the 2 close matches, and "+ Create as new custom" for X-99
+			const barkeKey = buildMissingIngredientKey({
+				name: 'Weyermann - Barke Pilsner Malt',
+				type: 'Fermentable'
+			});
+			const centenialKey = buildMissingIngredientKey({ name: 'Centenial', type: 'Hop' });
+			const rareHopKey = buildMissingIngredientKey({
+				name: 'Rare Experimental Hop X-99',
+				type: 'Hop'
+			});
+
+			const userSelections: Record<string, string> = {
+				[barkeKey]: 'catalog-pilsner',
+				[centenialKey]: 'ing-2',
+				[rareHopKey]: CREATE_CUSTOM_INGREDIENT_RESOLUTION
+			};
+
+			const missing = detectMissingIngredients(importedRecipe, catalogWithPilsner);
+			expect(missing).toHaveLength(3);
+
+			const createdCustomNames: string[] = [];
+			const finalResolutions: Record<string, string> = {};
+			const newlyCreated: IngredientDto[] = [];
+
+			for (const m of missing) {
+				const key = buildMissingIngredientKey(m);
+				const sel = userSelections[key] ?? CREATE_CUSTOM_INGREDIENT_RESOLUTION;
+				if (sel !== CREATE_CUSTOM_INGREDIENT_RESOLUTION) {
+					finalResolutions[key] = sel;
+				} else {
+					createdCustomNames.push(m.name);
+					const createdDto: IngredientDto = {
+						id: 'created-x99',
+						name: m.name,
+						type: m.type,
+						isCatalogItem: false
+					};
+					newlyCreated.push(createdDto);
+					finalResolutions[key] = createdDto.id;
+				}
+			}
+
+			// Only 1 custom ingredient created (X-99); close matches reused existing catalog IDs
+			expect(createdCustomNames).toEqual(['Rare Experimental Hop X-99']);
+
+			const options: RecipeImportOptions = {
+				isPublic: false,
+				ingredientResolutions: finalResolutions
+			};
+
+			const activeCatalog = [...catalogWithPilsner, ...newlyCreated];
+			const resolvedPayloadIngredients = importedRecipe.ingredients
+				.map((ing) => {
+					const key = buildMissingIngredientKey(ing);
+					const resolvedId = options.ingredientResolutions[key];
+					const match =
+						(resolvedId ? activeCatalog.find((c) => c.id === resolvedId) : null) ??
+						findCatalogIngredientMatch(ing, activeCatalog);
+					return match ? { ingredientId: match.id, usage: ing.usage } : null;
+				})
+				.filter((x): x is NonNullable<typeof x> => x !== null);
+
+			expect(options.isPublic).toBe(false);
+			expect(resolvedPayloadIngredients).toEqual([
+				{ ingredientId: 'catalog-pilsner', usage: 'Mash' },
+				{ ingredientId: 'ing-2', usage: 'FirstWort' },
+				{ ingredientId: 'created-x99', usage: 'DryHop' }
+			]);
 		});
 	});
 });

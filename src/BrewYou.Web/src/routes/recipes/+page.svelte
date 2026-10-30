@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
@@ -15,9 +16,14 @@
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import DeleteRecipeModal from '$lib/components/recipes/DeleteRecipeModal.svelte';
-	import RecipeImportModal from '$lib/components/recipes/RecipeImportModal.svelte';
+	import RecipeImportModal, {
+		type RecipeImportOptions
+	} from '$lib/components/recipes/RecipeImportModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
-	import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
+	import {
+		buildMissingIngredientKey,
+		findCatalogIngredientMatch
+	} from '$lib/utils/ingredient-matching';
 	import {
 		BookOpen,
 		Plus,
@@ -218,36 +224,52 @@
 		allRecipes = allRecipes.filter((r) => r.id !== id);
 	}
 
-	function handleIngredientsCreated(newIngredients: IngredientDto[]) {
-		catalogIngredients = [...catalogIngredients, ...newIngredients];
+	function mergeUniqueCatalog(...lists: Array<IngredientDto[] | undefined>): IngredientDto[] {
+		const byId = new SvelteMap<string, IngredientDto>();
+		for (const list of lists) {
+			if (!list) continue;
+			for (const item of list) {
+				byId.set(item.id, item);
+			}
+		}
+		return Array.from(byId.values());
 	}
 
-	async function handleImportRecipe(parsed: ParsedRecipe, updatedCatalog?: IngredientDto[]) {
+	function handleIngredientsCreated(newIngredients: IngredientDto[]) {
+		catalogIngredients = mergeUniqueCatalog(catalogIngredients, newIngredients);
+	}
+
+	async function handleImportRecipe(
+		parsed: ParsedRecipe,
+		updatedCatalog?: IngredientDto[],
+		options?: RecipeImportOptions
+	) {
 		try {
 			loading = true;
-			const activeCatalog =
-				updatedCatalog && updatedCatalog.length > 0
-					? [...catalogIngredients, ...updatedCatalog]
-					: catalogIngredients;
+			const activeCatalog = mergeUniqueCatalog(catalogIngredients, updatedCatalog);
+			catalogIngredients = activeCatalog;
 
-			if (updatedCatalog && updatedCatalog.length > 0) {
-				catalogIngredients = activeCatalog;
-			}
+			const ingredients = parsed.ingredients
+				.map((ing) => {
+					const key = buildMissingIngredientKey(ing);
+					const resolvedId = options?.ingredientResolutions?.[key];
+					const match =
+						(resolvedId ? activeCatalog.find((c) => c.id === resolvedId) : null) ??
+						findCatalogIngredientMatch(ing, activeCatalog);
 
-			const ingredients = parsed.ingredients.map((ing) => {
-				const match =
-					findCatalogIngredientMatch(ing, activeCatalog) ??
-					activeCatalog.find((c) => c.type === ing.type);
+					if (!match) return null;
 
-				return {
-					ingredientId: match ? match.id : activeCatalog[0]?.id || '',
-					amount: ing.amount,
-					unit: ing.unit,
-					durationMinutes: ing.durationMinutes,
-					usage: ing.usage,
-					form: ing.form ?? match?.form ?? undefined
-				};
-			});
+					return {
+						ingredientId: match.id,
+						amount: ing.amount,
+						unit: ing.unit,
+						durationMinutes: ing.durationMinutes,
+						usage: ing.usage,
+						notes: ing.notes?.trim() || null,
+						form: ing.form ?? match.form ?? undefined
+					};
+				})
+				.filter((i): i is NonNullable<typeof i> => i !== null);
 
 			const created = await api.recipes.create({
 				name: parsed.name,
@@ -256,8 +278,8 @@
 				batchSizeLiters: parsed.batchSizeLiters || 20,
 				boilTimeMinutes: parsed.boilTimeMinutes || 60,
 				efficiencyPercent: parsed.efficiencyPercent || 72,
-				isPublic: true,
-				ingredients: ingredients.filter((i) => i.ingredientId !== ''),
+				isPublic: options?.isPublic ?? false,
+				ingredients,
 				mashSteps: parsed.mashSteps?.map((s) => ({
 					stepOrder: s.stepOrder,
 					name: s.name,

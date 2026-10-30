@@ -1,3 +1,12 @@
+<script module lang="ts">
+	export const CREATE_CUSTOM_INGREDIENT_RESOLUTION = '__create__';
+
+	export interface RecipeImportOptions {
+		isPublic: boolean;
+		ingredientResolutions: Record<string, string>;
+	}
+</script>
+
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
 	import { t } from '$lib/i18n/index.svelte';
@@ -6,10 +15,14 @@
 	import type { ParsedRecipe } from '$lib/parsers/types';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatPotentialGravity, smartPotentialToSg } from '$lib/calculators/brewing';
-	import { getLocalizedIngredientForm } from '$lib/i18n/ingredients';
+	import { getLocalizedIngredientForm, getLocalizedIngredientName } from '$lib/i18n/ingredients';
 	import { parseBeerXml } from '$lib/parsers/beerxml';
 	import { parseBeerJson } from '$lib/parsers/beerjson';
-	import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
+	import {
+		buildMissingIngredientKey,
+		findCatalogIngredientMatch,
+		findCloseCatalogIngredientMatches
+	} from '$lib/utils/ingredient-matching';
 	import RecipeRenameModal from '$lib/components/recipes/RecipeRenameModal.svelte';
 	import {
 		UploadCloud,
@@ -20,7 +33,10 @@
 		X,
 		Loader2,
 		PlusCircle,
-		Ban
+		Ban,
+		Lock,
+		Globe,
+		Sparkles
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -28,8 +44,13 @@
 		catalogIngredients: IngredientDto[];
 		existingRecipeNames?: string[];
 		checkNameConflictFn?: (name: string) => Promise<boolean> | boolean;
+		showVisibilityToggle?: boolean;
 		onClose: () => void;
-		onImportRecipe: (recipe: ParsedRecipe, updatedCatalog?: IngredientDto[]) => void;
+		onImportRecipe: (
+			recipe: ParsedRecipe,
+			updatedCatalog?: IngredientDto[],
+			options?: RecipeImportOptions
+		) => void;
 		onIngredientsCreated?: (newIngredients: IngredientDto[]) => void;
 	}
 
@@ -38,6 +59,7 @@
 		catalogIngredients,
 		existingRecipeNames,
 		checkNameConflictFn,
+		showVisibilityToggle = true,
 		onClose,
 		onImportRecipe,
 		onIngredientsCreated
@@ -52,6 +74,8 @@
 	let parseError = $state<string | null>(null);
 	let createError = $state<string | null>(null);
 	let parsedRecipe = $state<ParsedRecipe | null>(null);
+	let isPublic = $state(false);
+	let ingredientResolutions = $state<Record<string, string>>({});
 
 	$effect(() => {
 		if (!open) {
@@ -68,6 +92,8 @@
 		parseError = null;
 		createError = null;
 		parsedRecipe = null;
+		isPublic = false;
+		ingredientResolutions = {};
 		if (fileInput) fileInput.value = '';
 	}
 
@@ -138,6 +164,7 @@
 	}
 
 	interface MissingIngredientItem {
+		key: string;
 		name: string;
 		type: IngredientType;
 		potentialGravity?: number;
@@ -146,7 +173,18 @@
 		attenuationPercent?: number;
 		description?: string;
 		form?: string;
+		closeMatches: IngredientDto[];
+		otherCatalogOptions: IngredientDto[];
 	}
+
+	let uniqueCatalogIngredients = $derived.by<IngredientDto[]>(() => {
+		const seen = new SvelteSet<string>();
+		return catalogIngredients.filter((c) => {
+			if (seen.has(c.id)) return false;
+			seen.add(c.id);
+			return true;
+		});
+	});
 
 	let missingIngredients = $derived.by<MissingIngredientItem[]>(() => {
 		if (!parsedRecipe || !parsedRecipe.ingredients) return [];
@@ -156,13 +194,23 @@
 		for (const ing of parsedRecipe.ingredients) {
 			const trimmedName = ing.name.trim();
 			if (!trimmedName) continue;
-			const lower = trimmedName.toLowerCase();
+			const key = buildMissingIngredientKey({ name: trimmedName, type: ing.type });
 
-			const match = findCatalogIngredientMatch(ing, catalogIngredients);
+			const match = findCatalogIngredientMatch(ing, uniqueCatalogIngredients);
 
-			if (!match && !seen.has(`${ing.type}:${lower}`)) {
-				seen.add(`${ing.type}:${lower}`);
+			if (!match && !seen.has(key)) {
+				seen.add(key);
+				const closeMatches = findCloseCatalogIngredientMatches(
+					{ name: trimmedName, type: ing.type },
+					uniqueCatalogIngredients
+				);
+				const closeIds = new Set(closeMatches.map((cm) => cm.id));
+				const otherCatalogOptions = uniqueCatalogIngredients
+					.filter((c) => c.type === ing.type && !closeIds.has(c.id))
+					.sort((a, b) => a.name.localeCompare(b.name));
+
 				missing.push({
+					key,
 					name: trimmedName,
 					type: ing.type,
 					potentialGravity: ing.potentialGravity,
@@ -170,7 +218,9 @@
 					alphaAcidPercent: ing.alphaAcidPercent,
 					attenuationPercent: ing.attenuationPercent,
 					description: ing.notes,
-					form: ing.form
+					form: ing.form,
+					closeMatches,
+					otherCatalogOptions
 				});
 			}
 		}
@@ -178,12 +228,30 @@
 		return missing;
 	});
 
+	let hasExistingCatalogSelection = $derived(
+		missingIngredients.some((m) => {
+			const val = ingredientResolutions[m.key];
+			return Boolean(val && val !== CREATE_CUSTOM_INGREDIENT_RESOLUTION);
+		})
+	);
+
 	let matchedCount = $derived.by(() => {
 		if (!parsedRecipe) return 0;
 		return parsedRecipe.ingredients.filter((item) => {
-			return findCatalogIngredientMatch(item, catalogIngredients) !== null;
+			return findCatalogIngredientMatch(item, uniqueCatalogIngredients) !== null;
 		}).length;
 	});
+
+	function getResolution(key: string): string {
+		return ingredientResolutions[key] || CREATE_CUSTOM_INGREDIENT_RESOLUTION;
+	}
+
+	function setResolution(key: string, value: string) {
+		ingredientResolutions = {
+			...ingredientResolutions,
+			[key]: value
+		};
+	}
 
 	function sanitizeString(str: string): string {
 		return str.replace(/[<>]/g, '').trim();
@@ -207,8 +275,15 @@
 
 		try {
 			const newlyCreated: IngredientDto[] = [];
+			const finalResolutions: Record<string, string> = {};
 
 			for (const missing of missingIngredients) {
+				const selectedResolution = getResolution(missing.key);
+				if (selectedResolution !== CREATE_CUSTOM_INGREDIENT_RESOLUTION) {
+					finalResolutions[missing.key] = selectedResolution;
+					continue;
+				}
+
 				const sanitizedName = sanitizeString(missing.name) || 'Unnamed Ingredient';
 				const sanitizedDesc = missing.description
 					? sanitizeString(missing.description).substring(0, 1000)
@@ -249,15 +324,19 @@
 
 				const created = await api.ingredients.create(requestPayload);
 				newlyCreated.push(created);
+				finalResolutions[missing.key] = created.id;
 			}
 
-			const updatedCatalog = [...catalogIngredients, ...newlyCreated];
+			const updatedCatalog = [...uniqueCatalogIngredients, ...newlyCreated];
 
 			if (onIngredientsCreated && newlyCreated.length > 0) {
 				onIngredientsCreated(newlyCreated);
 			}
 
-			onImportRecipe(parsedRecipe, updatedCatalog);
+			onImportRecipe(parsedRecipe, updatedCatalog, {
+				isPublic,
+				ingredientResolutions: finalResolutions
+			});
 			onClose();
 		} catch (err: unknown) {
 			createError = (err as Error).message || t('recipes.import_modal.create_failed');
@@ -268,7 +347,10 @@
 
 	function handleConfirmImport() {
 		if (!parsedRecipe) return;
-		onImportRecipe(parsedRecipe, catalogIngredients);
+		onImportRecipe(parsedRecipe, uniqueCatalogIngredients, {
+			isPublic,
+			ingredientResolutions: {}
+		});
 		onClose();
 	}
 
@@ -519,9 +601,36 @@
 								</p>
 							{/if}
 						</div>
+
+						{#if showVisibilityToggle}
+							<div class="border-t border-emerald-500/10 pt-2.5">
+								<label
+									class="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-zinc-200/80 bg-white/70 px-3 py-2 text-xs transition-colors hover:border-amber-500/40 dark:border-zinc-800 dark:bg-zinc-900/60"
+									data-testid="import-visibility-toggle"
+								>
+									<span
+										class="flex items-center gap-2 font-medium text-zinc-800 dark:text-zinc-200"
+									>
+										{#if isPublic}
+											<Globe class="h-3.5 w-3.5 text-emerald-500" />
+											<span>{t('recipes.import_modal.visibility_public_label')}</span>
+										{:else}
+											<Lock class="h-3.5 w-3.5 text-amber-500" />
+											<span>{t('recipes.import_modal.visibility_private_label')}</span>
+										{/if}
+									</span>
+									<input
+										type="checkbox"
+										bind:checked={isPublic}
+										data-testid="import-visibility-checkbox"
+										class="h-4 w-4 cursor-pointer rounded border-zinc-300 text-amber-500 focus:ring-amber-500 dark:border-zinc-700 dark:bg-zinc-800"
+									/>
+								</label>
+							</div>
+						{/if}
 					</div>
 
-					<!-- Missing Ingredients Alert & Decision Panel -->
+					<!-- Missing Ingredients Alert & Interactive Resolution Panel -->
 					{#if missingIngredients.length > 0}
 						<div
 							class="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 dark:border-amber-500/20 dark:bg-amber-500/5"
@@ -533,54 +642,103 @@
 										{t('recipes.import_modal.missing_title')}
 									</h4>
 									<p class="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-										{t('recipes.import_modal.missing_prompt')}
+										{t('recipes.import_modal.missing_prompt_interactive')}
 									</p>
 								</div>
 							</div>
 
-							<!-- Missing Ingredients List -->
-							<div class="max-h-40 space-y-1.5 overflow-y-auto pr-1">
-								{#each missingIngredients as item}
+							<!-- Missing Ingredients Interactive List -->
+							<div class="max-h-56 space-y-2 overflow-y-auto pr-1">
+								{#each missingIngredients as item, idx (item.key)}
 									<div
-										class="flex items-center justify-between rounded-lg border border-amber-500/20 bg-white/60 p-2 text-xs shadow-xs dark:border-zinc-800 dark:bg-zinc-900/60"
+										class="space-y-2 rounded-lg border border-amber-500/20 bg-white/75 p-2.5 text-xs shadow-xs dark:border-zinc-800 dark:bg-zinc-900/75"
 									>
-										<div class="flex items-center gap-2">
-											<span
-												class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold {item.type ===
-												'Fermentable'
-													? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-													: item.type === 'Hop'
-														? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-														: item.type === 'Yeast'
-															? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
-															: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300'}"
-											>
-												{item.type}
-											</span>
-											<span class="font-medium text-zinc-900 dark:text-white">{item.name}</span>
+										<div class="flex flex-wrap items-center justify-between gap-2">
+											<div class="flex flex-wrap items-center gap-1.5">
+												<span
+													class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold {item.type ===
+													'Fermentable'
+														? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+														: item.type === 'Hop'
+															? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+															: item.type === 'Yeast'
+																? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
+																: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300'}"
+												>
+													{item.type}
+												</span>
+												<span class="font-semibold text-zinc-900 dark:text-white">{item.name}</span>
+												{#if item.closeMatches.length > 0}
+													<span
+														class="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300"
+													>
+														<Sparkles class="h-2.5 w-2.5" />
+														{t('recipes.import_modal.close_match_badge')}:
+														{getLocalizedIngredientName(item.closeMatches[0])}
+													</span>
+												{/if}
+											</div>
+
+											<div class="text-[11px] text-zinc-500 dark:text-zinc-400">
+												{#if item.form}
+													<span
+														class="mr-1 inline-block rounded border border-zinc-200 bg-zinc-100 px-1 py-0.5 text-[9px] font-semibold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+													>
+														{getLocalizedIngredientForm(item.form)}
+													</span>
+												{/if}
+												{#if item.type === 'Fermentable'}
+													<span>
+														{settings.formatFermentableColor(item.colorSrm ?? 2.0)}
+														{#if item.potentialGravity}
+															• {formatPotentialGravity(item.potentialGravity)}
+														{/if}
+													</span>
+												{:else if item.type === 'Hop' && item.alphaAcidPercent}
+													<span>{item.alphaAcidPercent}% AA</span>
+												{:else if item.type === 'Yeast' && item.attenuationPercent}
+													<span>{item.attenuationPercent}% Atten</span>
+												{/if}
+											</div>
 										</div>
 
-										<div class="text-[11px] text-zinc-500 dark:text-zinc-400">
-											{#if item.form}
-												<span
-													class="mr-1 inline-block rounded border border-zinc-200 bg-zinc-100 px-1 py-0.5 text-[9px] font-semibold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-												>
-													{getLocalizedIngredientForm(item.form)}
-												</span>
+										<select
+											value={getResolution(item.key)}
+											onchange={(e) =>
+												setResolution(item.key, (e.currentTarget as HTMLSelectElement).value)}
+											aria-label={item.name}
+											data-testid="missing-ingredient-select-{idx}"
+											class="h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-900 transition-colors focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+										>
+											<option value={CREATE_CUSTOM_INGREDIENT_RESOLUTION}>
+												{t('recipes.import_modal.create_custom_option')} ({item.name})
+											</option>
+											{#if item.closeMatches.length > 0}
+												<optgroup label={t('recipes.import_modal.suggested_matches_group')}>
+													{#each item.closeMatches as match (match.id)}
+														<option value={match.id}>
+															★ {getLocalizedIngredientName(match)}
+															{#if match.type === 'Fermentable'}
+																({settings.formatFermentableColor(match.colorSrm ?? 2.0)})
+															{:else if match.type === 'Hop' && match.alphaAcidPercent}
+																({match.alphaAcidPercent}% AA)
+															{:else if match.type === 'Yeast' && match.attenuationPercent}
+																({match.attenuationPercent}% Atten)
+															{/if}
+														</option>
+													{/each}
+												</optgroup>
 											{/if}
-											{#if item.type === 'Fermentable'}
-												<span>
-													{settings.formatFermentableColor(item.colorSrm ?? 2.0)}
-													{#if item.potentialGravity}
-														• {formatPotentialGravity(item.potentialGravity)}
-													{/if}
-												</span>
-											{:else if item.type === 'Hop' && item.alphaAcidPercent}
-												<span>{item.alphaAcidPercent}% AA</span>
-											{:else if item.type === 'Yeast' && item.attenuationPercent}
-												<span>{item.attenuationPercent}% Atten</span>
+											{#if item.otherCatalogOptions.length > 0}
+												<optgroup label={t('recipes.import_modal.all_catalog_group')}>
+													{#each item.otherCatalogOptions as opt (opt.id)}
+														<option value={opt.id}>
+															{getLocalizedIngredientName(opt)}
+														</option>
+													{/each}
+												</optgroup>
 											{/if}
-										</div>
+										</select>
 									</div>
 								{/each}
 							</div>
@@ -628,7 +786,11 @@
 							<span>{t('recipes.import_modal.checking_name')}</span>
 						{:else}
 							<PlusCircle class="h-4 w-4" />
-							<span>{t('recipes.import_modal.create_and_import')}</span>
+							<span>
+								{hasExistingCatalogSelection
+									? t('recipes.import_modal.resolve_and_import')
+									: t('recipes.import_modal.create_and_import')}
+							</span>
 						{/if}
 					</button>
 				{:else}

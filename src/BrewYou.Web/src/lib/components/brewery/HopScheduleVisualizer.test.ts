@@ -37,4 +37,10 @@ describe('HopScheduleVisualizer', () => {
 		expect(phase.key).toBe('formulator.phase_dry_hop');
 		expect(phase.barColor).toBe('#6366f1');
 	});
+
+	it('categorizes FirstWort additions distinctly from Boil', () => {
+		const phase = getHopPhase('FirstWort', 60);
+		expect(phase.key).toBe('formulator.phase_first_wort');
+		expect(phase.barColor).toBe('#e11d48');
+	});
 });

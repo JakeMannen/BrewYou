@@ -635,6 +635,7 @@
 					(i) =>
 						i.additionStage === 'Mash' ||
 						(i.type === 'Fermentable' &&
+							i.additionStage !== 'FirstWort' &&
 							i.additionStage !== 'Boil' &&
 							i.additionStage !== 'Bottling')
 				);
@@ -642,6 +643,7 @@
 			case 'Boil':
 				filtered = ingredients.filter(
 					(i) =>
+						i.additionStage === 'FirstWort' ||
 						i.additionStage === 'Boil' ||
 						i.additionStage === 'Whirlpool' ||
 						(i.type === 'Hop' && i.additionStage !== 'DryHop' && i.additionStage !== 'Mash')
@@ -710,7 +712,9 @@
 				(i) =>
 					i.type === 'Fermentable' &&
 					(i.additionStage === 'Mash' ||
-						(i.additionStage !== 'Boil' && i.additionStage !== 'Bottling'))
+						(i.additionStage !== 'FirstWort' &&
+							i.additionStage !== 'Boil' &&
+							i.additionStage !== 'Bottling'))
 			)
 			.reduce((sum, i) => sum + (i.unit === 'g' ? i.amount / 1000 : i.amount), 0);
 	});
