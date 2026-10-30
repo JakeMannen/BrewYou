@@ -30,6 +30,7 @@
 	import StepTemperatureChart from '$lib/components/batches/StepTemperatureChart.svelte';
 	import LogStepTemperatureModal from '$lib/components/batches/LogStepTemperatureModal.svelte';
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
+	import BatchQrModal from '$lib/components/batches/BatchQrModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
 	import { batchTimer } from '$lib/stores/batch-timer.svelte';
@@ -54,7 +55,8 @@
 		StepForward,
 		Clock,
 		Activity,
-		Maximize2
+		Maximize2,
+		QrCode
 	} from '@lucide/svelte';
 
 	let batch = $state<BatchDetailDto | null>(null);
@@ -82,6 +84,7 @@
 	let batchEquipmentReadings = $state<BatchEquipmentReadingDto[]>([]);
 	let showLogTempModal = $state(false);
 	let showDeleteBatchModal = $state(false);
+	let showQrModal = $state(false);
 	let showBrewStationHud = $state(false);
 	let logTempStage = $state<BrewStage>('Mash');
 	let logTempMashStepId = $state<string | null>(null);
@@ -1137,6 +1140,17 @@
 						<span>{t('batches.workspace.advance_stage')}</span>
 					</button>
 				{/if}
+
+				<button
+					type="button"
+					data-testid="batch-detail-qr-btn"
+					onclick={() => (showQrModal = true)}
+					title={t('batches.qr.open_title')}
+					aria-label={t('batches.qr.open_title')}
+					class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-zinc-200 p-2.5 text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-600 dark:border-zinc-800 dark:text-zinc-300 dark:hover:text-amber-400"
+				>
+					<QrCode class="h-4 w-4" />
+				</button>
 
 				<button
 					type="button"
@@ -2889,6 +2903,8 @@
 	onClose={() => (showDeleteBatchModal = false)}
 	onDeleted={() => goto('/batches')}
 />
+
+<BatchQrModal open={showQrModal} {batch} onClose={() => (showQrModal = false)} />
 
 {#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}
 	<BrewStationHudModal

@@ -295,6 +295,18 @@
 			"deleting": "Deleting...",
 			"error": "Failed to delete batch."
 		},
+		"qr": {
+			"button_label": "QR",
+			"open_title": "Show QR code & label",
+			"open_aria": "Show QR code and label for {code} {name}",
+			"title": "Batch QR & Label",
+			"copy_link": "Copy link",
+			"link_copied": "Link copied!",
+			"download_svg": "Download SVG",
+			"download_png": "Download PNG",
+			"print": "Print label",
+			"close": "Close"
+		},
 		"wizard": {
 			"stepper_nav": "Batch Creation Steps",
 			"step1_title": "Recipe & Identity",

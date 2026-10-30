@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Activity, Plus, Search, ArrowUpRight, Loader2 } from '@lucide/svelte';
+	import { Activity, Plus, Search, ArrowUpRight, Loader2, QrCode } from '@lucide/svelte';
 	import { api } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { t } from '$lib/i18n/index.svelte';
@@ -12,12 +12,26 @@
 	import BrewStageTracker, {
 		type BrewStage as UiBrewStage
 	} from '$lib/components/brewery/BrewStageTracker.svelte';
+	import BatchQrModal from '$lib/components/batches/BatchQrModal.svelte';
 
 	let statusFilter = $state<'all' | BatchStatus>('all');
 	let searchQuery = $state('');
 	let batches = $state<BatchSummaryDto[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+
+	let qrModalBatch = $state<BatchSummaryDto | null>(null);
+	let showQrModal = $state(false);
+
+	function openQrModal(batch: BatchSummaryDto) {
+		qrModalBatch = batch;
+		showQrModal = true;
+	}
+
+	function closeQrModal() {
+		showQrModal = false;
+		qrModalBatch = null;
+	}
 
 	let isInitialized = false;
 	let telemetryAbortController: AbortController | null = null;
@@ -481,20 +495,39 @@
 							<span>{t('batches.days_active', { days: batch.daysActive })}</span>
 						</div>
 
-						<a
-							href="/batches/{batch.id}"
-							class="flex items-center gap-1 font-semibold text-amber-600 transition-colors hover:text-amber-500 dark:text-amber-400"
-							aria-label={t('batches.view_workspace_aria', {
-								code: batch.batchCode,
-								name: batch.name
-							})}
-						>
-							<span>{t('batches.view_batch')}</span>
-							<ArrowUpRight class="h-3.5 w-3.5" />
-						</a>
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								data-testid="open-batch-qr-btn"
+								onclick={() => openQrModal(batch)}
+								class="flex h-7 items-center gap-1 rounded-lg border border-zinc-200/80 bg-zinc-100/60 px-2 text-xs font-semibold text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-600 dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-300 dark:hover:text-amber-400"
+								title={t('batches.qr.open_title')}
+								aria-label={t('batches.qr.open_aria', {
+									code: batch.batchCode,
+									name: batch.name
+								})}
+							>
+								<QrCode class="h-3.5 w-3.5" />
+								<span class="font-mono text-[11px]">{t('batches.qr.button_label')}</span>
+							</button>
+
+							<a
+								href="/batches/{batch.id}"
+								class="flex items-center gap-1 font-semibold text-amber-600 transition-colors hover:text-amber-500 dark:text-amber-400"
+								aria-label={t('batches.view_workspace_aria', {
+									code: batch.batchCode,
+									name: batch.name
+								})}
+							>
+								<span>{t('batches.view_batch')}</span>
+								<ArrowUpRight class="h-3.5 w-3.5" />
+							</a>
+						</div>
 					</div>
 				</article>
 			{/each}
 		</div>
 	{/if}
+
+	<BatchQrModal open={showQrModal} batch={qrModalBatch} onClose={closeQrModal} />
 </div>

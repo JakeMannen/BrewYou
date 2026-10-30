@@ -299,6 +299,18 @@
 			"deleting": "Wird gelöscht...",
 			"error": "Löschen des Suds fehlgeschlagen."
 		},
+		"qr": {
+			"button_label": "QR",
+			"open_title": "QR-Code & Etikett anzeigen",
+			"open_aria": "QR-Code und Etikett für {code} {name} anzeigen",
+			"title": "Sud-QR & Etikett",
+			"copy_link": "Link kopieren",
+			"link_copied": "Link kopiert!",
+			"download_svg": "SVG herunterladen",
+			"download_png": "PNG herunterladen",
+			"print": "Etikett drucken",
+			"close": "Schließen"
+		},
 		"wizard": {
 			"stepper_nav": "Assistenten-Navigation",
 			"step1_title": "Rezept & Suddetails",

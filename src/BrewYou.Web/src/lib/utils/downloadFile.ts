@@ -49,8 +49,18 @@ export function triggerFileDownload(content: string, filename: string, mimeType:
 	}
 
 	const blob = new Blob([content], { type: mimeType });
-	const objectUrl = URL.createObjectURL(blob);
+	triggerBlobDownload(blob, filename);
+}
 
+/**
+ * Triggers a client-side download for an existing Blob (e.g. Canvas image or binary export).
+ */
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+	if (typeof window === 'undefined' || typeof document === 'undefined') {
+		return;
+	}
+
+	const objectUrl = URL.createObjectURL(blob);
 	const anchor = document.createElement('a');
 	anchor.href = objectUrl;
 	anchor.download = filename;
