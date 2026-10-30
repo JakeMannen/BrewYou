@@ -231,4 +231,409 @@ public class BrewingCalculatorTests
         // At-risk: runoff pH rose to 6.0
         BrewingCalculator.IsRunoffAtRiskOfTanninExtraction(1.015m, 6.0m).Should().BeTrue();
     }
+
+    [Fact]
+    public void Calculate_WithBitternessFormulas_DistinguishesTinsethRagerAndDaniels()
+    {
+        var ingredients = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 5.0m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Pale Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m,
+                    ColorSrm = 2.0m
+                }
+            },
+            new()
+            {
+                Amount = 35.0m,
+                Unit = "g",
+                DurationMinutes = 60,
+                Usage = IngredientUsage.Boil,
+                Form = "Pellet",
+                Ingredient = new Ingredient
+                {
+                    Name = "Centennial",
+                    Type = IngredientType.Hop,
+                    AlphaAcidPercent = 10.0m
+                }
+            }
+        };
+
+        var tinseth = BrewingCalculator.Calculate(20.0m, 75.0m, 60, ingredients, new BrewingCalculationOptions("Tinseth", "Morey", "Linear"));
+        var rager = BrewingCalculator.Calculate(20.0m, 75.0m, 60, ingredients, new BrewingCalculationOptions("Rager", "Morey", "Linear"));
+        var daniels = BrewingCalculator.Calculate(20.0m, 75.0m, 60, ingredients, new BrewingCalculationOptions("Daniels", "Morey", "Linear"));
+
+        tinseth.BitternessIbu.Should().BeGreaterThan(30.0m);
+        rager.BitternessIbu.Should().BeGreaterThan(tinseth.BitternessIbu);
+        daniels.BitternessIbu.Should().NotBe(tinseth.BitternessIbu);
+    }
+
+    [Fact]
+    public void Calculate_WithColorAndAbvFormulas_HonorsSelectedFormulas()
+    {
+        var ingredients = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 8.0m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Munich Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m,
+                    ColorSrm = 10.0m
+                }
+            },
+            new()
+            {
+                Amount = 11.5m,
+                Unit = "g",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient
+                {
+                    Name = "SafAle US-05",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 80.0m
+                }
+            }
+        };
+
+        var moreyLinear = BrewingCalculator.Calculate(20.0m, 75.0m, 60, ingredients, new BrewingCalculationOptions("Tinseth", "Morey", "Linear"));
+        var mosherAdvanced = BrewingCalculator.Calculate(20.0m, 75.0m, 60, ingredients, new BrewingCalculationOptions("Tinseth", "Mosher", "Advanced"));
+        var danielsColor = BrewingCalculator.Calculate(20.0m, 75.0m, 60, ingredients, new BrewingCalculationOptions("Tinseth", "Daniels", "Linear"));
+
+        moreyLinear.ColorSrm.Should().NotBe(mosherAdvanced.ColorSrm);
+        danielsColor.ColorSrm.Should().NotBe(moreyLinear.ColorSrm);
+        mosherAdvanced.AlcoholByVolume.Should().BeGreaterThan(moreyLinear.AlcoholByVolume);
+    }
+
+    [Fact]
+    public void Calculate_WithHopUsagesAndForms_AppliesFirstWortWhirlpoolMashAndLeafMultipliers()
+    {
+        List<RecipeIngredient> BuildWithHop(IngredientUsage usage, string form, int mins = 60) =>
+        [
+            new()
+            {
+                Amount = 4.5m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Pale Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m
+                }
+            },
+            new()
+            {
+                Amount = 30.0m,
+                Unit = "g",
+                DurationMinutes = mins,
+                Usage = usage,
+                Form = form,
+                Ingredient = new Ingredient
+                {
+                    Name = "Cascade",
+                    Type = IngredientType.Hop,
+                    AlphaAcidPercent = 6.5m
+                }
+            }
+        ];
+
+        var boilPellet = BrewingCalculator.Calculate(20.0m, 75.0m, 60, BuildWithHop(IngredientUsage.Boil, "Pellet", 60));
+        var fwhPellet = BrewingCalculator.Calculate(20.0m, 75.0m, 60, BuildWithHop(IngredientUsage.FirstWort, "Pellet", 60));
+        var boilLeaf = BrewingCalculator.Calculate(20.0m, 75.0m, 60, BuildWithHop(IngredientUsage.Boil, "Leaf", 60));
+        var whirlpool = BrewingCalculator.Calculate(20.0m, 75.0m, 60, BuildWithHop(IngredientUsage.Whirlpool, "Pellet", 20));
+        var mashHop = BrewingCalculator.Calculate(20.0m, 75.0m, 60, BuildWithHop(IngredientUsage.Mash, "Pellet", 60));
+        var dryHop = BrewingCalculator.Calculate(20.0m, 75.0m, 60, BuildWithHop(IngredientUsage.DryHop, "Pellet", 4320));
+
+        fwhPellet.BitternessIbu.Should().BeApproximately(boilPellet.BitternessIbu * 1.10m, 0.2m);
+        boilLeaf.BitternessIbu.Should().BeApproximately(boilPellet.BitternessIbu * 0.90m, 0.2m);
+        whirlpool.BitternessIbu.Should().BeGreaterThan(0m).And.BeLessThan(boilPellet.BitternessIbu);
+        mashHop.BitternessIbu.Should().BeApproximately(boilPellet.BitternessIbu * 0.30m, 0.2m);
+        dryHop.BitternessIbu.Should().Be(0m);
+    }
+
+    [Fact]
+    public void Calculate_WithSolubleSugarAndLactose_BypassesEfficiencyAndRetainsUnfermentableFg()
+    {
+        var grainOnly = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 4.0m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Pale Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m
+                }
+            },
+            new()
+            {
+                Amount = 11.5m,
+                Unit = "g",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient
+                {
+                    Name = "SafAle US-05",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 80.0m
+                }
+            }
+        };
+
+        var withDextrose = new List<RecipeIngredient>(grainOnly)
+        {
+            new()
+            {
+                Amount = 0.5m,
+                Unit = "kg",
+                Usage = IngredientUsage.Boil,
+                Ingredient = new Ingredient
+                {
+                    Name = "Corn Sugar (Dextrose)",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.046m
+                }
+            }
+        };
+
+        var withLactose = new List<RecipeIngredient>(grainOnly)
+        {
+            new()
+            {
+                Amount = 0.5m,
+                Unit = "kg",
+                Usage = IngredientUsage.Boil,
+                Ingredient = new Ingredient
+                {
+                    Name = "Milk Sugar (Lactose)",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.043m
+                }
+            }
+        };
+
+        // Dextrose OG contribution must be identical at 60% vs 85% mash efficiency (100% soluble)
+        var base60 = BrewingCalculator.Calculate(20.0m, 60.0m, 60, grainOnly);
+        var dex60 = BrewingCalculator.Calculate(20.0m, 60.0m, 60, withDextrose);
+        var base85 = BrewingCalculator.Calculate(20.0m, 85.0m, 60, grainOnly);
+        var dex85 = BrewingCalculator.Calculate(20.0m, 85.0m, 60, withDextrose);
+
+        (dex60.OriginalGravity - base60.OriginalGravity).Should()
+            .BeApproximately(dex85.OriginalGravity - base85.OriginalGravity, 0.001m);
+
+        // Lactose must retain 100% of its added gravity points in Final Gravity
+        var base75 = BrewingCalculator.Calculate(20.0m, 75.0m, 60, grainOnly);
+        var lac75 = BrewingCalculator.Calculate(20.0m, 75.0m, 60, withLactose);
+        var addedLactosePoints = lac75.OriginalGravity - base75.OriginalGravity;
+
+        (lac75.FinalGravity - base75.FinalGravity).Should()
+            .BeApproximately(addedLactosePoints, 0.001m);
+    }
+
+    [Fact]
+    public void Calculate_WithMultipleYeastsAndImperialUnits_UsesMaxAttenuationAndNormalizesUnits()
+    {
+        var imperialCoPitched = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 11.0231m, // ~5.0 kg
+                Unit = "lb",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Pale Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m,
+                    ColorSrm = 2.0m
+                }
+            },
+            new()
+            {
+                Amount = 1.0582m, // ~30.0 g
+                Unit = "oz",
+                DurationMinutes = 60,
+                Usage = IngredientUsage.Boil,
+                Ingredient = new Ingredient
+                {
+                    Name = "Citra",
+                    Type = IngredientType.Hop,
+                    AlphaAcidPercent = 12.0m
+                }
+            },
+            new()
+            {
+                Amount = 1m,
+                Unit = "pkg",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient
+                {
+                    Name = "English Ale Yeast",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 70.0m
+                }
+            },
+            new()
+            {
+                Amount = 1m,
+                Unit = "pkg",
+                Usage = IngredientUsage.Secondary,
+                Ingredient = new Ingredient
+                {
+                    Name = "Belle Saison",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 88.0m
+                }
+            }
+        };
+
+        var metricSingleHighAtten = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 5.0m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Pale Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m,
+                    ColorSrm = 2.0m
+                }
+            },
+            new()
+            {
+                Amount = 30.0m,
+                Unit = "g",
+                DurationMinutes = 60,
+                Usage = IngredientUsage.Boil,
+                Ingredient = new Ingredient
+                {
+                    Name = "Citra",
+                    Type = IngredientType.Hop,
+                    AlphaAcidPercent = 12.0m
+                }
+            },
+            new()
+            {
+                Amount = 1m,
+                Unit = "pkg",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient
+                {
+                    Name = "Belle Saison",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 88.0m
+                }
+            }
+        };
+
+        var imperialResult = BrewingCalculator.Calculate(20.0m, 75.0m, 60, imperialCoPitched);
+        var metricResult = BrewingCalculator.Calculate(20.0m, 75.0m, 60, metricSingleHighAtten);
+
+        imperialResult.OriginalGravity.Should().Be(metricResult.OriginalGravity);
+        imperialResult.FinalGravity.Should().Be(metricResult.FinalGravity);
+        imperialResult.BitternessIbu.Should().BeApproximately(metricResult.BitternessIbu, 0.1m);
+    }
+
+    [Fact]
+    public void Calculate_WithMashSteps_AdjustsAttenuationForMaltoseAndAlphaRests()
+    {
+        // WLP860 Munich Helles Yeast at its 70% datasheet midpoint in a 20L Munich Helles grist
+        var hellesIngredients = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 4.40m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Barke Pilsner Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m,
+                    ColorSrm = 1.8m
+                }
+            },
+            new()
+            {
+                Amount = 0.20m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Munich Malt (Light)",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.035m,
+                    ColorSrm = 9.0m
+                }
+            },
+            new()
+            {
+                Amount = 70.0m,
+                Unit = "ml",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient
+                {
+                    Name = "Munich Helles Yeast WLP860",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 70.0m
+                }
+            }
+        };
+
+        var standard67C = BrewingCalculator.Calculate(
+            20.0m,
+            72.0m,
+            75,
+            hellesIngredients,
+            new BrewingCalculationOptions(MashSteps:
+            [
+                new MashStepTempInput(67.0m, 60, 1),
+                new MashStepTempInput(76.0m, 10, 2)
+            ]));
+
+        var hochkurz645C = BrewingCalculator.Calculate(
+            20.0m,
+            72.0m,
+            75,
+            hellesIngredients,
+            new BrewingCalculationOptions(MashSteps:
+            [
+                new MashStepTempInput(64.5m, 45, 1),
+                new MashStepTempInput(71.0m, 25, 2),
+                new MashStepTempInput(76.0m, 10, 3)
+            ]));
+
+        var dextrinous70C = BrewingCalculator.Calculate(
+            20.0m,
+            72.0m,
+            75,
+            hellesIngredients,
+            new BrewingCalculationOptions(MashSteps:
+            [
+                new MashStepTempInput(70.0m, 60, 1)
+            ]));
+
+        // 64.5°C maltose rest adds +6.25% attenuation (70% -> 76.25%), yielding FG 1.012 and ~5.09% ABV
+        hochkurz645C.FinalGravity.Should().Be(1.012m);
+        hochkurz645C.AlcoholByVolume.Should().BeInRange(5.05m, 5.20m);
+        hochkurz645C.FinalGravity.Should().BeLessThan(standard67C.FinalGravity);
+        dextrinous70C.FinalGravity.Should().BeGreaterThan(standard67C.FinalGravity);
+    }
 }

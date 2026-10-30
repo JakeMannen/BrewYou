@@ -227,4 +227,113 @@ describe('Recipe Interoperability & Round-Trip Tests', () => {
 		expect(jsonParsed.fermentationSteps[0].targetTemperatureC).toBe(12.0);
 		expect(jsonParsed.fermentationSteps[0].durationDays).toBe(21);
 	});
+
+	it('preserves FirstWort hops, DryHop days (canonical minutes), and MISC weight/volume in BeerXML & BeerJSON round-trips', () => {
+		const complexRecipe: ExportableRecipe = {
+			name: 'First Wort & Dry Hop Precision IPA',
+			beerStyle: 'American IPA',
+			batchSizeLiters: 20.0,
+			boilTimeMinutes: 60,
+			efficiencyPercent: 75.0,
+			ingredients: [
+				{
+					name: 'Pilsner Malt',
+					type: 'Fermentable',
+					amount: 5.0,
+					unit: 'kg',
+					usage: 'Mash',
+					potentialGravity: 1.037,
+					colorSrm: 2.0
+				},
+				{
+					name: 'Magnum',
+					type: 'Hop',
+					amount: 20,
+					unit: 'g',
+					durationMinutes: 60,
+					usage: 'FirstWort',
+					alphaAcidPercent: 12.0,
+					form: 'Leaf'
+				},
+				{
+					name: 'Citra',
+					type: 'Hop',
+					amount: 60,
+					unit: 'g',
+					durationMinutes: 4320, // 3 days in canonical minutes
+					usage: 'DryHop',
+					alphaAcidPercent: 12.5,
+					form: 'Pellet'
+				},
+				{
+					name: 'Irish Moss',
+					type: 'Other',
+					amount: 5,
+					unit: 'g',
+					durationMinutes: 15,
+					usage: 'Boil',
+					notes: 'Kettle fining'
+				},
+				{
+					name: 'Lactic Acid 80%',
+					type: 'Other',
+					amount: 12,
+					unit: 'ml',
+					durationMinutes: 60,
+					usage: 'Mash',
+					notes: 'Mash pH adjustment'
+				}
+			],
+			mashSteps: [],
+			fermentationSteps: []
+		};
+
+		// BeerXML roundtrip
+		const xmlOut = serializeBeerXml(complexRecipe);
+		expect(xmlOut.content).toContain('<USE>First Wort</USE>');
+		expect(xmlOut.content).toContain('<AMOUNT_IS_WEIGHT>TRUE</AMOUNT_IS_WEIGHT>');
+		expect(xmlOut.content).toContain('<AMOUNT_IS_WEIGHT>FALSE</AMOUNT_IS_WEIGHT>');
+
+		const xmlParsed = parseBeerXml(xmlOut.content)[0];
+		const xmlFwh = xmlParsed.ingredients.find((i) => i.name === 'Magnum');
+		expect(xmlFwh?.usage).toBe('FirstWort');
+		expect(xmlFwh?.durationMinutes).toBe(60);
+
+		const xmlDry = xmlParsed.ingredients.find((i) => i.name === 'Citra');
+		expect(xmlDry?.usage).toBe('DryHop');
+		expect(xmlDry?.durationMinutes).toBe(4320);
+
+		const xmlMoss = xmlParsed.ingredients.find((i) => i.name === 'Irish Moss');
+		expect(xmlMoss?.amount).toBeCloseTo(5, 2);
+		expect(xmlMoss?.unit).toBe('g');
+		expect(xmlMoss?.usage).toBe('Boil');
+
+		const xmlAcid = xmlParsed.ingredients.find((i) => i.name === 'Lactic Acid 80%');
+		expect(xmlAcid?.amount).toBeCloseTo(12, 2);
+		expect(xmlAcid?.unit).toBe('ml');
+		expect(xmlAcid?.usage).toBe('Mash');
+
+		// BeerJSON roundtrip
+		const jsonOut = serializeBeerJson(complexRecipe);
+		expect(jsonOut.content).toContain('"use": "add_to_first_wort"');
+
+		const jsonParsed = parseBeerJson(jsonOut.content)[0];
+		const jsonFwh = jsonParsed.ingredients.find((i) => i.name === 'Magnum');
+		expect(jsonFwh?.usage).toBe('FirstWort');
+		expect(jsonFwh?.durationMinutes).toBe(60);
+
+		const jsonDry = jsonParsed.ingredients.find((i) => i.name === 'Citra');
+		expect(jsonDry?.usage).toBe('DryHop');
+		expect(jsonDry?.durationMinutes).toBe(4320);
+
+		const jsonMoss = jsonParsed.ingredients.find((i) => i.name === 'Irish Moss');
+		expect(jsonMoss?.amount).toBe(5);
+		expect(jsonMoss?.unit).toBe('g');
+		expect(jsonMoss?.usage).toBe('Boil');
+
+		const jsonAcid = jsonParsed.ingredients.find((i) => i.name === 'Lactic Acid 80%');
+		expect(jsonAcid?.amount).toBe(12);
+		expect(jsonAcid?.unit).toBe('ml');
+		expect(jsonAcid?.usage).toBe('Mash');
+	});
 });

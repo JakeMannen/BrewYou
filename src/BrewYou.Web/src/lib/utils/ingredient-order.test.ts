@@ -249,4 +249,48 @@ describe('sortIngredientsChronologically', () => {
 		const sorted = sortIngredientsChronologically(additions);
 		expect(sorted.map((i) => i.name)).toEqual(['Amarillo Day 2', 'Citra Day 2', 'Mosaic Day 5']);
 	});
+
+	it('places FirstWort hop additions right after Mash and before 60-minute Boil additions', () => {
+		const additions: BatchIngredientDto[] = [
+			{
+				id: 'boil60',
+				batchId: 'b1',
+				name: 'Magnum 60m Boil',
+				type: 'Hop',
+				amount: 20,
+				unit: 'g',
+				additionStage: 'Boil',
+				additionTimeMinutes: 60,
+				isChecked: false
+			},
+			{
+				id: 'fwh',
+				batchId: 'b1',
+				name: 'Saaz First Wort',
+				type: 'Hop',
+				amount: 25,
+				unit: 'g',
+				additionStage: 'FirstWort',
+				additionTimeMinutes: 60,
+				isChecked: false
+			},
+			{
+				id: 'mash',
+				batchId: 'b1',
+				name: 'Pilsner Malt',
+				type: 'Fermentable',
+				amount: 4.5,
+				unit: 'kg',
+				additionStage: 'Mash',
+				isChecked: false
+			}
+		];
+
+		const sorted = sortIngredientsChronologically(additions);
+		expect(sorted.map((i) => i.name)).toEqual([
+			'Pilsner Malt',
+			'Saaz First Wort',
+			'Magnum 60m Boil'
+		]);
+	});
 });

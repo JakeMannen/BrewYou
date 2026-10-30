@@ -57,7 +57,10 @@
 		"close_dialog": "Fermer la boîte de dialogue",
 		"confirm": "Confirmer",
 		"notes": "Notes",
-		"optional": "Facultatif"
+		"optional": "Facultatif",
+		"days": "Jours",
+		"days_short": "j",
+		"minutes_short": "min"
 	},
 	"metrics": {
 		"og": "Densité initiale (OG)",
@@ -75,7 +78,11 @@
 		"plato": "Degrés Plato (°P)",
 		"fg_plato": "Densité finale (°P)",
 		"telemetry": "Télémétrie du brassin en direct",
-		"active_fermentation": "Fermentation active"
+		"active_fermentation": "Fermentation active",
+		"bu_gu": "BU:GU",
+		"bu_gu_desc": "Ratio d'amertume",
+		"attenuation": "Atténuation",
+		"attenuation_desc": "Atténuation apparente"
 	},
 	"srm_descriptors": {
 		"pale_straw": "Paille très pâle",
@@ -150,6 +157,7 @@
 		"delete_success": "Recette supprimée avec succès.",
 		"delete_error": "Impossible de supprimer la recette.",
 		"duplicate_error": "Une recette avec ce nom existe déjà dans votre bibliothèque. Veuillez choisir un nom unique.",
+		"no_description": "Aucune note de brassage ou description fournie.",
 		"delete_modal": {
 			"title": "Supprimer la recette",
 			"confirm_prompt": "Êtes-vous sûr de vouloir supprimer « {name} » ? Cette action est irréversible.",
@@ -190,7 +198,16 @@
 			"mash_steps_found": "Profil d'empâtage : {count} palier(s) débutant à {temp}",
 			"fermentation_steps_found": "Profil de fermentation : {count} palier(s) débutant à {temp}",
 			"checking_name": "Vérification du nom de la recette...",
-			"name_conflict_detected": "Une recette portant ce nom existe déjà. Une copie sera créée."
+			"name_conflict_detected": "Une recette portant ce nom existe déjà. Une copie sera créée.",
+			"missing_prompt_interactive": "Certains ingrédients n'ont pas été associés automatiquement. Choisissez une correspondance proche, un ingrédient du catalogue ou créez un nouvel ingrédient.",
+			"create_custom_option": "+ Créer comme nouvel ingrédient personnalisé",
+			"suggested_matches_group": "Correspondances proches suggérées",
+			"all_catalog_group": "Tous les ingrédients du catalogue",
+			"close_match_badge": "Correspondance proche",
+			"resolve_and_import": "Confirmer les choix & importer",
+			"visibility_label": "Visibilité de la recette",
+			"visibility_private_label": "Privée pour ma brasserie",
+			"visibility_public_label": "Partager publiquement avec la communauté"
 		},
 		"rename_modal": {
 			"title": "Renommer la recette",
@@ -744,6 +761,9 @@
 		"phase_aroma": "Arôme",
 		"phase_whirlpool": "Whirlpool",
 		"phase_dry_hop": "Houblonnage à cru",
+		"phase_first_wort": "Premier moût",
+		"aroma_zero_ibu": "Arôme / 0 IBU",
+		"step_fallback": "Étape {order}",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Cônes",
@@ -790,6 +810,7 @@
 		"subtitle": "Explorez les céréales calibrées, houblons aromatiques et amérisants, et souches de levure.",
 		"all_ingredients": "Tous les ingrédients",
 		"filter_in_stock": "En stock",
+		"filter_custom_only": "Personnalisés / Importés",
 		"fermentables": "Céréales & Sucres",
 		"hops": "Houblons",
 		"yeasts": "Levures",

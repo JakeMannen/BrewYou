@@ -44,7 +44,10 @@
 		"close_dialog": "Stäng dialogruta",
 		"confirm": "Bekräfta",
 		"notes": "Anteckningar",
-		"optional": "Valfritt"
+		"optional": "Valfritt",
+		"days": "Dagar",
+		"days_short": "d",
+		"minutes_short": "min"
 	},
 	"metrics": {
 		"og": "Stamvörtstyrka (OG)",
@@ -62,7 +65,11 @@
 		"plato": "Grader Plato (°P)",
 		"fg_plato": "Slutlig densitet (°P)",
 		"telemetry": "Live batch-telemetri",
-		"active_fermentation": "Aktiv jäsning"
+		"active_fermentation": "Aktiv jäsning",
+		"bu_gu": "BU:GU",
+		"bu_gu_desc": "Beskebalans",
+		"attenuation": "Utjäsning",
+		"attenuation_desc": "Skenbar utjäsning"
 	},
 	"home": {
 		"tagline": "Precisionsbryggning för hembryggare",
@@ -123,6 +130,7 @@
 		"delete_success": "Receptet har tagits bort.",
 		"delete_error": "Kunde inte ta bort receptet.",
 		"duplicate_error": "Ett recept med detta namn finns redan i ditt bibliotek. Vänligen välj ett unikt namn.",
+		"no_description": "Inga bryggaranteckningar eller beskrivning angiven.",
 		"delete_modal": {
 			"title": "Ta bort recept",
 			"confirm_prompt": "Är du säker på att du vill ta bort \"{name}\" permanent?",
@@ -163,7 +171,16 @@
 			"mash_steps_found": "Mäskprofil: {count} steg med start vid {temp}",
 			"fermentation_steps_found": "Jäsningsprofil: {count} steg med start vid {temp}",
 			"checking_name": "Kontrollerar receptnamn...",
-			"name_conflict_detected": "Ett recept med detta namn finns redan i ditt bibliotek."
+			"name_conflict_detected": "Ett recept med detta namn finns redan i ditt bibliotek.",
+			"missing_prompt_interactive": "Vissa ingredienser matchades inte automatiskt. Välj en föreslagen matchning, en befintlig katalogråvara eller skapa en ny anpassad råvara.",
+			"create_custom_option": "+ Skapa som ny anpassad råvara",
+			"suggested_matches_group": "Föreslagna nära matchningar",
+			"all_catalog_group": "Alla katalogråvaror",
+			"close_match_badge": "Nära match",
+			"resolve_and_import": "Bekräfta val & importera",
+			"visibility_label": "Receptsynlighet",
+			"visibility_private_label": "Privat för mitt bryggeri",
+			"visibility_public_label": "Dela offentligt med gemenskapen"
 		},
 		"rename_modal": {
 			"title": "Namnkonflikt för recept",
@@ -291,6 +308,9 @@
 		"phase_aroma": "Aromhumle",
 		"phase_whirlpool": "Whirlpool",
 		"phase_dry_hop": "Torrhumling",
+		"phase_first_wort": "Förstörtshumle",
+		"aroma_zero_ibu": "Arom / 0 IBU",
+		"step_fallback": "Steg {order}",
 		"forms": {
 			"pellet": "Pellets",
 			"leaf": "Kottar",
@@ -347,6 +367,7 @@
 		"type_hop": "Humle",
 		"type_yeast": "Jäst",
 		"filter_in_stock": "I lager",
+		"filter_custom_only": "Egna / Importerade",
 		"others": "Övrigt",
 		"stock": "Lager",
 		"in_stock": "I lager",

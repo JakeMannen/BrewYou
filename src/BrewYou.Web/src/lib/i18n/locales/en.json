@@ -57,7 +57,10 @@
 		"close_dialog": "Close dialog",
 		"confirm": "Confirm",
 		"notes": "Notes",
-		"optional": "Optional"
+		"optional": "Optional",
+		"days": "Days",
+		"days_short": "d",
+		"minutes_short": "min"
 	},
 	"metrics": {
 		"og": "Original Gravity",
@@ -75,7 +78,11 @@
 		"plato": "Degrees Plato (°P)",
 		"fg_plato": "Final Gravity (°P)",
 		"telemetry": "Live Batch Telemetry",
-		"active_fermentation": "Active Fermentation"
+		"active_fermentation": "Active Fermentation",
+		"bu_gu": "BU:GU",
+		"bu_gu_desc": "Bitterness ratio",
+		"attenuation": "Attenuation",
+		"attenuation_desc": "Apparent AA%"
 	},
 	"srm_descriptors": {
 		"pale_straw": "Pale Straw",
@@ -150,6 +157,7 @@
 		"delete_success": "Recipe deleted successfully.",
 		"delete_error": "Failed to delete recipe.",
 		"duplicate_error": "A recipe with this name already exists in your library. Please choose a unique name.",
+		"no_description": "No brewer notes or description provided.",
 		"delete_modal": {
 			"title": "Delete Recipe",
 			"confirm_prompt": "Are you sure you want to permanently delete \"{name}\"?",
@@ -190,7 +198,16 @@
 			"mash_steps_found": "Mash profile: {count} step(s) starting at {temp}",
 			"fermentation_steps_found": "Fermentation profile: {count} stage(s) starting at {temp}",
 			"checking_name": "Checking recipe name...",
-			"name_conflict_detected": "A recipe with this name already exists in your library."
+			"name_conflict_detected": "A recipe with this name already exists in your library.",
+			"missing_prompt_interactive": "Some ingredients were not automatically matched. Pick a suggested close match, choose an existing catalog ingredient, or create a new custom ingredient.",
+			"create_custom_option": "+ Create as new custom ingredient",
+			"suggested_matches_group": "Suggested Close Matches",
+			"all_catalog_group": "All Catalog Ingredients",
+			"close_match_badge": "Close match",
+			"resolve_and_import": "Confirm Selections & Import",
+			"visibility_label": "Recipe Visibility",
+			"visibility_private_label": "Private to my brewery",
+			"visibility_public_label": "Share publicly with community"
 		},
 		"rename_modal": {
 			"title": "Recipe Name Conflict",
@@ -744,6 +761,9 @@
 		"phase_aroma": "Aroma",
 		"phase_whirlpool": "Whirlpool",
 		"phase_dry_hop": "Dry Hop",
+		"phase_first_wort": "First Wort",
+		"aroma_zero_ibu": "Aroma / 0 IBU",
+		"step_fallback": "Step {order}",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Leaf",
@@ -790,6 +810,7 @@
 		"subtitle": "Browse calibrated fermentables, aroma & bittering hops, and yeast strains.",
 		"all_ingredients": "All Ingredients",
 		"filter_in_stock": "In Stock",
+		"filter_custom_only": "Custom / Imported",
 		"fermentables": "Fermentables",
 		"hops": "Hops",
 		"yeasts": "Yeasts",

@@ -1,6 +1,7 @@
 using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using System.Net;
@@ -768,5 +769,192 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var anonymousClient = _factory.CreateClient();
         var checkRes = await anonymousClient.GetAsync("/api/v1/recipes/check-name?name=SomeRecipe");
         checkRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task CreateRecipe_WithFirstWortHopAndLongName_PersistsAndAppliesFwhUtilization()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("fwhbrewer");
+        var ingredients = await GetIngredientsAsync(client);
+        var grain = ingredients.First(i => i.Type == IngredientType.Fermentable);
+        var hop = ingredients.First(i => i.Type == IngredientType.Hop);
+
+        var longName = new string('B', 125); // > 100 and <= 150 chars
+        var boilReq = new CreateRecipeRequest(
+            Name: "Baseline Boil Hop Lager",
+            Description: null,
+            BeerStyle: "German Pils",
+            BatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75.0m,
+            IsPublic: false,
+            Ingredients:
+            [
+                new(grain.Id, 4.5m, "kg", 60, IngredientUsage.Mash, null),
+                new(hop.Id, 30.0m, "g", 60, IngredientUsage.Boil, "60m boil", "Pellet")
+            ]
+        );
+        var fwhReq = boilReq with
+        {
+            Name = longName,
+            Ingredients =
+            [
+                new(grain.Id, 4.5m, "kg", 60, IngredientUsage.Mash, null),
+                new(hop.Id, 30.0m, "g", 60, IngredientUsage.FirstWort, "Added during lautering", "Pellet")
+            ]
+        };
+
+        var boilRes = await client.PostAsJsonAsync("/api/v1/recipes", boilReq);
+        boilRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boilRecipe = (await boilRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        var fwhRes = await client.PostAsJsonAsync("/api/v1/recipes", fwhReq);
+        fwhRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var fwhRecipe = (await fwhRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        fwhRecipe.Name.Should().Be(longName);
+        fwhRecipe.IsPublic.Should().BeFalse();
+        fwhRecipe.Ingredients.Should().ContainSingle(i =>
+            i.Usage == IngredientUsage.FirstWort && i.Notes == "Added during lautering");
+        fwhRecipe.BitternessIbu.Should().BeGreaterThan(boilRecipe.BitternessIbu);
+    }
+
+    [Fact]
+    public async Task CreateAndCalculateRecipe_HonorsUserFormulaPreferences()
+    {
+        var (defaultClient, _, _) = await CreateAuthenticatedUserAsync("tinsethuser");
+        var (ragerClient, _, _) = await CreateAuthenticatedUserAsync("rageruser");
+        var ingredients = await GetIngredientsAsync(defaultClient);
+        var grain = ingredients.First(i => i.Type == IngredientType.Fermentable);
+        var hop = ingredients.First(i => i.Type == IngredientType.Hop);
+
+        var prefUpdate = new UpdateUserPreferencesRequest(
+            Language: "en",
+            VolumeUnit: VolumeUnit.Liters,
+            WeightUnit: WeightUnit.Metric,
+            TemperatureUnit: TemperatureUnit.Celsius,
+            GravityUnit: GravityUnit.SpecificGravity,
+            Theme: ThemePreference.System,
+            DefaultBatchSizeLiters: 20.0m,
+            DefaultEfficiencyPercent: 75.0m,
+            DefaultBoilTimeMinutes: 60,
+            BitternessFormula: "Rager",
+            ColorFormula: "Mosher",
+            AbvFormula: "Advanced");
+
+        var prefRes = await ragerClient.PutAsJsonAsync("/api/v1/auth/me/preferences", prefUpdate);
+        prefRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var recipeIngredients = new List<RecipeIngredientInputDto>
+        {
+            new(grain.Id, 6.0m, "kg", 60, IngredientUsage.Mash, null),
+            new(hop.Id, 40.0m, "g", 60, IngredientUsage.Boil, null, "Pellet")
+        };
+
+        var createReq = new CreateRecipeRequest(
+            Name: "Formula Preference IPA",
+            Description: null,
+            BeerStyle: "American IPA",
+            BatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75.0m,
+            IsPublic: false,
+            Ingredients: recipeIngredients);
+
+        var defaultCreateRes = await defaultClient.PostAsJsonAsync("/api/v1/recipes", createReq);
+        var ragerCreateRes = await ragerClient.PostAsJsonAsync("/api/v1/recipes", createReq);
+
+        defaultCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        ragerCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var defaultRecipe = (await defaultCreateRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+        var ragerRecipe = (await ragerCreateRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        ragerRecipe.BitternessIbu.Should().NotBe(defaultRecipe.BitternessIbu);
+
+        // /api/v1/recipes/calculate uses user's preferred formula when omitted, and allows explicit override
+        var calcRes = await ragerClient.PostAsJsonAsync(
+            "/api/v1/recipes/calculate",
+            new CalculateRecipeRequest(20.0m, 75.0m, 60, recipeIngredients));
+        calcRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var calcMetrics = (await calcRes.Content.ReadFromJsonAsync<ApiResponse<BrewingCalculationResult>>())!.Data!;
+        calcMetrics.BitternessIbu.Should().Be(ragerRecipe.BitternessIbu);
+
+        var overrideCalcRes = await ragerClient.PostAsJsonAsync(
+            "/api/v1/recipes/calculate",
+            new CalculateRecipeRequest(20.0m, 75.0m, 60, recipeIngredients, BitternessFormula: "Tinseth", ColorFormula: "Morey", AbvFormula: "Linear"));
+        overrideCalcRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var overrideMetrics = (await overrideCalcRes.Content.ReadFromJsonAsync<ApiResponse<BrewingCalculationResult>>())!.Data!;
+        overrideMetrics.BitternessIbu.Should().Be(defaultRecipe.BitternessIbu);
+    }
+
+    [Fact]
+    public async Task CreateAndUpdateRecipe_WithUnknownOrCrossUserPrivateIngredient_Returns400ValidationError()
+    {
+        var (ownerClient, _, _) = await CreateAuthenticatedUserAsync("ingowner");
+        var (otherClient, _, _) = await CreateAuthenticatedUserAsync("ingattacker");
+
+        // Owner creates a private custom ingredient
+        var customRes = await ownerClient.PostAsJsonAsync("/api/v1/ingredients", new CreateIngredientRequest(
+            Name: "Secret Proprietors Hop",
+            Type: IngredientType.Hop,
+            PotentialGravity: null,
+            ColorSrm: null,
+            AlphaAcidPercent: 14.5m,
+            AttenuationPercent: null,
+            Description: "Private hop"));
+        customRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var privateHop = (await customRes.Content.ReadFromJsonAsync<ApiResponse<IngredientDto>>())!.Data!;
+
+        // 1. Unknown random IngredientId -> 400 Bad Request (NOT 500 Internal Server Error)
+        var missingIdReq = new CreateRecipeRequest(
+            Name: "Bad FK Recipe",
+            Description: null,
+            BeerStyle: "IPA",
+            BatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 72.0m,
+            IsPublic: false,
+            Ingredients:
+            [
+                new(Guid.NewGuid(), 25.0m, "g", 60, IngredientUsage.Boil, null)
+            ]);
+        var missingRes = await otherClient.PostAsJsonAsync("/api/v1/recipes", missingIdReq);
+        missingRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 2. Cross-user private custom IngredientId -> 400 Bad Request (IDOR blocked)
+        var idorCreateReq = missingIdReq with
+        {
+            Name = "IDOR Hop Probe",
+            Ingredients =
+            [
+                new(privateHop.Id, 25.0m, "g", 60, IngredientUsage.Boil, null)
+            ]
+        };
+        var idorCreateRes = await otherClient.PostAsJsonAsync("/api/v1/recipes", idorCreateReq);
+        idorCreateRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 3. Updating an existing recipe to reference another user's private custom ingredient -> 400 Bad Request
+        var validCreateRes = await otherClient.PostAsJsonAsync("/api/v1/recipes", missingIdReq with
+        {
+            Name = "Clean Base Recipe",
+            Ingredients = []
+        });
+        validCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var cleanRecipe = (await validCreateRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        var idorUpdateRes = await otherClient.PutAsJsonAsync($"/api/v1/recipes/{cleanRecipe.Id}", new UpdateRecipeRequest(
+            Name: "Clean Base Recipe",
+            Description: null,
+            BeerStyle: "IPA",
+            BatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 72.0m,
+            IsPublic: false,
+            Ingredients:
+            [
+                new(privateHop.Id, 25.0m, "g", 60, IngredientUsage.Boil, null)
+            ]));
+        idorUpdateRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }

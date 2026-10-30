@@ -3,18 +3,156 @@ import type { BitternessFormula, ColorFormula, AbvFormula } from '$lib/stores/se
 
 const KG_TO_LBS = 2.20462262;
 const LITERS_TO_GALLONS = 0.264172052;
+const LB_TO_KG = 0.45359237;
+const OZ_TO_KG = 0.028349523125;
+const OZ_TO_GRAMS = 28.349523125;
+const LB_TO_GRAMS = 453.59237;
+const REFERENCE_MASH_TEMP_C = 67.0;
+const MASH_TEMP_SLOPE_PER_DEGREE_C = 2.5;
+const MAX_MASH_ATTENUATION_DELTA = 8.0;
+
+const SOLUBLE_SUGAR_KEYWORDS = [
+	'dme',
+	'dry malt extract',
+	'dried malt extract',
+	'lme',
+	'liquid malt extract',
+	'malt extract',
+	'extract',
+	'sugar',
+	'sucrose',
+	'dextrose',
+	'glucose',
+	'fructose',
+	'candi',
+	'honey',
+	'lactose',
+	'maltodextrin',
+	'molasses',
+	'treacle',
+	'maple syrup',
+	'agave'
+];
+
+const UNFERMENTABLE_SUGAR_KEYWORDS = ['lactose', 'milk sugar', 'maltodextrin'];
 
 export interface CalculatorItem {
 	ingredient: IngredientDto;
-	amount: number; // kg for grains, grams for hops/yeast
+	amount: number; // canonical metric: kg for grains, grams for hops/yeast (or converted via unit)
+	unit?: string;
 	durationMinutes?: number | null;
 	usage: IngredientUsage;
+	form?: string | null;
+}
+
+export interface MashStepTempInput {
+	temperatureC: number;
+	durationMinutes: number;
+	stepOrder?: number;
 }
 
 export interface BrewingCalculationOptions {
 	bitternessFormula?: BitternessFormula;
 	colorFormula?: ColorFormula;
 	abvFormula?: AbvFormula;
+	mashSteps?: MashStepTempInput[] | null;
+}
+
+export function normalizeFermentableToKg(amount: number, unit?: string | null): number {
+	if (amount <= 0) return 0;
+	if (!unit) return amount;
+	const u = unit.trim().toLowerCase();
+	if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return amount;
+	if (u === 'g' || u === 'gram' || u === 'grams') return amount / 1000;
+	if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return amount * LB_TO_KG;
+	if (u === 'oz' || u === 'ounce' || u === 'ounces') return amount * OZ_TO_KG;
+	return amount;
+}
+
+export function normalizeHopToGrams(amount: number, unit?: string | null): number {
+	if (amount <= 0) return 0;
+	if (!unit) return amount;
+	const u = unit.trim().toLowerCase();
+	if (u === 'g' || u === 'gram' || u === 'grams') return amount;
+	if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return amount * 1000;
+	if (u === 'oz' || u === 'ounce' || u === 'ounces') return amount * OZ_TO_GRAMS;
+	if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return amount * LB_TO_GRAMS;
+	return amount;
+}
+
+export function isSolubleSugarOrExtract(
+	name: string | null | undefined,
+	usage?: IngredientUsage
+): boolean {
+	if (
+		usage === 'Whirlpool' ||
+		usage === 'Primary' ||
+		usage === 'Secondary' ||
+		usage === 'Bottling'
+	) {
+		return true;
+	}
+	if (!name) return false;
+	const lower = name.trim().toLowerCase();
+	return SOLUBLE_SUGAR_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+export function isUnfermentableSugar(name: string | null | undefined): boolean {
+	if (!name) return false;
+	const lower = name.trim().toLowerCase();
+	return UNFERMENTABLE_SUGAR_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Adjusts the yeast's laboratory base attenuation (rated in a standard 67.0 °C / 152.6 °F congress/single-infusion wort)
+ * for the recipe's active enzymatic saccharification rest temperature (60.0 °C – 72.5 °C).
+ * Beta-amylase rests below 67.0 °C (such as a 64.5 °C Hochkurz maltose rest) increase fermentability by +2.5% per °C,
+ * while alpha-amylase rests above 67.0 °C increase unfermentable limit dextrins by -2.5% per °C (clamped to ±8.0%).
+ */
+export function calculateMashAdjustedAttenuationPercent(
+	baseAttenuationPercent: number,
+	mashSteps?: MashStepTempInput[] | null
+): number {
+	const clampAttenuation = (val: number) => Math.min(98.0, Math.max(30.0, val));
+	if (!mashSteps || mashSteps.length === 0) {
+		return clampAttenuation(baseAttenuationPercent);
+	}
+
+	const sacchSteps = mashSteps
+		.filter((s) => s.durationMinutes > 0 && s.temperatureC >= 60.0 && s.temperatureC <= 72.5)
+		.slice()
+		.sort((a, b) => (a.stepOrder ?? 1) - (b.stepOrder ?? 1));
+
+	if (sacchSteps.length === 0) {
+		return clampAttenuation(baseAttenuationPercent);
+	}
+
+	const primaryRest = sacchSteps.find((s) => s.durationMinutes >= 15);
+	let primaryTempC: number;
+	if (primaryRest) {
+		primaryTempC = primaryRest.temperatureC;
+	} else {
+		const totalDuration = sacchSteps.reduce((acc, s) => acc + s.durationMinutes, 0);
+		primaryTempC =
+			totalDuration > 0
+				? sacchSteps.reduce((acc, s) => acc + s.temperatureC * s.durationMinutes, 0) / totalDuration
+				: sacchSteps[0].temperatureC;
+	}
+
+	const rawDelta = (REFERENCE_MASH_TEMP_C - primaryTempC) * MASH_TEMP_SLOPE_PER_DEGREE_C;
+	const delta = Math.min(
+		MAX_MASH_ATTENUATION_DELTA,
+		Math.max(-MAX_MASH_ATTENUATION_DELTA, rawDelta)
+	);
+	return clampAttenuation(baseAttenuationPercent + delta);
+}
+
+export function getHopFormMultiplier(form?: string | null): number {
+	if (!form) return 1.0;
+	const lower = form.trim().toLowerCase();
+	if (lower.includes('leaf') || lower.includes('whole')) return 0.9;
+	if (lower.includes('plug')) return 0.92;
+	return 1.0;
 }
 
 export function calculateBrewMetrics(
@@ -24,29 +162,46 @@ export function calculateBrewMetrics(
 	items: CalculatorItem[],
 	options: BrewingCalculationOptions = {}
 ): CalculateRecipeResponse {
-	const volumeGallons = Math.max(0.1, batchSizeLiters * LITERS_TO_GALLONS);
-	const eff = Math.max(0.1, efficiencyPercent / 100);
+	const safeBatchLiters = batchSizeLiters > 0 ? Math.max(0.1, batchSizeLiters) : 18.9270589;
+	const volumeGallons =
+		batchSizeLiters > 0 ? Math.max(0.1, batchSizeLiters * LITERS_TO_GALLONS) : 5.0;
+	const eff = efficiencyPercent > 0 ? Math.max(0.01, efficiencyPercent / 100) : 0.72;
 
 	let totalGravityPoints = 0;
+	let unfermentablePoints = 0;
 	let totalMcu = 0;
-	let yeastAttenuation: number | null = null;
+	let maxYeastAttenuation: number | null = null;
 
 	for (const item of items) {
 		if (!item.ingredient) continue;
 
 		if (item.ingredient.type === 'Fermentable') {
-			const weightLbs = item.amount * KG_TO_LBS;
+			const weightKg = normalizeFermentableToKg(item.amount, item.unit);
+			const weightLbs = weightKg * KG_TO_LBS;
 			const ppg = item.ingredient.potentialGravity
 				? (item.ingredient.potentialGravity - 1.0) * 1000
 				: 37;
 
-			totalGravityPoints += (weightLbs * ppg * eff) / volumeGallons;
+			const effectiveEff = isSolubleSugarOrExtract(item.ingredient.name, item.usage) ? 1.0 : eff;
+			const points = (weightLbs * ppg * effectiveEff) / volumeGallons;
+			totalGravityPoints += points;
+
+			if (isUnfermentableSugar(item.ingredient.name)) {
+				unfermentablePoints += points;
+			}
 
 			const color = item.ingredient.colorSrm ?? 2.0;
 			totalMcu += (weightLbs * color) / volumeGallons;
 		} else if (item.ingredient.type === 'Yeast') {
-			if (item.ingredient.attenuationPercent) {
-				yeastAttenuation = item.ingredient.attenuationPercent;
+			if (
+				item.ingredient.attenuationPercent !== undefined &&
+				item.ingredient.attenuationPercent !== null &&
+				item.ingredient.attenuationPercent > 0
+			) {
+				maxYeastAttenuation =
+					maxYeastAttenuation !== null
+						? Math.max(maxYeastAttenuation, item.ingredient.attenuationPercent)
+						: item.ingredient.attenuationPercent;
 			}
 		}
 	}
@@ -54,8 +209,15 @@ export function calculateBrewMetrics(
 	const ogPoints = Math.max(0, totalGravityPoints);
 	const og = 1.0 + ogPoints / 1000.0;
 
-	const attenuation = (yeastAttenuation ?? 75.0) / 100.0;
-	const fg = 1.0 + (og - 1.0) * (1.0 - attenuation);
+	const baseAttenuationPercent = maxYeastAttenuation ?? 75.0;
+	const effectiveAttenuationPercent = calculateMashAdjustedAttenuationPercent(
+		baseAttenuationPercent,
+		options.mashSteps
+	);
+	const attenuation = effectiveAttenuationPercent / 100.0;
+	const fermentablePoints = Math.max(0, ogPoints - unfermentablePoints);
+	const fgPoints = fermentablePoints * (1.0 - attenuation) + unfermentablePoints;
+	const fg = 1.0 + fgPoints / 1000.0;
 
 	// ABV calculation
 	const abvFormula = options.abvFormula ?? 'Linear';
@@ -65,18 +227,36 @@ export function calculateBrewMetrics(
 	const bitternessFormula = options.bitternessFormula ?? 'Tinseth';
 	let totalIbu = 0;
 	for (const item of items) {
-		if (item.ingredient?.type === 'Hop' && (item.usage === 'Boil' || item.usage === 'Mash')) {
-			const boilMins = item.durationMinutes ?? boilTimeMinutes;
-			const alpha = item.ingredient.alphaAcidPercent ?? 5.0;
-			totalIbu += calculateSingleHopIbu(
-				item.amount,
-				alpha,
-				boilMins,
-				og,
-				batchSizeLiters,
-				bitternessFormula
-			);
+		if (item.ingredient?.type !== 'Hop') continue;
+
+		const weightGrams = normalizeHopToGrams(item.amount, item.unit);
+		const alpha = item.ingredient.alphaAcidPercent ?? 5.0;
+		const hopForm = item.form ?? item.ingredient.form;
+
+		let hopMinutes: number;
+		if (item.usage === 'FirstWort') {
+			hopMinutes =
+				item.durationMinutes !== undefined &&
+				item.durationMinutes !== null &&
+				item.durationMinutes > 0
+					? item.durationMinutes
+					: boilTimeMinutes;
+		} else if (item.usage === 'Whirlpool') {
+			hopMinutes = item.durationMinutes ?? 0;
+		} else {
+			hopMinutes = item.durationMinutes ?? boilTimeMinutes;
 		}
+
+		totalIbu += calculateSingleHopIbu(
+			weightGrams,
+			alpha,
+			hopMinutes,
+			og,
+			safeBatchLiters,
+			bitternessFormula,
+			item.usage,
+			hopForm
+		);
 	}
 
 	// Color (SRM)
@@ -93,6 +273,23 @@ export function calculateBrewMetrics(
 }
 
 /**
+ * Calculates Bitterness-to-Gravity Ratio (BU:GU = IBU / ((OG - 1.0) * 1000)).
+ */
+export function calculateBuGuRatio(og: number, ibu: number): number {
+	if (!og || og <= 1.001 || !ibu || ibu <= 0) return 0;
+	const gravityUnits = (og - 1.0) * 1000;
+	return Math.round((ibu / gravityUnits) * 100) / 100;
+}
+
+/**
+ * Calculates Apparent Attenuation percentage (AA% = ((OG - FG) / (OG - 1.0)) * 100).
+ */
+export function calculateApparentAttenuation(og: number, fg: number): number {
+	if (!og || og <= 1.0 || !fg || og <= fg) return 0;
+	return Math.round(((og - fg) / (og - 1.0)) * 1000) / 10;
+}
+
+/**
  * Calculates ABV using Linear or ASBC Advanced non-linear formula
  */
 export function calculateActualAbv(og: number, fg: number, formula: AbvFormula = 'Linear'): number {
@@ -106,7 +303,7 @@ export function calculateActualAbv(og: number, fg: number, formula: AbvFormula =
 }
 
 /**
- * Calculates single hop IBU contribution based on the chosen formula
+ * Calculates single hop IBU contribution based on the chosen formula, usage stage, and physical form
  */
 export function calculateSingleHopIbu(
 	weightGrams: number,
@@ -114,15 +311,46 @@ export function calculateSingleHopIbu(
 	boilTimeMinutes: number,
 	og: number,
 	batchSizeLiters: number,
-	formula: BitternessFormula = 'Tinseth'
+	formula: BitternessFormula = 'Tinseth',
+	usage: IngredientUsage = 'Boil',
+	form?: string | null
 ): number {
+	if (weightGrams <= 0 || alphaAcidPercent <= 0 || batchSizeLiters <= 0) return 0;
+
+	let usageMultiplier: number;
+	const effectiveMinutes = Math.max(0, boilTimeMinutes);
+
+	switch (usage) {
+		case 'Boil':
+			usageMultiplier = 1.0;
+			break;
+		case 'FirstWort':
+			usageMultiplier = 1.1;
+			break;
+		case 'Mash':
+			usageMultiplier = 0.3;
+			break;
+		case 'Whirlpool':
+			usageMultiplier = effectiveMinutes > 0 ? 0.2 : 0;
+			break;
+		default:
+			return 0;
+	}
+
+	if (usageMultiplier <= 0) return 0;
+
+	const formMultiplier = getHopFormMultiplier(form);
+
+	let baseIbu: number;
 	if (formula === 'Rager') {
-		return ragerIbu(weightGrams, alphaAcidPercent, boilTimeMinutes, og, batchSizeLiters);
+		baseIbu = ragerIbu(weightGrams, alphaAcidPercent, effectiveMinutes, og, batchSizeLiters);
+	} else if (formula === 'Daniels') {
+		baseIbu = danielsIbu(weightGrams, alphaAcidPercent, effectiveMinutes, og, batchSizeLiters);
+	} else {
+		baseIbu = tinsethIbu(weightGrams, alphaAcidPercent, effectiveMinutes, og, batchSizeLiters);
 	}
-	if (formula === 'Daniels') {
-		return danielsIbu(weightGrams, alphaAcidPercent, boilTimeMinutes, og, batchSizeLiters);
-	}
-	return tinsethIbu(weightGrams, alphaAcidPercent, boilTimeMinutes, og, batchSizeLiters);
+
+	return baseIbu * usageMultiplier * formMultiplier;
 }
 
 /**
@@ -179,7 +407,7 @@ export function tinsethIbu(
 }
 
 /**
- * Calculates Rager IBU contribution for a single hop addition
+ * Calculates Rager (1990) hyperbolic-tangent IBU contribution for a single hop addition
  */
 export function ragerIbu(
 	weightGrams: number,
@@ -189,9 +417,11 @@ export function ragerIbu(
 	batchSizeLiters: number
 ): number {
 	if (weightGrams <= 0 || alphaAcidPercent <= 0 || batchSizeLiters <= 0) return 0;
-	const gravityAdjustment = og > 1.05 ? (og - 1.05) / 0.2 : 0;
 	const time = Math.max(0, boilTimeMinutes);
-	const utilization = (0.044 + 0.0006 * time) / (1.0 + gravityAdjustment);
+	if (time <= 0) return 0;
+	const gravityAdjustment = og > 1.05 ? (og - 1.05) / 0.2 : 0;
+	const baseUtilization = (18.11 + 13.86 * Math.tanh((time - 31.32) / 18.27)) / 100.0;
+	const utilization = baseUtilization / (1.0 + gravityAdjustment);
 	const alpha = alphaAcidPercent / 100.0;
 	const alphaMgL = (weightGrams * alpha * 1000.0) / Math.max(0.1, batchSizeLiters);
 	return utilization * alphaMgL;

@@ -2,7 +2,13 @@
 	import type { IngredientDto, IngredientType, IngredientUsage } from '$lib/types/api';
 	import { t } from '$lib/i18n/index.svelte';
 	import { getLocalizedIngredientName } from '$lib/i18n/ingredients';
-	import { srmToHexColor, tinsethIbu, formatPotentialGravity } from '$lib/calculators/brewing';
+	import {
+		srmToHexColor,
+		calculateBrewMetrics,
+		calculateSingleHopIbu,
+		formatPotentialGravity,
+		type CalculatorItem
+	} from '$lib/calculators/brewing';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import { Plus, Trash2, Wheat, Flower2, Dna, Sparkles } from '@lucide/svelte';
@@ -25,6 +31,7 @@
 		catalogIngredients: IngredientDto[];
 		batchSizeLiters: number;
 		efficiencyPercent: number;
+		boilTimeMinutes?: number;
 		onAddItem: (type: IngredientType) => void;
 		onRemoveItem: (id: string) => void;
 	}
@@ -34,6 +41,7 @@
 		catalogIngredients,
 		batchSizeLiters,
 		efficiencyPercent,
+		boilTimeMinutes = 60,
 		onAddItem,
 		onRemoveItem
 	}: Props = $props();
@@ -71,36 +79,76 @@
 		})
 	);
 
+	function toGrainKg(amount: number, unit?: string): number {
+		const raw = Number(amount) || 0;
+		const u = (unit || 'kg').trim().toLowerCase();
+		if (u === 'g' || u === 'gram' || u === 'grams') return raw / 1000;
+		if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return raw * 0.45359237;
+		if (u === 'oz' || u === 'ounce' || u === 'ounces') return raw * 0.0283495231;
+		return raw;
+	}
+
+	function toHopGrams(amount: number, unit?: string): number {
+		const raw = Number(amount) || 0;
+		const u = (unit || 'g').trim().toLowerCase();
+		if (u === 'kg' || u === 'kilogram' || u === 'kilograms') return raw * 1000;
+		if (u === 'oz' || u === 'ounce' || u === 'ounces') return raw * 28.3495231;
+		if (u === 'lb' || u === 'lbs') return raw * 453.59237;
+		return raw;
+	}
+
+	function getDryHopDays(durationMinutes: number): number {
+		const mins = Number(durationMinutes) || 0;
+		if (mins <= 0) return 0;
+		const days = mins >= 120 ? mins / 1440 : mins;
+		return Math.round(days * 10) / 10;
+	}
+
+	function handleHopUsageChange(item: FormIngredientItem) {
+		const mins = Number(item.durationMinutes) || 0;
+		if (item.usage === 'DryHop' && mins < 120) {
+			item.durationMinutes = 3 * 1440;
+		} else if (item.usage !== 'DryHop' && mins >= 1440) {
+			item.durationMinutes = item.usage === 'Whirlpool' ? 20 : boilTimeMinutes;
+		} else if (item.usage === 'FirstWort' && mins <= 0) {
+			item.durationMinutes = boilTimeMinutes;
+		}
+	}
+
 	// Totals
 	let totalGrainWeight = $derived(
-		fermentables.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0)
+		fermentables.reduce((acc, curr) => acc + toGrainKg(curr.amount, curr.unit), 0)
 	);
 
-	let totalHopWeight = $derived(hops.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+	let totalHopWeight = $derived(
+		hops.reduce((acc, curr) => acc + toHopGrams(curr.amount, curr.unit), 0)
+	);
 
-	// Rough OG estimate for hop IBU calculation
-	let estimatedOg = $derived.by(() => {
-		const totalPts = fermentables.reduce((acc, curr) => {
-			const ing = catalogIngredients.find((i) => i.id === curr.ingredientId);
-			const ppg = ing?.potentialGravity ? (ing.potentialGravity - 1.0) * 1000 : 36;
-			const weightLbs = (Number(curr.amount) || 0) * 2.20462;
-			return acc + weightLbs * ppg * (efficiencyPercent / 100);
-		}, 0);
-		const volGal = Math.max(0.1, batchSizeLiters * 0.264172);
-		return 1.0 + totalPts / volGal / 1000;
+	// Exact parity metrics with RecipeFormulator HUD
+	let cardMetrics = $derived.by(() => {
+		const calcItems: CalculatorItem[] = items
+			.map((item) => {
+				const ing = catalogIngredients.find((i) => i.id === item.ingredientId);
+				return {
+					ingredient: ing!,
+					amount: item.amount,
+					unit: item.unit,
+					durationMinutes: item.durationMinutes,
+					usage: item.usage,
+					form: item.form ?? ing?.form
+				};
+			})
+			.filter((ci) => Boolean(ci.ingredient));
+
+		return calculateBrewMetrics(batchSizeLiters, efficiencyPercent, boilTimeMinutes, calcItems, {
+			bitternessFormula: settings.bitternessFormula,
+			colorFormula: settings.colorFormula,
+			abvFormula: settings.abvFormula
+		});
 	});
 
-	let totalCalculatedIbu = $derived.by(() => {
-		return hops.reduce((acc, curr) => {
-			const ing = catalogIngredients.find((i) => i.id === curr.ingredientId);
-			const alpha = ing?.alphaAcidPercent ?? 5.0;
-			const weightGrams = Number(curr.amount) || 0;
-			const time = Number(curr.durationMinutes) || 0;
-			if (curr.usage === 'DryHop' || curr.usage === 'Secondary' || curr.usage === 'Bottling')
-				return acc;
-			return acc + tinsethIbu(weightGrams, alpha, time, estimatedOg, batchSizeLiters);
-		}, 0);
-	});
+	let estimatedOg = $derived(cardMetrics.originalGravity);
+	let totalCalculatedIbu = $derived(cardMetrics.bitternessIbu);
 
 	let availableFermentables = $derived(catalogIngredients.filter((i) => i.type === 'Fermentable'));
 	let availableHops = $derived(catalogIngredients.filter((i) => i.type === 'Hop'));
@@ -164,7 +212,7 @@
 				{#each fermentables as item (item.id)}
 					{@const ing = catalogIngredients.find((i) => i.id === item.ingredientId)}
 					{@const gristPercent =
-						totalGrainWeight > 0 ? ((Number(item.amount) || 0) / totalGrainWeight) * 100 : 0}
+						totalGrainWeight > 0 ? (toGrainKg(item.amount, item.unit) / totalGrainWeight) * 100 : 0}
 					<div
 						class="flex flex-col items-stretch gap-3 p-4 transition-colors hover:bg-zinc-50/50 sm:flex-row sm:items-center dark:hover:bg-zinc-800/20"
 					>
@@ -304,16 +352,16 @@
 				{#each hops as item (item.id)}
 					{@const ing = catalogIngredients.find((i) => i.id === item.ingredientId)}
 					{@const alpha = ing?.alphaAcidPercent ?? 5.0}
-					{@const estIbu =
-						item.usage === 'DryHop' || item.usage === 'Secondary' || item.usage === 'Bottling'
-							? 0
-							: tinsethIbu(
-									Number(item.amount) || 0,
-									alpha,
-									Number(item.durationMinutes) || 0,
-									estimatedOg,
-									batchSizeLiters
-								)}
+					{@const estIbu = calculateSingleHopIbu(
+						toHopGrams(item.amount, item.unit),
+						alpha,
+						Number(item.durationMinutes) || 0,
+						estimatedOg,
+						batchSizeLiters,
+						settings.bitternessFormula,
+						item.usage,
+						item.form ?? ing?.form
+					)}
 					<div
 						class="flex flex-col items-stretch gap-3 p-4 transition-colors hover:bg-zinc-50/50 sm:flex-row sm:items-center dark:hover:bg-zinc-800/20"
 					>
@@ -366,22 +414,45 @@
 							<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">g</span>
 						</div>
 
-						<!-- Duration (Minutes) -->
+						<!-- Duration (Days for DryHop, Minutes otherwise) -->
 						<div class="flex items-center gap-1.5 sm:w-28">
-							<input
-								type="number"
-								step="5"
-								min="0"
-								bind:value={item.durationMinutes}
-								class="h-10 w-18 rounded-xl border border-zinc-200/80 bg-white px-2.5 text-right font-mono text-sm font-bold text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-							/>
-							<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">min</span>
+							{#if item.usage === 'DryHop'}
+								<input
+									type="number"
+									step="0.5"
+									min="0"
+									value={getDryHopDays(item.durationMinutes)}
+									oninput={(e) => {
+										const days = Math.max(
+											0,
+											Number((e.currentTarget as HTMLInputElement).value) || 0
+										);
+										item.durationMinutes = Math.round(days * 1440);
+									}}
+									class="h-10 w-18 rounded-xl border border-zinc-200/80 bg-white px-2.5 text-right font-mono text-sm font-bold text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+								<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+									>{t('common.days_short')}</span
+								>
+							{:else}
+								<input
+									type="number"
+									step="5"
+									min="0"
+									bind:value={item.durationMinutes}
+									class="h-10 w-18 rounded-xl border border-zinc-200/80 bg-white px-2.5 text-right font-mono text-sm font-bold text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+								<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+									>{t('common.minutes_short')}</span
+								>
+							{/if}
 						</div>
 
 						<!-- Usage Select -->
 						<div class="w-full sm:w-36">
 							<select
 								bind:value={item.usage}
+								onchange={() => handleHopUsageChange(item)}
 								class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-2.5 text-xs font-medium text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 							>
 								<option value="Boil">{t('formulator.usages.boil')}</option>
@@ -396,7 +467,7 @@
 						<div
 							class="flex h-10 w-24 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-2 font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
 						>
-							{estIbu > 0 ? `${formatNumber(estIbu, 1)} IBU` : 'Aroma / 0 IBU'}
+							{estIbu > 0 ? `${formatNumber(estIbu, 1)} IBU` : t('formulator.aroma_zero_ibu')}
 						</div>
 
 						<!-- Delete Action -->

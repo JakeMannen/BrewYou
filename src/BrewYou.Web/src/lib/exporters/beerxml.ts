@@ -44,6 +44,8 @@ function mapBeerXmlHopUse(usage: string): string {
 	switch (usage) {
 		case 'Mash':
 			return 'Mash';
+		case 'FirstWort':
+			return 'First Wort';
 		case 'DryHop':
 		case 'Primary':
 		case 'Secondary':
@@ -151,7 +153,7 @@ export function analyzeBeerXmlCompatibility(recipe: ExportableRecipe): Compatibi
 	);
 	const subDayDryHops = dryHops.filter((h) => {
 		const mins = h.durationMinutes ?? 0;
-		return mins > 0 && mins % 1440 !== 0;
+		return mins >= 120 && mins % 1440 !== 0;
 	});
 	if (subDayDryHops.length > 0) {
 		warnings.push({
@@ -353,9 +355,9 @@ export function serializeBeerXml(recipe: ExportableRecipe): ExportResult {
 		const useVal = mapBeerXmlHopUse(h.usage);
 
 		// Time: days for Dry Hop, minutes for other usages
-		let timeVal = h.durationMinutes ?? (useVal === 'Dry Hop' ? 3 : 60);
+		let timeVal = h.durationMinutes ?? (useVal === 'Dry Hop' ? 4320 : 60);
 		if (useVal === 'Dry Hop') {
-			timeVal = Math.round((timeVal / 1440) * 100) / 100;
+			timeVal = timeVal >= 120 ? Math.round((timeVal / 1440) * 100) / 100 : timeVal;
 			if (timeVal <= 0) timeVal = 3.0; // fallback to 3 days
 		}
 
@@ -437,7 +439,15 @@ export function serializeBeerXml(recipe: ExportableRecipe): ExportResult {
 	if (miscs.length > 0) {
 		lines.push('    <MISCS>');
 		for (const m of miscs) {
-			const amountVal = m.unit.toLowerCase() === 'kg' ? m.amount : m.amount / 1000.0;
+			const rawUnit = (m.unit || 'g').toLowerCase().trim();
+			const isVolume =
+				rawUnit === 'ml' || rawUnit === 'l' || rawUnit === 'liter' || rawUnit === 'liters';
+			let amountVal: number;
+			if (isVolume) {
+				amountVal = rawUnit === 'ml' ? m.amount / 1000.0 : m.amount;
+			} else {
+				amountVal = rawUnit === 'kg' ? m.amount : m.amount / 1000.0;
+			}
 			const useVal = mapBeerXmlMiscUse(m.usage);
 			const timeVal = m.durationMinutes ?? 15;
 
@@ -447,8 +457,8 @@ export function serializeBeerXml(recipe: ExportableRecipe): ExportResult {
 			lines.push('        <TYPE>Other</TYPE>');
 			lines.push(`        <USE>${useVal}</USE>`);
 			lines.push(`        <TIME>${formatXmlNumber(timeVal, 1)}</TIME>`);
-			lines.push(`        <AMOUNT>${formatXmlNumber(amountVal, 4)}</AMOUNT>`);
-			lines.push('        <AMOUNT_IS_WEIGHT>TRUE</AMOUNT_IS_WEIGHT>');
+			lines.push(`        <AMOUNT>${formatXmlNumber(amountVal, 5)}</AMOUNT>`);
+			lines.push(`        <AMOUNT_IS_WEIGHT>${isVolume ? 'FALSE' : 'TRUE'}</AMOUNT_IS_WEIGHT>`);
 			if (m.notes) {
 				lines.push(`        <NOTES>${escapeXml(m.notes)}</NOTES>`);
 			}

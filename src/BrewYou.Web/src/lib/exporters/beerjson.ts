@@ -15,6 +15,8 @@ function mapBeerJsonHopUse(usage: string): string {
 	switch (usage) {
 		case 'Mash':
 			return 'add_to_mash';
+		case 'FirstWort':
+			return 'add_to_first_wort';
 		case 'Whirlpool':
 			return 'add_to_whirlpool';
 		case 'DryHop':
@@ -124,8 +126,11 @@ export function serializeBeerJson(recipe: ExportableRecipe): ExportResult {
 			let timeValue = h.durationMinutes ?? (isDryHop ? 4320 : 60);
 			let timeUnit = 'min';
 
-			if (isDryHop && timeValue >= 1440) {
-				timeValue = Math.round((timeValue / 1440) * 10) / 10;
+			if (isDryHop) {
+				if (timeValue >= 120) {
+					timeValue = Math.round((timeValue / 1440) * 10) / 10;
+				}
+				if (timeValue <= 0) timeValue = 3;
 				timeUnit = 'day';
 			}
 
@@ -179,13 +184,30 @@ export function serializeBeerJson(recipe: ExportableRecipe): ExportResult {
 	const miscellaneous_additions = recipe.ingredients
 		.filter((i) => getIngType(i) === 'Other')
 		.map((m) => {
-			const amountGrams = m.unit.toLowerCase() === 'kg' ? m.amount * 1000.0 : m.amount;
+			const rawUnit = (m.unit || 'g').toLowerCase().trim();
+			let amountObj: { value: number; unit: string };
+			if (rawUnit === 'ml') {
+				amountObj = { value: Math.round(m.amount * 10) / 10, unit: 'ml' };
+			} else if (rawUnit === 'l' || rawUnit === 'liter' || rawUnit === 'liters') {
+				amountObj = { value: Math.round(m.amount * 100) / 100, unit: 'l' };
+			} else if (rawUnit === 'items' || rawUnit === 'item' || rawUnit === 'pkg') {
+				amountObj = { value: Math.round(m.amount * 10) / 10, unit: 'unit' };
+			} else {
+				const amountGrams = rawUnit === 'kg' ? m.amount * 1000.0 : m.amount;
+				amountObj = { value: Math.round(amountGrams * 10) / 10, unit: 'g' };
+			}
+
+			const useVal = mapBeerJsonHopUse(m.usage);
+			const stageVal =
+				m.usage === 'Secondary' ? 'secondary' : m.usage === 'Primary' ? 'primary' : undefined;
+
 			return {
 				name: getIngName(m),
 				type: 'other',
-				amount: { value: amountGrams, unit: 'g' },
+				amount: amountObj,
 				timing: {
-					use: m.usage === 'Boil' ? 'add_to_boil' : 'add_to_fermentation',
+					use: useVal,
+					stage: stageVal,
 					time: { value: m.durationMinutes ?? 15, unit: 'min' }
 				},
 				notes: m.notes || undefined

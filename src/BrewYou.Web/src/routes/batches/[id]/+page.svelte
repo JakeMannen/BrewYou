@@ -670,6 +670,7 @@
 			case 'Boil':
 				filtered = ingredients.filter(
 					(i) =>
+						i.additionStage === 'FirstWort' ||
 						i.additionStage === 'Boil' ||
 						i.additionStage === 'Whirlpool' ||
 						(i.type === 'Hop' &&

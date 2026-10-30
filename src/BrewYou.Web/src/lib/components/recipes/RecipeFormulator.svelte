@@ -1,11 +1,17 @@
 <script lang="ts">
+	import { SvelteMap } from 'svelte/reactivity';
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
-	import { calculateBrewMetrics, type CalculatorItem } from '$lib/calculators/brewing';
+	import {
+		calculateBrewMetrics,
+		calculateBuGuRatio,
+		calculateApparentAttenuation,
+		type CalculatorItem
+	} from '$lib/calculators/brewing';
 	import type {
 		IngredientDto,
 		IngredientType,
@@ -22,9 +28,14 @@
 	import FermentationStepsCard, {
 		type FormFermentationStepItem
 	} from '$lib/components/recipes/FermentationStepsCard.svelte';
-	import RecipeImportModal from '$lib/components/recipes/RecipeImportModal.svelte';
+	import RecipeImportModal, {
+		type RecipeImportOptions
+	} from '$lib/components/recipes/RecipeImportModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
-	import { findCatalogIngredientMatch } from '$lib/utils/ingredient-matching';
+	import {
+		buildMissingIngredientKey,
+		findCatalogIngredientMatch
+	} from '$lib/utils/ingredient-matching';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import type { ExportableRecipe } from '$lib/exporters/types';
@@ -54,13 +65,23 @@
 
 	let extraCreatedIngredients = $state<IngredientDto[]>([]);
 
-	let currentCatalogIngredients = $derived([
-		...initialCatalogIngredients,
-		...extraCreatedIngredients
-	]);
+	function deduplicateIngredients(list: IngredientDto[]): IngredientDto[] {
+		const byId = new SvelteMap<string, IngredientDto>();
+		for (const item of list) {
+			byId.set(item.id, item);
+		}
+		return Array.from(byId.values());
+	}
+
+	let currentCatalogIngredients = $derived(
+		deduplicateIngredients([...initialCatalogIngredients, ...extraCreatedIngredients])
+	);
 
 	function handleIngredientsCreated(newIngredients: IngredientDto[]) {
-		extraCreatedIngredients = [...extraCreatedIngredients, ...newIngredients];
+		extraCreatedIngredients = deduplicateIngredients([
+			...extraCreatedIngredients,
+			...newIngredients
+		]);
 	}
 
 	// Modal states
@@ -75,7 +96,7 @@
 	let batchSizeLiters = $state(settings.defaultBatchSizeLiters || 20.0);
 	let boilTimeMinutes = $state(settings.defaultBoilTimeMinutes || 60);
 	let efficiencyPercent = $state(settings.defaultEfficiencyPercent || 72.0);
-	let isPublic = $state(true);
+	let isPublic = $state(false);
 	let items = $state<FormIngredientItem[]>([]);
 	let mashSteps = $state<FormMashStepItem[]>([
 		{
@@ -495,8 +516,10 @@
 				return {
 					ingredient: ing!,
 					amount: item.amount,
+					unit: item.unit,
 					durationMinutes: item.durationMinutes,
-					usage: item.usage
+					usage: item.usage,
+					form: item.form ?? ing?.form
 				};
 			})
 			.filter((ci) => Boolean(ci.ingredient));
@@ -504,9 +527,21 @@
 		return calculateBrewMetrics(batchSizeLiters, efficiencyPercent, boilTimeMinutes, calcItems, {
 			bitternessFormula: settings.bitternessFormula,
 			colorFormula: settings.colorFormula,
-			abvFormula: settings.abvFormula
+			abvFormula: settings.abvFormula,
+			mashSteps: mashSteps.map((s) => ({
+				temperatureC: s.temperatureC,
+				durationMinutes: s.durationMinutes,
+				stepOrder: s.stepOrder
+			}))
 		});
 	});
+
+	let buGuRatio = $derived(
+		calculateBuGuRatio(calculatedMetrics.originalGravity, calculatedMetrics.bitternessIbu)
+	);
+	let apparentAttenuation = $derived(
+		calculateApparentAttenuation(calculatedMetrics.originalGravity, calculatedMetrics.finalGravity)
+	);
 
 	let currentExportableRecipe = $derived.by<ExportableRecipe>(() => {
 		const exportIngredients = items.map((item) => {
@@ -624,13 +659,21 @@
 		return await api.recipes.checkName(importName.trim());
 	}
 
-	function handleImportRecipe(imported: ParsedRecipe, updatedCatalog?: IngredientDto[]) {
+	function handleImportRecipe(
+		imported: ParsedRecipe,
+		updatedCatalog?: IngredientDto[],
+		options?: RecipeImportOptions
+	) {
 		if (updatedCatalog && updatedCatalog.length > 0) {
 			const existingIds = new Set(currentCatalogIngredients.map((i) => i.id));
 			const toAdd = updatedCatalog.filter((i) => !existingIds.has(i.id));
 			if (toAdd.length > 0) {
-				extraCreatedIngredients = [...extraCreatedIngredients, ...toAdd];
+				extraCreatedIngredients = deduplicateIngredients([...extraCreatedIngredients, ...toAdd]);
 			}
+		}
+
+		if (options?.isPublic !== undefined && mode === 'new') {
+			isPublic = options.isPublic;
 		}
 
 		name = imported.name || name;
@@ -641,18 +684,20 @@
 		if (imported.efficiencyPercent > 0) efficiencyPercent = imported.efficiencyPercent;
 
 		if (imported.ingredients && imported.ingredients.length > 0) {
-			const activeCatalog =
+			const activeCatalog = deduplicateIngredients(
 				updatedCatalog && updatedCatalog.length > 0
 					? [...currentCatalogIngredients, ...updatedCatalog]
-					: currentCatalogIngredients;
+					: currentCatalogIngredients
+			);
 
 			const newItems: FormIngredientItem[] = [];
 
 			for (const ing of imported.ingredients) {
-				// Find matching ingredient in catalog (strict multi-tier matching first, fallback to first of type)
-				let catalogMatch =
-					findCatalogIngredientMatch(ing, activeCatalog) ??
-					activeCatalog.find((c) => c.type === ing.type);
+				const key = buildMissingIngredientKey(ing);
+				const resolvedId = options?.ingredientResolutions?.[key];
+				const catalogMatch =
+					(resolvedId ? activeCatalog.find((c) => c.id === resolvedId) : null) ??
+					findCatalogIngredientMatch(ing, activeCatalog);
 
 				if (catalogMatch) {
 					newItems.push({
@@ -732,11 +777,12 @@
 					unit: item.unit,
 					durationMinutes: item.durationMinutes,
 					usage: item.usage,
+					notes: item.notes?.trim() || null,
 					form: item.form ?? null
 				})),
 				mashSteps: mashSteps.map((s, idx) => ({
 					stepOrder: idx + 1,
-					name: s.name.trim() || `Step ${idx + 1}`,
+					name: s.name.trim() || t('formulator.step_fallback', { order: idx + 1 }),
 					type: s.type,
 					temperatureC: s.temperatureC,
 					durationMinutes: s.durationMinutes,
@@ -746,7 +792,7 @@
 				})),
 				fermentationSteps: fermentationSteps.map((s, idx) => ({
 					stepOrder: idx + 1,
-					name: s.name.trim() || `Step ${idx + 1}`,
+					name: s.name.trim() || t('formulator.step_fallback', { order: idx + 1 }),
 					type: s.type,
 					targetTemperatureC: s.targetTemperatureC,
 					durationDays: s.durationDays,
@@ -918,13 +964,35 @@
 						<BeerGlass srm={calculatedMetrics.colorSrm} size="full" class="h-full shrink-0" />
 					</div>
 				</div>
+				<div
+					class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+				>
+					<span class="text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
+						>{t('metrics.bu_gu')}</span
+					>
+					<span
+						class="mt-0.5 block font-mono text-base font-bold text-indigo-600 dark:text-indigo-400"
+					>
+						{formatNumber(buGuRatio, 2)}
+					</span>
+				</div>
+				<div
+					class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+				>
+					<span class="text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
+						>{t('metrics.attenuation')}</span
+					>
+					<span class="mt-0.5 block font-mono text-base font-bold text-teal-600 dark:text-teal-400">
+						{formatNumber(apparentAttenuation, 1)}%
+					</span>
+				</div>
 			</div>
 		{/if}
 	</div>
 
 	<!-- Desktop / Tablet Full HUD (>= md) -->
 	<div
-		class="glass-panel sticky top-20 z-40 hidden grid-cols-5 gap-3 rounded-2xl border border-zinc-200/80 p-4 shadow-xl backdrop-blur md:grid dark:border-white/[0.08]"
+		class="glass-panel sticky top-20 z-40 hidden grid-cols-4 gap-3 rounded-2xl border border-zinc-200/80 p-4 shadow-xl backdrop-blur md:grid xl:grid-cols-7 dark:border-white/[0.08]"
 	>
 		<!-- OG -->
 		<div
@@ -979,6 +1047,38 @@
 			</span>
 			<span class="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500"
 				>{t('metrics.ibu_desc')}</span
+			>
+		</div>
+
+		<!-- BU:GU -->
+		<div
+			class="flex flex-col rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+		>
+			<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+				>{t('metrics.bu_gu')}</span
+			>
+			<span
+				class="mt-1 font-mono text-xl font-bold text-indigo-600 lg:text-2xl dark:text-indigo-400"
+			>
+				{formatNumber(buGuRatio, 2)}
+			</span>
+			<span class="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500"
+				>{t('metrics.bu_gu_desc')}</span
+			>
+		</div>
+
+		<!-- Apparent Attenuation -->
+		<div
+			class="flex flex-col rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+		>
+			<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+				>{t('metrics.attenuation')}</span
+			>
+			<span class="mt-1 font-mono text-xl font-bold text-teal-600 lg:text-2xl dark:text-teal-400">
+				{formatNumber(apparentAttenuation, 1)}%
+			</span>
+			<span class="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-500"
+				>{t('metrics.attenuation_desc')}</span
 			>
 		</div>
 
@@ -1196,6 +1296,7 @@
 		catalogIngredients={currentCatalogIngredients}
 		{batchSizeLiters}
 		{efficiencyPercent}
+		{boilTimeMinutes}
 		onAddItem={handleAddItem}
 		onRemoveItem={handleRemoveItem}
 	/>
@@ -1229,6 +1330,7 @@
 	open={isImportModalOpen}
 	catalogIngredients={currentCatalogIngredients}
 	checkNameConflictFn={checkImportNameConflict}
+	showVisibilityToggle={mode === 'new'}
 	onClose={() => (isImportModalOpen = false)}
 	onImportRecipe={handleImportRecipe}
 	onIngredientsCreated={handleIngredientsCreated}

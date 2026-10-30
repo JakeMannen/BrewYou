@@ -131,7 +131,7 @@ function mapBeerJsonMashStepType(type: unknown): MashStepType {
 
 function mapBeerJsonUsage(use: unknown): IngredientUsage {
 	const str = cleanString(use).toLowerCase();
-	if (str.includes('first') || str.includes('fwh')) return 'Boil';
+	if (str.includes('first') || str.includes('fwh')) return 'FirstWort';
 	if (str.includes('whirlpool') || str.includes('aroma')) return 'Whirlpool';
 	if (str.includes('dry') || str.includes('fermentation')) return 'DryHop';
 	if (str.includes('primary')) return 'Primary';
@@ -139,6 +139,64 @@ function mapBeerJsonUsage(use: unknown): IngredientUsage {
 	if (str.includes('bottling') || str.includes('package')) return 'Bottling';
 	if (str.includes('mash')) return 'Mash';
 	return 'Boil';
+}
+
+function mapBeerJsonMiscUsage(use: unknown, stage?: unknown): IngredientUsage {
+	const stageStr = cleanString(stage).toLowerCase();
+	if (stageStr.includes('secondary')) return 'Secondary';
+	if (stageStr.includes('primary')) return 'Primary';
+
+	const str = cleanString(use).toLowerCase();
+	if (str.includes('first') || str.includes('fwh')) return 'FirstWort';
+	if (str.includes('whirlpool') || str.includes('aroma')) return 'Whirlpool';
+	if (str.includes('secondary')) return 'Secondary';
+	if (str.includes('primary') || str.includes('fermentation')) return 'Primary';
+	if (str.includes('dry')) return 'DryHop';
+	if (str.includes('bottling') || str.includes('package')) return 'Bottling';
+	if (str.includes('mash')) return 'Mash';
+	return 'Boil';
+}
+
+function parseMiscAmount(obj: unknown): { amount: number; unit: string } {
+	if (!obj) return { amount: 5.0, unit: 'g' };
+	if (typeof obj === 'number') {
+		return { amount: obj, unit: 'g' };
+	}
+
+	const measure = obj as { value?: number; unit?: string };
+	const val = typeof measure.value === 'number' && !isNaN(measure.value) ? measure.value : 5.0;
+	const unit = (measure.unit || 'g').toLowerCase().trim();
+
+	if (unit === 'ml' || unit === 'milliliter' || unit === 'milliliters') {
+		return { amount: Math.round(val * 10) / 10, unit: 'ml' };
+	}
+	if (unit === 'l' || unit === 'liter' || unit === 'liters') {
+		if (val < 1.0) {
+			return { amount: Math.round(val * 1000 * 10) / 10, unit: 'ml' };
+		}
+		return { amount: Math.round(val * 100) / 100, unit: 'L' };
+	}
+	if (unit === 'tsp') {
+		return { amount: Math.round(val * 4.92892 * 10) / 10, unit: 'ml' };
+	}
+	if (unit === 'tbsp') {
+		return { amount: Math.round(val * 14.7868 * 10) / 10, unit: 'ml' };
+	}
+	if (unit === 'floz') {
+		return { amount: Math.round(val * 29.5735 * 10) / 10, unit: 'ml' };
+	}
+	if (
+		unit === 'pkg' ||
+		unit === 'item' ||
+		unit === 'items' ||
+		unit === 'unit' ||
+		unit === 'tablet' ||
+		unit === 'each'
+	) {
+		return { amount: Math.round(val * 10) / 10, unit: 'items' };
+	}
+
+	return parseMass(obj, 'g');
 }
 
 function parseFermentablePotential(f: Record<string, unknown>): number {
@@ -488,14 +546,26 @@ export function parseBeerJson(rawJson: string): ParsedRecipe[] {
 			const ingName = cleanString(m.name);
 			if (!ingName) continue;
 
-			const { amount, unit } = parseMass(m.amount, 'g');
+			const { amount, unit } = parseMiscAmount(m.amount);
+			const timingObj =
+				m.timing && typeof m.timing === 'object' ? (m.timing as Record<string, unknown>) : null;
+			let duration = 15;
+			if (timingObj && (timingObj.time || timingObj.duration)) {
+				duration = parseDurationMinutes(timingObj.time || timingObj.duration);
+			} else if (m.time) {
+				duration = parseDurationMinutes(m.time);
+			}
+
+			const rawUse = timingObj?.use || m.use;
+			const rawStage = timingObj?.stage || m.stage;
+
 			ingredients.push({
 				name: ingName,
 				type: 'Other' as IngredientType,
 				amount,
 				unit,
-				durationMinutes: 15,
-				usage: mapBeerJsonUsage(m.use),
+				durationMinutes: duration,
+				usage: mapBeerJsonMiscUsage(rawUse, rawStage),
 				notes: cleanString(m.notes)
 			});
 		}

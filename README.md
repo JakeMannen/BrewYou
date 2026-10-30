@@ -56,7 +56,7 @@ The Interactive Dashboard serves as the central command center for your brewery.
 1. **View Brewery KPIs**: Navigate to the **Dashboard** (`/`) to check active batch counts, fermenter utilization, and system status at a glance.
 2. **Monitor Active Fermentations**: Inspect cellar cards to see fermentation stages, wort temperature, specific gravity, and days in vessel.
 3. **Log Measurements Quickly**: Click **Quick Log** (or the hydrometer icon) on any cellar card to record a new gravity or temperature reading.
-4. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from *Fermenting* to *Conditioning*) with a single click.
+4. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from _Fermenting_ to _Conditioning_) with a single click.
 5. **Follow the Operations Schedule**: Review the calendar feed for upcoming brew days, dry hopping windows, and packaging milestones.
 
 ### Multi-Rig Brewery Setup & Loss Profiles
@@ -72,7 +72,7 @@ BrewYou allows brewers to configure multiple distinct brewing rigs (such as a 5-
 
 ### Brewery Collaboration & Shared Setups
 
-BrewYou enables brewers to share, co-own, and collaborate on brewing setups with other team members. Any brewery setup (`BrewerySetup`) can be configured as a shared group. Brewery owners can invite other brewers by email with specific role permissions (*Co-Owner*, *Brewer*, or *Viewer*), share secure 32-byte cryptographically random invitation links, revoke pending invitations, modify collaborator roles, and remove members at any time. Non-owner members can inspect team members and choose to leave a shared setup at will.
+BrewYou enables brewers to share, co-own, and collaborate on brewing setups with other team members. Any brewery setup (`BrewerySetup`) can be configured as a shared group. Brewery owners can invite other brewers by email with specific role permissions (_Co-Owner_, _Brewer_, or _Viewer_), share secure 32-byte cryptographically random invitation links, revoke pending invitations, modify collaborator roles, and remove members at any time. Non-owner members can inspect team members and choose to leave a shared setup at will.
 
 - **Role-Based Access Control (RBAC)**:
   - **Owner / Co-Owner**: Full administrative control over brewery setups, equipment, members, invitations, and hardware secrets.
@@ -86,47 +86,50 @@ BrewYou enables brewers to share, co-own, and collaborate on brewing setups with
 #### How to Use
 
 1. **Open Collaborators Dialog**: Open the Brewery Switcher in the navigation bar and click the **Collaborators** button (users icon) next to any brewery setup.
-2. **Invite a Brewer**: Enter the collaborator's email address, select their role (*Brewer*, *Co-Owner*, or *Viewer*), and click **Send Invitation**.
+2. **Invite a Brewer**: Enter the collaborator's email address, select their role (_Brewer_, _Co-Owner_, or _Viewer_), and click **Send Invitation**.
 3. **Share the Invite Link**: Copy the generated invite link (e.g., `/invites/<invite-code>`) and send it directly to your partner.
 4. **Accepting an Invitation**: The recipient visits the invite link, previews the brewery details and assigned role, and clicks **Accept Invitation & Join** to gain immediate access to the shared setup and its equipment inventory.
 5. **Manage Team Members**: Setup owners can change member roles, revoke unused invites, or remove collaborators directly from the modal.
 
 ### Recipe Management & Recipe Formulator
 
-The Recipe Atelier and Formulator is an interactive brewing formulation workspace designed with a warm, bespoke **Artisanal Craft Taproom & Editorial** aesthetic. It pairs modern geometric display typography (`Outfit`) with crisp telemetry badges (`JetBrains Mono`) and calculates Original Gravity (OG), Final Gravity (FG), ABV, Bitterness (Tinseth IBU), Color (SRM/EBC), and BU:GU balance in real time. It features a dynamic craft beer glass visualization that reflects your wort's authentic SRM color and style-adaptive foam head, presented on tactile craft cards with raised telemetry stamps. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges. You can manage base and specialty malts, physical ingredient forms (Pellet, Leaf, Plug for hops; Dry, Liquid, Slant, Culture for yeasts with selectable units in g, pkg, or ml), timed hop additions (Mash, First Wort, Boil, Aroma, Whirlpool, Dry Hop), yeasts, and water salts. It includes dedicated staged fermentation schedules (*Primary*, *Secondary*, *Ramp / Diacetyl Rest*, *Free Rise*, *Cold Crash*, *Conditioning*) with pre-configured style presets (*Standard Ale*, *Lager with D-Rest*, *Saison Free-Rise*, *NEIPA Juicy*), with full bidirectional BeerXML 1.0 and BeerJSON import and export support preserving ingredient forms and precise yeast amounts.
+The Recipe Atelier and Formulator is an interactive brewing formulation workspace designed with a warm, bespoke **Artisanal Craft Taproom & Editorial** aesthetic. It pairs modern geometric display typography (`Outfit`) with crisp telemetry badges (`JetBrains Mono`) and calculates Original Gravity (OG), Final Gravity (FG), ABV (_Linear_ or ASBC _Advanced_), Bitterness (_Tinseth_, _Rager_, or _Daniels_ IBU), Color (_Morey_, _Mosher_, or _Daniels_ SRM/EBC), BU:GU balance, and Apparent Attenuation (%) in real time—with 100% calculation parity between the SvelteKit Formulator and the ASP.NET Core persistence engine honoring each brewer's saved formula preferences. Brewing physics accurately model soluble sugars/extracts (100% kettle dissolution), unfermentable sugars (such as lactose and maltodextrin retained in FG), multi-yeast co-pitch attenuation, hop form utilization (_Pellet_, _Plug_, _Leaf_), and stage-specific isomerization (_Mash_, _First Wort_, _Boil_, _Whirlpool_, and _Dry Hop_ measured in days). New and imported recipes default to **Private** visibility until explicitly shared with the community. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges, alongside dedicated staged mash and fermentation schedules with full bidirectional BeerXML 1.0 and BeerJSON import/export support.
 
 #### How to Use
 
 1. **Browse Recipes**: Open **Recipes** (`/recipes`) to view your saved recipes, explore community formulations, or search by beer style.
-2. **Create or Edit a Recipe**: Click **New Recipe** to open the formulator cockpit.
+2. **Create or Edit a Recipe**: Click **New Recipe** to open the formulator cockpit (defaulting to private visibility for your brewery).
 3. **Target a Style**: Pick a BJCP style from the dropdown to display reference parameter gauges for OG, FG, IBU, SRM, and ABV.
-4. **Build the Grain Bill & Hop Schedule**: Add fermentables, hops (with addition timings and temperatures), yeasts, and water salts. Watch the glass graphic and recipe metrics update in real time.
+4. **Build the Grain Bill & Hop Schedule**: Add fermentables, hops (including _First Wort_ kettle additions and _Dry Hop_ durations in days), yeasts, and water salts/fining additions. Watch the glass graphic, BU:GU ratio, apparent attenuation, and recipe metrics update in real time.
 5. **Configure Mash & Fermentation Profiles**: Set up single-infusion or multi-step mash schedules, and configure staged fermentation temperature targets and durations. BrewYou computes strike water temperatures, infusion volumes, and schedule milestones automatically.
 6. **Import & Export**:
-   - Click **Import** to load existing `.xml` (BeerXML) or `.json` (BeerJSON) recipe files directly into your catalog, preserving fermentation profiles and temperatures. If a recipe with the same name already exists in your library, BrewYou validates for name conflicts upfront before creating any missing ingredients, popping up a rename modal that lets you easily rename the imported recipe or cancel without side effects.
-   - Click **Export** on any recipe to download standard BeerXML or BeerJSON files with complete fermentation profiles for backup or sharing.
+   - Click **Import** to load existing `.xml` (BeerXML) or `.json` (BeerJSON) recipe files directly into your catalog (private by default, with an optional community-sharing toggle). Unmatched ingredients prompt an interactive reconciliation dialog that highlights suggested close matches from your catalog, lets you pick any existing catalog ingredient of the same type, or creates a new custom ingredient—after validating recipe name conflicts upfront.
+   - Click **Export** on any recipe to download standard BeerXML or BeerJSON files preserving `First Wort` hops, Dry Hop day durations, miscellaneous weight/volume additions, and complete mash/fermentation profiles.
 7. **Start a Brew**: Click **Brew This Recipe** to turn the formulation into an active brew day batch.
 
 ### Batch Tracking & Live Brew Day Execution
 
-Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: *Mash* ➔ *Boil* ➔ *Ferment* ➔ *Condition* ➔ *Package* (with clean support for skipping optional stages such as *Condition* while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
+Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: _Mash_ ➔ _Boil_ ➔ _Ferment_ ➔ _Condition_ ➔ _Package_ (with clean support for skipping optional stages such as _Condition_ while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
 
 #### Multi-Vessel & All-in-One Brewhouse Topologies
 
 BrewYou natively accommodates any brewhouse architecture via polymorphic vessel roles:
+
 - **1-Vessel (All-in-One / BIAB)**: Single kettle handles both mashing and boiling (e.g. Grainfather, BrewZilla, Speidel Braumeister, or BIAB stovetop pots).
 - **2-Vessel (All-in-One + Sparge Water Heater / HLT)**: The global homebrew standard pairing an All-in-One electric brewing system with a dedicated Hot Liquor Tank for sparge water.
 - **2-Vessel (Mash Tun + Boil Kettle)**: Traditional infusion cooler or dedicated mash tun separated from the boil kettle.
 - **3-Vessel System (HLT + Mash Tun + Boil Kettle)**: Classic 3-tier gravity or pumped HERMS/RIMS setup with dedicated vessels for hot liquor, mash infusion, and boil.
 
 When configuring multi-vessel batches:
-- **Comprehensive Water Budgeting**: Factored calculations incorporate HLT dead space loss, pump/transfer plumbing losses, grain absorption, and sparge methods (*Batch Sparge*, *Fly / Continuous Sparge*, or *No Sparge*).
+
+- **Comprehensive Water Budgeting**: Factored calculations incorporate HLT dead space loss, pump/transfer plumbing losses, grain absorption, and sparge methods (_Batch Sparge_, _Fly / Continuous Sparge_, or _No Sparge_).
 - **Live HLT Status Card**: Displays target sparge temperatures (~76°C) and real-time telemetry from connected HLT temperature probes alongside strike water guidance.
 - **Runoff Tannin & Astringency Protection**: Aligned with BJCP guidelines, if pre-boil runoff gravity drops below 1.010 SG (2.5°P), a prominent alert warns the brewer to halt sparging and prevent grain husk polyphenol extraction.
 
 #### Brew Station HUD Mode
 
 For real-time brewhouse execution in high-steam or wet-hands environments, the **Brew Station HUD** modal transforms the cockpit into a high-visibility, full-screen tactical interface:
+
 - **Oversized Countdown Timer & Stage Progress Bar**: Gigantic typography legible from across the brewhouse paired with a live-filling progress bar (0% ➔ 100%) tracking elapsed stage duration with elastic scaling for quick time adjustments (+5m / -5m).
 - **Interactive Boil Addition Milestones**: Visual timeline pins positioned along the progress bar for scheduled hop and kettle additions, grouping simultaneous additions with rich quick-action inspection popovers and tap-to-complete checkboxes.
 - **Wet-Hands Touch Targets**: Generously sized (64px+) action buttons for Play, Pause, Reset, and Step Advance, plus keyboard shortcuts (`Space` to toggle, `R` to reset, `Esc` to close).
@@ -134,7 +137,7 @@ For real-time brewhouse execution in high-steam or wet-hands environments, the *
 
 #### How to Use
 
-1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe, choose your **Brewhouse Topology** (*1V*, *2V AIO+HLT*, *2V MLT+BK*, or *3V*), and assign vessels.
+1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe, choose your **Brewhouse Topology** (_1V_, _2V AIO+HLT_, _2V MLT+BK_, or _3V_), and assign vessels.
 2. **Run Brew Day & Launch Brew Station HUD**:
    - Open the batch to launch the **Brew Day Cockpit** (`/batches/[id]`).
    - Click the **Brew Station HUD** button in the header (or the expand icon on mash/boil timers) to enter full-screen high-contrast mode for hands-on brewing.
@@ -167,7 +170,7 @@ Ingredient Inventory tracks on-hand brewery pantry supplies across fermentables,
 
 #### How to Use
 
-1. **Manage Pantry Stock**: Navigate to **Ingredients** (`/ingredients`) and switch between the **Fermentables**, **Hops**, **Yeasts**, and **Additives** tabs.
+1. **Manage Pantry Stock**: Navigate to **Ingredients** (`/ingredients`) and switch between the **Fermentables**, **Hops**, **Yeasts**, and **Additives** tabs, or filter by **In Stock** or **Custom / Imported** to quickly isolate user-defined and imported items.
 2. **Add New Inventory**: Click **Add Ingredient** to log received stock, setting the name, quantity (kg/g or lb/oz), purchase date, and ingredient-specific properties (such as hop alpha acids or grain potential).
 3. **Delete Custom Ingredients**: Click the **Delete** icon on any custom or imported ingredient. If the ingredient is in use by recipes, review the warning modal and confirm to remove it from those recipes and recalculate their brewing metrics. Default catalog ingredients do not show a delete button and cannot be deleted.
 4. **Configure Low-Stock Alerts**: Set a minimum threshold quantity on any ingredient to trigger visual badges and warnings when stock drops below safe limits.
@@ -220,14 +223,14 @@ BrewYou provides a complete, self-contained **User Backup & Restore** system (`b
 - **Zero-Plaintext Secret Protection**: Sensitive credentials (MQTT broker passwords, HTTP webhook connection tokens, and polling passwords) are never exported in plaintext. Users can optionally provide a backup passphrase to encrypt secrets using **PBKDF2-SHA256 (600,000 iterations) + AES-256-GCM**, or omit secrets so clean tokens can be regenerated on restore.
 - **Collaboration & Shared Setups**: Exports collaborator memberships and pending invites on owned setups, as well as snapshots of shared setups where the user is a collaborator (`Owner`, `Brewer`, or `Viewer`) and external community recipes referenced by the user's batches. On restore, if a shared setup no longer exists on the target server, BrewYou can recreate it as a personal setup or fall back to the default rig; collaborators can be re-linked or issued fresh pending invitations.
 - **Backwards-Compatible Versioned Migration Pipeline**: Every backup file carries an explicit `schemaVersion` and undergoes a deterministic sequential migration pipeline (`v0 ➔ v1 ➔ v2 ➔ current`) with tolerant JSON deserialization before preview or restore, guaranteeing older backups always restore cleanly on newer versions of BrewYou.
-- **Two-Step Dry-Run Preview & Transactional Restore**: Before modifying any database records, the dry-run preview analyzer reports exact creation, update, and skip counts along with conflict resolution options (*Skip Existing*, *Overwrite Existing*, or *Replace All*).
+- **Two-Step Dry-Run Preview & Transactional Restore**: Before modifying any database records, the dry-run preview analyzer reports exact creation, update, and skip counts along with conflict resolution options (_Skip Existing_, _Overwrite Existing_, or _Replace All_).
 
 #### How to Use
 
 1. **Open Backup & Restore**: Navigate to **Settings ➔ Backup & Restore** (`/settings?tab=backup`).
 2. **Export a Backup**: Choose whether to include historical equipment telemetry readings and whether to encrypt MQTT/webhook secrets with a passphrase, then click **Download Backup (.brewyou.json)**.
 3. **Preview a Restore**: Upload a `.brewyou.json` file to run an automatic non-destructive dry-run preview showing the backup's schema version, migration notes, and item-by-item action counts.
-4. **Configure & Execute Restore**: Select your conflict resolution strategy (*Keep existing*, *Overwrite existing*, or *Replace all*) and collaboration handling mode, enter your backup passphrase if secrets were encrypted, and click **Execute Restore**.
+4. **Configure & Execute Restore**: Select your conflict resolution strategy (_Keep existing_, _Overwrite existing_, or _Replace all_) and collaboration handling mode, enter your backup passphrase if secrets were encrypted, and click **Execute Restore**.
 
 ### Internationalization (i18n) & Personalization
 
@@ -235,9 +238,9 @@ BrewYou offers comprehensive internationalization with 100% key parity across En
 
 #### How to Use
 
-1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (*European Metric*, *US Craft*, or *UK Traditional*).
+1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (_European Metric_, _US Craft_, or _UK Traditional_).
 2. **Switch Language**: Click the language switcher in the header, login/onboarding modals, or navigate to **Settings ➔ Language & Region** to switch between English, Swedish, German, French, and Spanish instantly.
-3. **Switch Unit System & Presets**: Apply pre-configured regional presets (*European Metric*, *US Craft*, *UK Traditional*) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
+3. **Switch Unit System & Presets**: Apply pre-configured regional presets (_European Metric_, _US Craft_, _UK Traditional_) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
 4. **Change Theme**: Select your preferred aesthetic in **Settings ➔ Appearance** between **Imperial Stout** (default), **Chocolate Porter**, **Obsidian Ember**, **Modern Amber**, or **Pilsner Clean**.
 
 ---
@@ -442,24 +445,25 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 
 ### Key API Endpoints Overview
 
-| Area | Method & Route | Description |
-| :--- | :--- | :--- |
-| **Authentication** | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` | User registration, JWT login, and token refresh |
-| **Brewery Setups** | `GET/POST /api/v1/brewery-setups`, `PUT/DELETE /api/v1/brewery-setups/{id}` | Manage personal and shared brewery setups |
-| **Collaboration** | `GET /api/v1/brewery-setups/{id}/members` | List brewery members and assigned roles |
-| | `POST /api/v1/brewery-setups/{id}/invites` | Invite brewer by email (Owner only) |
-| | `GET /api/v1/brewery-setups/{id}/invites` | List pending invitations (Owner only) |
-| | `DELETE /api/v1/brewery-setups/{id}/invites/{inviteId}` | Revoke pending invitation (Owner only) |
-| | `PATCH /api/v1/brewery-setups/{id}/members/{userId}` | Update member role (Owner only) |
-| | `DELETE /api/v1/brewery-setups/{id}/members/{userId}` | Remove member from setup (Owner only) |
-| | `POST /api/v1/brewery-setups/{id}/leave` | Leave shared brewery setup |
-| | `GET /api/v1/invites/{code}/validate` | Validate invitation code (anonymous/authenticated) |
-| | `POST /api/v1/invites/accept` | Accept invitation and join brewery setup |
-| **Equipment** | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}` | Equipment digital twins & hardware calibrations |
-| **Telemetry** | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream` | IoT ingestion webhook & SSE telemetry stream |
-| **Recipes** | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}` | Recipe formulations, BJCP metrics, BeerXML/BeerJSON |
-| **Batches** | `GET/POST /api/v1/batches`, `PATCH /api/v1/batches/{id}/stage` | 5-stage brew lifecycle, per-step mash/fermentation execution, multi-vessel occupancy & attenuation |
-| **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore |
+| Area                 | Method & Route                                                                             | Description                                                                                        |
+| :------------------- | :----------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| **Authentication**   | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`       | User registration, JWT login, and token refresh                                                    |
+| **Brewery Setups**   | `GET/POST /api/v1/brewery-setups`, `PUT/DELETE /api/v1/brewery-setups/{id}`                | Manage personal and shared brewery setups                                                          |
+| **Collaboration**    | `GET /api/v1/brewery-setups/{id}/members`                                                  | List brewery members and assigned roles                                                            |
+|                      | `POST /api/v1/brewery-setups/{id}/invites`                                                 | Invite brewer by email (Owner only)                                                                |
+|                      | `GET /api/v1/brewery-setups/{id}/invites`                                                  | List pending invitations (Owner only)                                                              |
+|                      | `DELETE /api/v1/brewery-setups/{id}/invites/{inviteId}`                                    | Revoke pending invitation (Owner only)                                                             |
+|                      | `PATCH /api/v1/brewery-setups/{id}/members/{userId}`                                       | Update member role (Owner only)                                                                    |
+|                      | `DELETE /api/v1/brewery-setups/{id}/members/{userId}`                                      | Remove member from setup (Owner only)                                                              |
+|                      | `POST /api/v1/brewery-setups/{id}/leave`                                                   | Leave shared brewery setup                                                                         |
+|                      | `GET /api/v1/invites/{code}/validate`                                                      | Validate invitation code (anonymous/authenticated)                                                 |
+|                      | `POST /api/v1/invites/accept`                                                              | Accept invitation and join brewery setup                                                           |
+| **Ingredients**      | `GET/POST /api/v1/ingredients`, `PUT/DELETE /api/v1/ingredients/{id}`                      | Calibrated ingredients catalog, stock tracking, and custom items                                   |
+| **Equipment**        | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}`      | Equipment digital twins & hardware calibrations                                                    |
+| **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                                       |
+| **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                                                |
+| **Batches**          | `GET/POST /api/v1/batches`, `PATCH /api/v1/batches/{id}/stage`                             | 5-stage brew lifecycle, per-step mash/fermentation execution, multi-vessel occupancy & attenuation |
+| **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore                   |
 
 ---
 

@@ -57,7 +57,10 @@
 		"close_dialog": "Dialog schließen",
 		"confirm": "Bestätigen",
 		"notes": "Notizen",
-		"optional": "Optional"
+		"optional": "Optional",
+		"days": "Tage",
+		"days_short": "T",
+		"minutes_short": "Min"
 	},
 	"metrics": {
 		"og": "Stammwürze (OG)",
@@ -75,7 +78,11 @@
 		"plato": "Grad Plato (°P)",
 		"fg_plato": "Restextrakt (°P)",
 		"telemetry": "Live-Sud-Telemetrie",
-		"active_fermentation": "Aktive Gärung"
+		"active_fermentation": "Aktive Gärung",
+		"bu_gu": "BU:GU",
+		"bu_gu_desc": "Bitterverhältnis",
+		"attenuation": "Vergärungsgrad",
+		"attenuation_desc": "Scheinbarer EVG"
 	},
 	"srm_descriptors": {
 		"pale_straw": "Blasses Strohgelb",
@@ -150,6 +157,7 @@
 		"delete_success": "Rezept erfolgreich gelöscht.",
 		"delete_error": "Rezept konnte nicht gelöscht werden.",
 		"duplicate_error": "Ein Rezept mit diesem Namen existiert bereits in Ihrer Bibliothek. Bitte wählen Sie einen eindeutigen Namen.",
+		"no_description": "Keine Brauernotizen oder Beschreibung angegeben.",
 		"delete_modal": {
 			"title": "Rezept löschen",
 			"confirm_prompt": "Möchten Sie „{name}“ wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -190,7 +198,16 @@
 			"mash_steps_found": "Maischprofil: {count} Rast(en) beginnend bei {temp}",
 			"fermentation_steps_found": "Gärprofil: {count} Stufe(n) beginnend bei {temp}",
 			"checking_name": "Rezeptname wird überprüft...",
-			"name_conflict_detected": "Ein Rezept mit diesem Namen existiert bereits. Es wird eine Kopie angelegt."
+			"name_conflict_detected": "Ein Rezept mit diesem Namen existiert bereits. Es wird eine Kopie angelegt.",
+			"missing_prompt_interactive": "Einige Zutaten wurden nicht automatisch zugeordnet. Wählen Sie einen ähnlichen Vorschlag, eine Katalogzutat oder legen Sie eine neue Zutat an.",
+			"create_custom_option": "+ Als neue eigene Zutat anlegen",
+			"suggested_matches_group": "Vorgeschlagene ähnliche Treffer",
+			"all_catalog_group": "Alle Katalogzutaten",
+			"close_match_badge": "Ähnlicher Treffer",
+			"resolve_and_import": "Auswahl bestätigen & importieren",
+			"visibility_label": "Rezept-Sichtbarkeit",
+			"visibility_private_label": "Privat für meine Brauerei",
+			"visibility_public_label": "Öffentlich mit der Community teilen"
 		},
 		"rename_modal": {
 			"title": "Rezept umbenennen",
@@ -744,6 +761,9 @@
 		"phase_aroma": "Aroma",
 		"phase_whirlpool": "Whirlpool",
 		"phase_dry_hop": "Hopfenstopfen",
+		"phase_first_wort": "Vorderwürze",
+		"aroma_zero_ibu": "Aroma / 0 IBU",
+		"step_fallback": "Stufe {order}",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Dolden",
@@ -790,6 +810,7 @@
 		"subtitle": "Durchsuchen Sie kalibrierte Malze, Aroma- & Bitterhopfen sowie Bierhefestämme.",
 		"all_ingredients": "Alle Zutaten",
 		"filter_in_stock": "Vorrätig",
+		"filter_custom_only": "Eigene / Importierte",
 		"fermentables": "Malze & Gärstoffe",
 		"hops": "Hopfen",
 		"yeasts": "Hefen",

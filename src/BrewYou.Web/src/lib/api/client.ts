@@ -356,7 +356,8 @@ export const api = {
 			search?: string,
 			page?: number,
 			limit = 200,
-			inStock?: boolean
+			inStock?: boolean,
+			customOnly?: boolean
 		): Promise<IngredientDto[]> {
 			const params = new URLSearchParams();
 			if (type) params.set('type', type);
@@ -364,6 +365,7 @@ export const api = {
 			if (page) params.set('page', page.toString());
 			if (limit) params.set('limit', limit.toString());
 			if (inStock !== undefined) params.set('inStock', inStock.toString());
+			if (customOnly !== undefined) params.set('customOnly', customOnly.toString());
 			const query = params.toString() ? `?${params.toString()}` : '';
 			return request<IngredientDto[]>(`/api/v1/ingredients${query}`);
 		},

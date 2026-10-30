@@ -271,3 +271,132 @@ export function isIngredientMatch(
 ): boolean {
 	return findCatalogIngredientMatch(imported, [catalogItem]) !== null;
 }
+
+/**
+ * Builds a canonical lookup key for resolving an unmatched imported ingredient
+ * across the import modal and recipe creation/formulator handlers.
+ */
+export function buildMissingIngredientKey(item: { name: string; type: IngredientType }): string {
+	return `${item.type}:${item.name.trim().toLowerCase()}`;
+}
+
+function getBigrams(str: string): string[] {
+	const clean = str.replace(/\s+/g, '');
+	if (clean.length < 2) return clean ? [clean] : [];
+	const bigrams: string[] = [];
+	for (let i = 0; i < clean.length - 1; i++) {
+		bigrams.push(clean.slice(i, i + 2));
+	}
+	return bigrams;
+}
+
+function diceBigramSimilarity(a: string, b: string): number {
+	if (!a || !b) return 0;
+	if (a === b) return 1;
+	const aBigrams = getBigrams(a);
+	const bBigrams = getBigrams(b);
+	if (aBigrams.length === 0 || bBigrams.length === 0) return 0;
+
+	const bCounts = new Map<string, number>();
+	for (const bg of bBigrams) {
+		bCounts.set(bg, (bCounts.get(bg) ?? 0) + 1);
+	}
+
+	let intersection = 0;
+	for (const bg of aBigrams) {
+		const count = bCounts.get(bg) ?? 0;
+		if (count > 0) {
+			intersection++;
+			bCounts.set(bg, count - 1);
+		}
+	}
+
+	return (2 * intersection) / (aBigrams.length + bBigrams.length);
+}
+
+/**
+ * Finds ranked close/fuzzy catalog matches of the same IngredientType for an unmatched
+ * imported ingredient (e.g. "Weyermann - Barke Pilsner Malt" -> "Pilsner Malt",
+ * "Citra Cryo" -> "Citra", "Centenial" -> "Centennial") so the user can pick an
+ * existing catalog item instead of creating duplicates.
+ */
+export function findCloseCatalogIngredientMatches(
+	imported: { name: string; type: IngredientType },
+	catalog: IngredientDto[],
+	limit = 5
+): IngredientDto[] {
+	const rawName = imported.name.trim();
+	if (!rawName || limit <= 0) return [];
+
+	const seenIds = new Set<string>();
+	const candidates = catalog.filter((c) => {
+		if (c.type !== imported.type || seenIds.has(c.id)) return false;
+		seenIds.add(c.id);
+		return true;
+	});
+	if (candidates.length === 0) return [];
+
+	const strippedTarget = stripParentheticalSuffix(stripManufacturerPrefix(rawName));
+	const targetTokens = getSignificantTokens(strippedTarget);
+	const targetSigStr =
+		targetTokens.length > 0
+			? targetTokens.join(' ')
+			: normalizeIngredientName(strippedTarget || rawName);
+
+	const scored: Array<{ ingredient: IngredientDto; score: number }> = [];
+
+	for (const candidate of candidates) {
+		const strippedCand = stripParentheticalSuffix(stripManufacturerPrefix(candidate.name));
+		const candTokens = getSignificantTokens(strippedCand);
+		const candSigStr =
+			candTokens.length > 0
+				? candTokens.join(' ')
+				: normalizeIngredientName(strippedCand || candidate.name);
+
+		let tokenScore = 0;
+		if (targetTokens.length > 0 && candTokens.length > 0) {
+			let shared = 0;
+			for (const tToken of targetTokens) {
+				const matched = candTokens.some(
+					(cToken) =>
+						cToken === tToken ||
+						(tToken.length >= 4 &&
+							cToken.length >= 4 &&
+							(cToken.includes(tToken) || tToken.includes(cToken)))
+				);
+				if (matched) shared++;
+			}
+
+			if (shared > 0) {
+				const containment = shared / Math.min(targetTokens.length, candTokens.length);
+				const unionSize = new Set([...targetTokens, ...candTokens]).size;
+				const jaccard = unionSize > 0 ? shared / unionSize : 0;
+				tokenScore = 0.65 * containment + 0.35 * jaccard;
+			}
+		}
+
+		let substringScore = 0;
+		if (
+			targetSigStr.length >= 3 &&
+			candSigStr.length >= 3 &&
+			(targetSigStr.includes(candSigStr) || candSigStr.includes(targetSigStr))
+		) {
+			const lengthRatio =
+				Math.min(targetSigStr.length, candSigStr.length) /
+				Math.max(targetSigStr.length, candSigStr.length);
+			substringScore = 0.65 + 0.35 * lengthRatio;
+		}
+
+		const bigramScore = diceBigramSimilarity(targetSigStr, candSigStr);
+		const score = Math.max(tokenScore, substringScore, bigramScore >= 0.55 ? bigramScore : 0);
+
+		if (score >= 0.45) {
+			scored.push({ ingredient: candidate, score });
+		}
+	}
+
+	return scored
+		.sort((a, b) => b.score - a.score || a.ingredient.name.localeCompare(b.ingredient.name))
+		.slice(0, limit)
+		.map((s) => s.ingredient);
+}

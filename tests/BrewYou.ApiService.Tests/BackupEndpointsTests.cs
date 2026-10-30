@@ -878,4 +878,50 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         restoredBatch.VolumeProfile!.PlumbingLossLiters.Should().Be(0.4m);
         restoredBatch.VolumeProfile!.SpargeMethod.Should().Be("Fly");
     }
+
+    [Fact]
+    public async Task RoundTrip_RecipeWithFirstWortUsageAndNotes_RestoresUsageAndNotesAccurately()
+    {
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("FWH Source Brewer");
+        var ingredientsRes = await sourceClient.GetAsync("/api/v1/ingredients");
+        var ingredients = (await ingredientsRes.Content.ReadFromJsonAsync<ApiResponse<List<IngredientDto>>>())!.Data!;
+        var pilsner = ingredients.First(i => i.Type == IngredientType.Fermentable);
+        var hop = ingredients.First(i => i.Type == IngredientType.Hop);
+
+        var createRes = await sourceClient.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Bohemian First Wort Pilsner",
+            Description: "Traditional FWH noble hop lager",
+            BeerStyle: "Czech Premium Pale Lager",
+            BatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 90,
+            EfficiencyPercent: 74.0m,
+            IsPublic: false,
+            Ingredients:
+            [
+                new RecipeIngredientInputDto(pilsner.Id, 4.6m, "kg", 90, IngredientUsage.Mash, "Floor-malted base"),
+                new RecipeIngredientInputDto(hop.Id, 35.0m, "g", 90, IngredientUsage.FirstWort, "First wort kettle addition", "Leaf")
+            ]));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var exportEnvelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("FWH Restored Brewer");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(
+            exportEnvelope,
+            new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var listRes = await targetClient.GetAsync("/api/v1/recipes?scope=mine");
+        var list = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
+        var summary = list.Should().ContainSingle(r => r.Name == "Bohemian First Wort Pilsner").Subject;
+
+        var detailRes = await targetClient.GetAsync($"/api/v1/recipes/{summary.Id}");
+        var detail = (await detailRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        var fwhHop = detail.Ingredients.Should().ContainSingle(i => i.Usage == IngredientUsage.FirstWort).Subject;
+        fwhHop.Notes.Should().Be("First wort kettle addition");
+        fwhHop.Form.Should().Be("Leaf");
+    }
 }

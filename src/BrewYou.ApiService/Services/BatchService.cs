@@ -2321,6 +2321,7 @@ public class BatchService : IBatchService
     public static int GetStageOrderPriority(IngredientUsage usage) => usage switch
     {
         IngredientUsage.Mash => 1,
+        IngredientUsage.FirstWort => 2,
         IngredientUsage.Boil => 2,
         IngredientUsage.Whirlpool => 3,
         IngredientUsage.Primary => 4,
@@ -2334,8 +2335,10 @@ public class BatchService : IBatchService
     {
         return ingredients
             .OrderBy(i => GetStageOrderPriority(i.AdditionStage))
-            // For Boil & Whirlpool: time is minutes remaining until flameout -> highest time is pitched first
-            .ThenByDescending(i => (i.AdditionStage == IngredientUsage.Boil || i.AdditionStage == IngredientUsage.Whirlpool) ? (i.AdditionTimeMinutes ?? -1) : 0)
+            // First Wort Hops come right after Mash and before regular Boil additions
+            .ThenBy(i => i.AdditionStage == IngredientUsage.FirstWort ? 0 : 1)
+            // For FirstWort, Boil & Whirlpool: time is minutes remaining until flameout -> highest time is pitched first
+            .ThenByDescending(i => (i.AdditionStage == IngredientUsage.FirstWort || i.AdditionStage == IngredientUsage.Boil || i.AdditionStage == IngredientUsage.Whirlpool) ? (i.AdditionTimeMinutes ?? -1) : 0)
             // For Mash: grains first, largest amount first
             .ThenBy(i => i.AdditionStage == IngredientUsage.Mash && i.Type == IngredientType.Fermentable ? 0 : 1)
             .ThenByDescending(i => i.AdditionStage == IngredientUsage.Mash ? i.Amount : 0)
@@ -2351,8 +2354,10 @@ public class BatchService : IBatchService
     {
         return ingredients
             .OrderBy(i => GetStageOrderPriority(i.Usage))
-            // For Boil & Whirlpool: time is minutes remaining until flameout -> highest time is pitched first
-            .ThenByDescending(i => (i.Usage == IngredientUsage.Boil || i.Usage == IngredientUsage.Whirlpool) ? (i.DurationMinutes ?? -1) : 0)
+            // First Wort Hops come right after Mash and before regular Boil additions
+            .ThenBy(i => i.Usage == IngredientUsage.FirstWort ? 0 : 1)
+            // For FirstWort, Boil & Whirlpool: time is minutes remaining until flameout -> highest time is pitched first
+            .ThenByDescending(i => (i.Usage == IngredientUsage.FirstWort || i.Usage == IngredientUsage.Boil || i.Usage == IngredientUsage.Whirlpool) ? (i.DurationMinutes ?? -1) : 0)
             // For Mash: grains first, largest amount first
             .ThenBy(i => i.Usage == IngredientUsage.Mash && i.Ingredient?.Type == IngredientType.Fermentable ? 0 : 1)
             .ThenByDescending(i => i.Usage == IngredientUsage.Mash ? i.Amount : 0)
@@ -2369,7 +2374,8 @@ public class BatchService : IBatchService
         var filtered = stage switch
         {
             BrewStage.Mash => ingredients.Where(i => i.AdditionStage == IngredientUsage.Mash),
-            BrewStage.Boil => ingredients.Where(i => i.AdditionStage == IngredientUsage.Boil ||
+            BrewStage.Boil => ingredients.Where(i => i.AdditionStage == IngredientUsage.FirstWort ||
+                                                    i.AdditionStage == IngredientUsage.Boil ||
                                                     i.AdditionStage == IngredientUsage.Whirlpool ||
                                                     (i.Type == IngredientType.Hop &&
                                                      i.AdditionStage != IngredientUsage.DryHop &&
