@@ -10,10 +10,17 @@ public record BrewingCalculationResult(
     decimal ColorSrm
 );
 
+public record MashStepTempInput(
+    decimal TemperatureC,
+    int DurationMinutes,
+    int StepOrder = 1
+);
+
 public record BrewingCalculationOptions(
     string? BitternessFormula = "Tinseth",
     string? ColorFormula = "Morey",
-    string? AbvFormula = "Linear"
+    string? AbvFormula = "Linear",
+    IReadOnlyList<MashStepTempInput>? MashSteps = null
 );
 
 public static class BrewingCalculator
@@ -24,6 +31,9 @@ public static class BrewingCalculator
     private const double OzToKg = 0.028349523125;
     private const double OzToGrams = 28.349523125;
     private const double LbToGrams = 453.59237;
+    private const double ReferenceMashTempC = 67.0;
+    private const double MashTempSlopePerDegreeC = 2.5;
+    private const double MaxMashAttenuationDelta = 8.0;
 
     private static readonly string[] SolubleSugarKeywords =
     [
@@ -116,8 +126,10 @@ public static class BrewingCalculator
         var ogPoints = Math.Max(0.0, totalGravityPoints);
         var og = 1.0 + (ogPoints / 1000.0);
 
-        // 2. Calculate Final Gravity (FG) and ABV (retaining 100% of unfermentable lactose/maltodextrin points)
-        var attenuation = (maxYeastAttenuation ?? 75.0) / 100.0;
+        // 2. Calculate Final Gravity (FG) and ABV (adjusting for mash saccharification temperature and unfermentable sugars)
+        var baseAttenuationPercent = maxYeastAttenuation ?? 75.0;
+        var effectiveAttenuationPercent = CalculateMashAdjustedAttenuationPercent(baseAttenuationPercent, options?.MashSteps);
+        var attenuation = effectiveAttenuationPercent / 100.0;
         var fermentablePoints = Math.Max(0.0, ogPoints - unfermentablePoints);
         var fgPoints = (fermentablePoints * (1.0 - attenuation)) + unfermentablePoints;
         var fg = 1.0 + (fgPoints / 1000.0);
@@ -228,6 +240,50 @@ public static class BrewingCalculator
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Adjusts the yeast's laboratory base attenuation (rated in a standard 67.0 °C / 152.6 °F congress/single-infusion wort)
+    /// for the recipe's active enzymatic saccharification rest temperature (60.0 °C – 72.5 °C).
+    /// Beta-amylase rests below 67.0 °C (such as a 64.5 °C Hochkurz maltose rest) increase fermentability by +2.5% per °C,
+    /// while alpha-amylase rests above 67.0 °C increase unfermentable limit dextrins by -2.5% per °C (clamped to ±8.0%).
+    /// </summary>
+    public static double CalculateMashAdjustedAttenuationPercent(
+        double baseAttenuationPercent,
+        IReadOnlyList<MashStepTempInput>? mashSteps)
+    {
+        if (mashSteps == null || mashSteps.Count == 0)
+        {
+            return Math.Clamp(baseAttenuationPercent, 30.0, 98.0);
+        }
+
+        var sacchSteps = mashSteps
+            .Where(s => s.DurationMinutes > 0 && s.TemperatureC >= 60.0m && s.TemperatureC <= 72.5m)
+            .OrderBy(s => s.StepOrder)
+            .ToList();
+
+        if (sacchSteps.Count == 0)
+        {
+            return Math.Clamp(baseAttenuationPercent, 30.0, 98.0);
+        }
+
+        var primaryRest = sacchSteps.FirstOrDefault(s => s.DurationMinutes >= 15);
+        double primaryTempC;
+
+        if (primaryRest != null)
+        {
+            primaryTempC = (double)primaryRest.TemperatureC;
+        }
+        else
+        {
+            var totalDuration = sacchSteps.Sum(s => s.DurationMinutes);
+            primaryTempC = totalDuration > 0
+                ? sacchSteps.Sum(s => (double)s.TemperatureC * s.DurationMinutes) / totalDuration
+                : (double)sacchSteps[0].TemperatureC;
+        }
+
+        var delta = Math.Clamp((ReferenceMashTempC - primaryTempC) * MashTempSlopePerDegreeC, -MaxMashAttenuationDelta, MaxMashAttenuationDelta);
+        return Math.Clamp(baseAttenuationPercent + delta, 30.0, 98.0);
     }
 
     private static double CalculateAbvWithFormula(double og, double fg, string formula)

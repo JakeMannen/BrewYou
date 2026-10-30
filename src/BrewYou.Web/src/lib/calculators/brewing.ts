@@ -7,6 +7,9 @@ const LB_TO_KG = 0.45359237;
 const OZ_TO_KG = 0.028349523125;
 const OZ_TO_GRAMS = 28.349523125;
 const LB_TO_GRAMS = 453.59237;
+const REFERENCE_MASH_TEMP_C = 67.0;
+const MASH_TEMP_SLOPE_PER_DEGREE_C = 2.5;
+const MAX_MASH_ATTENUATION_DELTA = 8.0;
 
 const SOLUBLE_SUGAR_KEYWORDS = [
 	'dme',
@@ -42,10 +45,17 @@ export interface CalculatorItem {
 	form?: string | null;
 }
 
+export interface MashStepTempInput {
+	temperatureC: number;
+	durationMinutes: number;
+	stepOrder?: number;
+}
+
 export interface BrewingCalculationOptions {
 	bitternessFormula?: BitternessFormula;
 	colorFormula?: ColorFormula;
 	abvFormula?: AbvFormula;
+	mashSteps?: MashStepTempInput[] | null;
 }
 
 export function normalizeFermentableToKg(amount: number, unit?: string | null): number {
@@ -91,6 +101,50 @@ export function isUnfermentableSugar(name: string | null | undefined): boolean {
 	if (!name) return false;
 	const lower = name.trim().toLowerCase();
 	return UNFERMENTABLE_SUGAR_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Adjusts the yeast's laboratory base attenuation (rated in a standard 67.0 °C / 152.6 °F congress/single-infusion wort)
+ * for the recipe's active enzymatic saccharification rest temperature (60.0 °C – 72.5 °C).
+ * Beta-amylase rests below 67.0 °C (such as a 64.5 °C Hochkurz maltose rest) increase fermentability by +2.5% per °C,
+ * while alpha-amylase rests above 67.0 °C increase unfermentable limit dextrins by -2.5% per °C (clamped to ±8.0%).
+ */
+export function calculateMashAdjustedAttenuationPercent(
+	baseAttenuationPercent: number,
+	mashSteps?: MashStepTempInput[] | null
+): number {
+	const clampAttenuation = (val: number) => Math.min(98.0, Math.max(30.0, val));
+	if (!mashSteps || mashSteps.length === 0) {
+		return clampAttenuation(baseAttenuationPercent);
+	}
+
+	const sacchSteps = mashSteps
+		.filter((s) => s.durationMinutes > 0 && s.temperatureC >= 60.0 && s.temperatureC <= 72.5)
+		.slice()
+		.sort((a, b) => (a.stepOrder ?? 1) - (b.stepOrder ?? 1));
+
+	if (sacchSteps.length === 0) {
+		return clampAttenuation(baseAttenuationPercent);
+	}
+
+	const primaryRest = sacchSteps.find((s) => s.durationMinutes >= 15);
+	let primaryTempC: number;
+	if (primaryRest) {
+		primaryTempC = primaryRest.temperatureC;
+	} else {
+		const totalDuration = sacchSteps.reduce((acc, s) => acc + s.durationMinutes, 0);
+		primaryTempC =
+			totalDuration > 0
+				? sacchSteps.reduce((acc, s) => acc + s.temperatureC * s.durationMinutes, 0) / totalDuration
+				: sacchSteps[0].temperatureC;
+	}
+
+	const rawDelta = (REFERENCE_MASH_TEMP_C - primaryTempC) * MASH_TEMP_SLOPE_PER_DEGREE_C;
+	const delta = Math.min(
+		MAX_MASH_ATTENUATION_DELTA,
+		Math.max(-MAX_MASH_ATTENUATION_DELTA, rawDelta)
+	);
+	return clampAttenuation(baseAttenuationPercent + delta);
 }
 
 export function getHopFormMultiplier(form?: string | null): number {
@@ -155,7 +209,12 @@ export function calculateBrewMetrics(
 	const ogPoints = Math.max(0, totalGravityPoints);
 	const og = 1.0 + ogPoints / 1000.0;
 
-	const attenuation = (maxYeastAttenuation ?? 75.0) / 100.0;
+	const baseAttenuationPercent = maxYeastAttenuation ?? 75.0;
+	const effectiveAttenuationPercent = calculateMashAdjustedAttenuationPercent(
+		baseAttenuationPercent,
+		options.mashSteps
+	);
+	const attenuation = effectiveAttenuationPercent / 100.0;
 	const fermentablePoints = Math.max(0, ogPoints - unfermentablePoints);
 	const fgPoints = fermentablePoints * (1.0 - attenuation) + unfermentablePoints;
 	const fg = 1.0 + fgPoints / 1000.0;

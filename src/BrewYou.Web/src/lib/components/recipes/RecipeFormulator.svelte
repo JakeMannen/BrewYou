@@ -527,7 +527,12 @@
 		return calculateBrewMetrics(batchSizeLiters, efficiencyPercent, boilTimeMinutes, calcItems, {
 			bitternessFormula: settings.bitternessFormula,
 			colorFormula: settings.colorFormula,
-			abvFormula: settings.abvFormula
+			abvFormula: settings.abvFormula,
+			mashSteps: mashSteps.map((s) => ({
+				temperatureC: s.temperatureC,
+				durationMinutes: s.durationMinutes,
+				stepOrder: s.stepOrder
+			}))
 		});
 	});
 

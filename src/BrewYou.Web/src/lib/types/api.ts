@@ -179,6 +179,7 @@ export interface CalculateRecipeRequest {
 	bitternessFormula?: BitternessFormulaPreference | null;
 	colorFormula?: ColorFormulaPreference | null;
 	abvFormula?: AbvFormulaPreference | null;
+	mashSteps?: RecipeMashStepInputDto[] | null;
 }
 
 export interface CalculateRecipeResponse {

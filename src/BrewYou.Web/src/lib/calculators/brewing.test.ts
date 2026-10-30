@@ -526,5 +526,70 @@ describe('calculateBrewMetrics', () => {
 			expect(calculateApparentAttenuation(1.05, 1.01)).toBe(80.0);
 			expect(calculateApparentAttenuation(1.01, 1.01)).toBe(0);
 		});
+
+		it('adjusts yeast attenuation for mash saccharification temperature (e.g. 64.5C Hochkurz maltose rest with 70% WLP860)', () => {
+			const hellesItems: CalculatorItem[] = [
+				{
+					ingredient: {
+						id: 'g1',
+						name: 'Barke Pilsner Malt',
+						type: 'Fermentable',
+						potentialGravity: 1.037,
+						colorSrm: 1.8,
+						isCatalogItem: false
+					},
+					amount: 4.4,
+					unit: 'kg',
+					usage: 'Mash'
+				},
+				{
+					ingredient: {
+						id: 'g2',
+						name: 'Munich Malt (Light)',
+						type: 'Fermentable',
+						potentialGravity: 1.035,
+						colorSrm: 9.0,
+						isCatalogItem: true
+					},
+					amount: 0.2,
+					unit: 'kg',
+					usage: 'Mash'
+				},
+				{
+					ingredient: {
+						id: 'y1',
+						name: 'Munich Helles Yeast WLP860',
+						type: 'Yeast',
+						attenuationPercent: 70.0,
+						isCatalogItem: false
+					},
+					amount: 70,
+					unit: 'ml',
+					usage: 'Primary'
+				}
+			];
+
+			const standard67C = calculateBrewMetrics(20, 72, 75, hellesItems, {
+				mashSteps: [
+					{ temperatureC: 67.0, durationMinutes: 60, stepOrder: 1 },
+					{ temperatureC: 76.0, durationMinutes: 10, stepOrder: 2 }
+				]
+			});
+			const hochkurz645C = calculateBrewMetrics(20, 72, 75, hellesItems, {
+				mashSteps: [
+					{ temperatureC: 64.5, durationMinutes: 45, stepOrder: 1 },
+					{ temperatureC: 71.0, durationMinutes: 25, stepOrder: 2 },
+					{ temperatureC: 76.0, durationMinutes: 10, stepOrder: 3 }
+				]
+			});
+			const dextrinous70C = calculateBrewMetrics(20, 72, 75, hellesItems, {
+				mashSteps: [{ temperatureC: 70.0, durationMinutes: 60, stepOrder: 1 }]
+			});
+
+			expect(hochkurz645C.finalGravity).toBe(1.012);
+			expect(hochkurz645C.alcoholByVolume).toBeGreaterThanOrEqual(5.05);
+			expect(hochkurz645C.finalGravity).toBeLessThan(standard67C.finalGravity);
+			expect(dextrinous70C.finalGravity).toBeGreaterThan(standard67C.finalGravity);
+		});
 	});
 });

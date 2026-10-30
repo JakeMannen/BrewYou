@@ -203,7 +203,13 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
                 }
             };
 
-        var calcOptions = await GetUserCalculationOptionsAsync(userId);
+        var userOptions = await GetUserCalculationOptionsAsync(userId);
+        var calcOptions = userOptions with
+        {
+            MashSteps = request.MashSteps is { Count: > 0 }
+                ? request.MashSteps.Select(s => new MashStepTempInput(s.TemperatureC, s.DurationMinutes, s.StepOrder)).ToList()
+                : null
+        };
         var calc = BrewingCalculator.Calculate(
             request.BatchSizeLiters,
             request.EfficiencyPercent,
@@ -341,7 +347,13 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
             db.RecipeFermentationSteps.Add(fs);
         }
 
-        var calcOptions = await GetUserCalculationOptionsAsync(userId);
+        var userOptions = await GetUserCalculationOptionsAsync(userId);
+        var calcOptions = userOptions with
+        {
+            MashSteps = newMashSteps.Count > 0
+                ? newMashSteps.Select(s => new MashStepTempInput(s.TemperatureC, s.DurationMinutes, s.StepOrder)).ToList()
+                : null
+        };
         var calc = BrewingCalculator.Calculate(
             request.BatchSizeLiters,
             request.EfficiencyPercent,
@@ -396,7 +408,10 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
         var calcOptions = new BrewingCalculationOptions(
             BitternessFormula: !string.IsNullOrWhiteSpace(request.BitternessFormula) ? request.BitternessFormula : userOptions.BitternessFormula,
             ColorFormula: !string.IsNullOrWhiteSpace(request.ColorFormula) ? request.ColorFormula : userOptions.ColorFormula,
-            AbvFormula: !string.IsNullOrWhiteSpace(request.AbvFormula) ? request.AbvFormula : userOptions.AbvFormula
+            AbvFormula: !string.IsNullOrWhiteSpace(request.AbvFormula) ? request.AbvFormula : userOptions.AbvFormula,
+            MashSteps: request.MashSteps is { Count: > 0 }
+                ? request.MashSteps.Select(s => new MashStepTempInput(s.TemperatureC, s.DurationMinutes, s.StepOrder)).ToList()
+                : null
         );
 
         var calc = BrewingCalculator.Calculate(

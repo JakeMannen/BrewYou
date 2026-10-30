@@ -42,7 +42,8 @@ public record CalculateRecipeRequest(
     List<RecipeIngredientInputDto> Ingredients,
     string? BitternessFormula = null,
     string? ColorFormula = null,
-    string? AbvFormula = null
+    string? AbvFormula = null,
+    List<RecipeMashStepInputDto>? MashSteps = null
 );
 
 public record CalculateRecipeResponse(

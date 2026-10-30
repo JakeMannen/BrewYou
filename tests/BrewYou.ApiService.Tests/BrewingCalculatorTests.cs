@@ -550,4 +550,90 @@ public class BrewingCalculatorTests
         imperialResult.FinalGravity.Should().Be(metricResult.FinalGravity);
         imperialResult.BitternessIbu.Should().BeApproximately(metricResult.BitternessIbu, 0.1m);
     }
+
+    [Fact]
+    public void Calculate_WithMashSteps_AdjustsAttenuationForMaltoseAndAlphaRests()
+    {
+        // WLP860 Munich Helles Yeast at its 70% datasheet midpoint in a 20L Munich Helles grist
+        var hellesIngredients = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 4.40m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Barke Pilsner Malt",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.037m,
+                    ColorSrm = 1.8m
+                }
+            },
+            new()
+            {
+                Amount = 0.20m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient
+                {
+                    Name = "Munich Malt (Light)",
+                    Type = IngredientType.Fermentable,
+                    PotentialGravity = 1.035m,
+                    ColorSrm = 9.0m
+                }
+            },
+            new()
+            {
+                Amount = 70.0m,
+                Unit = "ml",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient
+                {
+                    Name = "Munich Helles Yeast WLP860",
+                    Type = IngredientType.Yeast,
+                    AttenuationPercent = 70.0m
+                }
+            }
+        };
+
+        var standard67C = BrewingCalculator.Calculate(
+            20.0m,
+            72.0m,
+            75,
+            hellesIngredients,
+            new BrewingCalculationOptions(MashSteps:
+            [
+                new MashStepTempInput(67.0m, 60, 1),
+                new MashStepTempInput(76.0m, 10, 2)
+            ]));
+
+        var hochkurz645C = BrewingCalculator.Calculate(
+            20.0m,
+            72.0m,
+            75,
+            hellesIngredients,
+            new BrewingCalculationOptions(MashSteps:
+            [
+                new MashStepTempInput(64.5m, 45, 1),
+                new MashStepTempInput(71.0m, 25, 2),
+                new MashStepTempInput(76.0m, 10, 3)
+            ]));
+
+        var dextrinous70C = BrewingCalculator.Calculate(
+            20.0m,
+            72.0m,
+            75,
+            hellesIngredients,
+            new BrewingCalculationOptions(MashSteps:
+            [
+                new MashStepTempInput(70.0m, 60, 1)
+            ]));
+
+        // 64.5°C maltose rest adds +6.25% attenuation (70% -> 76.25%), yielding FG 1.012 and ~5.09% ABV
+        hochkurz645C.FinalGravity.Should().Be(1.012m);
+        hochkurz645C.AlcoholByVolume.Should().BeInRange(5.05m, 5.20m);
+        hochkurz645C.FinalGravity.Should().BeLessThan(standard67C.FinalGravity);
+        dextrinous70C.FinalGravity.Should().BeGreaterThan(standard67C.FinalGravity);
+    }
 }
