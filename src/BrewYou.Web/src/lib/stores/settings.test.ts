@@ -755,6 +755,18 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 			})
 		);
 
+		// When webhookBaseUrl is empty, resolvedWebhookBaseUrl inherits appBaseUrl
+		await settings.setNetworkSettings('https://brew.example.com/', '');
+		expect(settings.resolvedAppBaseUrl).toBe('https://brew.example.com');
+		expect(settings.resolvedWebhookBaseUrl).toBe('https://brew.example.com');
+		expect(settings.isWebhookUrlLocalhost).toBe(false);
+		expect(updateSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				appBaseUrl: 'https://brew.example.com',
+				webhookBaseUrl: null
+			})
+		);
+
 		updateSpy.mockRestore();
 	});
 });

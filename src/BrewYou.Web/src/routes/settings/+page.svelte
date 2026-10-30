@@ -110,6 +110,13 @@
 	// Network hostnames form state
 	let appBaseUrl = $state(settings.appBaseUrl);
 	let webhookBaseUrl = $state(settings.webhookBaseUrl);
+	let useCustomWebhookUrl = $state(
+		!!(
+			settings.webhookBaseUrl &&
+			settings.webhookBaseUrl.trim() &&
+			settings.webhookBaseUrl !== settings.appBaseUrl
+		)
+	);
 	let isSavingNetwork = $state(false);
 	let networkSuccess = $state(false);
 	let networkError = $state<string | null>(null);
@@ -120,6 +127,9 @@
 		}
 		if (settings.webhookBaseUrl && !webhookBaseUrl) {
 			webhookBaseUrl = settings.webhookBaseUrl;
+			if (settings.webhookBaseUrl.trim() && settings.webhookBaseUrl !== settings.appBaseUrl) {
+				useCustomWebhookUrl = true;
+			}
 		}
 	});
 
@@ -437,8 +447,16 @@
 		if (typeof window !== 'undefined') {
 			const hostname = window.location.hostname;
 			const protocol = window.location.protocol;
-			appBaseUrl = `${protocol}//${hostname}:3000`;
-			webhookBaseUrl = `${protocol}//${hostname}:5000`;
+			if (window.location.port) {
+				appBaseUrl = `${protocol}//${hostname}:${window.location.port}`;
+			} else {
+				appBaseUrl = `${protocol}//${hostname}`;
+			}
+			if (useCustomWebhookUrl) {
+				webhookBaseUrl = `${protocol}//${hostname}:5000`;
+			} else {
+				webhookBaseUrl = '';
+			}
 		}
 	}
 
@@ -455,14 +473,15 @@
 					throw new Error('Application URL must start with http:// or https://');
 				}
 			}
-			if (webhookBaseUrl.trim()) {
-				const whUri = new URL(webhookBaseUrl.trim());
+			const effectiveWebhookUrl = useCustomWebhookUrl ? webhookBaseUrl.trim() : '';
+			if (effectiveWebhookUrl) {
+				const whUri = new URL(effectiveWebhookUrl);
 				if (whUri.protocol !== 'http:' && whUri.protocol !== 'https:') {
 					throw new Error('Webhook URL must start with http:// or https://');
 				}
 			}
 
-			await settings.setNetworkSettings(appBaseUrl.trim(), webhookBaseUrl.trim());
+			await settings.setNetworkSettings(appBaseUrl.trim(), effectiveWebhookUrl);
 			networkSuccess = true;
 			setTimeout(() => {
 				networkSuccess = false;
@@ -1991,24 +2010,49 @@
 					</div>
 
 					<!-- Webhook Base URL -->
-					<div>
-						<label
-							for="webhook-base-url-input"
-							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-						>
-							{t('settings.connectivity.webhook_base_url_label')}
+					<div
+						class="rounded-xl border border-zinc-200/70 bg-zinc-50/50 p-3.5 dark:border-white/5 dark:bg-zinc-900/30"
+					>
+						<label class="flex cursor-pointer items-start gap-3 select-none">
+							<input
+								type="checkbox"
+								data-testid="use-custom-webhook-checkbox"
+								bind:checked={useCustomWebhookUrl}
+								class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+							/>
+							<div>
+								<span class="block text-xs font-bold text-zinc-900 dark:text-white">
+									{t('settings.connectivity.use_custom_webhook_url')}
+								</span>
+								{#if !useCustomWebhookUrl}
+									<span class="mt-0.5 block text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('settings.connectivity.webhook_inherited_note')}
+									</span>
+								{/if}
+							</div>
 						</label>
-						<input
-							id="webhook-base-url-input"
-							data-testid="webhook-base-url-input"
-							type="text"
-							bind:value={webhookBaseUrl}
-							placeholder={t('settings.connectivity.webhook_base_url_placeholder')}
-							class="mt-1 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-						/>
-						<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-							{t('settings.connectivity.webhook_base_url_help')}
-						</p>
+
+						{#if useCustomWebhookUrl}
+							<div class="mt-3 border-t border-zinc-200/60 pt-3 dark:border-white/[0.06]">
+								<label
+									for="webhook-base-url-input"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('settings.connectivity.webhook_base_url_label')}
+								</label>
+								<input
+									id="webhook-base-url-input"
+									data-testid="webhook-base-url-input"
+									type="text"
+									bind:value={webhookBaseUrl}
+									placeholder={t('settings.connectivity.webhook_base_url_placeholder')}
+									class="mt-1 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+								/>
+								<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('settings.connectivity.webhook_base_url_help')}
+								</p>
+							</div>
+						{/if}
 					</div>
 
 					{#if networkSuccess}

@@ -309,6 +309,10 @@ class SettingsState {
 		if (this.webhookBaseUrl && this.webhookBaseUrl.trim()) {
 			return this.webhookBaseUrl.trim().replace(/\/+$/, '');
 		}
+		// In most deployments (reverse proxies, LAN IP, domains), webhooks share the application base URL
+		if (this.appBaseUrl && this.appBaseUrl.trim()) {
+			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		}
 		const metaEnv =
 			typeof import.meta !== 'undefined'
 				? (import.meta as unknown as { env?: Record<string, string> }).env
