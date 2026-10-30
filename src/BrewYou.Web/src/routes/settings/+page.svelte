@@ -762,7 +762,7 @@
 			{/if}
 		</button>
 
-		<!-- Tab 3: Hardware & IoT -->
+		<!-- Tab 3: Network -->
 		<button
 			type="button"
 			role="tab"

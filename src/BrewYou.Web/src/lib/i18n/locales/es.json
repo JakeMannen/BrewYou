@@ -1172,7 +1172,7 @@
 			"aria_label": "Pestañas de ajustes",
 			"units": "Unidades y Cálculos",
 			"defaults": "Valores por defecto",
-			"connectivity": "IoT y MQTT",
+			"connectivity": "Red",
 			"backup": "Copia y Restauración",
 			"account": "Cuenta y Perfil"
 		},

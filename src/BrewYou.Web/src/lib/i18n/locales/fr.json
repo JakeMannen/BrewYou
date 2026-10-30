@@ -1172,7 +1172,7 @@
 			"aria_label": "Onglets de paramètres",
 			"units": "Unités & Calculs",
 			"defaults": "Valeurs par défaut",
-			"connectivity": "IoT & MQTT",
+			"connectivity": "Réseau",
 			"backup": "Sauvegarde & Restauration",
 			"account": "Compte & Profil"
 		},

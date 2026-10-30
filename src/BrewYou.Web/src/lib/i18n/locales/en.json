@@ -1172,7 +1172,7 @@
 			"aria_label": "Settings navigation tabs",
 			"units": "Display & Units",
 			"defaults": "Equipment Defaults",
-			"connectivity": "Hardware & IoT",
+			"connectivity": "Network",
 			"backup": "Backup & Restore",
 			"account": "Account & Profile"
 		},
