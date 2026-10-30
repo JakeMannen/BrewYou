@@ -11,7 +11,8 @@ public enum IngredientUsage
     Primary,
     Secondary,
     DryHop,
-    Bottling
+    Bottling,
+    FirstWort
 }
 
 public class RecipeIngredient
@@ -32,7 +33,7 @@ public class RecipeIngredient
     public required string Unit { get; set; } = "kg";
 
     /// <summary>
-    /// Duration in minutes (boil time, whirlpool time) or days (dry hop)
+    /// Canonical duration in minutes (boil time, first wort boil time, whirlpool steep time, or dry hop duration in minutes; e.g. 4320 = 3 days)
     /// </summary>
     public int? DurationMinutes { get; set; }
 

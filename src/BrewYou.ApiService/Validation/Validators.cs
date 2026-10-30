@@ -17,6 +17,9 @@ public class RecipeIngredientInputDtoValidator : AbstractValidator<RecipeIngredi
             .GreaterThanOrEqualTo(0)
             .When(x => x.DurationMinutes.HasValue)
             .WithMessage("Duration minutes cannot be negative.");
+        RuleFor(x => x.Usage)
+            .IsInEnum()
+            .WithMessage("Invalid ingredient usage.");
         RuleFor(x => x.Notes)
             .MaximumLength(1000).WithMessage("Notes cannot exceed 1000 characters.")
             .Must(notes => string.IsNullOrEmpty(notes) || (!notes.Contains('<') && !notes.Contains('>')))
@@ -52,6 +55,10 @@ public class BatchIngredientInputDtoValidator : AbstractValidator<BatchIngredien
 
 public class CalculateRecipeRequestValidator : AbstractValidator<CalculateRecipeRequest>
 {
+    private static readonly string[] ValidBitternessFormulas = ["Tinseth", "Rager", "Daniels"];
+    private static readonly string[] ValidColorFormulas = ["Morey", "Mosher", "Daniels"];
+    private static readonly string[] ValidAbvFormulas = ["Linear", "Advanced"];
+
     public CalculateRecipeRequestValidator()
     {
         RuleFor(x => x.BatchSizeLiters).GreaterThan(0).WithMessage("Batch size must be greater than 0 liters.");
@@ -62,6 +69,18 @@ public class CalculateRecipeRequestValidator : AbstractValidator<CalculateRecipe
             .GreaterThanOrEqualTo(0)
             .WithMessage("Boil time minutes cannot be negative.");
         RuleForEach(x => x.Ingredients).SetValidator(new RecipeIngredientInputDtoValidator());
+        RuleFor(x => x.BitternessFormula)
+            .Must(f => ValidBitternessFormulas.Contains(f!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.BitternessFormula))
+            .WithMessage("Bitterness formula must be 'Tinseth', 'Rager', or 'Daniels'.");
+        RuleFor(x => x.ColorFormula)
+            .Must(f => ValidColorFormulas.Contains(f!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.ColorFormula))
+            .WithMessage("Color formula must be 'Morey', 'Mosher', or 'Daniels'.");
+        RuleFor(x => x.AbvFormula)
+            .Must(f => ValidAbvFormulas.Contains(f!.Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.AbvFormula))
+            .WithMessage("ABV formula must be 'Linear' or 'Advanced'.");
     }
 }
 
@@ -154,7 +173,7 @@ public class CreateRecipeRequestValidator : AbstractValidator<CreateRecipeReques
     public CreateRecipeRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().WithMessage("Recipe name is required.")
-            .MaximumLength(100).WithMessage("Recipe name cannot exceed 100 characters.")
+            .MaximumLength(150).WithMessage("Recipe name cannot exceed 150 characters.")
             .Must(name => !name.Contains('<') && !name.Contains('>'))
             .WithMessage("Recipe name contains invalid characters.");
         RuleFor(x => x.BeerStyle)
@@ -187,7 +206,7 @@ public class UpdateRecipeRequestValidator : AbstractValidator<UpdateRecipeReques
     public UpdateRecipeRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().WithMessage("Recipe name is required.")
-            .MaximumLength(100).WithMessage("Recipe name cannot exceed 100 characters.")
+            .MaximumLength(150).WithMessage("Recipe name cannot exceed 150 characters.")
             .Must(name => !name.Contains('<') && !name.Contains('>'))
             .WithMessage("Recipe name contains invalid characters.");
         RuleFor(x => x.BeerStyle)

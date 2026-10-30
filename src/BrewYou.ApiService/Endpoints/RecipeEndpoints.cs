@@ -39,7 +39,10 @@ public record CalculateRecipeRequest(
     decimal BatchSizeLiters,
     decimal EfficiencyPercent,
     int BoilTimeMinutes,
-    List<RecipeIngredientInputDto> Ingredients
+    List<RecipeIngredientInputDto> Ingredients,
+    string? BitternessFormula = null,
+    string? ColorFormula = null,
+    string? AbvFormula = null
 );
 
 public record CalculateRecipeResponse(
@@ -178,6 +181,7 @@ public static class RecipeEndpoints
         group.MapPost("/calculate", async (
             [FromBody] CalculateRecipeRequest request,
             IValidator<CalculateRecipeRequest> validator,
+            ClaimsPrincipal principal,
             IRecipeService recipeService) =>
         {
             var validation = await validator.ValidateAsync(request);
@@ -187,7 +191,8 @@ public static class RecipeEndpoints
                 return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Invalid recipe calculation request.", details));
             }
 
-            var result = await recipeService.CalculateRecipeAsync(request);
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var result = await recipeService.CalculateRecipeAsync(request, userId);
             return Results.Ok(ApiResponse<CalculateRecipeResponse>.Ok(result));
         })
         .WithName("CalculateRecipe")
@@ -353,6 +358,7 @@ public static class RecipeEndpoints
             {
                 RecipeAccessResult.Success => Results.Created($"/api/v1/recipes/{recipe!.Id}", ApiResponse<RecipeDetailDto>.Ok(recipe)),
                 RecipeAccessResult.DuplicateName => Results.Conflict(ApiResponse.Fail("DUPLICATE_NAME", error ?? "A recipe with this name already exists.")),
+                RecipeAccessResult.InvalidIngredient => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", error ?? "One or more ingredients do not exist or are not accessible.")),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })
@@ -390,6 +396,7 @@ public static class RecipeEndpoints
                 RecipeAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Recipe not found.")),
                 RecipeAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "You do not have permission to update this recipe."), statusCode: StatusCodes.Status403Forbidden),
                 RecipeAccessResult.DuplicateName => Results.Conflict(ApiResponse.Fail("DUPLICATE_NAME", error ?? "A recipe with this name already exists.")),
+                RecipeAccessResult.InvalidIngredient => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", error ?? "One or more ingredients do not exist or are not accessible.")),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })

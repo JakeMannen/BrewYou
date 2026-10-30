@@ -319,7 +319,7 @@ public class TolerantEnumConverter<TEnum>(List<string> warnings) : JsonConverter
             IngredientUsage? mapped = norm switch
             {
                 "aroma" or "hopstand" => IngredientUsage.Whirlpool,
-                "firstwort" => IngredientUsage.Mash,
+                "firstwort" or "first_wort" or "fwh" => IngredientUsage.FirstWort,
                 _ => null
             };
             if (mapped.HasValue)

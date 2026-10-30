@@ -11,7 +11,8 @@ public enum RecipeAccessResult
     Success,
     NotFound,
     Forbidden,
-    DuplicateName
+    DuplicateName,
+    InvalidIngredient
 }
 
 public interface IRecipeService
@@ -19,7 +20,7 @@ public interface IRecipeService
     Task<(List<RecipeSummaryDto> Items, PaginationMeta Pagination)> GetRecipesAsync(string? userId, int page, int limit, string? scope = null);
     Task<(RecipeAccessResult Result, RecipeDetailDto? Recipe)> GetRecipeByIdAsync(Guid id, string? userId);
     Task<(RecipeAccessResult Result, RecipeDetailDto? Recipe, string? Error)> CreateRecipeAsync(CreateRecipeRequest request, string userId);
-    Task<CalculateRecipeResponse> CalculateRecipeAsync(CalculateRecipeRequest request);
+    Task<CalculateRecipeResponse> CalculateRecipeAsync(CalculateRecipeRequest request, string? userId = null);
     Task<(RecipeAccessResult Result, RecipeDetailDto? Recipe, string? Error)> UpdateRecipeAsync(Guid id, UpdateRecipeRequest request, string userId);
     Task<RecipeAccessResult> DeleteRecipeAsync(Guid id, string userId);
     Task<bool> RecipeNameExistsAsync(string name, string userId);
@@ -130,8 +131,13 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
 
         var ingredientIds = request.Ingredients.Select(i => i.IngredientId).Distinct().ToList();
         var dbIngredients = await db.Ingredients
-            .Where(i => ingredientIds.Contains(i.Id))
+            .Where(i => ingredientIds.Contains(i.Id) && (i.IsCatalogItem || i.CreatedByUserId == userId))
             .ToDictionaryAsync(i => i.Id);
+
+        if (dbIngredients.Count != ingredientIds.Count)
+        {
+            return (RecipeAccessResult.InvalidIngredient, null, "One or more ingredients do not exist or are not accessible.");
+        }
 
         var recipeIngredients = request.Ingredients.Select(input => new RecipeIngredient
         {
@@ -197,11 +203,13 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
                 }
             };
 
+        var calcOptions = await GetUserCalculationOptionsAsync(userId);
         var calc = BrewingCalculator.Calculate(
             request.BatchSizeLiters,
             request.EfficiencyPercent,
             request.BoilTimeMinutes,
-            recipeIngredients
+            recipeIngredients,
+            calcOptions
         );
 
         var recipe = new Recipe
@@ -258,10 +266,17 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
             return (RecipeAccessResult.DuplicateName, null, $"A recipe named '{trimmedName}' already exists.");
         }
 
+        var existingIngredientIds = recipe.Ingredients.Select(ri => ri.IngredientId).ToHashSet();
         var ingredientIds = request.Ingredients.Select(i => i.IngredientId).Distinct().ToList();
         var dbIngredients = await db.Ingredients
-            .Where(i => ingredientIds.Contains(i.Id))
+            .Where(i => ingredientIds.Contains(i.Id) &&
+                        (i.IsCatalogItem || i.CreatedByUserId == userId || existingIngredientIds.Contains(i.Id)))
             .ToDictionaryAsync(i => i.Id);
+
+        if (dbIngredients.Count != ingredientIds.Count)
+        {
+            return (RecipeAccessResult.InvalidIngredient, null, "One or more ingredients do not exist or are not accessible.");
+        }
 
         // Remove existing ingredients, mash steps, and fermentation steps
         db.RecipeIngredients.RemoveRange(recipe.Ingredients);
@@ -326,11 +341,13 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
             db.RecipeFermentationSteps.Add(fs);
         }
 
+        var calcOptions = await GetUserCalculationOptionsAsync(userId);
         var calc = BrewingCalculator.Calculate(
             request.BatchSizeLiters,
             request.EfficiencyPercent,
             request.BoilTimeMinutes,
-            newIngredients
+            newIngredients,
+            calcOptions
         );
 
         recipe.Name = trimmedName;
@@ -355,11 +372,12 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
         return (RecipeAccessResult.Success, MapToDetailDto(recipe, userId), null);
     }
 
-    public async Task<CalculateRecipeResponse> CalculateRecipeAsync(CalculateRecipeRequest request)
+    public async Task<CalculateRecipeResponse> CalculateRecipeAsync(CalculateRecipeRequest request, string? userId = null)
     {
         var ingredientIds = request.Ingredients.Select(i => i.IngredientId).Distinct().ToList();
         var dbIngredients = await db.Ingredients
-            .Where(i => ingredientIds.Contains(i.Id))
+            .Where(i => ingredientIds.Contains(i.Id) &&
+                        (i.IsCatalogItem || (userId != null && i.CreatedByUserId == userId)))
             .ToDictionaryAsync(i => i.Id);
 
         var recipeIngredients = request.Ingredients.Select(input => new RecipeIngredient
@@ -374,11 +392,19 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
             Form = input.Form
         }).ToList();
 
+        var userOptions = await GetUserCalculationOptionsAsync(userId);
+        var calcOptions = new BrewingCalculationOptions(
+            BitternessFormula: !string.IsNullOrWhiteSpace(request.BitternessFormula) ? request.BitternessFormula : userOptions.BitternessFormula,
+            ColorFormula: !string.IsNullOrWhiteSpace(request.ColorFormula) ? request.ColorFormula : userOptions.ColorFormula,
+            AbvFormula: !string.IsNullOrWhiteSpace(request.AbvFormula) ? request.AbvFormula : userOptions.AbvFormula
+        );
+
         var calc = BrewingCalculator.Calculate(
             request.BatchSizeLiters,
             request.EfficiencyPercent,
             request.BoilTimeMinutes,
-            recipeIngredients
+            recipeIngredients,
+            calcOptions
         );
 
         return new CalculateRecipeResponse(
@@ -387,6 +413,36 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
             calc.AlcoholByVolume,
             calc.BitternessIbu,
             calc.ColorSrm
+        );
+    }
+
+    private async Task<BrewingCalculationOptions> GetUserCalculationOptionsAsync(string? userId)
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            return new BrewingCalculationOptions();
+        }
+
+        var prefs = await db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                u.PreferredBitternessFormula,
+                u.PreferredColorFormula,
+                u.PreferredAbvFormula
+            })
+            .FirstOrDefaultAsync();
+
+        if (prefs == null)
+        {
+            return new BrewingCalculationOptions();
+        }
+
+        return new BrewingCalculationOptions(
+            BitternessFormula: prefs.PreferredBitternessFormula ?? "Tinseth",
+            ColorFormula: prefs.PreferredColorFormula ?? "Morey",
+            AbvFormula: prefs.PreferredAbvFormula ?? "Linear"
         );
     }
 
