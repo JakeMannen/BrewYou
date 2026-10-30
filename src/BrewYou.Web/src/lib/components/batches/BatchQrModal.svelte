@@ -1,19 +1,21 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import {
 		type BatchQrTarget,
 		buildBatchQrUrl,
 		generateQrMatrix,
 		qrMatrixToSvgPath,
 		generateBatchQrSvg,
-		renderBatchQrToCanvas
+		renderBatchQrToCanvas,
+		isLocalhostUrl
 	} from '$lib/utils/batchQr';
 	import {
 		sanitizeFilename,
 		triggerFileDownload,
 		triggerBlobDownload
 	} from '$lib/utils/downloadFile';
-	import { QrCode, X, Copy, Check, Download, Printer } from '@lucide/svelte';
+	import { QrCode, X, Copy, Check, Download, Printer, AlertTriangle, Globe } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;
@@ -27,7 +29,15 @@
 	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 	let canvasRef = $state<HTMLCanvasElement | null>(null);
 
-	let qrUrl = $derived(batch ? buildBatchQrUrl(batch.id) : '');
+	let customBaseUrl = $state('');
+	let showOverrideInput = $state(false);
+
+	let activeBaseUrl = $derived(
+		customBaseUrl.trim() ? customBaseUrl.trim() : settings.resolvedAppBaseUrl
+	);
+	let isLocalhost = $derived(isLocalhostUrl(activeBaseUrl));
+
+	let qrUrl = $derived(batch ? buildBatchQrUrl(batch.id, activeBaseUrl) : '');
 	let matrix = $derived(qrUrl ? generateQrMatrix(qrUrl, { ecc: 'M', border: 2 }) : null);
 	let pathD = $derived(matrix ? qrMatrixToSvgPath(matrix.data) : '');
 	let qrSize = $derived(matrix?.size ?? 25);
@@ -185,6 +195,75 @@
 
 				<!-- Hidden Canvas for PNG Generation -->
 				<canvas bind:this={canvasRef} class="hidden" aria-hidden="true"></canvas>
+
+				{#if isLocalhost}
+					<!-- Localhost Warning Alert -->
+					<div
+						class="space-y-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200 print:hidden"
+						role="alert"
+						data-testid="qr-localhost-warning"
+					>
+						<div class="flex items-start gap-2">
+							<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+							<div class="flex-1 space-y-1">
+								<p class="leading-relaxed font-medium">
+									{t('batches.qr.localhost_warning')}
+								</p>
+								<div class="flex flex-wrap items-center gap-3 pt-0.5 text-[11px]">
+									<button
+										type="button"
+										onclick={() => (showOverrideInput = !showOverrideInput)}
+										class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+									>
+										{t('batches.qr.override_host_btn')}
+									</button>
+									<span>•</span>
+									<a
+										href="/settings#connectivity"
+										class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+									>
+										{t('batches.qr.open_settings')}
+									</a>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if showOverrideInput}
+					<div class="space-y-1 print:hidden" data-testid="qr-override-section">
+						<label
+							for="qr-override-host"
+							class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+						>
+							{t('batches.qr.override_host_label')}
+						</label>
+						<div class="flex items-center gap-2">
+							<div class="relative flex-1">
+								<Globe
+									class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+								/>
+								<input
+									id="qr-override-host"
+									data-testid="qr-override-input"
+									type="text"
+									bind:value={customBaseUrl}
+									placeholder={settings.resolvedAppBaseUrl}
+									class="w-full rounded-lg border border-zinc-200 bg-white py-1.5 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
+								/>
+							</div>
+							{#if customBaseUrl}
+								<button
+									type="button"
+									onclick={() => (customBaseUrl = '')}
+									class="rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+								>
+									Reset
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/if}
 
 				<!-- URL Bar with Copy Button (hidden when printing) -->
 				<div

@@ -5,7 +5,8 @@ import {
 	generateQrMatrix,
 	qrMatrixToSvgPath,
 	generateBatchQrSvg,
-	renderBatchQrToCanvas
+	renderBatchQrToCanvas,
+	isLocalhostUrl
 } from './batchQr';
 
 describe('batchQr utils', () => {
@@ -144,6 +145,24 @@ describe('batchQr utils', () => {
 			expect(fillRectMock).toHaveBeenCalled();
 			expect(strokeRectMock).toHaveBeenCalled();
 			expect(fillTextMock).toHaveBeenCalledWith('B-01', 360, 85);
+		});
+	});
+
+	describe('isLocalhostUrl', () => {
+		it('identifies localhost and loopback IP addresses correctly', () => {
+			expect(isLocalhostUrl('http://localhost:3000')).toBe(true);
+			expect(isLocalhostUrl('http://127.0.0.1:5000/api')).toBe(true);
+			expect(isLocalhostUrl('http://0.0.0.0:3000')).toBe(true);
+			expect(isLocalhostUrl('http://[::1]:3000')).toBe(true);
+			expect(isLocalhostUrl('localhost:3000')).toBe(true);
+		});
+
+		it('returns false for remote LAN and public domain URLs', () => {
+			expect(isLocalhostUrl('http://192.168.1.100:3000')).toBe(false);
+			expect(isLocalhostUrl('http://10.0.0.5:5000')).toBe(false);
+			expect(isLocalhostUrl('https://brew.example.com')).toBe(false);
+			expect(isLocalhostUrl('https://brewyou.local')).toBe(false);
+			expect(isLocalhostUrl('')).toBe(false);
 		});
 	});
 });

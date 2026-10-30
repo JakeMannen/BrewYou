@@ -309,7 +309,11 @@
 			"download_svg": "Descargar SVG",
 			"download_png": "Descargar PNG",
 			"print": "Imprimir etiqueta",
-			"close": "Cerrar"
+			"close": "Cerrar",
+			"localhost_warning": "Este código QR enlaza a localhost. Los teléfonos móviles conectados a su Wi-Fi no podrán abrirlo.",
+			"override_host_btn": "Personalizar host",
+			"override_host_label": "URL base",
+			"open_settings": "Configurar en Ajustes"
 		},
 		"wizard": {
 			"stepper_nav": "Navegación del asistente",
@@ -1025,6 +1029,10 @@
 		"copy_url": "Copiar URL",
 		"copied": "¡Copiado!",
 		"webhook_token_on_save": "Se generará automáticamente un token seguro al guardar el equipo por primera vez.",
+		"webhook_localhost_warning": "Este webhook utiliza localhost. Los sensores WiFi (iSpindel, Tilt) no pueden enviar datos a localhost.",
+		"override_webhook_host": "Personalizar host",
+		"override_webhook_label": "URL base",
+		"open_settings": "Configurar en Ajustes",
 		"supported_formats": "Formatos compatibles: Tilt, iSpindel, BrewPiLess, JSON personalizado.",
 		"poll_config_title": "Configuración de HTTP Polling",
 		"poll_url_label": "URL de recuperación (API del sensor)",
@@ -1336,7 +1344,20 @@
 			"test_success": "¡Conexión al broker MQTT establecida con éxito!",
 			"test_failed": "Error al conectar con el broker MQTT. Comprueba la dirección y credenciales.",
 			"show_password": "Ver contraseña",
-			"hide_password": "Ocultar contraseña"
+			"hide_password": "Ocultar contraseña",
+			"network_title": "Red y acceso externo",
+			"network_desc": "Configure nombres de host y URLs base utilizados para códigos QR de lotes y webhooks de sensores IoT.",
+			"app_base_url_label": "URL base de la aplicación (Códigos QR de lotes)",
+			"app_base_url_placeholder": "p. ej. http://192.168.1.100:3000 o https://cerveza.ejemplo.es",
+			"app_base_url_help": "URL base codificada en las etiquetas QR para escaneo móvil en la bodega.",
+			"webhook_base_url_label": "URL base de webhook (Sensores e IoT)",
+			"webhook_base_url_placeholder": "p. ej. http://192.168.1.100:5000 o https://cerveza.ejemplo.es",
+			"webhook_base_url_help": "URL base para hidrómetros WiFi y microcontroladores (iSpindel, Tilt, ESP32) para telemetría HTTP.",
+			"detect_host_btn": "Detectar host actual",
+			"localhost_warning": "Actualmente se utiliza localhost. Los teléfonos y sensores WiFi no pueden conectarse a localhost. Introduzca la IP local de su equipo (p. ej. 192.168.x.x) o un dominio.",
+			"save_network": "Guardar configuración de red",
+			"saving_network": "Guardando configuración de red...",
+			"network_saved_toast": "¡Configuración de red guardada con éxito!"
 		},
 		"backup": {
 			"title": "Copia de Seguridad y Restauración",

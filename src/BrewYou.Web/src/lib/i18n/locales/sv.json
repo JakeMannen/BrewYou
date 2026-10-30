@@ -550,7 +550,11 @@
 			"download_svg": "Ladda ner SVG",
 			"download_png": "Ladda ner PNG",
 			"print": "Skriv ut etikett",
-			"close": "Stäng"
+			"close": "Stäng",
+			"localhost_warning": "Denna QR-kod länkar till localhost. Mobiltelefoner som skannar koden via Wi-Fi kan inte nå din dator.",
+			"override_host_btn": "Anpassa adress",
+			"override_host_label": "Basadress",
+			"open_settings": "Konfigurera i Inställningar"
 		},
 		"wizard": {
 			"stepper_nav": "Steg för batchskapande",
@@ -1129,7 +1133,20 @@
 			"test_success": "Anslutningen lyckades!",
 			"test_failed": "Anslutningen misslyckades. Kontrollera uppgifterna.",
 			"show_password": "Visa lösenord",
-			"hide_password": "Dölj lösenord"
+			"hide_password": "Dölj lösenord",
+			"network_title": "Nätverk & extern åtkomst",
+			"network_desc": "Konfigurera värdnamn och basadresser som används för mobila batch-QR-koder och IoT-sensorwebhooks.",
+			"app_base_url_label": "Applikationsadress (QR-koder & etiketter)",
+			"app_base_url_placeholder": "t.ex. http://192.168.1.100:3000 eller https://brygg.exempel.se",
+			"app_base_url_help": "Basadress som kodas in i QR-koder för fat och jäskärl. Vid skanning med mobilkamera öppnas denna värdadress.",
+			"webhook_base_url_label": "Basadress för webhook (IoT-sensorer)",
+			"webhook_base_url_placeholder": "t.ex. http://192.168.1.100:5000 eller https://brygg.exempel.se",
+			"webhook_base_url_help": "Extern adress som ges till WiFi-hydrometrar och sensorer (iSpindel, Tilt, ESP32) för HTTP-telemetri.",
+			"detect_host_btn": "Identifiera aktuell värd",
+			"localhost_warning": "Använder för närvarande localhost. Mobiltelefoner och WiFi-sensorer kan inte nå localhost. Ange datorns lokala nätverks-IP (t.ex. 192.168.x.x) eller domän.",
+			"save_network": "Spara nätverksinställningar",
+			"saving_network": "Sparar nätverksinställningar...",
+			"network_saved_toast": "Nätverksinställningar har sparats!"
 		},
 		"backup": {
 			"title": "Säkerhetskopiering & Återställning",
@@ -1292,6 +1309,10 @@
 		"copy_url": "Kopiera URL",
 		"copied": "Kopierad!",
 		"webhook_token_on_save": "En säker anslutningstoken genereras automatiskt när du sparar.",
+		"webhook_localhost_warning": "Denna webhook använder localhost. WiFi-sensorer (iSpindel, Tilt) kan inte skicka mätvärden till localhost.",
+		"override_webhook_host": "Anpassa adress",
+		"override_webhook_label": "Basadress",
+		"open_settings": "Konfigurera i Inställningar",
 		"supported_formats": "Format som stöds",
 		"poll_config_title": "Konfiguration för HTTP-polling",
 		"poll_url_label": "Enhetens / Sensorns URL",

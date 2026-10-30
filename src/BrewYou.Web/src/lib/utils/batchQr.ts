@@ -14,6 +14,31 @@ export interface BatchQrMatrix {
 }
 
 /**
+ * Checks whether a given URL or hostname points to a local loopback interface (localhost / 127.0.0.1 / ::1 / 0.0.0.0).
+ */
+export function isLocalhostUrl(urlString: string): boolean {
+	if (!urlString || typeof urlString !== 'string') return false;
+	try {
+		const url = new URL(urlString.startsWith('http') ? urlString : `http://${urlString}`);
+		const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+		return (
+			host === 'localhost' ||
+			host === '127.0.0.1' ||
+			host === '::1' ||
+			host === '0.0.0.0' ||
+			host.endsWith('.localhost')
+		);
+	} catch {
+		return (
+			urlString.includes('localhost') ||
+			urlString.includes('127.0.0.1') ||
+			urlString.includes('0.0.0.0') ||
+			urlString.includes('::1')
+		);
+	}
+}
+
+/**
  * Resolves the public base URL for batch links.
  * Prefers `PUBLIC_APP_URL` (configured for LAN or public domain access),
  * falls back to `window.location.origin` in browser,

@@ -682,4 +682,79 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 
 		syncSpy.mockRestore();
 	});
+
+	it('hydrates and resolves network hostnames with custom preference and fallbacks', async () => {
+		// Default resolution when not set
+		settings.appBaseUrl = '';
+		settings.webhookBaseUrl = '';
+		expect(settings.resolvedAppBaseUrl).toBe('http://localhost:3000');
+		expect(settings.resolvedWebhookBaseUrl).toBe('http://localhost:5000');
+		expect(settings.isAppUrlLocalhost).toBe(true);
+		expect(settings.isWebhookUrlLocalhost).toBe(true);
+
+		// Hydrate from user preferences
+		settings.hydrateFromPreferences({
+			language: 'en',
+			volumeUnit: 'Liters',
+			weightUnit: 'Metric',
+			temperatureUnit: 'Celsius',
+			gravityUnit: 'SpecificGravity',
+			theme: 'ImperialStout',
+			defaultBatchSizeLiters: 20,
+			defaultEfficiencyPercent: 75,
+			defaultBoilTimeMinutes: 60,
+			appBaseUrl: 'http://192.168.1.150:3000///',
+			webhookBaseUrl: 'http://192.168.1.150:5000///'
+		});
+
+		expect(settings.appBaseUrl).toBe('http://192.168.1.150:3000///');
+		expect(settings.resolvedAppBaseUrl).toBe('http://192.168.1.150:3000');
+		expect(settings.resolvedWebhookBaseUrl).toBe('http://192.168.1.150:5000');
+		expect(settings.isAppUrlLocalhost).toBe(false);
+		expect(settings.isWebhookUrlLocalhost).toBe(false);
+
+		// Test setNetworkSettings
+		const updateSpy = vi.spyOn(api.auth, 'updatePreferences').mockResolvedValue({
+			id: 'u1',
+			email: 'test@brewyou.local',
+			displayName: 'Test',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters',
+			preferences: {
+				language: 'en',
+				volumeUnit: 'Liters',
+				weightUnit: 'Metric',
+				temperatureUnit: 'Celsius',
+				gravityUnit: 'SpecificGravity',
+				theme: 'ImperialStout',
+				defaultBatchSizeLiters: 20,
+				defaultEfficiencyPercent: 75,
+				defaultBoilTimeMinutes: 60,
+				appBaseUrl: 'https://brew.example.com',
+				webhookBaseUrl: 'https://brew.example.com/api'
+			}
+		});
+
+		auth.user = {
+			id: 'u1',
+			email: 'test@brewyou.local',
+			displayName: 'Test',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters',
+			createdAt: new Date().toISOString()
+		};
+
+		await settings.setNetworkSettings('https://brew.example.com/', 'https://brew.example.com/api/');
+
+		expect(settings.resolvedAppBaseUrl).toBe('https://brew.example.com');
+		expect(settings.resolvedWebhookBaseUrl).toBe('https://brew.example.com/api');
+		expect(updateSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				appBaseUrl: 'https://brew.example.com',
+				webhookBaseUrl: 'https://brew.example.com/api'
+			})
+		);
+
+		updateSpy.mockRestore();
+	});
 });

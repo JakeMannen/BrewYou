@@ -100,7 +100,9 @@ public class BackupService : IBackupService
             MqttPasswordEncrypted: encryptedMqttPassword,
             HasMqttPassword: !string.IsNullOrWhiteSpace(user.MqttPassword),
             MqttCertificate: user.MqttCertificate,
-            MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment"
+            MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment",
+            AppBaseUrl: user.AppBaseUrl,
+            WebhookBaseUrl: user.WebhookBaseUrl
         );
 
         // 2. Custom Ingredients
@@ -1866,6 +1868,8 @@ public class BackupService : IBackupService
         user.MqttUsername = string.IsNullOrWhiteSpace(s.MqttUsername) ? null : s.MqttUsername.Trim();
         user.MqttCertificate = string.IsNullOrWhiteSpace(s.MqttCertificate) ? null : s.MqttCertificate.Trim();
         user.MqttTopicPrefix = string.IsNullOrWhiteSpace(s.MqttTopicPrefix) ? "brewyou/equipment" : s.MqttTopicPrefix.Trim().Trim('/');
+        user.AppBaseUrl = string.IsNullOrWhiteSpace(s.AppBaseUrl) ? null : s.AppBaseUrl.Trim().TrimEnd('/');
+        user.WebhookBaseUrl = string.IsNullOrWhiteSpace(s.WebhookBaseUrl) ? null : s.WebhookBaseUrl.Trim().TrimEnd('/');
 
         if (!string.IsNullOrWhiteSpace(s.MqttPasswordEncrypted))
         {

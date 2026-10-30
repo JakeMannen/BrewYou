@@ -107,6 +107,22 @@
 	let connectivitySuccess = $state(false);
 	let connectivityError = $state<string | null>(null);
 
+	// Network hostnames form state
+	let appBaseUrl = $state(settings.appBaseUrl);
+	let webhookBaseUrl = $state(settings.webhookBaseUrl);
+	let isSavingNetwork = $state(false);
+	let networkSuccess = $state(false);
+	let networkError = $state<string | null>(null);
+
+	$effect(() => {
+		if (settings.appBaseUrl && !appBaseUrl) {
+			appBaseUrl = settings.appBaseUrl;
+		}
+		if (settings.webhookBaseUrl && !webhookBaseUrl) {
+			webhookBaseUrl = settings.webhookBaseUrl;
+		}
+	});
+
 	// Backup & Restore state
 	let includeTelemetryReadings = $state(true);
 	let includeEncryptedSecrets = $state(false);
@@ -414,6 +430,47 @@
 			connectivityError = (err as Error).message || t('settings.connectivity.error_toast');
 		} finally {
 			isSavingConnectivity = false;
+		}
+	}
+
+	function handleDetectHost() {
+		if (typeof window !== 'undefined') {
+			const hostname = window.location.hostname;
+			const protocol = window.location.protocol;
+			appBaseUrl = `${protocol}//${hostname}:3000`;
+			webhookBaseUrl = `${protocol}//${hostname}:5000`;
+		}
+	}
+
+	async function handleSaveNetwork(e: SubmitEvent) {
+		e.preventDefault();
+		isSavingNetwork = true;
+		networkSuccess = false;
+		networkError = null;
+
+		try {
+			if (appBaseUrl.trim()) {
+				const appUri = new URL(appBaseUrl.trim());
+				if (appUri.protocol !== 'http:' && appUri.protocol !== 'https:') {
+					throw new Error('Application URL must start with http:// or https://');
+				}
+			}
+			if (webhookBaseUrl.trim()) {
+				const whUri = new URL(webhookBaseUrl.trim());
+				if (whUri.protocol !== 'http:' && whUri.protocol !== 'https:') {
+					throw new Error('Webhook URL must start with http:// or https://');
+				}
+			}
+
+			await settings.setNetworkSettings(appBaseUrl.trim(), webhookBaseUrl.trim());
+			networkSuccess = true;
+			setTimeout(() => {
+				networkSuccess = false;
+			}, 3500);
+		} catch (err: unknown) {
+			networkError = (err as Error).message || t('settings.connectivity.error_toast');
+		} finally {
+			isSavingNetwork = false;
 		}
 	}
 
@@ -1863,6 +1920,135 @@
 			aria-labelledby="tab-connectivity"
 			class="max-w-3xl space-y-6"
 		>
+			<!-- Network & Hostnames Section -->
+			<section
+				id="network-settings"
+				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+				aria-labelledby="network-heading"
+			>
+				<div
+					class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+				>
+					<div class="flex items-center gap-3">
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<Globe class="h-5 w-5" />
+						</div>
+						<div>
+							<h2 id="network-heading" class="text-base font-bold text-zinc-900 dark:text-white">
+								{t('settings.connectivity.network_title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.connectivity.network_desc')}
+							</p>
+						</div>
+					</div>
+
+					<button
+						type="button"
+						onclick={handleDetectHost}
+						class="inline-flex items-center gap-1.5 rounded-xl border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 shadow-xs hover:bg-zinc-50 active:scale-95 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+					>
+						<Globe class="h-3.5 w-3.5 text-amber-500" />
+						<span>{t('settings.connectivity.detect_host_btn')}</span>
+					</button>
+				</div>
+
+				{#if settings.isAppUrlLocalhost || settings.isWebhookUrlLocalhost}
+					<div
+						class="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"
+						role="alert"
+						data-testid="settings-localhost-warning"
+					>
+						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+						<p class="leading-relaxed">
+							{t('settings.connectivity.localhost_warning')}
+						</p>
+					</div>
+				{/if}
+
+				<form onsubmit={handleSaveNetwork} class="mt-5 space-y-4">
+					<!-- App Base URL -->
+					<div>
+						<label
+							for="app-base-url-input"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('settings.connectivity.app_base_url_label')}
+						</label>
+						<input
+							id="app-base-url-input"
+							data-testid="app-base-url-input"
+							type="text"
+							bind:value={appBaseUrl}
+							placeholder={t('settings.connectivity.app_base_url_placeholder')}
+							class="mt-1 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+						/>
+						<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.connectivity.app_base_url_help')}
+						</p>
+					</div>
+
+					<!-- Webhook Base URL -->
+					<div>
+						<label
+							for="webhook-base-url-input"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('settings.connectivity.webhook_base_url_label')}
+						</label>
+						<input
+							id="webhook-base-url-input"
+							data-testid="webhook-base-url-input"
+							type="text"
+							bind:value={webhookBaseUrl}
+							placeholder={t('settings.connectivity.webhook_base_url_placeholder')}
+							class="mt-1 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+						/>
+						<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('settings.connectivity.webhook_base_url_help')}
+						</p>
+					</div>
+
+					{#if networkSuccess}
+						<div
+							class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+							role="status"
+						>
+							<Check class="h-4 w-4" />
+							<span>{t('settings.connectivity.network_saved_toast')}</span>
+						</div>
+					{/if}
+
+					{#if networkError}
+						<div
+							class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300"
+							role="alert"
+						>
+							<AlertCircle class="h-4 w-4 shrink-0" />
+							<span>{networkError}</span>
+						</div>
+					{/if}
+
+					<div class="flex justify-end pt-2">
+						<button
+							type="submit"
+							data-testid="save-network-btn"
+							disabled={isSavingNetwork}
+							class="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{#if isSavingNetwork}
+								<span>{t('settings.connectivity.saving_network')}</span>
+							{:else}
+								<Save class="h-4 w-4" />
+								<span>{t('settings.connectivity.save_network')}</span>
+							{/if}
+						</button>
+					</div>
+				</form>
+			</section>
+
 			<section
 				id="connectivity"
 				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"

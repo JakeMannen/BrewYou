@@ -86,6 +86,8 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             MqttUsername: "hop_sensor",
             MqttPassword: "SuperSecretMqttPassword!",
             MqttTopicPrefix: "brewyou/cellar",
+            AppBaseUrl: "http://192.168.1.100:3000",
+            WebhookBaseUrl: "http://192.168.1.100:5000",
             GrainWeightUnit: "kg",
             HopWeightUnit: "oz",
             ColorUnit: "EBC",
@@ -259,6 +261,8 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         targetMe.Preferences.Theme.Should().Be(ThemePreference.ChocolatePorter);
         targetMe.Preferences.MqttHost.Should().Be("mqtt.craftbrew.local");
         targetMe.Preferences.HasMqttPassword.Should().BeTrue();
+        targetMe.Preferences.AppBaseUrl.Should().Be("http://192.168.1.100:3000");
+        targetMe.Preferences.WebhookBaseUrl.Should().Be("http://192.168.1.100:5000");
 
         // 10. Verify restored equipment, recipe, and batch links
         var targetEquipRes = await targetClient.GetAsync("/api/v1/inventory/equipment");
