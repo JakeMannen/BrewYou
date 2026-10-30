@@ -332,7 +332,7 @@
 		const urlTab = page.url.searchParams.get('tab') as SettingsTab | null;
 		if (urlTab && ['units', 'defaults', 'connectivity', 'backup', 'account'].includes(urlTab)) {
 			activeTab = urlTab;
-		} else if (initialHash === '#connectivity') {
+		} else if (initialHash === '#connectivity' || initialHash === '#network') {
 			activeTab = 'connectivity';
 		} else if (initialHash === '#defaults') {
 			activeTab = 'defaults';
@@ -344,7 +344,7 @@
 
 		const handleHashChange = () => {
 			const hash = window.location.hash;
-			if (hash === '#connectivity') activeTab = 'connectivity';
+			if (hash === '#connectivity' || hash === '#network') activeTab = 'connectivity';
 			else if (hash === '#defaults') activeTab = 'defaults';
 			else if (hash === '#backup') activeTab = 'backup';
 			else if (hash === '#account' || hash === '#profile') activeTab = 'account';
@@ -2018,6 +2018,11 @@
 								type="checkbox"
 								data-testid="use-custom-webhook-checkbox"
 								bind:checked={useCustomWebhookUrl}
+								onchange={() => {
+									if (useCustomWebhookUrl && !webhookBaseUrl) {
+										webhookBaseUrl = settings.resolvedWebhookBaseUrl;
+									}
+								}}
 								class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
 							/>
 							<div>
