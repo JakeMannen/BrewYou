@@ -64,13 +64,14 @@ public static class IngredientEndpoints
             [FromQuery] IngredientType? type,
             [FromQuery] string? search,
             [FromQuery] bool? inStock,
+            [FromQuery] bool? customOnly,
             [FromQuery] int? page,
             [FromQuery] int? limit,
             ClaimsPrincipal principal,
             IIngredientService ingredientService) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
-            var (items, pagination) = await ingredientService.GetIngredientsAsync(userId, type, search, page ?? 1, limit ?? 100, inStock);
+            var (items, pagination) = await ingredientService.GetIngredientsAsync(userId, type, search, page ?? 1, limit ?? 100, inStock, customOnly);
             return Results.Ok(ApiResponse<List<IngredientDto>>.Ok(items, pagination));
         })
         .WithName("GetIngredients")

@@ -8,6 +8,7 @@
 		Loader2,
 		Plus,
 		PackageCheck,
+		Sparkles,
 		X,
 		Check,
 		Trash2,
@@ -32,6 +33,7 @@
 	let error = $state<string | null>(null);
 	let selectedType = $state<string>('All');
 	let filterInStock = $state(false);
+	let filterCustomOnly = $state(false);
 	let searchTerm = $state<string>('');
 	let modalOpen = $state(false);
 
@@ -64,7 +66,8 @@
 				undefined,
 				undefined,
 				200,
-				filterInStock ? true : undefined
+				filterInStock ? true : undefined,
+				filterCustomOnly ? true : undefined
 			);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('ingredients.load_error');
@@ -84,6 +87,11 @@
 
 	function onToggleInStock() {
 		filterInStock = !filterInStock;
+		loadIngredients();
+	}
+
+	function onToggleCustomOnly() {
+		filterCustomOnly = !filterCustomOnly;
 		loadIngredients();
 	}
 
@@ -134,6 +142,7 @@
 	let filteredIngredients = $derived(
 		ingredients
 			.filter((item) => {
+				if (filterCustomOnly && item.isCatalogItem) return false;
 				if (!searchTerm.trim()) return true;
 				const q = searchTerm.toLowerCase().trim();
 				const name = item.name.toLowerCase();
@@ -239,6 +248,19 @@
 				<PackageCheck class="h-3.5 w-3.5" />
 				<span>{t('ingredients.filter_in_stock')}</span>
 			</button>
+
+			<!-- Custom / Imported Filter Toggle -->
+			<button
+				type="button"
+				onclick={onToggleCustomOnly}
+				data-testid="filter-custom-only-btn"
+				class="flex min-h-[38px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors {filterCustomOnly
+					? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+					: 'border-zinc-200/80 bg-zinc-100/70 text-zinc-600 hover:text-zinc-900 dark:border-white/5 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+			>
+				<Sparkles class="h-3.5 w-3.5" />
+				<span>{t('ingredients.filter_custom_only')}</span>
+			</button>
 		</div>
 
 		<!-- Search Bar -->
@@ -309,6 +331,14 @@
 											class="inline-block rounded-md border border-zinc-200/80 bg-zinc-100/80 px-2 py-0.5 text-[10px] font-bold tracking-wider text-zinc-700 uppercase dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 										>
 											{getLocalizedIngredientForm(item.form)}
+										</span>
+									{/if}
+									{#if !item.isCatalogItem}
+										<span
+											class="inline-block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-700 uppercase dark:text-amber-400"
+											data-testid="custom-ingredient-badge-{item.id}"
+										>
+											{t('ingredients.custom_badge')}
 										</span>
 									{/if}
 									{#if !item.isCatalogItem}

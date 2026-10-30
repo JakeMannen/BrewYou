@@ -809,6 +809,7 @@
 		"subtitle": "Durchsuchen Sie kalibrierte Malze, Aroma- & Bitterhopfen sowie Bierhefestämme.",
 		"all_ingredients": "Alle Zutaten",
 		"filter_in_stock": "Vorrätig",
+		"filter_custom_only": "Eigene / Importierte",
 		"fermentables": "Malze & Gärstoffe",
 		"hops": "Hopfen",
 		"yeasts": "Hefen",

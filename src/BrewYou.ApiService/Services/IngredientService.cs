@@ -24,7 +24,8 @@ public interface IIngredientService
         string? search,
         int page,
         int limit,
-        bool? inStock = null);
+        bool? inStock = null,
+        bool? customOnly = null);
 
     Task<IngredientDto?> GetIngredientByIdAsync(Guid id, string? userId);
 
@@ -56,7 +57,8 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         string? search,
         int page,
         int limit,
-        bool? inStock = null)
+        bool? inStock = null,
+        bool? customOnly = null)
     {
         page = Math.Max(1, page);
         limit = Math.Clamp(limit, 1, 250);
@@ -71,6 +73,11 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
                         Ingredient = i,
                         Stock = st
                     };
+
+        if (customOnly == true)
+        {
+            query = query.Where(x => !x.Ingredient.IsCatalogItem && x.Ingredient.CreatedByUserId == userId);
+        }
 
         if (type.HasValue)
         {

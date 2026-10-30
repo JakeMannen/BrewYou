@@ -367,6 +367,7 @@
 		"type_hop": "Humle",
 		"type_yeast": "Jäst",
 		"filter_in_stock": "I lager",
+		"filter_custom_only": "Egna / Importerade",
 		"others": "Övrigt",
 		"stock": "Lager",
 		"in_stock": "I lager",

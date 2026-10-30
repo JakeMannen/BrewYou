@@ -809,6 +809,7 @@
 		"subtitle": "Browse calibrated fermentables, aroma & bittering hops, and yeast strains.",
 		"all_ingredients": "All Ingredients",
 		"filter_in_stock": "In Stock",
+		"filter_custom_only": "Custom / Imported",
 		"fermentables": "Fermentables",
 		"hops": "Hops",
 		"yeasts": "Yeasts",

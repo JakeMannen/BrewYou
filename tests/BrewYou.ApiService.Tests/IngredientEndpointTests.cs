@@ -48,6 +48,50 @@ public class IngredientEndpointTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
+    public async Task FilterIngredients_ByCustomOnly_ReturnsOnlyUserCustomIngredients()
+    {
+        var regEmail = $"custom_filter_{Guid.NewGuid():N}@example.com";
+        var reg = await _client.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(regEmail, "Pass123!", "Custom Filterer"));
+        var auth = await reg.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth!.Data!.AccessToken);
+
+        // Before creating any custom ingredient, customOnly=true should be empty
+        var emptyCustomRes = await client.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?customOnly=true");
+        emptyCustomRes.Should().NotBeNull();
+        emptyCustomRes!.Success.Should().BeTrue();
+        emptyCustomRes.Data.Should().BeEmpty();
+
+        // Create a custom ingredient
+        var customReq = new CreateIngredientRequest(
+            Name: $"Homegrown Cascade {Guid.NewGuid():N}",
+            Type: IngredientType.Hop,
+            PotentialGravity: null,
+            ColorSrm: null,
+            AlphaAcidPercent: 6.2m,
+            AttenuationPercent: null,
+            Description: "Garden grown hops"
+        );
+        var createRes = await client.PostAsJsonAsync("/api/v1/ingredients", customReq);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Now customOnly=true should return only that item and IsCatalogItem must be false
+        var customRes = await client.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?customOnly=true");
+        customRes.Should().NotBeNull();
+        customRes!.Success.Should().BeTrue();
+        customRes.Data.Should().HaveCount(1);
+        customRes.Data![0].Name.Should().Be(customReq.Name);
+        customRes.Data[0].IsCatalogItem.Should().BeFalse();
+
+        // Without customOnly, global catalog items should still be returned
+        var allRes = await client.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients");
+        allRes.Should().NotBeNull();
+        allRes!.Data!.Count.Should().BeGreaterThan(1);
+        allRes.Data.Should().Contain(i => i.IsCatalogItem);
+    }
+
+    [Fact]
     public async Task GetIngredientById_ReturnsNotFound_ForMissingId()
     {
         var missingId = Guid.NewGuid();
