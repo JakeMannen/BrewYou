@@ -62,6 +62,8 @@ public class ApplicationUser : IdentityUser
     public string? MqttPassword { get; set; }
     public string? MqttCertificate { get; set; }
     public string? MqttTopicPrefix { get; set; } = "brewyou/equipment";
+    public string? AppBaseUrl { get; set; }
+    public string? WebhookBaseUrl { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<Recipe> Recipes { get; set; } = new List<Recipe>();

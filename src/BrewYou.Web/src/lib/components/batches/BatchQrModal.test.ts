@@ -36,7 +36,11 @@ describe('BatchQrModal Logic & Contract Invariants', () => {
 			'download_svg',
 			'download_png',
 			'print',
-			'close'
+			'close',
+			'localhost_warning',
+			'override_host_btn',
+			'override_host_label',
+			'open_settings'
 		];
 
 		for (const loc of locales) {

@@ -240,7 +240,7 @@ test.describe('Brewer Personalization Settings Page', () => {
 	});
 
 	test('switches tabs and reflects active tab in query parameters', async ({ page }) => {
-		// Switch to Hardware & IoT tab
+		// Switch to Network tab
 		await page.locator('[data-testid="tab-btn-connectivity"]').click();
 		await expect(page).toHaveURL(/tab=connectivity/);
 		await expect(page.locator('#mqtt-host-input')).toBeVisible();

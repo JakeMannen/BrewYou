@@ -309,7 +309,11 @@
 			"download_svg": "Descargar SVG",
 			"download_png": "Descargar PNG",
 			"print": "Imprimir etiqueta",
-			"close": "Cerrar"
+			"close": "Cerrar",
+			"localhost_warning": "Este código QR enlaza a localhost. Los teléfonos móviles conectados a su Wi-Fi no podrán abrirlo.",
+			"override_host_btn": "Personalizar host",
+			"override_host_label": "URL base",
+			"open_settings": "Configurar en Ajustes"
 		},
 		"wizard": {
 			"stepper_nav": "Navegación del asistente",
@@ -1025,6 +1029,10 @@
 		"copy_url": "Copiar URL",
 		"copied": "¡Copiado!",
 		"webhook_token_on_save": "Se generará automáticamente un token seguro al guardar el equipo por primera vez.",
+		"webhook_localhost_warning": "Este webhook utiliza localhost. Los sensores WiFi (iSpindel, Tilt) no pueden enviar datos a localhost.",
+		"override_webhook_host": "Personalizar host",
+		"override_webhook_label": "URL base",
+		"open_settings": "Configurar en Ajustes",
 		"supported_formats": "Formatos compatibles: Tilt, iSpindel, BrewPiLess, JSON personalizado.",
 		"poll_config_title": "Configuración de HTTP Polling",
 		"poll_url_label": "URL de recuperación (API del sensor)",
@@ -1164,7 +1172,7 @@
 			"aria_label": "Pestañas de ajustes",
 			"units": "Unidades y Cálculos",
 			"defaults": "Valores por defecto",
-			"connectivity": "IoT y MQTT",
+			"connectivity": "Red",
 			"backup": "Copia y Restauración",
 			"account": "Cuenta y Perfil"
 		},
@@ -1336,7 +1344,22 @@
 			"test_success": "¡Conexión al broker MQTT establecida con éxito!",
 			"test_failed": "Error al conectar con el broker MQTT. Comprueba la dirección y credenciales.",
 			"show_password": "Ver contraseña",
-			"hide_password": "Ocultar contraseña"
+			"hide_password": "Ocultar contraseña",
+			"network_title": "Red y acceso externo",
+			"network_desc": "Configure nombres de host y URLs base utilizados para códigos QR de lotes y webhooks de sensores IoT.",
+			"app_base_url_label": "URL base del servidor / aplicación",
+			"app_base_url_placeholder": "p. ej. http://192.168.1.100:3000 o https://cerveza.ejemplo.es",
+			"app_base_url_help": "Dirección base principal de su servidor BrewYou para códigos QR de lotes y webhooks de sensores.",
+			"use_custom_webhook_url": "Usar una URL base personalizada para webhooks IoT",
+			"webhook_inherited_note": "Los sensores IoT enviarán telemetría a esta misma dirección de servidor.",
+			"webhook_base_url_label": "URL base personalizada de webhook",
+			"webhook_base_url_placeholder": "p. ej. http://192.168.1.100:5000 o https://api.ejemplo.es",
+			"webhook_base_url_help": "URL base independiente opcional si su API se ejecuta en otro puerto o subdominio (ej. puerto 5000).",
+			"detect_host_btn": "Detectar host actual",
+			"localhost_warning": "Actualmente se utiliza localhost. Los teléfonos y sensores WiFi no pueden conectarse a localhost. Introduzca la IP local de su equipo (p. ej. 192.168.x.x) o un dominio.",
+			"save_network": "Guardar configuración de red",
+			"saving_network": "Guardando configuración de red...",
+			"network_saved_toast": "¡Configuración de red guardada con éxito!"
 		},
 		"backup": {
 			"title": "Copia de Seguridad y Restauración",

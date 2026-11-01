@@ -305,7 +305,11 @@
 			"download_svg": "Download SVG",
 			"download_png": "Download PNG",
 			"print": "Print label",
-			"close": "Close"
+			"close": "Close",
+			"localhost_warning": "This QR code links to localhost. Mobile phone cameras scanning this code on your Wi-Fi will not be able to reach your computer.",
+			"override_host_btn": "Customize Host",
+			"override_host_label": "Base URL",
+			"open_settings": "Configure in Settings"
 		},
 		"wizard": {
 			"stepper_nav": "Batch Creation Steps",
@@ -1025,6 +1029,10 @@
 		"copy_url": "Copy URL",
 		"copied": "Copied!",
 		"webhook_token_on_save": "A secure ingestion token will be generated automatically upon saving.",
+		"webhook_localhost_warning": "This webhook uses localhost. WiFi sensors (iSpindel, Tilt) cannot send telemetry to localhost.",
+		"override_webhook_host": "Customize Host",
+		"override_webhook_label": "Base URL",
+		"open_settings": "Configure in Settings",
 		"supported_formats": "Supported formats",
 		"poll_config_title": "HTTP Polling Configuration",
 		"poll_url_label": "Device / Sensor URL",
@@ -1164,7 +1172,7 @@
 			"aria_label": "Settings navigation tabs",
 			"units": "Display & Units",
 			"defaults": "Equipment Defaults",
-			"connectivity": "Hardware & IoT",
+			"connectivity": "Network",
 			"backup": "Backup & Restore",
 			"account": "Account & Profile"
 		},
@@ -1336,7 +1344,22 @@
 			"test_success": "Successfully connected to MQTT broker!",
 			"test_failed": "Could not connect to MQTT broker.",
 			"show_password": "Show password",
-			"hide_password": "Hide password"
+			"hide_password": "Hide password",
+			"network_title": "Network & External Access",
+			"network_desc": "Configure public or local network hostnames used for mobile batch QR codes and IoT telemetry webhooks.",
+			"app_base_url_label": "Server / Application Base URL",
+			"app_base_url_placeholder": "e.g. http://192.168.1.100:3000 or https://brew.example.com",
+			"app_base_url_help": "Primary base URL for your BrewYou server. Used for batch QR code cellar labels, shared links, and device webhooks.",
+			"use_custom_webhook_url": "Use a custom base URL for IoT device webhooks",
+			"webhook_inherited_note": "IoT sensors will post telemetry to this same server address.",
+			"webhook_base_url_label": "Custom Webhook Base URL",
+			"webhook_base_url_placeholder": "e.g. http://192.168.1.100:5000 or https://api.example.com",
+			"webhook_base_url_help": "Optional separate base URL for IoT telemetry if your API runs on a different port or subdomain (e.g. port 5000 or api.example.com).",
+			"detect_host_btn": "Detect Current Host",
+			"localhost_warning": "Currently using a localhost loopback address. Smartphones and WiFi sensors cannot reach localhost. Set your computer's local network IP (e.g. 192.168.x.x) or domain for external connectivity.",
+			"save_network": "Save Network Settings",
+			"saving_network": "Saving Network Settings...",
+			"network_saved_toast": "Network settings saved successfully!"
 		},
 		"backup": {
 			"title": "Backup & Restore",

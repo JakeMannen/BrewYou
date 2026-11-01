@@ -58,6 +58,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(u => u.MqttPassword).HasMaxLength(1024);
             entity.Property(u => u.MqttCertificate).HasMaxLength(16384);
             entity.Property(u => u.MqttTopicPrefix).HasMaxLength(150).HasDefaultValue("brewyou/equipment");
+            entity.Property(u => u.AppBaseUrl).HasMaxLength(255);
+            entity.Property(u => u.WebhookBaseUrl).HasMaxLength(255);
         });
 
         builder.Entity<BrewerySetup>(entity =>

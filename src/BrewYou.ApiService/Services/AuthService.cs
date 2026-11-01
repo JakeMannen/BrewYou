@@ -385,6 +385,16 @@ public class AuthService(
             user.MqttTopicPrefix = string.IsNullOrWhiteSpace(trimmed) ? "brewyou/equipment" : trimmed;
         }
 
+        if (request.AppBaseUrl != null)
+        {
+            user.AppBaseUrl = string.IsNullOrWhiteSpace(request.AppBaseUrl) ? null : request.AppBaseUrl.Trim().TrimEnd('/');
+        }
+
+        if (request.WebhookBaseUrl != null)
+        {
+            user.WebhookBaseUrl = string.IsNullOrWhiteSpace(request.WebhookBaseUrl) ? null : request.WebhookBaseUrl.Trim().TrimEnd('/');
+        }
+
         await userManager.UpdateAsync(user);
         return MapToUserDto(user);
     }
@@ -475,7 +485,9 @@ public class AuthService(
             CarbonationUnit: user.PreferredCarbonationUnit ?? "Volumes",
             BitternessFormula: user.PreferredBitternessFormula ?? "Tinseth",
             ColorFormula: user.PreferredColorFormula ?? "Morey",
-            AbvFormula: user.PreferredAbvFormula ?? "Linear"
+            AbvFormula: user.PreferredAbvFormula ?? "Linear",
+            AppBaseUrl: user.AppBaseUrl,
+            WebhookBaseUrl: user.WebhookBaseUrl
         );
 
         return new UserDto(

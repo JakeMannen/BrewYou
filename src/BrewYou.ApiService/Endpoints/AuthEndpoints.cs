@@ -37,7 +37,9 @@ public record UserPreferencesDto(
     string? CarbonationUnit = "Volumes",
     string? BitternessFormula = "Tinseth",
     string? ColorFormula = "Morey",
-    string? AbvFormula = "Linear");
+    string? AbvFormula = "Linear",
+    string? AppBaseUrl = null,
+    string? WebhookBaseUrl = null);
 
 public record UpdateUserPreferencesRequest(
     string? Language = null,
@@ -61,7 +63,9 @@ public record UpdateUserPreferencesRequest(
     string? CarbonationUnit = null,
     string? BitternessFormula = null,
     string? ColorFormula = null,
-    string? AbvFormula = null);
+    string? AbvFormula = null,
+    string? AppBaseUrl = null,
+    string? WebhookBaseUrl = null);
 
 public record UpdateProfileRequest(string DisplayName);
 

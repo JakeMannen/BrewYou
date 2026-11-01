@@ -21,6 +21,7 @@ builder.AddNpmApp("web", "../BrewYou.Web", "dev")
     .WaitFor(apiService)
     .WithHttpEndpoint(port: 3000, env: "PORT")
     .WithExternalHttpEndpoints()
-    .WithEnvironment("PUBLIC_APP_URL", builder.Configuration["PUBLIC_APP_URL"] ?? "");
+    .WithEnvironment("PUBLIC_APP_URL", builder.Configuration["PUBLIC_APP_URL"] ?? "")
+    .WithEnvironment("PUBLIC_API_URL", builder.Configuration["PUBLIC_API_URL"] ?? "");
 
 builder.Build().Run();

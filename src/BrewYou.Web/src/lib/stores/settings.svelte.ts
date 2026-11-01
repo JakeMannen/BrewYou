@@ -3,6 +3,7 @@ import { api } from '$lib/api/client';
 import { auth, onAuthCleared } from '$lib/stores/auth.svelte';
 import { theme, type ThemePreference as ThemeStorePreference } from '$lib/stores/theme.svelte';
 import { formatNumber } from '$lib/utils/formatNumber';
+import { isLocalhostUrl } from '$lib/utils/batchQr';
 import type {
 	GravityUnit,
 	TemperatureUnit,
@@ -277,8 +278,96 @@ class SettingsState {
 	mqttConnected = $state<boolean | null>(null);
 	mqttChecking = $state<boolean>(false);
 
+	appBaseUrl = $state<string>('');
+	webhookBaseUrl = $state<string>('');
+
 	get hasMqttConfigured(): boolean {
 		return !!this.mqttHost.trim();
+	}
+
+	get resolvedAppBaseUrl(): string {
+		if (this.appBaseUrl && this.appBaseUrl.trim()) {
+			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		}
+		const metaEnv =
+			typeof import.meta !== 'undefined'
+				? (import.meta as unknown as { env?: Record<string, string> }).env
+				: undefined;
+		const envUrl =
+			metaEnv?.PUBLIC_APP_URL ||
+			(typeof process !== 'undefined' ? process.env?.PUBLIC_APP_URL : undefined);
+		if (
+			envUrl &&
+			typeof envUrl === 'string' &&
+			envUrl.trim().length > 0 &&
+			!isLocalhostUrl(envUrl)
+		) {
+			return envUrl.trim().replace(/\/+$/, '');
+		}
+		if (
+			typeof window !== 'undefined' &&
+			window.location?.origin &&
+			!isLocalhostUrl(window.location.origin)
+		) {
+			return window.location.origin.replace(/\/+$/, '');
+		}
+		if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
+			return envUrl.trim().replace(/\/+$/, '');
+		}
+		if (typeof window !== 'undefined' && window.location?.origin) {
+			return window.location.origin.replace(/\/+$/, '');
+		}
+		return 'http://localhost:3000';
+	}
+
+	get resolvedWebhookBaseUrl(): string {
+		if (this.webhookBaseUrl && this.webhookBaseUrl.trim()) {
+			return this.webhookBaseUrl.trim().replace(/\/+$/, '');
+		}
+		// In most deployments (reverse proxies, LAN IP, domains), webhooks share the application base URL
+		if (this.appBaseUrl && this.appBaseUrl.trim()) {
+			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		}
+		const metaEnv =
+			typeof import.meta !== 'undefined'
+				? (import.meta as unknown as { env?: Record<string, string> }).env
+				: undefined;
+		const envUrl =
+			metaEnv?.PUBLIC_API_URL ||
+			(typeof process !== 'undefined' ? process.env?.PUBLIC_API_URL : undefined);
+		if (
+			envUrl &&
+			typeof envUrl === 'string' &&
+			envUrl.trim().length > 0 &&
+			!isLocalhostUrl(envUrl)
+		) {
+			return envUrl.trim().replace(/\/+$/, '');
+		}
+		// If application base URL resolved to a custom non-localhost address
+		const resolvedApp = this.resolvedAppBaseUrl;
+		if (resolvedApp && !isLocalhostUrl(resolvedApp)) {
+			if (resolvedApp.includes(':3000')) {
+				return resolvedApp.replace(':3000', ':5000');
+			}
+			return resolvedApp;
+		}
+		if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
+			return envUrl.trim().replace(/\/+$/, '');
+		}
+		if (typeof window !== 'undefined' && window.location?.origin) {
+			const origin = window.location.origin;
+			const base = origin.includes(':3000') ? origin.replace(':3000', ':5000') : origin;
+			return base.replace(/\/+$/, '');
+		}
+		return 'http://localhost:5000';
+	}
+
+	get isAppUrlLocalhost(): boolean {
+		return isLocalhostUrl(this.resolvedAppBaseUrl);
+	}
+
+	get isWebhookUrlLocalhost(): boolean {
+		return isLocalhostUrl(this.resolvedWebhookBaseUrl);
 	}
 
 	get weightUnit(): WeightUnit {
@@ -501,6 +590,12 @@ class SettingsState {
 
 			const savedMqttTopicPrefix = localStorage.getItem('brewyou_mqtt_topic_prefix');
 			if (savedMqttTopicPrefix !== null) this.mqttTopicPrefix = savedMqttTopicPrefix;
+
+			const savedAppUrl = localStorage.getItem('brewyou_app_base_url');
+			if (savedAppUrl !== null) this.appBaseUrl = savedAppUrl;
+
+			const savedWebhookUrl = localStorage.getItem('brewyou_webhook_base_url');
+			if (savedWebhookUrl !== null) this.webhookBaseUrl = savedWebhookUrl;
 		}
 
 		if (auth.user?.preferences) {
@@ -575,6 +670,8 @@ class SettingsState {
 		if (pref.mqttTopicPrefix !== undefined) {
 			this.mqttTopicPrefix = pref.mqttTopicPrefix ?? 'brewyou/equipment';
 		}
+		if (pref.appBaseUrl !== undefined) this.appBaseUrl = pref.appBaseUrl ?? '';
+		if (pref.webhookBaseUrl !== undefined) this.webhookBaseUrl = pref.webhookBaseUrl ?? '';
 
 		this.persistToLocalStorage();
 
@@ -822,6 +919,12 @@ class SettingsState {
 		}
 	}
 
+	async setNetworkSettings(appBaseUrl: string, webhookBaseUrl: string): Promise<void> {
+		this.appBaseUrl = appBaseUrl.trim().replace(/\/+$/, '');
+		this.webhookBaseUrl = webhookBaseUrl.trim().replace(/\/+$/, '');
+		await this.syncAllToBackend();
+	}
+
 	async syncAllToBackend(): Promise<void> {
 		this.persistToLocalStorage();
 
@@ -847,7 +950,9 @@ class SettingsState {
 				mqttUsername: this.mqttUsername.trim() || null,
 				mqttPassword: this.mqttPassword ? this.mqttPassword : null,
 				mqttCertificate: this.mqttCertificate.trim() || null,
-				mqttTopicPrefix: this.mqttTopicPrefix.trim() || 'brewyou/equipment'
+				mqttTopicPrefix: this.mqttTopicPrefix.trim() || 'brewyou/equipment',
+				appBaseUrl: this.appBaseUrl.trim() || null,
+				webhookBaseUrl: this.webhookBaseUrl.trim() || null
 			});
 
 			if (auth.user && updatedUser.preferences) {
@@ -883,6 +988,8 @@ class SettingsState {
 			localStorage.setItem('brewyou_mqtt_username', this.mqttUsername);
 			localStorage.setItem('brewyou_mqtt_certificate', this.mqttCertificate);
 			localStorage.setItem('brewyou_mqtt_topic_prefix', this.mqttTopicPrefix);
+			localStorage.setItem('brewyou_app_base_url', this.appBaseUrl);
+			localStorage.setItem('brewyou_webhook_base_url', this.webhookBaseUrl);
 		}
 	}
 
