@@ -79,7 +79,9 @@ public record UserSettingsBackupDto(
     string? MqttPasswordEncrypted = null,
     bool HasMqttPassword = false,
     string? MqttCertificate = null,
-    string? MqttTopicPrefix = "brewyou/equipment"
+    string? MqttTopicPrefix = "brewyou/equipment",
+    string? AppBaseUrl = null,
+    string? WebhookBaseUrl = null
 );
 
 public record IngredientSnapshotDto(

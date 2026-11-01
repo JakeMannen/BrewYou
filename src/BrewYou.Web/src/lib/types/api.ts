@@ -288,6 +288,8 @@ export interface UserPreferencesDto {
 	bitternessFormula?: BitternessFormulaPreference;
 	colorFormula?: ColorFormulaPreference;
 	abvFormula?: AbvFormulaPreference;
+	appBaseUrl?: string | null;
+	webhookBaseUrl?: string | null;
 }
 
 export interface UpdateUserPreferencesRequest {
@@ -313,6 +315,8 @@ export interface UpdateUserPreferencesRequest {
 	bitternessFormula?: BitternessFormulaPreference;
 	colorFormula?: ColorFormulaPreference;
 	abvFormula?: AbvFormulaPreference;
+	appBaseUrl?: string | null;
+	webhookBaseUrl?: string | null;
 }
 
 export interface MqttStatusResponse {

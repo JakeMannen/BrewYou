@@ -183,6 +183,7 @@ Physical cellar tracking bridges the gap between digital batch logs and physical
 - **Dual-Layer Identification**: Labels prominently feature the canonical batch code (e.g. `B-2026-10-30-01`), recipe name, beer style, and brew date underneath the QR code for instant human readability in the cellar.
 - **High-Contrast Optical Rendering**: Rendered as crisp vector SVG with standard quiet zones to ensure reliable scans under poor cellar lighting conditions and cold condensation.
 - **One-Click Export & Print**: Export labels as vector SVGs, high-resolution PNG images (720×980) for digital records, copy canonical deep links, or trigger browser print preview styled exclusively for sticker printing.
+- **Configurable Hostnames & Mobile LAN Access**: Configure your server's LAN IP (e.g. `http://192.168.1.50:3000`) or public domain in **Settings ➔ Network ➔ Network & External Access** (or override directly in the QR modal), ensuring smartphone cameras scan and open your batch cockpit seamlessly on your Wi-Fi network without `localhost` connection errors.
 - **Accessible Everywhere**: Available from the **QR** button to the left of _Batchöversikt_ on `/batches` cards, as well as in the **Brew Day Cockpit** (`/batches/[id]`) action bar.
 
 ### Equipment & Tap Dispenser Inventory
@@ -233,7 +234,7 @@ BrewYou features an extensible IoT telemetry architecture that connects physical
 
 1. **Get Device Credentials**: In **Inventory ➔ Equipment**, open your equipment or sensor settings to view its unique device token and ingestion endpoints.
 2. **Set Up Ingestion**:
-   - **HTTP Push (iSpindle / Tilt / Webhooks)**: Configure your device to post JSON to `http://<host>:5000/api/v1/telemetry/equipment` with header `X-BrewYou-Device-Token: <token>`, or use the route `POST /api/v1/telemetry/equipment/<token>`.
+   - **HTTP Push (iSpindle / Tilt / Webhooks)**: Configure your device to post JSON to `http://<host>:5000/api/v1/telemetry/equipment` with header `X-BrewYou-Device-Token: <token>`, or use the route `POST /api/v1/telemetry/equipment/<token>`. You can configure the external hostname/IP in **Settings ➔ Network ➔ Network & External Access** or override directly in the equipment modal.
    - **MQTT Connection**: Navigate to **Settings ➔ Integrations / MQTT**, provide your MQTT broker host (e.g., `localhost` or container name) and port (`1883`), and configure your IoT device to publish to the auto-generated topic (e.g., `brewyou/equipment/<equipment-id>/telemetry`).
 3. **Verify Connection**: Check the live MQTT and device connection status badges in user settings and equipment cards.
 4. **Observe Real-Time Updates**: Watch live temperature, gravity, and pressure readings update automatically on your dashboard, equipment cards, and batch charts without manual page refreshes.
@@ -465,13 +466,13 @@ Configured via `appsettings.json`, `appsettings.Development.json`, or environmen
 
 Configured via `.env` or container environment variables:
 
-| Variable                        | Description                                               | Default Value            |
-| :------------------------------ | :-------------------------------------------------------- | :----------------------- |
-| `PUBLIC_API_URL`                | Base URL used by browser clients to query the API         | `http://localhost:5000`  |
-| `PUBLIC_APP_URL`                | Public application base URL for mobile QR code deep-links | `http://localhost:3000`  |
-| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server         | `http://apiservice:5000` |
-| `PORT`                          | Listening port for the SvelteKit node server              | `3000`                   |
-| `HOST`                          | Interface binding for SvelteKit server                    | `0.0.0.0`                |
+| Variable                        | Description                                       | Default Value            |
+| :------------------------------ | :------------------------------------------------ | :----------------------- |
+| `PUBLIC_API_URL`                | Default base URL for browser API calls and external IoT telemetry webhooks (customizable in UI) | `http://localhost:5000`  |
+| `PUBLIC_APP_URL`                | Default public base URL for mobile QR code cellar labels (customizable in UI) | `http://localhost:3000`  |
+| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server | `http://apiservice:5000` |
+| `PORT`                          | Listening port for the SvelteKit node server      | `3000`                   |
+| `HOST`                          | Interface binding for SvelteKit server            | `0.0.0.0`                |
 
 ---
 

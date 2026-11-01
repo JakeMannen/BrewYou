@@ -827,6 +827,28 @@ public class UpdateUserPreferencesRequestValidator : AbstractValidator<UpdateUse
             .Must(f => ValidAbvFormulas.Contains(f!.Trim()))
             .When(x => !string.IsNullOrWhiteSpace(x.AbvFormula))
             .WithMessage("ABV formula must be 'Linear' or 'Advanced'.");
+
+        RuleFor(x => x.AppBaseUrl)
+            .MaximumLength(255)
+            .When(x => !string.IsNullOrEmpty(x.AppBaseUrl))
+            .WithMessage("App base URL cannot exceed 255 characters.");
+
+        RuleFor(x => x.AppBaseUrl)
+            .Must(url => Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                         (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            .When(x => !string.IsNullOrWhiteSpace(x.AppBaseUrl))
+            .WithMessage("App base URL must be a valid absolute HTTP or HTTPS URL.");
+
+        RuleFor(x => x.WebhookBaseUrl)
+            .MaximumLength(255)
+            .When(x => !string.IsNullOrEmpty(x.WebhookBaseUrl))
+            .WithMessage("Webhook base URL cannot exceed 255 characters.");
+
+        RuleFor(x => x.WebhookBaseUrl)
+            .Must(url => Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                         (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            .When(x => !string.IsNullOrWhiteSpace(x.WebhookBaseUrl))
+            .WithMessage("Webhook base URL must be a valid absolute HTTP or HTTPS URL.");
     }
 }
 

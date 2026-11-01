@@ -24,6 +24,7 @@
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import VesselIcon from './VesselIcon.svelte';
 	import { isVesselFillable } from './vessel-geometry';
+	import { isLocalhostUrl } from '$lib/utils/batchQr';
 	import {
 		X,
 		Loader2,
@@ -37,7 +38,8 @@
 		Globe,
 		Radio,
 		Eye,
-		EyeOff
+		EyeOff,
+		AlertTriangle
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -454,15 +456,19 @@
 		}
 	});
 
+	let customWebhookBase = $state('');
+	let showWebhookOverride = $state(false);
+
+	let activeWebhookBase = $derived(
+		customWebhookBase.trim()
+			? customWebhookBase.trim().replace(/\/+$/, '')
+			: settings.resolvedWebhookBaseUrl
+	);
+	let isWebhookLocalhost = $derived(isLocalhostUrl(activeWebhookBase));
+
 	let webhookUrl = $derived.by(() => {
 		if (!connectionToken) return '';
-		if (typeof window !== 'undefined') {
-			const baseUrl = window.location.origin.includes('3000')
-				? window.location.origin.replace(':3000', ':5000')
-				: window.location.origin;
-			return `${baseUrl}/api/v1/telemetry/equipment/${connectionToken}`;
-		}
-		return `/api/v1/telemetry/equipment/${connectionToken}`;
+		return `${activeWebhookBase}/api/v1/telemetry/equipment/${connectionToken}`;
 	});
 
 	async function copyWebhookUrl() {
@@ -1364,6 +1370,74 @@
 							</p>
 
 							{#if connectionToken}
+								{#if isWebhookLocalhost}
+									<div
+										class="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200"
+										role="alert"
+										data-testid="webhook-localhost-warning"
+									>
+										<div class="flex items-start gap-2">
+											<AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+											<div class="flex-1 space-y-1">
+												<p class="text-[11px] leading-relaxed font-medium">
+													{t('equipment.webhook_localhost_warning')}
+												</p>
+												<div class="flex flex-wrap items-center gap-2 pt-0.5 text-[10px]">
+													<button
+														type="button"
+														onclick={() => (showWebhookOverride = !showWebhookOverride)}
+														class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+													>
+														{t('equipment.override_webhook_host')}
+													</button>
+													<span>•</span>
+													<a
+														href="/settings#connectivity"
+														class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+													>
+														{t('equipment.open_settings')}
+													</a>
+												</div>
+											</div>
+										</div>
+									</div>
+								{/if}
+
+								{#if showWebhookOverride}
+									<div class="mt-2 space-y-1" data-testid="webhook-override-section">
+										<label
+											for="webhook-override-host"
+											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+										>
+											{t('equipment.override_webhook_label')}
+										</label>
+										<div class="flex items-center gap-2">
+											<div class="relative flex-1">
+												<Globe
+													class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+												/>
+												<input
+													id="webhook-override-host"
+													data-testid="webhook-override-input"
+													type="text"
+													bind:value={customWebhookBase}
+													placeholder={settings.resolvedWebhookBaseUrl}
+													class="w-full rounded-lg border border-zinc-200 bg-white py-1 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
+												/>
+											</div>
+											{#if customWebhookBase}
+												<button
+													type="button"
+													onclick={() => (customWebhookBase = '')}
+													class="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+												>
+													Reset
+												</button>
+											{/if}
+										</div>
+									</div>
+								{/if}
+
 								<div class="mt-2 flex items-center gap-2">
 									<input
 										type="text"

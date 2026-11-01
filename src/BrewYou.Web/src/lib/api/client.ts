@@ -82,9 +82,12 @@ interface CustomWindow extends Window {
 
 const API_BASE =
 	typeof window !== 'undefined'
-		? (window as unknown as CustomWindow).__API_URL__ || 'http://localhost:5000'
+		? (window as unknown as CustomWindow).__API_URL__ ||
+			import.meta.env.PUBLIC_API_URL ||
+			'http://localhost:5000'
 		: process.env.services__apiservice__http__0 ||
 			process.env.services__apiservice__https__0 ||
+			process.env.PUBLIC_API_URL ||
 			'http://localhost:5000';
 
 export function getApiBaseUrl(): string {

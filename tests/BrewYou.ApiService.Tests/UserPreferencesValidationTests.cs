@@ -246,4 +246,64 @@ public class UserPreferencesValidationTests
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == "MqttTopicPrefix");
     }
+
+    [Theory]
+    [InlineData("http://localhost:3000")]
+    [InlineData("https://brewyou.example.com")]
+    [InlineData("http://192.168.1.100:3000")]
+    public async Task ValidatePreferences_ValidAppBaseUrl_PassesValidation(string url)
+    {
+        var request = new UpdateUserPreferencesRequest(AppBaseUrl: url);
+        var result = await _preferencesValidator.ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("not-a-valid-url")]
+    [InlineData("ftp://files.example.com")]
+    [InlineData("file:///etc/hosts")]
+    public async Task ValidatePreferences_InvalidAppBaseUrl_FailsValidation(string url)
+    {
+        var request = new UpdateUserPreferencesRequest(AppBaseUrl: url);
+        var result = await _preferencesValidator.ValidateAsync(request);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == "AppBaseUrl");
+    }
+
+    [Fact]
+    public async Task ValidatePreferences_TooLongAppBaseUrl_FailsValidation()
+    {
+        var longUrl = "http://" + new string('a', 250) + ".com";
+        var request = new UpdateUserPreferencesRequest(AppBaseUrl: longUrl);
+        var result = await _preferencesValidator.ValidateAsync(request);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == "AppBaseUrl");
+    }
+
+    [Theory]
+    [InlineData("http://localhost:5000")]
+    [InlineData("https://api.example.com")]
+    [InlineData("http://192.168.1.100:5000")]
+    public async Task ValidatePreferences_ValidWebhookBaseUrl_PassesValidation(string url)
+    {
+        var request = new UpdateUserPreferencesRequest(WebhookBaseUrl: url);
+        var result = await _preferencesValidator.ValidateAsync(request);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("invalid-endpoint")]
+    [InlineData("ws://broker.example.com")]
+    public async Task ValidatePreferences_InvalidWebhookBaseUrl_FailsValidation(string url)
+    {
+        var request = new UpdateUserPreferencesRequest(WebhookBaseUrl: url);
+        var result = await _preferencesValidator.ValidateAsync(request);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == "WebhookBaseUrl");
+    }
 }

@@ -212,6 +212,36 @@ public class UserPreferencesEndpointTests : IClassFixture<WebApplicationFactory<
     }
 
     [Fact]
+    public async Task UpdateUserPreferences_WithNetworkHostnames_PersistsAndReturnsAppAndWebhookUrls()
+    {
+        var (token, _) = await RegisterTestUserAsync("network_urls");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var updateReq = new UpdateUserPreferencesRequest(
+            AppBaseUrl: "http://192.168.1.150:3000/",
+            WebhookBaseUrl: "http://192.168.1.150:5000/"
+        );
+
+        var putResponse = await _client.PutAsJsonAsync("/api/v1/auth/me/preferences", updateReq);
+        putResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var putEnvelope = await putResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+        putEnvelope!.Success.Should().BeTrue();
+        var updated = putEnvelope.Data!;
+
+        // TrimEnd('/') should ensure clean base URLs
+        updated.Preferences.AppBaseUrl.Should().Be("http://192.168.1.150:3000");
+        updated.Preferences.WebhookBaseUrl.Should().Be("http://192.168.1.150:5000");
+
+        // Verify GET /api/v1/auth/me retains network hostnames
+        var getResponse = await _client.GetAsync("/api/v1/auth/me");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getEnvelope = await getResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+        getEnvelope!.Data!.Preferences.AppBaseUrl.Should().Be("http://192.168.1.150:3000");
+        getEnvelope.Data.Preferences.WebhookBaseUrl.Should().Be("http://192.168.1.150:5000");
+    }
+
+    [Fact]
     public async Task UpdateUserProfile_Authenticated_UpdatesDisplayName()
     {
         var (token, _) = await RegisterTestUserAsync("update_name");
