@@ -25,19 +25,43 @@
 	let isSaving = $state(false);
 	let errorMessage = $state<string | null>(null);
 
+	// Centered aspect-matching defaults with headroom for zooming and panning
+	const DEFAULT_BOTTLE_CROP: LabelCropDto = { x: 0.181, y: 0.075, width: 0.6375, height: 0.85 };
+	const DEFAULT_ROUND_CROP: LabelCropDto = { x: 0.125, y: 0.125, width: 0.75, height: 0.75 };
+	const DEFAULT_RECT_CROP: LabelCropDto = { x: 0.06, y: 0.2525, width: 0.88, height: 0.495 };
+
 	// Working copies of crops & settings
-	let bottleCrop = $state<LabelCropDto>({ x: 0, y: 0, width: 1, height: 1 });
-	let roundCrop = $state<LabelCropDto>({ x: 0, y: 0, width: 1, height: 1 });
-	let rectCrop = $state<LabelCropDto>({ x: 0, y: 0, width: 1, height: 1 });
+	let bottleCrop = $state<LabelCropDto>({ ...DEFAULT_BOTTLE_CROP });
+	let roundCrop = $state<LabelCropDto>({ ...DEFAULT_ROUND_CROP });
+	let rectCrop = $state<LabelCropDto>({ ...DEFAULT_RECT_CROP });
 	let rectOrientation = $state<DisplayOrientation>('Landscape');
 	let bottleWidthMm = $state<number>(90);
 	let bottleHeightMm = $state<number>(120);
 
+	function isDefaultOrUnset(crop?: LabelCropDto | null): boolean {
+		if (!crop) return true;
+		return (
+			crop.x === 0 &&
+			crop.y === 0 &&
+			(crop.width === 1 || crop.width === 0) &&
+			(crop.height === 1 || crop.height === 0)
+		);
+	}
+
 	$effect(() => {
 		if (open && label) {
-			bottleCrop = label.bottleCrop ? { ...label.bottleCrop } : { x: 0, y: 0, width: 1, height: 1 };
-			roundCrop = label.roundCrop ? { ...label.roundCrop } : { x: 0, y: 0, width: 1, height: 1 };
-			rectCrop = label.rectCrop ? { ...label.rectCrop } : { x: 0, y: 0, width: 1, height: 1 };
+			bottleCrop =
+				label.bottleCrop && !isDefaultOrUnset(label.bottleCrop)
+					? { ...label.bottleCrop }
+					: { ...DEFAULT_BOTTLE_CROP };
+			roundCrop =
+				label.roundCrop && !isDefaultOrUnset(label.roundCrop)
+					? { ...label.roundCrop }
+					: { ...DEFAULT_ROUND_CROP };
+			rectCrop =
+				label.rectCrop && !isDefaultOrUnset(label.rectCrop)
+					? { ...label.rectCrop }
+					: { ...DEFAULT_RECT_CROP };
 			rectOrientation = label.rectOrientation ?? 'Landscape';
 			bottleWidthMm = label.bottleWidthMm ?? 90;
 			bottleHeightMm = label.bottleHeightMm ?? 120;
@@ -51,38 +75,138 @@
 		return rectCrop;
 	}
 
-	function updateCropOffset(axis: 'x' | 'y', percentValue: number) {
-		const decimal = Math.max(0, Math.min(1, percentValue / 100));
+	function setCurrentCrop(crop: LabelCropDto) {
 		if (activeTab === 'bottle') {
-			bottleCrop = { ...bottleCrop, [axis]: decimal };
+			bottleCrop = crop;
 		} else if (activeTab === 'round') {
-			roundCrop = { ...roundCrop, [axis]: decimal };
+			roundCrop = crop;
 		} else {
-			rectCrop = { ...rectCrop, [axis]: decimal };
+			rectCrop = crop;
 		}
 	}
 
-	function updateCropZoom(zoomPercent: number) {
-		// Zoom 100% means width=1, zoom 200% means width=0.5
-		const widthRatio = Math.max(0.1, Math.min(1, 100 / zoomPercent));
-		const heightRatio = widthRatio;
-		if (activeTab === 'bottle') {
-			bottleCrop = { ...bottleCrop, width: widthRatio, height: heightRatio };
-		} else if (activeTab === 'round') {
-			roundCrop = { ...roundCrop, width: widthRatio, height: heightRatio };
-		} else {
-			rectCrop = { ...rectCrop, width: widthRatio, height: heightRatio };
+	function round4(val: number): number {
+		return Math.round(val * 10000) / 10000;
+	}
+
+	function getTargetAspect(): number {
+		if (activeTab === 'round') return 1.0;
+		if (activeTab === 'rect') return rectOrientation === 'Landscape' ? 16 / 9 : 9 / 16;
+		return Math.max(10, bottleWidthMm) / Math.max(10, bottleHeightMm);
+	}
+
+	function getMaxDimensions(): { wMax: number; hMax: number } {
+		const targetAspect = getTargetAspect();
+		const srcAspect = label.widthPx && label.heightPx ? label.widthPx / label.heightPx : 1.0;
+		const r = targetAspect / srcAspect;
+		if (r >= 1.0) {
+			return { wMax: 1.0, hMax: Math.min(1.0, 1.0 / r) };
 		}
+		return { wMax: Math.min(1.0, r), hMax: 1.0 };
+	}
+
+	// Sliders derived values
+	let currentCrop = $derived(getCurrentCrop());
+	let maxDims = $derived(getMaxDimensions());
+
+	let currentZoom = $derived.by(() => {
+		const k = Math.min(currentCrop.width / maxDims.wMax, currentCrop.height / maxDims.hMax);
+		// k = 1.0 => zoom = 50 (most zoomed out)
+		// k = 0.75 => zoom = 100 (middle default)
+		// k = 0.5 => zoom = 150 (zoomed in)
+		const calculated = 50 + (1.0 - Math.min(1.0, Math.max(0.4, k))) * 200;
+		return Math.max(50, Math.min(150, Math.round(calculated)));
+	});
+
+	let currentHPos = $derived.by(() => {
+		const maxShift = 1.0 - currentCrop.width;
+		if (maxShift <= 0.001) return 50;
+		return Math.max(0, Math.min(100, Math.round((currentCrop.x / maxShift) * 100)));
+	});
+
+	let currentVPos = $derived.by(() => {
+		const maxShift = 1.0 - currentCrop.height;
+		if (maxShift <= 0.001) return 50;
+		return Math.max(0, Math.min(100, Math.round((currentCrop.y / maxShift) * 100)));
+	});
+
+	function handleZoomChange(newZoom: number) {
+		const k = 1.0 - (newZoom - 50) * 0.005;
+		const newW = Math.max(0.05, Math.min(1.0, maxDims.wMax * k));
+		const newH = Math.max(0.05, Math.min(1.0, maxDims.hMax * k));
+		const newX = (currentHPos / 100) * (1.0 - newW);
+		const newY = (currentVPos / 100) * (1.0 - newH);
+
+		setCurrentCrop({
+			x: round4(newX),
+			y: round4(newY),
+			width: round4(newW),
+			height: round4(newH)
+		});
+	}
+
+	function handleHPosChange(newHPos: number) {
+		const maxShift = 1.0 - currentCrop.width;
+		const newX = (newHPos / 100) * maxShift;
+		setCurrentCrop({
+			...currentCrop,
+			x: round4(newX)
+		});
+	}
+
+	function handleVPosChange(newVPos: number) {
+		const maxShift = 1.0 - currentCrop.height;
+		const newY = (newVPos / 100) * maxShift;
+		setCurrentCrop({
+			...currentCrop,
+			y: round4(newY)
+		});
 	}
 
 	function handleResetCurrentCrop() {
-		if (activeTab === 'bottle') {
-			bottleCrop = { x: 0, y: 0, width: 1, height: 1 };
-		} else if (activeTab === 'round') {
-			roundCrop = { x: 0, y: 0, width: 1, height: 1 };
-		} else if (activeTab === 'rect') {
-			rectCrop = { x: 0, y: 0, width: 1, height: 1 };
-		}
+		const k = 0.75; // 100% middle zoom
+		const newW = Math.max(0.05, Math.min(1.0, maxDims.wMax * k));
+		const newH = Math.max(0.05, Math.min(1.0, maxDims.hMax * k));
+		const newX = 0.5 * (1.0 - newW);
+		const newY = 0.5 * (1.0 - newH);
+
+		setCurrentCrop({
+			x: round4(newX),
+			y: round4(newY),
+			width: round4(newW),
+			height: round4(newH)
+		});
+	}
+
+	function handleOrientationChange(orientation: DisplayOrientation) {
+		rectOrientation = orientation;
+		const targetAspect = orientation === 'Landscape' ? 16 / 9 : 9 / 16;
+		const srcAspect = label.widthPx && label.heightPx ? label.widthPx / label.heightPx : 1.0;
+		const r = targetAspect / srcAspect;
+		const wMax = r >= 1.0 ? 1.0 : Math.min(1.0, r);
+		const hMax = r >= 1.0 ? Math.min(1.0, 1.0 / r) : 1.0;
+		const k = 0.75;
+		const newW = Math.max(0.05, Math.min(1.0, wMax * k));
+		const newH = Math.max(0.05, Math.min(1.0, hMax * k));
+		rectCrop = {
+			x: round4(0.5 * (1.0 - newW)),
+			y: round4(0.5 * (1.0 - newH)),
+			width: round4(newW),
+			height: round4(newH)
+		};
+	}
+
+	function sanitizeCrop(c: LabelCropDto): LabelCropDto {
+		const w = Math.max(0.05, Math.min(1.0, c.width));
+		const h = Math.max(0.05, Math.min(1.0, c.height));
+		const x = Math.max(0.0, Math.min(1.0 - w, c.x));
+		const y = Math.max(0.0, Math.min(1.0 - h, c.y));
+		return {
+			x: round4(x),
+			y: round4(y),
+			width: round4(w),
+			height: round4(h)
+		};
 	}
 
 	async function handleSave() {
@@ -90,9 +214,9 @@
 		errorMessage = null;
 		try {
 			const req: UpdateRecipeLabelSettingsRequest = {
-				bottleCrop,
-				roundCrop,
-				rectCrop,
+				bottleCrop: sanitizeCrop(bottleCrop),
+				roundCrop: sanitizeCrop(roundCrop),
+				rectCrop: sanitizeCrop(rectCrop),
 				rectOrientation,
 				bottleWidthMm,
 				bottleHeightMm
@@ -117,13 +241,11 @@
 		}
 	}
 
-	let currentCrop = $derived(getCurrentCrop());
 	let originalUrl = $derived(
 		getLabelImageUrl(label.imageUrls, 'original') ||
 			getLabelImageUrl(label.imageUrls, 'bottle') ||
 			getLabelImageUrl(label.imageUrls, 'card')
 	);
-	let currentZoom = $derived(Math.round(100 / Math.max(0.1, currentCrop.width)));
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -225,7 +347,7 @@
 				{/if}
 
 				<div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-					<!-- Preview Graphic with Simulated Viewport Mask -->
+					<!-- Preview Graphic with Mathematically Exact Viewport Mask -->
 					<div
 						class="flex flex-col items-center justify-center rounded-2xl border border-zinc-200/80 bg-zinc-950 p-4 dark:border-white/5"
 					>
@@ -234,19 +356,23 @@
 							'round'
 								? 'h-56 w-56 rounded-full'
 								: activeTab === 'bottle'
-									? 'h-64 w-44 rounded-xl'
+									? 'h-64 rounded-xl'
 									: rectOrientation === 'Portrait'
-										? 'h-64 w-40 rounded-xl'
+										? 'h-64 w-36 rounded-xl'
 										: 'h-40 w-64 rounded-xl'}"
+							style={activeTab === 'bottle'
+								? `width: ${Math.round(256 * (Math.max(10, bottleWidthMm) / Math.max(10, bottleHeightMm)))}px; max-width: 240px; min-width: 120px;`
+								: ''}
 						>
 							{#if originalUrl}
 								<img
 									src={resolveApiUrl(originalUrl)}
 									alt="Source preview"
-									class="absolute h-full w-full object-cover transition-all"
-									style="object-position: {Math.round(currentCrop.x * 100)}% {Math.round(
-										currentCrop.y * 100
-									)}%; transform: scale({(currentZoom / 100).toFixed(2)});"
+									style="position: absolute; width: {(1 / Math.max(0.001, currentCrop.width)) *
+										100}%; height: {(1 / Math.max(0.001, currentCrop.height)) * 100}%; left: {-(
+										currentCrop.x / Math.max(0.001, currentCrop.width)
+									) * 100}%; top: {-(currentCrop.y / Math.max(0.001, currentCrop.height)) *
+										100}%; max-width: none; max-height: none; pointer-events: none;"
 								/>
 							{/if}
 						</div>
@@ -279,14 +405,14 @@
 						<div class="space-y-1">
 							<div class="flex justify-between text-xs text-zinc-500">
 								<span>{t('labels.horizontal_offset')}</span>
-								<span class="font-mono">{Math.round(currentCrop.x * 100)}%</span>
+								<span class="font-mono">{currentHPos}%</span>
 							</div>
 							<input
 								type="range"
 								min="0"
 								max="100"
-								value={Math.round(currentCrop.x * 100)}
-								oninput={(e) => updateCropOffset('x', Number((e.target as HTMLInputElement).value))}
+								value={currentHPos}
+								oninput={(e) => handleHPosChange(Number((e.target as HTMLInputElement).value))}
 								class="h-2 w-full cursor-pointer accent-amber-500"
 							/>
 						</div>
@@ -295,19 +421,19 @@
 						<div class="space-y-1">
 							<div class="flex justify-between text-xs text-zinc-500">
 								<span>{t('labels.vertical_offset')}</span>
-								<span class="font-mono">{Math.round(currentCrop.y * 100)}%</span>
+								<span class="font-mono">{currentVPos}%</span>
 							</div>
 							<input
 								type="range"
 								min="0"
 								max="100"
-								value={Math.round(currentCrop.y * 100)}
-								oninput={(e) => updateCropOffset('y', Number((e.target as HTMLInputElement).value))}
+								value={currentVPos}
+								oninput={(e) => handleVPosChange(Number((e.target as HTMLInputElement).value))}
 								class="h-2 w-full cursor-pointer accent-amber-500"
 							/>
 						</div>
 
-						<!-- Zoom / Scale -->
+						<!-- Zoom / Scale (50% to 150%, 100% middle default allows zooming out down to 50%) -->
 						<div class="space-y-1">
 							<div class="flex justify-between text-xs text-zinc-500">
 								<span>{t('labels.crop_zoom')}</span>
@@ -315,10 +441,11 @@
 							</div>
 							<input
 								type="range"
-								min="100"
-								max="250"
+								min="50"
+								max="150"
+								step="1"
 								value={currentZoom}
-								oninput={(e) => updateCropZoom(Number((e.target as HTMLInputElement).value))}
+								oninput={(e) => handleZoomChange(Number((e.target as HTMLInputElement).value))}
 								class="h-2 w-full cursor-pointer accent-amber-500"
 							/>
 						</div>
@@ -332,7 +459,7 @@
 								<div class="grid grid-cols-2 gap-2">
 									<button
 										type="button"
-										onclick={() => (rectOrientation = 'Landscape')}
+										onclick={() => handleOrientationChange('Landscape')}
 										class="rounded-xl border px-3 py-2 text-xs font-medium transition-colors {rectOrientation ===
 										'Landscape'
 											? 'border-amber-500 bg-amber-500/10 font-bold text-amber-700 dark:text-amber-400'
@@ -342,7 +469,7 @@
 									</button>
 									<button
 										type="button"
-										onclick={() => (rectOrientation = 'Portrait')}
+										onclick={() => handleOrientationChange('Portrait')}
 										class="rounded-xl border px-3 py-2 text-xs font-medium transition-colors {rectOrientation ===
 										'Portrait'
 											? 'border-amber-500 bg-amber-500/10 font-bold text-amber-700 dark:text-amber-400'

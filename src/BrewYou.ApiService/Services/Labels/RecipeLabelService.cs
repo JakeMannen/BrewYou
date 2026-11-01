@@ -194,7 +194,36 @@ public class RecipeLabelService : IRecipeLabelService
 
         if (recipe.Label == null)
         {
-            return (RecipeAccessResult.NotFound, null, "Recipe does not have a custom label artwork. Upload an image first.");
+            var defaultAsset = await GetDefaultAssetAsync();
+            var (defaultRoundCrop, _, _, _) = ResolveDefaultCropAndDimensions("round", 480);
+            var (defaultRectCrop, _, _, _) = ResolveDefaultCropAndDimensions("rect", 800);
+            var (defaultBottleCrop, _, _, _) = ResolveDefaultCropAndDimensions("bottle", 640);
+
+            recipe.Label = new RecipeLabel
+            {
+                RecipeId = recipe.Id,
+                ImageData = defaultAsset.ImageData,
+                ContentType = defaultAsset.ContentType,
+                WidthPx = defaultAsset.WidthPx,
+                HeightPx = defaultAsset.HeightPx,
+                SizeBytes = defaultAsset.ImageData.Length,
+                Sha256 = defaultAsset.Sha256,
+                Version = 1,
+                OriginalFileName = "default-label.webp",
+                BottleCrop = request.BottleCrop?.ToEntity() ?? defaultBottleCrop,
+                RoundCrop = request.RoundCrop?.ToEntity() ?? defaultRoundCrop,
+                RectCrop = request.RectCrop?.ToEntity() ?? defaultRectCrop,
+                RectOrientation = request.RectOrientation ?? DisplayOrientation.Landscape,
+                BottleWidthMm = request.BottleWidthMm ?? 90.0m,
+                BottleHeightMm = request.BottleHeightMm ?? 120.0m,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _db.RecipeLabels.Add(recipe.Label);
+            recipe.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("Materialized default label for recipe {RecipeId} with custom crops by user {UserId}", recipeId, userId);
+            return await GetRecipeLabelAsync(recipeId, userId, apiBaseUrl);
         }
 
         var label = recipe.Label;
@@ -429,9 +458,9 @@ public class RecipeLabelService : IRecipeLabelService
         var normalized = variant.Trim().ToLowerInvariant();
         return normalized switch
         {
-            "round" => (LabelCrop.Default, true, targetSize, targetSize),
-            "rect" or "card" => (new LabelCrop(0m, 0.21875m, 1m, 0.5625m), false, targetSize, (int)(targetSize * 9f / 16f)),
-            "bottle" => (new LabelCrop(0.125m, 0m, 0.75m, 1m), false, targetSize, (int)(targetSize * (120f / 90f))),
+            "round" => (new LabelCrop(0.125m, 0.125m, 0.75m, 0.75m), true, targetSize, targetSize),
+            "rect" or "card" => (new LabelCrop(0.06m, 0.2525m, 0.88m, 0.495m), false, targetSize, (int)(targetSize * 9f / 16f)),
+            "bottle" => (new LabelCrop(0.181m, 0.075m, 0.6375m, 0.85m), false, targetSize, (int)(targetSize * (120f / 90f))),
             "original" or _ => (LabelCrop.Default, false, targetSize, targetSize)
         };
     }

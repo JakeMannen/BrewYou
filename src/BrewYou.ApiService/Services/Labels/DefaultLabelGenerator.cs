@@ -8,7 +8,15 @@ public static class DefaultLabelGenerator
 {
     public const string DefaultAssetKey = "default-recipe-label";
 
-    public static (byte[] ImageData, string ContentType, int Width, int Height, string Sha256) GenerateDefaultLabel()
+    private static readonly Lazy<(byte[] ImageData, string ContentType, int Width, int Height, string Sha256)> CachedLabel =
+        new(GenerateDefaultLabelInternal);
+
+    public static string CurrentSha256 => CachedLabel.Value.Sha256;
+
+    public static (byte[] ImageData, string ContentType, int Width, int Height, string Sha256) GenerateDefaultLabel() =>
+        CachedLabel.Value;
+
+    private static (byte[] ImageData, string ContentType, int Width, int Height, string Sha256) GenerateDefaultLabelInternal()
     {
         const int size = 1024;
         var info = new SKImageInfo(size, size, SKColorType.Rgba8888, SKAlphaType.Premul);
@@ -60,42 +68,28 @@ public static class DefaultLabelGenerator
         };
         canvas.DrawCircle(size / 2f, size / 2f, size * 0.45f, innerRingPaint);
 
-        // 4. Draw the BrewYou Logo (loaded from embedded asset or local disk)
+        // 4. Draw the authentic BrewYou Logo (loaded from embedded resource or local disk)
         using var logoBitmap = LoadLogoBitmap();
-        if (logoBitmap != null)
+        if (logoBitmap == null)
         {
-            // Sized 560x560 centered: fits within 16:9 widescreen crops (height 576),
-            // circular dial bezels (diameter 1024), and 4:5 bottle labels without clipping.
-            const float logoSize = 560f;
-            var destRect = new SKRect(
-                (size - logoSize) / 2f,
-                (size - logoSize) / 2f,
-                (size + logoSize) / 2f,
-                (size + logoSize) / 2f);
-
-            using var logoPaint = new SKPaint
-            {
-                IsAntialias = true,
-                FilterQuality = SKFilterQuality.High
-            };
-            canvas.DrawBitmap(logoBitmap, destRect, logoPaint);
+            throw new InvalidOperationException("Required default logo asset 'default-logo.png' could not be loaded from assembly resources or local disk.");
         }
-        else
+
+        // Sized 500x500 centered: fits within 16:9 widescreen crops (height 576),
+        // circular dial bezels (diameter 1024), and 4:5 bottle labels without clipping.
+        const float logoSize = 500f;
+        var destRect = new SKRect(
+            (size - logoSize) / 2f,
+            (size - logoSize) / 2f,
+            (size + logoSize) / 2f,
+            (size + logoSize) / 2f);
+
+        using var logoPaint = new SKPaint
         {
-            // Procedural fallback if logo resource is not found
-            DrawStylizedHop(canvas, size / 2f, size * 0.44f, size * 0.22f);
-
-            using var textPaint = new SKPaint
-            {
-                IsAntialias = true,
-                Color = new SKColor(254, 243, 199),
-                TextSize = 58f,
-                TextAlign = SKTextAlign.Center,
-                Typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold),
-                FakeBoldText = true
-            };
-            canvas.DrawText("BREWYOU", size / 2f, size * 0.68f, textPaint);
-        }
+            IsAntialias = true,
+            FilterQuality = SKFilterQuality.High
+        };
+        canvas.DrawBitmap(logoBitmap, destRect, logoPaint);
 
         canvas.Flush();
 
@@ -123,7 +117,7 @@ public static class DefaultLabelGenerator
             }
         }
 
-        // Fallback paths for filesystem access in test runners or local tooling
+        // Fallback paths for filesystem access in test runners or local development
         var candidatePaths = new[]
         {
             Path.Combine(AppContext.BaseDirectory, "Assets", "default-logo.png"),
@@ -144,51 +138,5 @@ public static class DefaultLabelGenerator
         }
 
         return null;
-    }
-
-    private static void DrawStylizedHop(SKCanvas canvas, float cx, float cy, float radius)
-    {
-        using var petalFill = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Color = new SKColor(245, 158, 11, 210)
-        };
-        using var petalStroke = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            Color = new SKColor(251, 191, 36),
-            StrokeWidth = 3f
-        };
-
-        (float dx, float dy, float scale)[] petals =
-        [
-            (0f, -radius * 0.55f, 0.45f),
-            (-radius * 0.35f, -radius * 0.25f, 0.5f),
-            (radius * 0.35f, -radius * 0.25f, 0.5f),
-            (-radius * 0.45f, radius * 0.05f, 0.55f),
-            (radius * 0.45f, radius * 0.05f, 0.55f),
-            (0f, -radius * 0.05f, 0.58f),
-            (-radius * 0.25f, radius * 0.32f, 0.5f),
-            (radius * 0.25f, radius * 0.32f, 0.5f),
-            (0f, radius * 0.45f, 0.42f),
-            (0f, radius * 0.65f, 0.3f)
-        ];
-
-        foreach (var (dx, dy, s) in petals)
-        {
-            using var path = new SKPath();
-            var px = cx + dx;
-            var py = cy + dy;
-            var r = radius * s;
-            path.MoveTo(px, py - r);
-            path.QuadTo(px + r * 1.2f, py, px, py + r * 1.3f);
-            path.QuadTo(px - r * 1.2f, py, px, py - r);
-            path.Close();
-
-            canvas.DrawPath(path, petalFill);
-            canvas.DrawPath(path, petalStroke);
-        }
     }
 }

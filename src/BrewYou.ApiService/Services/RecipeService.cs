@@ -100,7 +100,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             {
                 imageUrl = r.HasCustomLabel && r.LabelVersion.HasValue
                     ? urlSigner.BuildSignedImageUrl("", r.Id, "card", 640, r.LabelVersion.Value)
-                    : urlSigner.BuildDefaultImageUrl("", "card", 640, "default");
+                    : urlSigner.BuildDefaultImageUrl("", "card", 640, DefaultLabelGenerator.CurrentSha256);
             }
 
             return new RecipeSummaryDto(
@@ -530,7 +530,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
         {
             imageUrl = recipe.Label != null
                 ? urlSigner.BuildSignedImageUrl("", recipe.Id, "card", 640, recipe.Label.Version)
-                : urlSigner.BuildDefaultImageUrl("", "card", 640, "default");
+                : urlSigner.BuildDefaultImageUrl("", "card", 640, DefaultLabelGenerator.CurrentSha256);
         }
 
         return new RecipeDetailDto(

@@ -216,6 +216,40 @@ public class RecipeLabelEndpointTests : IClassFixture<WebApplicationFactory<Prog
     }
 
     [Fact]
+    public async Task UpdateLabelSettings_OnRecipeWithDefaultLabel_SucceedsAndMaterializesCustomCrops()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("defaultcropper");
+        var recipe = await CreateSampleRecipeAsync(client, "Default Crop Ale");
+
+        // The recipe initially has no custom label
+        var initialRes = await client.GetAsync($"/api/v1/recipes/{recipe.Id}/label");
+        initialRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var initialEnvelope = await initialRes.Content.ReadFromJsonAsync<ApiResponse<RecipeLabelDto>>();
+        initialEnvelope!.Data!.IsDefault.Should().BeTrue();
+
+        // Update crops without uploading a custom image first
+        var patchReq = new UpdateRecipeLabelSettingsRequest(
+            BottleCrop: new LabelCropDto(0.15m, 0.1m, 0.7m, 0.8m),
+            RoundCrop: new LabelCropDto(0.125m, 0.125m, 0.75m, 0.75m),
+            RectCrop: new LabelCropDto(0.06m, 0.25m, 0.88m, 0.5m),
+            RectOrientation: DisplayOrientation.Landscape,
+            BottleWidthMm: 90.0m,
+            BottleHeightMm: 120.0m
+        );
+
+        var patchRes = await client.PatchAsJsonAsync($"/api/v1/recipes/{recipe.Id}/label", patchReq);
+        patchRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var patchEnvelope = await patchRes.Content.ReadFromJsonAsync<ApiResponse<RecipeLabelDto>>();
+        patchEnvelope.Should().NotBeNull();
+        patchEnvelope!.Success.Should().BeTrue();
+        patchEnvelope.Data!.IsDefault.Should().BeFalse();
+        patchEnvelope.Data.RoundCrop.Should().NotBeNull();
+        patchEnvelope.Data.RoundCrop!.Width.Should().Be(0.75m);
+        patchEnvelope.Data.RoundCrop!.Height.Should().Be(0.75m);
+    }
+
+    [Fact]
     public async Task DefaultLabelImage_ReturnsValidArtisanImage()
     {
         var client = _factory.CreateClient();
