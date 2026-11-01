@@ -3,7 +3,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { api } from '$lib/api/client';
+	import { api, resolveApiUrl } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
@@ -16,13 +16,14 @@
 		calculateApparentAttenuation,
 		formatPotentialGravity
 	} from '$lib/calculators/brewing';
-	import type {
-		IngredientDto,
-		IngredientUsage,
-		MashStepType,
-		FermentationStepType,
-		RecipeDetailDto,
-		RecipeIngredientOutputDto
+	import {
+		getLabelImageUrl,
+		type IngredientDto,
+		type IngredientUsage,
+		type MashStepType,
+		type FermentationStepType,
+		type RecipeDetailDto,
+		type RecipeIngredientOutputDto
 	} from '$lib/types/api';
 	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import HopScheduleVisualizer, {
@@ -54,7 +55,8 @@
 		Flame,
 		Activity,
 		Clock,
-		Thermometer
+		Thermometer,
+		Printer
 	} from '@lucide/svelte';
 
 	let recipeId = $derived(page.params.id);
@@ -340,17 +342,69 @@
 			</a>
 		</div>
 
+		<!-- Hero Artwork Banner -->
+		{#if recipe.labelImageUrl}
+			<div
+				class="relative h-44 w-full overflow-hidden rounded-3xl border border-zinc-200/80 bg-zinc-900 shadow-sm sm:h-60 dark:border-white/10"
+			>
+				<img
+					src={resolveApiUrl(recipe.labelImageUrl)}
+					alt={recipe.name}
+					class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-[1.02]"
+				/>
+				<div
+					class="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent"
+				></div>
+				<div class="absolute right-4 bottom-4 left-4 flex items-end justify-between gap-3">
+					<div>
+						{#if recipe.hasCustomLabel}
+							<span
+								class="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-950/70 px-2.5 py-0.5 text-xs font-semibold text-emerald-300 backdrop-blur-md"
+							>
+								{t('labels.status_custom')}
+							</span>
+						{:else}
+							<span
+								class="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-950/70 px-2.5 py-0.5 text-xs font-semibold text-amber-300 backdrop-blur-md"
+							>
+								{t('labels.status_default')}
+							</span>
+						{/if}
+					</div>
+					<a
+						href={`/recipes/${recipe.id}/labels/print`}
+						class="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-white shadow-sm backdrop-blur-md transition-colors hover:bg-zinc-800"
+					>
+						<Printer class="h-3.5 w-3.5 text-amber-400" />
+						<span>{t('labels.print_labels_btn')}</span>
+					</a>
+				</div>
+			</div>
+		{/if}
+
 		<!-- Recipe Header & Action Toolbar -->
 		<div
 			class="flex flex-col justify-between gap-4 border-b border-zinc-200/80 pb-6 lg:flex-row lg:items-start dark:border-white/5"
 		>
 			<div class="space-y-2.5">
 				<div class="flex items-start gap-3">
-					<div
-						class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-500"
-					>
-						<BookOpen class="h-5 w-5" />
-					</div>
+					{#if recipe.labelImageUrl}
+						<div
+							class="mt-0.5 h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/10 shadow-inner"
+						>
+							<img
+								src={resolveApiUrl(recipe.labelImageUrl)}
+								alt=""
+								class="h-full w-full object-cover"
+							/>
+						</div>
+					{:else}
+						<div
+							class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-500"
+						>
+							<BookOpen class="h-5 w-5" />
+						</div>
+					{/if}
 					<div>
 						<h1
 							class="font-editorial text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white"
@@ -582,7 +636,10 @@
 				isOwner={isRecipeOwner(recipe)}
 				onLabelUpdated={(lbl) => {
 					if (recipe) {
-						recipe.labelImageUrl = lbl.imageUrls['Bottle'] ?? lbl.imageUrls['Rect'];
+						recipe.labelImageUrl =
+							getLabelImageUrl(lbl.imageUrls, 'card') ||
+							getLabelImageUrl(lbl.imageUrls, 'rect') ||
+							getLabelImageUrl(lbl.imageUrls, 'bottle');
 						recipe.hasCustomLabel = !lbl.isDefault;
 					}
 				}}

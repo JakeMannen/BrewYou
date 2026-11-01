@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import type { RecipeDetailDto, RecipeLabelDto } from '$lib/types/api';
+	import { type RecipeDetailDto, type RecipeLabelDto, getLabelImageUrl } from '$lib/types/api';
 	import { Printer, ArrowLeft, Loader2 } from '@lucide/svelte';
 
 	let recipeId = $derived(page.params.id);
@@ -194,7 +194,7 @@
 					style="width: {labelWidthMm}mm; height: {labelHeightMm}mm;"
 				>
 					<img
-						src={resolveApiUrl(label.imageUrls['Bottle'] ?? '')}
+						src={resolveApiUrl(getLabelImageUrl(label.imageUrls, 'bottle'))}
 						alt="{recipe.name} label #{idx + 1}"
 						class="h-full w-full object-cover"
 					/>

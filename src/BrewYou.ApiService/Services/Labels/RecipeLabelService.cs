@@ -349,25 +349,47 @@ public class RecipeLabelService : IRecipeLabelService
 
     private Dictionary<string, string> BuildSignedImageUrls(string baseUrl, Guid recipeId, int version)
     {
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var card = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "card", 640, version);
+        var bottle = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "bottle", 640, version);
+        var round = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "round", 480, version);
+        var rect = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "rect", 800, version);
+        var original = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "original", 1280, version);
+
+        return new Dictionary<string, string>
         {
-            ["card"] = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "card", 640, version),
-            ["bottle"] = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "bottle", 640, version),
-            ["round"] = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "round", 480, version),
-            ["rect"] = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "rect", 800, version),
-            ["original"] = _urlSigner.BuildSignedImageUrl(baseUrl, recipeId, "original", 1280, version)
+            ["card"] = card,
+            ["bottle"] = bottle,
+            ["round"] = round,
+            ["rect"] = rect,
+            ["original"] = original,
+            ["Card"] = card,
+            ["Bottle"] = bottle,
+            ["Round"] = round,
+            ["Rect"] = rect,
+            ["Original"] = original
         };
     }
 
     private Dictionary<string, string> BuildDefaultImageUrls(string baseUrl, string defaultSha)
     {
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var card = _urlSigner.BuildDefaultImageUrl(baseUrl, "card", 640, defaultSha);
+        var bottle = _urlSigner.BuildDefaultImageUrl(baseUrl, "bottle", 640, defaultSha);
+        var round = _urlSigner.BuildDefaultImageUrl(baseUrl, "round", 480, defaultSha);
+        var rect = _urlSigner.BuildDefaultImageUrl(baseUrl, "rect", 800, defaultSha);
+        var original = _urlSigner.BuildDefaultImageUrl(baseUrl, "original", 1280, defaultSha);
+
+        return new Dictionary<string, string>
         {
-            ["card"] = _urlSigner.BuildDefaultImageUrl(baseUrl, "card", 640, defaultSha),
-            ["bottle"] = _urlSigner.BuildDefaultImageUrl(baseUrl, "bottle", 640, defaultSha),
-            ["round"] = _urlSigner.BuildDefaultImageUrl(baseUrl, "round", 480, defaultSha),
-            ["rect"] = _urlSigner.BuildDefaultImageUrl(baseUrl, "rect", 800, defaultSha),
-            ["original"] = _urlSigner.BuildDefaultImageUrl(baseUrl, "original", 1280, defaultSha)
+            ["card"] = card,
+            ["bottle"] = bottle,
+            ["round"] = round,
+            ["rect"] = rect,
+            ["original"] = original,
+            ["Card"] = card,
+            ["Bottle"] = bottle,
+            ["Round"] = round,
+            ["Rect"] = rect,
+            ["Original"] = original
         };
     }
 

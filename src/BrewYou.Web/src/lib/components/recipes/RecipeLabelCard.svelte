@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import type { RecipeLabelDto } from '$lib/types/api';
+	import { type RecipeLabelDto, getLabelImageUrl } from '$lib/types/api';
 	import LabelCropEditorModal from './LabelCropEditorModal.svelte';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import {
@@ -236,10 +236,10 @@
 				<img
 					src={resolveApiUrl(
 						activePreviewVariant === 'Bottle'
-							? (label.imageUrls['Bottle'] ?? '')
+							? getLabelImageUrl(label.imageUrls, 'bottle')
 							: activePreviewVariant === 'RoundDisplay'
-								? (label.imageUrls['Round'] ?? '')
-								: (label.imageUrls['Rect'] ?? '')
+								? getLabelImageUrl(label.imageUrls, 'round')
+								: getLabelImageUrl(label.imageUrls, 'rect')
 					)}
 					alt="Recipe label preview"
 					class="h-full w-full object-cover"

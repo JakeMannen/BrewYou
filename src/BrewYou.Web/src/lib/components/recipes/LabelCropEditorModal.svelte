@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import type {
-		RecipeLabelDto,
-		LabelCropDto,
-		DisplayOrientation,
-		UpdateRecipeLabelSettingsRequest
+	import {
+		type RecipeLabelDto,
+		type LabelCropDto,
+		type DisplayOrientation,
+		type UpdateRecipeLabelSettingsRequest,
+		getLabelImageUrl
 	} from '$lib/types/api';
 	import { X, Loader2, Check, SlidersHorizontal, RotateCcw } from '@lucide/svelte';
 
@@ -117,7 +118,11 @@
 	}
 
 	let currentCrop = $derived(getCurrentCrop());
-	let originalUrl = $derived(label.imageUrls['Original'] ?? label.imageUrls['Bottle'] ?? '');
+	let originalUrl = $derived(
+		getLabelImageUrl(label.imageUrls, 'original') ||
+			getLabelImageUrl(label.imageUrls, 'bottle') ||
+			getLabelImageUrl(label.imageUrls, 'card')
+	);
 	let currentZoom = $derived(Math.round(100 / Math.max(0.1, currentCrop.width)));
 </script>
 

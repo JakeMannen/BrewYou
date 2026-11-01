@@ -396,6 +396,30 @@ export interface RecipeLabelDto {
 	originalFileName?: string | null;
 }
 
+export function getLabelImageUrl(
+	imageUrls?: Record<string, string> | null,
+	variant: string = 'bottle'
+): string {
+	if (!imageUrls) return '';
+	const target = variant.toLowerCase();
+	for (const [key, url] of Object.entries(imageUrls)) {
+		if (key.toLowerCase() === target && url) {
+			return url;
+		}
+	}
+	return (
+		imageUrls['bottle'] ??
+		imageUrls['Bottle'] ??
+		imageUrls['card'] ??
+		imageUrls['Card'] ??
+		imageUrls['rect'] ??
+		imageUrls['Rect'] ??
+		imageUrls['round'] ??
+		imageUrls['Round'] ??
+		''
+	);
+}
+
 export interface UpdateRecipeLabelSettingsRequest {
 	bottleCrop?: LabelCropDto | null;
 	roundCrop?: LabelCropDto | null;

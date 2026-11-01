@@ -34,7 +34,6 @@ public static class RecipeLabelEndpoints
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })
-        .RequireAuthorization()
         .WithName("GetRecipeLabel")
         .Produces<ApiResponse<RecipeLabelDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)

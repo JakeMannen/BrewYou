@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import type { BatchDetailDto, RecipeLabelDto } from '$lib/types/api';
+	import { type BatchDetailDto, type RecipeLabelDto, getLabelImageUrl } from '$lib/types/api';
 	import { Printer, ArrowLeft, Loader2 } from '@lucide/svelte';
 
 	let batchId = $derived(page.params.id);
@@ -207,7 +207,7 @@
 					<!-- Bottle Artwork -->
 					<div class="relative flex-1 overflow-hidden">
 						<img
-							src={resolveApiUrl(label.imageUrls['Bottle'] ?? '')}
+							src={resolveApiUrl(getLabelImageUrl(label.imageUrls, 'bottle'))}
 							alt="{batch.name} label #{idx + 1}"
 							class="h-full w-full object-cover"
 						/>
