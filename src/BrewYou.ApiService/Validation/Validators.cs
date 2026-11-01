@@ -392,7 +392,7 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .LessThanOrEqualTo(100_000).WithMessage("Capacity exceeds allowable limit.");
 
         RuleFor(x => x.Capacity)
-            .GreaterThan(0).When(x => x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor)
+            .GreaterThan(0).When(x => x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor && x.Type != EquipmentType.Tap)
             .WithMessage("Capacity must be greater than 0.");
 
         RuleFor(x => x.CurrentVolume)
@@ -402,7 +402,7 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
 
         RuleFor(x => x)
             .Must(x => !x.CurrentVolume.HasValue || x.CurrentVolume.Value <= x.Capacity)
-            .When(x => x.CurrentVolume.HasValue && x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor)
+            .When(x => x.CurrentVolume.HasValue && x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor && x.Type != EquipmentType.Tap)
             .WithMessage(x => $"Current volume ({x.CurrentVolume}) cannot exceed equipment capacity ({x.Capacity}).")
             .WithName("CurrentVolume");
 
@@ -421,8 +421,8 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
 
         RuleFor(x => x.BoilOffRatePerHour)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have a boil-off rate.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have a boil-off rate.");
 
         RuleFor(x => x.TrubLossLiters)
             .GreaterThanOrEqualTo(0m)
@@ -431,8 +431,8 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
 
         RuleFor(x => x.TrubLossLiters)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have trub loss.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have trub loss.");
 
         RuleFor(x => x.MashTunDeadSpaceLiters)
             .GreaterThanOrEqualTo(0m)
@@ -441,8 +441,8 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
 
         RuleFor(x => x.MashTunDeadSpaceLiters)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have mash tun dead space.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have mash tun dead space.");
 
         RuleFor(x => x.PackagingLossLiters)
             .GreaterThanOrEqualTo(0m)
@@ -451,8 +451,24 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
 
         RuleFor(x => x.PackagingLossLiters)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have packaging loss.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have packaging loss.");
+
+        RuleFor(x => x.DisplayWidthPx)
+            .InclusiveBetween(64, 3840)
+            .When(x => x.DisplayWidthPx.HasValue)
+            .WithMessage("Display width must be between 64 and 3,840 pixels.");
+
+        RuleFor(x => x.DisplayHeightPx)
+            .InclusiveBetween(64, 3840)
+            .When(x => x.DisplayHeightPx.HasValue)
+            .WithMessage("Display height must be between 64 and 3,840 pixels.");
+
+        RuleFor(x => x)
+            .Must(x => x.DisplayWidthPx == x.DisplayHeightPx)
+            .When(x => x.Subtype == EquipmentSubtype.RoundDisplayTap && x.DisplayWidthPx.HasValue && x.DisplayHeightPx.HasValue)
+            .WithMessage("Round display tap requires equal width and height dimensions.")
+            .WithName("DisplayWidthPx");
 
         RuleFor(x => x.CurrentTemperatureC)
             .InclusiveBetween(-20m, 120m)
@@ -481,6 +497,7 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             EquipmentType.Fermenter => subtype.Value is EquipmentSubtype.Bucket or EquipmentSubtype.ConicalFermenter or EquipmentSubtype.Carboy or EquipmentSubtype.PressureFermenter or EquipmentSubtype.StainlessBucket or EquipmentSubtype.Other,
             EquipmentType.Keg => subtype.Value is EquipmentSubtype.Cornelius or EquipmentSubtype.Minikeg or EquipmentSubtype.MiniBarrel or EquipmentSubtype.PetKeg or EquipmentSubtype.Other,
             EquipmentType.Sensor => subtype.Value is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor,
+            EquipmentType.Tap => subtype.Value is EquipmentSubtype.StandardTap or EquipmentSubtype.RoundDisplayTap or EquipmentSubtype.RectDisplayTap,
             EquipmentType.Other => subtype.Value is EquipmentSubtype.Other,
             _ => true
         };
@@ -514,7 +531,7 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .LessThanOrEqualTo(100_000).WithMessage("Capacity exceeds allowable limit.");
 
         RuleFor(x => x.Capacity)
-            .GreaterThan(0).When(x => x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor)
+            .GreaterThan(0).When(x => x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor && x.Type != EquipmentType.Tap)
             .WithMessage("Capacity must be greater than 0.");
 
         RuleFor(x => x.CurrentVolume)
@@ -524,7 +541,7 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
 
         RuleFor(x => x)
             .Must(x => !x.CurrentVolume.HasValue || x.CurrentVolume.Value <= x.Capacity)
-            .When(x => x.CurrentVolume.HasValue && x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor)
+            .When(x => x.CurrentVolume.HasValue && x.Type != EquipmentType.Other && x.Type != EquipmentType.Sensor && x.Type != EquipmentType.Tap)
             .WithMessage(x => $"Current volume ({x.CurrentVolume}) cannot exceed equipment capacity ({x.Capacity}).")
             .WithName("CurrentVolume");
 
@@ -543,8 +560,8 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
 
         RuleFor(x => x.BoilOffRatePerHour)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have a boil-off rate.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have a boil-off rate.");
 
         RuleFor(x => x.TrubLossLiters)
             .GreaterThanOrEqualTo(0m)
@@ -553,8 +570,8 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
 
         RuleFor(x => x.TrubLossLiters)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have trub loss.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have trub loss.");
 
         RuleFor(x => x.MashTunDeadSpaceLiters)
             .GreaterThanOrEqualTo(0m)
@@ -563,8 +580,8 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
 
         RuleFor(x => x.MashTunDeadSpaceLiters)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have mash tun dead space.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have mash tun dead space.");
 
         RuleFor(x => x.PackagingLossLiters)
             .GreaterThanOrEqualTo(0m)
@@ -573,8 +590,24 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
 
         RuleFor(x => x.PackagingLossLiters)
             .Must(val => !val.HasValue || val.Value == 0m)
-            .When(x => x.Type == EquipmentType.Sensor)
-            .WithMessage("Sensors cannot have packaging loss.");
+            .When(x => x.Type == EquipmentType.Sensor || x.Type == EquipmentType.Tap)
+            .WithMessage("Sensors and taps cannot have packaging loss.");
+
+        RuleFor(x => x.DisplayWidthPx)
+            .InclusiveBetween(64, 3840)
+            .When(x => x.DisplayWidthPx.HasValue)
+            .WithMessage("Display width must be between 64 and 3,840 pixels.");
+
+        RuleFor(x => x.DisplayHeightPx)
+            .InclusiveBetween(64, 3840)
+            .When(x => x.DisplayHeightPx.HasValue)
+            .WithMessage("Display height must be between 64 and 3,840 pixels.");
+
+        RuleFor(x => x)
+            .Must(x => x.DisplayWidthPx == x.DisplayHeightPx)
+            .When(x => x.Subtype == EquipmentSubtype.RoundDisplayTap && x.DisplayWidthPx.HasValue && x.DisplayHeightPx.HasValue)
+            .WithMessage("Round display tap requires equal width and height dimensions.")
+            .WithName("DisplayWidthPx");
 
         RuleFor(x => x.CurrentTemperatureC)
             .InclusiveBetween(-20m, 120m)
@@ -590,6 +623,53 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .MaximumLength(4000)
             .When(x => !string.IsNullOrEmpty(x.ConnectionConfigJson))
             .WithMessage("Connection configuration cannot exceed 4,000 characters.");
+    }
+}
+
+public class AssignTapRequestValidator : AbstractValidator<AssignTapRequest>
+{
+    public AssignTapRequestValidator()
+    {
+        RuleFor(x => x.BatchId).NotEmpty().WithMessage("Batch ID is required.");
+    }
+}
+
+public class UpdateRecipeLabelSettingsRequestValidator : AbstractValidator<UpdateRecipeLabelSettingsRequest>
+{
+    public UpdateRecipeLabelSettingsRequestValidator()
+    {
+        RuleFor(x => x.BottleCrop)
+            .Must(ValidateCrop!)
+            .When(x => x.BottleCrop != null)
+            .WithMessage("Bottle crop dimensions must be valid normalized ratios (between 0.0 and 1.0).");
+
+        RuleFor(x => x.RoundCrop)
+            .Must(ValidateCrop!)
+            .When(x => x.RoundCrop != null)
+            .WithMessage("Round crop dimensions must be valid normalized ratios (between 0.0 and 1.0).");
+
+        RuleFor(x => x.RectCrop)
+            .Must(ValidateCrop!)
+            .When(x => x.RectCrop != null)
+            .WithMessage("Rectangular crop dimensions must be valid normalized ratios (between 0.0 and 1.0).");
+
+        RuleFor(x => x.BottleWidthMm)
+            .InclusiveBetween(20m, 300m)
+            .When(x => x.BottleWidthMm.HasValue)
+            .WithMessage("Bottle label width must be between 20 mm and 300 mm.");
+
+        RuleFor(x => x.BottleHeightMm)
+            .InclusiveBetween(20m, 300m)
+            .When(x => x.BottleHeightMm.HasValue)
+            .WithMessage("Bottle label height must be between 20 mm and 300 mm.");
+    }
+
+    private static bool ValidateCrop(LabelCropDto crop)
+    {
+        return crop.X >= 0m && crop.Y >= 0m &&
+               crop.Width >= 0.05m && crop.Height >= 0.05m &&
+               (crop.X + crop.Width) <= 1.0001m &&
+               (crop.Y + crop.Height) <= 1.0001m;
     }
 }
 

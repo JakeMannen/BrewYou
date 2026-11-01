@@ -9,6 +9,7 @@ public enum EquipmentType
     Fermenter,
     Keg,
     Sensor,
+    Tap,
     Other
 }
 
@@ -35,6 +36,11 @@ public enum EquipmentSubtype
     Minikeg,
     MiniBarrel,
     PetKeg,
+
+    // Taps
+    StandardTap,
+    RoundDisplayTap,
+    RectDisplayTap,
 
     // Sensors
     ISpindel,
@@ -177,6 +183,19 @@ public class Equipment
 
     public string? Description { get; set; }
     public string? Notes { get; set; }
+
+    // Tap-specific configuration
+    public Guid? AssignedBatchId { get; set; }
+    public Batch? AssignedBatch { get; set; }
+    public DateTime? AssignedAt { get; set; }
+
+    public int? DisplayWidthPx { get; set; }
+    public int? DisplayHeightPx { get; set; }
+    public DisplayOrientation DisplayOrientation { get; set; } = DisplayOrientation.Landscape;
+
+    public bool DisplayLinkEnabled { get; set; } = false;
+    public string? DisplayTokenHash { get; set; }
+    public string? DisplayTokenProtected { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

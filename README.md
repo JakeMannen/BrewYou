@@ -22,9 +22,10 @@ BrewYou is strictly open-source craft brewing software: **all features are unive
    - [Multi-Rig Brewery Setup & Loss Profiles](#multi-rig-brewery-setup--loss-profiles)
    - [Brewery Collaboration & Shared Setups](#brewery-collaboration--shared-setups)
    - [Recipe Management & Recipe Formulator](#recipe-management--recipe-formulator)
+   - [Recipe Labels & Digital Tap Screen Graphics](#recipe-labels--digital-tap-screen-graphics)
    - [Batch Tracking & Live Brew Day Execution](#batch-tracking--live-brew-day-execution)
    - [Batch QR Code Tracking & Cellar Labels](#batch-qr-code-tracking--cellar-labels)
-   - [Equipment & Vessel Inventory](#equipment--vessel-inventory)
+   - [Equipment & Tap Dispenser Inventory](#equipment--tap-dispenser-inventory)
    - [Ingredient Stock & Inventory](#ingredient-stock--inventory)
    - [IoT Telemetry & Real-Time Monitoring](#iot-telemetry--real-time-monitoring)
    - [Brewing Calculators Suite](#brewing-calculators-suite)
@@ -108,6 +109,28 @@ The Recipe Atelier and Formulator is an interactive brewing formulation workspac
    - Click **Export** on any recipe to download standard BeerXML or BeerJSON files preserving `First Wort` hops, Dry Hop day durations, miscellaneous weight/volume additions, and complete mash/fermentation profiles.
 7. **Start a Brew**: Click **Brew This Recipe** to turn the formulation into an active brew day batch.
 
+### Recipe Labels & Digital Tap Screen Graphics
+
+BrewYou bridges physical packaging and digital taproom displays through integrated recipe artwork management and server-side graphic generation:
+
+- **Custom Artwork Upload & Artisan Default Fallback**: Upload high-resolution PNG, JPEG, or WebP images (up to 8 MB). Artwork is sanitized, normalized with EXIF orientation correction, Lanczos-filtered, and cached server-side. When no custom artwork is provided, BrewYou automatically falls back to an artisan craft brewing illustration stored directly in PostgreSQL (`SystemAssets`) and seeded on initialization.
+- **Multiformat Viewport Cropping**: Tailor separate normalized crops for each output medium:
+  - **Bottle Labels**: Standard 4:5 portrait ratio (default 90×120 mm, customizable in mm).
+  - **Round Tap Displays**: 1:1 circular crop with true alpha-channel circular masking for digital tap handles and round bezel screens.
+  - **Rectangular Tap Displays**: 16:9 widescreen landscape or 9:16 vertical portrait crops for wall-mounted kiosks, tablets, and digital menu boards.
+- **Master Brewer Compliance (Strict Actual ABV)**: In strict accordance with BJCP standards, only actual measured alcohol by volume from an assigned batch (`Batch.AlcoholByVolume`) is rendered onto badges and overlays—never theoretical recipe target estimations.
+- **Printable Bottle Label Sheets**: Generate print-ready sheets formatted for standard A4 and Letter paper (`/recipes/[id]/labels/print` and `/batches/[id]/labels/print`), featuring adjustable presets, configurable labels-per-sheet counts, dashed cutting guidelines, and batch metadata strips (batch code, measured ABV, and brew date).
+- **Recipe Gallery Integration**: Recipe cards across `/recipes` prominently feature your customized label artwork banner with seamless fallback to the artisan craft graphic.
+- **Full User Backup & Restore Coverage**: Recipe label metadata and crop configurations are seamlessly serialized into schema v2 of `.brewyou.json` backups with optional embedded image asset portability.
+
+#### How to Use
+
+1. **Manage Label Artwork**: Open any recipe (`/recipes/[id]`) and scroll to the **Recipe Labels & Screen Graphics** panel.
+2. **Upload Custom Art**: Click **Upload Image** to select a PNG, JPEG, or WebP graphic.
+3. **Fine-Tune Viewport Crops**: Click **Adjust Crops & ABV** to open the modal and adjust horizontal offset, vertical offset, zoom, and orientation across Bottle, Round Display, and Rectangular Display tabs.
+4. **Print Bottle Labels**: Click **Print Bottle Labels** (from the recipe card or directly from a completed batch) to generate a printable sheet with cut guidelines.
+5. **Reset to Default**: Click the trash icon to revert the recipe back to the default artisan craft graphic at any time.
+
 ### Batch Tracking & Live Brew Day Execution
 
 Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: _Mash_ ➔ _Boil_ ➔ _Ferment_ ➔ _Condition_ ➔ _Package_ (with clean support for skipping optional stages such as _Condition_ while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
@@ -160,20 +183,31 @@ Physical cellar tracking bridges the gap between digital batch logs and physical
 - **Dual-Layer Identification**: Labels prominently feature the canonical batch code (e.g. `B-2026-10-30-01`), recipe name, beer style, and brew date underneath the QR code for instant human readability in the cellar.
 - **High-Contrast Optical Rendering**: Rendered as crisp vector SVG with standard quiet zones to ensure reliable scans under poor cellar lighting conditions and cold condensation.
 - **One-Click Export & Print**: Export labels as vector SVGs, high-resolution PNG images (720×980) for digital records, copy canonical deep links, or trigger browser print preview styled exclusively for sticker printing.
-- **Accessible Everywhere**: Available from the **QR** button to the left of *Batchöversikt* on `/batches` cards, as well as in the **Brew Day Cockpit** (`/batches/[id]`) action bar.
+- **Accessible Everywhere**: Available from the **QR** button to the left of _Batchöversikt_ on `/batches` cards, as well as in the **Brew Day Cockpit** (`/batches/[id]`) action bar.
 
-### Equipment & Vessel Inventory
+### Equipment & Tap Dispenser Inventory
 
-The Equipment Inventory provides digital twin management for your brewery's hardware, organized into Boilers (HLTs, electric all-in-one kettles, mash tuns, and lauter tuns), Fermenters (carboys, conical fermenters, unitanks), Kegs (Cornelius, minikegs), and Sensors. Equipment cards display interactive liquid-level animations based on volume capacity, operational status, and assigned batch locks. For sensor-equipped vessels, cards display real-time telemetry badges (temperature, gravity, pressure, battery, angle) and include an expandable telemetry inspector for viewing structured attributes and raw JSON payloads.
+The Equipment Inventory provides digital twin management for your brewery's hardware, organized into Boilers (HLTs, electric all-in-one kettles, mash tuns, and lauter tuns), Fermenters (carboys, conical fermenters, unitanks), Kegs (Cornelius, minikegs), Sensors, and **Taps**:
+
+- **Dispensing Taps & Digital Screen Integration**:
+  - **Standard Tap**: Traditional mechanical bar tap faucet and dispensing tower.
+  - **Round Display Tap**: Dispensing tower equipped with a circular LCD/OLED digital display screen.
+  - **Rectangular Display Tap**: Dispensing tower equipped with a high-resolution widescreen or portrait digital display screen.
+- **Batch Serving Assignment**: Assign any batch currently in the **Conditioning** or **Packaging** stage directly to a tap faucet. The tap card reflects live serving status (_Pouring_ vs _Tap Empty_), batch code, beer style, and actual measured ABV.
+- **Encrypted Display Tokens**: Display tokens are encrypted at rest using ASP.NET Core `IDataProtectionKeyContext` stored in PostgreSQL. Brewers can inspect and copy existing display links at any time without having to regenerate tokens or disrupt active screens.
+- **Multi-Protocol Screen Connectivity**:
+  - **Interactive Kiosk Web App (`/tap/{token}`)**: Standalone full-bleed display screen designed for smart TVs, iPads, and Raspberry Pi kiosk browsers. Runs outside authentication curtains and polls every 60 seconds to automatically update beer metadata when taps change.
+  - **Pre-Rendered Image Endpoint (`/api/v1/tap/{token}/image`)**: High-performance HTTP endpoint serving pre-rendered, pre-cropped WebP/JPEG graphics with circular alpha masking and measured ABV typography overlay. Ideal for low-memory microcontrollers or direct framebuffers.
+  - **JSON Manifest API (`/api/v1/tap/{token}`)**: Public lightweight JSON payload delivering shape, dimensions, status, beer name, measured ABV, and image URL for custom ESP32/e-paper implementations.
 
 #### How to Use
 
-1. **View Equipment**: Go to **Inventory ➔ Equipment** (`/inventory/equipment`) to see all registered hardware grouped by category.
-2. **Add or Duplicate Vessels**:
-   - Click **Add Equipment** to enter vessel specifications (category, name, total capacity, dead space, and sensor assignments).
-   - Click **Duplicate** on any equipment card to quickly clone vessel profiles (e.g. for sets of identical kegs or fermenters).
-3. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
-4. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
+1. **View Equipment & Taps**: Go to **Inventory ➔ Equipment** (`/inventory/equipment`) and use the category tabs to filter by **Taps**, **Boilers**, **Fermenters**, **Kegs**, or **Sensors**.
+2. **Add a Dispensing Tap**: Click **Add Equipment**, select **Tap**, choose your subtype (_Standard Tap_, _Round Display Tap_, or _Rectangular Display Tap_), and configure display resolution and orientation if equipped with a digital screen.
+3. **Assign a Batch**: On any tap card, click **Assign Batch** to select an active batch in the Conditioning or Packaging stage.
+4. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. You can regenerate or revoke tokens with a single click.
+5. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
+6. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
 
 ### Ingredient Stock & Inventory
 
@@ -427,13 +461,13 @@ Configured via `appsettings.json`, `appsettings.Development.json`, or environmen
 
 Configured via `.env` or container environment variables:
 
-| Variable                        | Description                                       | Default Value            |
-| :------------------------------ | :------------------------------------------------ | :----------------------- |
-| `PUBLIC_API_URL`                | Base URL used by browser clients to query the API | `http://localhost:5000`  |
+| Variable                        | Description                                               | Default Value            |
+| :------------------------------ | :-------------------------------------------------------- | :----------------------- |
+| `PUBLIC_API_URL`                | Base URL used by browser clients to query the API         | `http://localhost:5000`  |
 | `PUBLIC_APP_URL`                | Public application base URL for mobile QR code deep-links | `http://localhost:3000`  |
-| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server | `http://apiservice:5000` |
-| `PORT`                          | Listening port for the SvelteKit node server      | `3000`                   |
-| `HOST`                          | Interface binding for SvelteKit server            | `0.0.0.0`                |
+| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server         | `http://apiservice:5000` |
+| `PORT`                          | Listening port for the SvelteKit node server              | `3000`                   |
+| `HOST`                          | Interface binding for SvelteKit server                    | `0.0.0.0`                |
 
 ---
 

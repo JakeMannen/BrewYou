@@ -93,5 +93,6 @@ public class Batch
     public ICollection<BatchFermentationStep> FermentationSteps { get; set; } = new List<BatchFermentationStep>();
     public ICollection<BatchStageHistory> StageHistory { get; set; } = new List<BatchStageHistory>();
     public ICollection<BatchSensorAssignment> SensorAssignments { get; set; } = new List<BatchSensorAssignment>();
+    public ICollection<Equipment> Taps { get; set; } = new List<Equipment>();
     public BatchVolumeProfile? VolumeProfile { get; set; }
 }

@@ -1,16 +1,21 @@
 using BrewYou.ApiService.Data.Entities;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace BrewYou.ApiService.Data;
 
-public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
+public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtectionKeyContext
 {
     public BrewYouDbContext(DbContextOptions<BrewYouDbContext> options)
         : base(options)
     {
     }
 
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+    public DbSet<SystemAsset> SystemAssets => Set<SystemAsset>();
+    public DbSet<RecipeLabel> RecipeLabels => Set<RecipeLabel>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<IngredientStock> IngredientStocks => Set<IngredientStock>();
     public DbSet<Recipe> Recipes => Set<Recipe>();
@@ -214,6 +219,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(e => e.ConnectionConfigJson).HasMaxLength(4000);
             entity.Property(e => e.Description).HasMaxLength(500);
             entity.Property(e => e.Notes).HasMaxLength(2000);
+            entity.Property(e => e.DisplayOrientation).HasConversion<string>().HasMaxLength(20).HasDefaultValue(DisplayOrientation.Landscape);
+            entity.Property(e => e.DisplayTokenHash).HasMaxLength(64);
 
             entity.HasOne(e => e.User)
                   .WithMany(u => u.Equipment)
@@ -225,12 +232,59 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>
                   .HasForeignKey(e => e.BrewerySetupId)
                   .OnDelete(DeleteBehavior.Cascade);
 
+            entity.HasOne(e => e.AssignedBatch)
+                  .WithMany(b => b.Taps)
+                  .HasForeignKey(e => e.AssignedBatchId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
             entity.HasIndex(e => new { e.UserId, e.BrewerySetupId });
             entity.HasIndex(e => new { e.UserId, e.BrewerySetupId, e.Name }).IsUnique();
             entity.HasIndex(e => new { e.UserId, e.Type });
             entity.HasIndex(e => new { e.UserId, e.Type, e.Subtype });
             entity.HasIndex(e => new { e.UserId, e.Name });
             entity.HasIndex(e => e.ConnectionToken).IsUnique();
+            entity.HasIndex(e => e.DisplayTokenHash).IsUnique();
+        });
+
+        builder.Entity<SystemAsset>(entity =>
+        {
+            entity.HasKey(a => a.Key);
+            entity.Property(a => a.Key).HasMaxLength(100);
+            entity.Property(a => a.ContentType).HasMaxLength(50).IsRequired();
+            entity.Property(a => a.Sha256).HasMaxLength(64).IsRequired();
+        });
+
+        builder.Entity<RecipeLabel>(entity =>
+        {
+            entity.HasKey(l => l.Id);
+            entity.HasIndex(l => l.RecipeId).IsUnique();
+
+            entity.HasOne(l => l.Recipe)
+                  .WithOne(r => r.Label)
+                  .HasForeignKey<RecipeLabel>(l => l.RecipeId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(l => l.ContentType).HasMaxLength(50).IsRequired();
+            entity.Property(l => l.Sha256).HasMaxLength(64).IsRequired();
+            entity.Property(l => l.OriginalFileName).HasMaxLength(255);
+            entity.Property(l => l.RectOrientation).HasConversion<string>().HasMaxLength(20).HasDefaultValue(DisplayOrientation.Landscape);
+            entity.Property(l => l.BottleWidthMm).HasPrecision(5, 1);
+            entity.Property(l => l.BottleHeightMm).HasPrecision(5, 1);
+
+            entity.Property(l => l.BottleCrop)
+                  .HasConversion(
+                      c => JsonSerializer.Serialize(c, (JsonSerializerOptions?)null),
+                      s => JsonSerializer.Deserialize<LabelCrop>(s, (JsonSerializerOptions?)null) ?? LabelCrop.Default);
+
+            entity.Property(l => l.RoundCrop)
+                  .HasConversion(
+                      c => JsonSerializer.Serialize(c, (JsonSerializerOptions?)null),
+                      s => JsonSerializer.Deserialize<LabelCrop>(s, (JsonSerializerOptions?)null) ?? LabelCrop.Default);
+
+            entity.Property(l => l.RectCrop)
+                  .HasConversion(
+                      c => JsonSerializer.Serialize(c, (JsonSerializerOptions?)null),
+                      s => JsonSerializer.Deserialize<LabelCrop>(s, (JsonSerializerOptions?)null) ?? LabelCrop.Default);
         });
 
         builder.Entity<EquipmentReading>(entity =>

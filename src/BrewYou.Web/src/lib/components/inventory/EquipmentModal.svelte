@@ -16,6 +16,7 @@
 		type EquipmentSubtype,
 		type VolumeUnit,
 		type EquipmentConnectionType,
+		type DisplayOrientation,
 		EQUIPMENT_SUBTYPES_BY_TYPE,
 		DEFAULT_SUBTYPE_BY_TYPE
 	} from '$lib/types/api';
@@ -71,6 +72,11 @@
 	let mashTunDeadSpaceLiters = $state<number | ''>('');
 	let packagingLossLiters = $state<number | ''>('');
 
+	// Tap Display Settings
+	let displayWidthPx = $state<number | ''>('');
+	let displayHeightPx = $state<number | ''>('');
+	let displayOrientation = $state<DisplayOrientation>('Landscape');
+
 	// Telemetry & External Connectivity
 	let connectionType = $state<EquipmentConnectionType>('None');
 	let connectionToken = $state<string | null>(null);
@@ -121,6 +127,8 @@
 				return t('equipment.fermenters');
 			case 'Keg':
 				return t('equipment.kegs');
+			case 'Tap':
+				return t('equipment.taps');
 			case 'Sensor':
 				return t('equipment.sensors');
 			case 'Other':
@@ -157,6 +165,9 @@
 		ISpindel: 0,
 		Tilt: 0,
 		GenericSensor: 0,
+		StandardTap: 0,
+		RoundDisplayTap: 0,
+		RectDisplayTap: 0,
 		Other: 20
 	};
 
@@ -186,6 +197,12 @@
 			trubLossLiters: '',
 			mashTunDeadSpaceLiters: '',
 			packagingLossLiters: 0.5
+		},
+		Tap: {
+			boilOffRatePerHour: '',
+			trubLossLiters: '',
+			mashTunDeadSpaceLiters: '',
+			packagingLossLiters: ''
 		},
 		Sensor: {
 			boilOffRatePerHour: '',
@@ -221,6 +238,11 @@
 				trubLossLiters = equipment.trubLossLiters ?? '';
 				mashTunDeadSpaceLiters = equipment.mashTunDeadSpaceLiters ?? '';
 				packagingLossLiters = equipment.packagingLossLiters ?? '';
+
+				// Tap display settings
+				displayWidthPx = equipment.displayWidthPx ?? '';
+				displayHeightPx = equipment.displayHeightPx ?? '';
+				displayOrientation = equipment.displayOrientation ?? 'Landscape';
 
 				// Initialize telemetry
 				connectionType = equipment.connectionType ?? 'None';
@@ -308,6 +330,11 @@
 				mashTunDeadSpaceLiters = defLosses.mashTunDeadSpaceLiters;
 				packagingLossLiters = defLosses.packagingLossLiters;
 
+				// Tap display settings
+				displayWidthPx = '';
+				displayHeightPx = '';
+				displayOrientation = 'Landscape';
+
 				// Reset telemetry
 				connectionType = 'None';
 				connectionToken = null;
@@ -353,6 +380,19 @@
 			trubLossLiters = defLosses.trubLossLiters;
 			mashTunDeadSpaceLiters = defLosses.mashTunDeadSpaceLiters;
 			packagingLossLiters = defLosses.packagingLossLiters;
+
+			if (newType === 'Tap') {
+				if (defaultSub === 'RoundDisplayTap') {
+					displayWidthPx = 480;
+					displayHeightPx = 480;
+				} else if (defaultSub === 'RectDisplayTap') {
+					displayWidthPx = 1920;
+					displayHeightPx = 1080;
+				} else {
+					displayWidthPx = '';
+					displayHeightPx = '';
+				}
+			}
 		}
 	}
 
@@ -366,6 +406,19 @@
 		} else if (!equipment && (!capacity || capacity === 0)) {
 			const defLiters = DEFAULT_CAPACITIES_LITERS[selectedSub] ?? 20;
 			capacity = unit === 'Gallons' ? parseFloat(litersToGallons(defLiters).toFixed(1)) : defLiters;
+		}
+
+		if (type === 'Tap' && !equipment) {
+			if (selectedSub === 'RoundDisplayTap') {
+				displayWidthPx = 480;
+				displayHeightPx = 480;
+			} else if (selectedSub === 'RectDisplayTap') {
+				displayWidthPx = 1920;
+				displayHeightPx = 1080;
+			} else {
+				displayWidthPx = '';
+				displayHeightPx = '';
+			}
 		}
 	}
 
@@ -599,15 +652,30 @@
 					description: description.trim() || null,
 					notes: notes.trim() || null,
 					boilOffRatePerHour:
-						type === 'Sensor' || boilOffRatePerHour === '' ? null : Number(boilOffRatePerHour),
+						type === 'Sensor' || type === 'Tap' || boilOffRatePerHour === ''
+							? null
+							: Number(boilOffRatePerHour),
 					trubLossLiters:
-						type === 'Sensor' || trubLossLiters === '' ? null : Number(trubLossLiters),
+						type === 'Sensor' || type === 'Tap' || trubLossLiters === ''
+							? null
+							: Number(trubLossLiters),
 					mashTunDeadSpaceLiters:
-						type === 'Sensor' || mashTunDeadSpaceLiters === ''
+						type === 'Sensor' || type === 'Tap' || mashTunDeadSpaceLiters === ''
 							? null
 							: Number(mashTunDeadSpaceLiters),
 					packagingLossLiters:
-						type === 'Sensor' || packagingLossLiters === '' ? null : Number(packagingLossLiters),
+						type === 'Sensor' || type === 'Tap' || packagingLossLiters === ''
+							? null
+							: Number(packagingLossLiters),
+					displayWidthPx:
+						type === 'Tap' && displayWidthPx !== '' && !isNaN(Number(displayWidthPx))
+							? Number(displayWidthPx)
+							: null,
+					displayHeightPx:
+						type === 'Tap' && displayHeightPx !== '' && !isNaN(Number(displayHeightPx))
+							? Number(displayHeightPx)
+							: null,
+					displayOrientation: type === 'Tap' ? displayOrientation : null,
 					currentTemperatureC: numTemperatureC,
 					connectionType,
 					connectionConfigJson: configJson
@@ -634,15 +702,30 @@
 					description: description.trim() || null,
 					notes: notes.trim() || null,
 					boilOffRatePerHour:
-						type === 'Sensor' || boilOffRatePerHour === '' ? null : Number(boilOffRatePerHour),
+						type === 'Sensor' || type === 'Tap' || boilOffRatePerHour === ''
+							? null
+							: Number(boilOffRatePerHour),
 					trubLossLiters:
-						type === 'Sensor' || trubLossLiters === '' ? null : Number(trubLossLiters),
+						type === 'Sensor' || type === 'Tap' || trubLossLiters === ''
+							? null
+							: Number(trubLossLiters),
 					mashTunDeadSpaceLiters:
-						type === 'Sensor' || mashTunDeadSpaceLiters === ''
+						type === 'Sensor' || type === 'Tap' || mashTunDeadSpaceLiters === ''
 							? null
 							: Number(mashTunDeadSpaceLiters),
 					packagingLossLiters:
-						type === 'Sensor' || packagingLossLiters === '' ? null : Number(packagingLossLiters),
+						type === 'Sensor' || type === 'Tap' || packagingLossLiters === ''
+							? null
+							: Number(packagingLossLiters),
+					displayWidthPx:
+						type === 'Tap' && displayWidthPx !== '' && !isNaN(Number(displayWidthPx))
+							? Number(displayWidthPx)
+							: null,
+					displayHeightPx:
+						type === 'Tap' && displayHeightPx !== '' && !isNaN(Number(displayHeightPx))
+							? Number(displayHeightPx)
+							: null,
+					displayOrientation: type === 'Tap' ? displayOrientation : null,
 					currentTemperatureC: numTemperatureC,
 					connectionType,
 					connectionConfigJson: configJson
@@ -769,8 +852,8 @@
 					<span class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
 						{t('equipment.category')} <span class="text-amber-500">*</span>
 					</span>
-					<div class="mt-1 grid grid-cols-5 gap-1.5 sm:gap-2">
-						{#each ['Boiler', 'Fermenter', 'Keg', 'Sensor', 'Other'] as const as opt}
+					<div class="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-6 sm:gap-2">
+						{#each ['Boiler', 'Fermenter', 'Keg', 'Tap', 'Sensor', 'Other'] as const as opt}
 							<button
 								type="button"
 								data-testid={`category-tab-${opt.toLowerCase()}`}
@@ -993,8 +1076,79 @@
 					</div>
 				{/if}
 
+				<!-- Digital Display Parameters -->
+				{#if type === 'Tap' && (subtype === 'RoundDisplayTap' || subtype === 'RectDisplayTap')}
+					<div
+						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+					>
+						<div class="mb-2">
+							<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+								{t('equipment.tap_display_settings')}
+							</span>
+							<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('equipment.tap_display_settings_desc')}
+							</p>
+						</div>
+
+						<div class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-3">
+							<div>
+								<label
+									for="display-width"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('equipment.display_width_px')}
+								</label>
+								<input
+									id="display-width"
+									type="number"
+									min="1"
+									max="7680"
+									bind:value={displayWidthPx}
+									placeholder={subtype === 'RoundDisplayTap' ? '480' : '1920'}
+									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+								/>
+							</div>
+
+							<div>
+								<label
+									for="display-height"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('equipment.display_height_px')}
+								</label>
+								<input
+									id="display-height"
+									type="number"
+									min="1"
+									max="7680"
+									bind:value={displayHeightPx}
+									placeholder={subtype === 'RoundDisplayTap' ? '480' : '1080'}
+									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+								/>
+							</div>
+
+							<div>
+								<label
+									for="display-orientation"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('equipment.display_orientation')}
+								</label>
+								<select
+									id="display-orientation"
+									bind:value={displayOrientation}
+									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+								>
+									<option value="Landscape">{t('equipment.orientation_landscape')}</option>
+									<option value="Portrait">{t('equipment.orientation_portrait')}</option>
+								</select>
+							</div>
+						</div>
+					</div>
+				{/if}
+
 				<!-- Loss & Calibration Parameters -->
-				{#if type !== 'Sensor'}
+				{#if type !== 'Sensor' && type !== 'Tap'}
 					<div
 						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
 					>

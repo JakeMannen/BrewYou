@@ -3,6 +3,8 @@ using BrewYou.ApiService.Backup.Security;
 using BrewYou.ApiService.Backup.Versioning;
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services.Labels;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
@@ -26,18 +28,23 @@ public class BackupService : IBackupService
     private readonly BrewYouDbContext _db;
     private readonly BackupMigrationPipeline _migrationPipeline;
     private readonly IDataProtector? _protector;
+    private readonly IDataProtector? _displayProtector;
+    private readonly ILabelImageProcessor? _imageProcessor;
     private readonly ILogger<BackupService> _logger;
 
     public BackupService(
         BrewYouDbContext db,
         ILogger<BackupService> logger,
         IDataProtectionProvider? dataProtectionProvider = null,
-        BackupMigrationPipeline? migrationPipeline = null)
+        BackupMigrationPipeline? migrationPipeline = null,
+        ILabelImageProcessor? imageProcessor = null)
     {
         _db = db;
         _logger = logger;
         _protector = dataProtectionProvider?.CreateProtector("BrewYou.MqttCredentials");
+        _displayProtector = dataProtectionProvider?.CreateProtector("BrewYou.TapDisplay");
         _migrationPipeline = migrationPipeline ?? new BackupMigrationPipeline();
+        _imageProcessor = imageProcessor;
     }
 
     public async Task<BrewYouBackupEnvelope> ExportUserBackupAsync(string userId, ExportBackupRequest request)
@@ -260,6 +267,7 @@ public class BackupService : IBackupService
         // 7. Recipes (User-owned)
         var userRecipeEntities = await _db.Recipes
             .AsNoTracking()
+            .Include(r => r.Label)
             .Include(r => r.Ingredients)
                 .ThenInclude(ri => ri.Ingredient)
             .Include(r => r.MashSteps)
@@ -268,7 +276,7 @@ public class BackupService : IBackupService
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
 
-        var recipeDtos = userRecipeEntities.Select(MapRecipeToBackupDto).ToList();
+        var recipeDtos = userRecipeEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
         var userRecipeIds = userRecipeEntities.Select(r => r.Id).ToHashSet();
 
         // 8. Batches
@@ -301,6 +309,7 @@ public class BackupService : IBackupService
         {
             var extEntities = await _db.Recipes
                 .AsNoTracking()
+                .Include(r => r.Label)
                 .Include(r => r.Ingredients)
                     .ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.MashSteps)
@@ -308,7 +317,7 @@ public class BackupService : IBackupService
                 .Where(r => externalRecipeIds.Contains(r.Id) && r.IsPublic)
                 .ToListAsync();
 
-            referencedExternalRecipes = extEntities.Select(MapRecipeToBackupDto).ToList();
+            referencedExternalRecipes = extEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
         }
 
         // 10. Equipment Telemetry Readings
@@ -430,7 +439,9 @@ public class BackupService : IBackupService
             Batches: payload.Batches.Count,
             TelemetryReadings: payload.EquipmentReadings.Count,
             Collaborators: collaboratorCount,
-            PendingInvites: inviteCount
+            PendingInvites: inviteCount,
+            Labels: payload.Recipes.Count(r => r.Label != null),
+            Taps: payload.Equipment.Count(e => e.Type == EquipmentType.Tap)
         );
 
         // Compute conflicts against current user database state
@@ -996,6 +1007,8 @@ public class BackupService : IBackupService
                     .Where(e => e.UserId == userId || userOwnedSetups.Select(s => s.Id).Contains(e.BrewerySetupId))
                     .ToListAsync();
 
+                var pendingTapBatchAssignments = new Dictionary<Guid, Guid>();
+
                 foreach (var eqDto in payload.Equipment)
                 {
                     var targetSetupId = setupIdMap.TryGetValue(eqDto.BrewerySetupId, out var mappedSetupId)
@@ -1011,6 +1024,26 @@ public class BackupService : IBackupService
 
                     var (restoredToken, restoredConfigJson) = await RestoreEquipmentSecretsAsync(
                         eqDto, encryptionKey, existingEq?.Id, warnings);
+
+                    string? restoredDisplayProtected = null;
+                    string? restoredDisplayHash = null;
+                    bool displayLinkEnabled = eqDto.DisplayLinkEnabled;
+
+                    if (!string.IsNullOrWhiteSpace(eqDto.DisplayTokenEncrypted))
+                    {
+                        if (encryptionKey != null && BackupSecretProtector.TryDecryptSecret(eqDto.DisplayTokenEncrypted, encryptionKey, out var decryptedDisplayToken) && !string.IsNullOrWhiteSpace(decryptedDisplayToken))
+                        {
+                            restoredDisplayProtected = _displayProtector != null
+                                ? _displayProtector.Protect(decryptedDisplayToken)
+                                : decryptedDisplayToken;
+                            restoredDisplayHash = LabelUrlSigner.ComputeSha256(decryptedDisplayToken);
+                        }
+                        else
+                        {
+                            warnings.Add($"Skipped encrypted digital tap display link for '{eqDto.Name}' because no valid passphrase was provided.");
+                            displayLinkEnabled = false;
+                        }
+                    }
 
                     if (existingEq != null)
                     {
@@ -1043,7 +1076,22 @@ public class BackupService : IBackupService
                             if (restoredConfigJson != null) existingEq.ConnectionConfigJson = restoredConfigJson;
                             existingEq.Description = eqDto.Description;
                             existingEq.Notes = eqDto.Notes;
+                            existingEq.DisplayWidthPx = eqDto.DisplayWidthPx;
+                            existingEq.DisplayHeightPx = eqDto.DisplayHeightPx;
+                            existingEq.DisplayOrientation = eqDto.DisplayOrientation ?? DisplayOrientation.Landscape;
+                            if (restoredDisplayProtected != null)
+                            {
+                                existingEq.DisplayTokenProtected = restoredDisplayProtected;
+                                existingEq.DisplayTokenHash = restoredDisplayHash;
+                                existingEq.DisplayLinkEnabled = displayLinkEnabled;
+                            }
                             existingEq.UpdatedAt = DateTime.UtcNow;
+
+                            if (eqDto.Type == EquipmentType.Tap && eqDto.AssignedBatchId.HasValue)
+                            {
+                                pendingTapBatchAssignments[existingEq.Id] = eqDto.AssignedBatchId.Value;
+                            }
+
                             eqUpdated++;
                         }
                         else
@@ -1086,12 +1134,24 @@ public class BackupService : IBackupService
                             ConnectionConfigJson = restoredConfigJson,
                             Description = eqDto.Description,
                             Notes = eqDto.Notes,
+                            DisplayWidthPx = eqDto.DisplayWidthPx,
+                            DisplayHeightPx = eqDto.DisplayHeightPx,
+                            DisplayOrientation = eqDto.DisplayOrientation ?? DisplayOrientation.Landscape,
+                            DisplayLinkEnabled = displayLinkEnabled,
+                            DisplayTokenProtected = restoredDisplayProtected,
+                            DisplayTokenHash = restoredDisplayHash,
                             CreatedAt = eqDto.CreatedAt == default ? DateTime.UtcNow : eqDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow
                         };
                         _db.Equipment.Add(newEq);
                         existingUserEquipment.Add(newEq);
                         equipmentIdMap[eqDto.Id] = newEq.Id;
+
+                        if (eqDto.Type == EquipmentType.Tap && eqDto.AssignedBatchId.HasValue)
+                        {
+                            pendingTapBatchAssignments[newEq.Id] = eqDto.AssignedBatchId.Value;
+                        }
+
                         eqCreated++;
                     }
                 }
@@ -1111,6 +1171,7 @@ public class BackupService : IBackupService
                 }
 
                 var existingUserRecipes = await _db.Recipes
+                    .Include(r => r.Label)
                     .Include(r => r.Ingredients)
                     .Include(r => r.MashSteps)
                     .Include(r => r.FermentationSteps)
@@ -1144,6 +1205,23 @@ public class BackupService : IBackupService
                             existingRecipe.ColorSrm = recipeDto.ColorSrm;
                             existingRecipe.IsPublic = recipeDto.IsPublic;
                             existingRecipe.UpdatedAt = DateTime.UtcNow;
+
+                            if (recipeDto.Label != null)
+                            {
+                                if (existingRecipe.Label != null)
+                                {
+                                    UpdateRecipeLabelFromDto(existingRecipe.Label, recipeDto.Label);
+                                }
+                                else
+                                {
+                                    var newLabel = CreateRecipeLabelFromDto(existingRecipe.Id, recipeDto.Label);
+                                    if (newLabel != null)
+                                    {
+                                        existingRecipe.Label = newLabel;
+                                        _db.RecipeLabels.Add(newLabel);
+                                    }
+                                }
+                            }
 
                             _db.RecipeIngredients.RemoveRange(existingRecipe.Ingredients);
                             _db.RecipeMashSteps.RemoveRange(existingRecipe.MashSteps);
@@ -1188,6 +1266,7 @@ public class BackupService : IBackupService
                             IsPublic = recipeDto.IsPublic,
                             CreatedAt = recipeDto.CreatedAt == default ? DateTime.UtcNow : recipeDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow,
+                            Label = CreateRecipeLabelFromDto(newRecipeId, recipeDto.Label),
                             Ingredients = await BuildRecipeIngredientsAsync(newRecipeId, recipeDto.Ingredients, ResolveIngredientAsync),
                             MashSteps = BuildRecipeMashSteps(newRecipeId, recipeDto.MashSteps),
                             FermentationSteps = BuildRecipeFermentationSteps(newRecipeId, recipeDto.FermentationSteps)
@@ -1370,6 +1449,27 @@ public class BackupService : IBackupService
 
                 await _db.SaveChangesAsync();
 
+                // Resolve tap batch assignments
+                if (pendingTapBatchAssignments.Count > 0)
+                {
+                    var tapIds = pendingTapBatchAssignments.Keys.ToList();
+                    var tapEntities = await _db.Equipment
+                        .Where(e => tapIds.Contains(e.Id))
+                        .ToListAsync();
+
+                    foreach (var tap in tapEntities)
+                    {
+                        if (pendingTapBatchAssignments.TryGetValue(tap.Id, out var archiveBatchId) &&
+                            batchIdMap.TryGetValue(archiveBatchId, out var targetBatchId))
+                        {
+                            tap.AssignedBatchId = targetBatchId;
+                            tap.AssignedAt = DateTime.UtcNow;
+                        }
+                    }
+
+                    await _db.SaveChangesAsync();
+                }
+
                 // 9. Restore Equipment Telemetry Readings
                 if (options.RestoreTelemetryReadings && payload.EquipmentReadings.Count > 0)
                 {
@@ -1493,6 +1593,16 @@ public class BackupService : IBackupService
             encryptedToken = BackupSecretProtector.EncryptSecret(e.ConnectionToken, encryptionKey);
         }
 
+        string? displayTokenEncrypted = null;
+        if (includeSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(e.DisplayTokenProtected))
+        {
+            var plain = BackupSecretProtector.UnprotectServerSecret(e.DisplayTokenProtected, _displayProtector);
+            if (!string.IsNullOrWhiteSpace(plain))
+            {
+                displayTokenEncrypted = BackupSecretProtector.EncryptSecret(plain, encryptionKey);
+            }
+        }
+
         var configJson = BackupSecretProtector.PrepareConfigJsonForExport(
             e.ConnectionConfigJson,
             includeSecrets,
@@ -1528,12 +1638,39 @@ public class BackupService : IBackupService
             e.Description,
             e.Notes,
             e.CreatedAt,
-            e.UpdatedAt
+            e.UpdatedAt,
+            e.DisplayWidthPx,
+            e.DisplayHeightPx,
+            e.DisplayOrientation,
+            e.DisplayLinkEnabled,
+            displayTokenEncrypted,
+            e.AssignedBatchId,
+            e.AssignedAt
         );
     }
 
-    private static RecipeBackupDto MapRecipeToBackupDto(Recipe r)
+    private static RecipeBackupDto MapRecipeToBackupDto(Recipe r, bool includeLabelImages = true)
     {
+        RecipeLabelBackupDto? labelDto = null;
+        if (includeLabelImages && r.Label != null)
+        {
+            labelDto = new RecipeLabelBackupDto(
+                r.Label.ContentType,
+                Convert.ToBase64String(r.Label.ImageData),
+                r.Label.WidthPx,
+                r.Label.HeightPx,
+                r.Label.Sha256,
+                r.Label.Version,
+                LabelCropDto.FromEntity(r.Label.BottleCrop),
+                LabelCropDto.FromEntity(r.Label.RoundCrop),
+                LabelCropDto.FromEntity(r.Label.RectCrop),
+                r.Label.RectOrientation,
+                r.Label.BottleWidthMm,
+                r.Label.BottleHeightMm,
+                r.Label.OriginalFileName
+            );
+        }
+
         return new RecipeBackupDto(
             r.Id,
             r.Name,
@@ -1595,7 +1732,8 @@ public class BackupService : IBackupService
                 fs.RampTimeHours,
                 fs.TriggerGravity,
                 fs.Notes
-            )).ToList()
+            )).ToList(),
+            labelDto
         );
     }
 
@@ -2418,5 +2556,69 @@ public class BackupService : IBackupService
         var atIndex = email.IndexOf('@');
         if (atIndex <= 1) return "***" + (atIndex >= 0 ? email[atIndex..] : "");
         return string.Concat(email.AsSpan(0, 1), "***", email.AsSpan(atIndex - 1));
+    }
+
+    private static RecipeLabel? CreateRecipeLabelFromDto(Guid recipeId, RecipeLabelBackupDto? labelDto)
+    {
+        if (labelDto == null || string.IsNullOrWhiteSpace(labelDto.ImageBase64)) return null;
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(labelDto.ImageBase64);
+        }
+        catch
+        {
+            return null;
+        }
+
+        return new RecipeLabel
+        {
+            Id = Guid.NewGuid(),
+            RecipeId = recipeId,
+            ContentType = string.IsNullOrWhiteSpace(labelDto.ContentType) ? "image/webp" : labelDto.ContentType,
+            ImageData = bytes,
+            WidthPx = labelDto.WidthPx > 0 ? labelDto.WidthPx : 1024,
+            HeightPx = labelDto.HeightPx > 0 ? labelDto.HeightPx : 1024,
+            SizeBytes = bytes.Length,
+            Sha256 = string.IsNullOrWhiteSpace(labelDto.Sha256) ? LabelUrlSigner.ComputeSha256(bytes) : labelDto.Sha256,
+            Version = labelDto.Version > 0 ? labelDto.Version : 1,
+            BottleCrop = labelDto.BottleCrop != null ? labelDto.BottleCrop.ToEntity() : LabelCrop.Default,
+            RoundCrop = labelDto.RoundCrop != null ? labelDto.RoundCrop.ToEntity() : LabelCrop.Default,
+            RectCrop = labelDto.RectCrop != null ? labelDto.RectCrop.ToEntity() : LabelCrop.Default,
+            RectOrientation = labelDto.RectOrientation,
+            BottleWidthMm = labelDto.BottleWidthMm,
+            BottleHeightMm = labelDto.BottleHeightMm,
+            OriginalFileName = labelDto.OriginalFileName,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static void UpdateRecipeLabelFromDto(RecipeLabel target, RecipeLabelBackupDto labelDto)
+    {
+        if (!string.IsNullOrWhiteSpace(labelDto.ImageBase64))
+        {
+            try
+            {
+                target.ImageData = Convert.FromBase64String(labelDto.ImageBase64);
+                target.SizeBytes = target.ImageData.Length;
+                target.Sha256 = string.IsNullOrWhiteSpace(labelDto.Sha256)
+                    ? LabelUrlSigner.ComputeSha256(target.ImageData)
+                    : labelDto.Sha256;
+                target.ContentType = string.IsNullOrWhiteSpace(labelDto.ContentType) ? "image/webp" : labelDto.ContentType;
+                target.WidthPx = labelDto.WidthPx > 0 ? labelDto.WidthPx : target.WidthPx;
+                target.HeightPx = labelDto.HeightPx > 0 ? labelDto.HeightPx : target.HeightPx;
+            }
+            catch { }
+        }
+        target.Version = Math.Max(target.Version + 1, labelDto.Version);
+        if (labelDto.BottleCrop != null) target.BottleCrop = labelDto.BottleCrop.ToEntity();
+        if (labelDto.RoundCrop != null) target.RoundCrop = labelDto.RoundCrop.ToEntity();
+        if (labelDto.RectCrop != null) target.RectCrop = labelDto.RectCrop.ToEntity();
+        target.RectOrientation = labelDto.RectOrientation;
+        target.BottleWidthMm = labelDto.BottleWidthMm;
+        target.BottleHeightMm = labelDto.BottleHeightMm;
+        target.OriginalFileName = labelDto.OriginalFileName ?? target.OriginalFileName;
+        target.UpdatedAt = DateTime.UtcNow;
     }
 }

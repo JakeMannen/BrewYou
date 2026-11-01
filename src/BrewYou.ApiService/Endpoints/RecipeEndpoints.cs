@@ -143,7 +143,9 @@ public record RecipeSummaryDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     string? AuthorName = null,
-    bool IsOwner = true
+    bool IsOwner = true,
+    string? LabelImageUrl = null,
+    bool HasCustomLabel = false
 );
 
 public record RecipeDetailDto(
@@ -166,7 +168,9 @@ public record RecipeDetailDto(
     List<RecipeMashStepOutputDto> MashSteps,
     List<RecipeFermentationStepOutputDto> FermentationSteps,
     string? AuthorName = null,
-    bool IsOwner = true
+    bool IsOwner = true,
+    string? LabelImageUrl = null,
+    bool HasCustomLabel = false
 );
 
 public record RecipeNameCheckResponse(bool Exists);

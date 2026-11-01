@@ -3,7 +3,7 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { api } from '$lib/api/client';
+	import { api, resolveApiUrl } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import type {
 		RecipeSummaryDto,
@@ -467,171 +467,191 @@
 	{:else}
 		<div class="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
 			{#each filteredRecipes as recipe}
-				<article class="artisan-card group relative flex flex-col justify-between rounded-2xl p-5">
-					<div class="space-y-3">
-						<div
-							class="flex items-start justify-between gap-3 border-b border-zinc-200/60 pb-3.5 dark:border-white/5"
-						>
-							<div class="min-w-0 flex-1">
-								<a
-									href="/recipes/{recipe.id}"
-									class="block truncate font-editorial text-lg font-bold text-zinc-900 transition-colors group-hover:text-amber-600 dark:text-white dark:group-hover:text-amber-400"
-								>
-									{recipe.name}
-								</a>
-								<div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-									<span
-										class="inline-flex items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300"
-									>
-										{recipe.beerStyle}
-									</span>
-									<span
-										class="rounded-md border border-zinc-200/80 bg-zinc-100/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300"
-									>
-										{recipe.batchSizeLiters}L
-									</span>
-								</div>
-								<div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
-									{#if isRecipeOwner(recipe)}
-										<span
-											class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-amber-700 uppercase dark:text-amber-400"
-										>
-											<UserCheck class="h-3 w-3" />
-											{t('recipes.badges.my_recipe')}
-										</span>
-									{:else}
-										<span
-											class="inline-flex items-center gap-1 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-indigo-700 uppercase dark:text-indigo-400"
-										>
-											<Globe class="h-3 w-3" />
-											{t('recipes.badges.shared')}
-										</span>
-										{#if recipe.authorName}
-											<span class="text-zinc-300 dark:text-zinc-700">•</span>
-											<span
-												class="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400"
-											>
-												<User class="h-3 w-3" />
-												{t('recipes.by_author', { author: recipe.authorName })}
-											</span>
-										{/if}
-									{/if}
-								</div>
-							</div>
-							<BeerGlass srm={recipe.colorSrm} size="sm" showLabel class="shrink-0 self-start" />
-						</div>
-
-						{#if recipe.description}
-							<p class="line-clamp-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-								{recipe.description}
-							</p>
-						{/if}
-					</div>
-
-					<!-- Specs Metrics Matrix with Tactile Brewhouse Stamps -->
-					<div
-						class="grid grid-cols-3 gap-2 border-t border-zinc-200/60 pt-3.5 text-center text-xs dark:border-white/5"
-					>
-						<div class="tactile-pill">
-							<span
-								class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-								>ABV</span
-							>
-							<span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
-								>{recipe.alcoholByVolume}%</span
-							>
-						</div>
-						<div class="tactile-pill">
-							<span
-								class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-								>IBU</span
-							>
-							<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
-								>{recipe.bitternessIbu}</span
-							>
-						</div>
-						<div class="tactile-pill">
-							<span
-								class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-								>OG</span
-							>
-							<span class="font-mono text-xs font-bold text-copper-500 dark:text-copper-400"
-								>{formatNumber(recipe.originalGravity, 3)}</span
-							>
-						</div>
-					</div>
-
-					<!-- Card Actions: Edit/Clone, Export, Delete, Start Batch -->
-					<div
-						class="mt-4 flex items-center justify-between border-t border-zinc-200/60 pt-3 dark:border-white/5"
-					>
-						<div class="flex items-center gap-1.5">
-							{#if isRecipeOwner(recipe)}
-								<!-- Edit (Owner only) -->
-								<a
-									href="/recipes/{recipe.id}/edit"
-									class="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-50 hover:text-amber-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
-									title={t('recipes.edit_recipe')}
-									aria-label={t('recipes.edit_recipe')}
-								>
-									<Pencil class="h-4 w-4" />
-								</a>
-							{:else}
-								<!-- Clone / Fork (Shared recipes) -->
-								<button
-									type="button"
-									onclick={() => handleCloneRecipe(recipe)}
-									disabled={cloningRecipeId === recipe.id}
-									class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-600 transition-colors hover:border-indigo-500/40 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-400"
-									title={t('recipes.clone_recipe')}
-									aria-label={t('recipes.clone_recipe')}
-								>
-									{#if cloningRecipeId === recipe.id}
-										<Loader2 class="h-4 w-4 animate-spin text-indigo-500" />
-									{:else}
-										<Copy class="h-4 w-4" />
-									{/if}
-								</button>
-							{/if}
-
-							<!-- Export (available to all) -->
-							<button
-								type="button"
-								onclick={() => handleOpenExport(recipe)}
-								disabled={exportLoadingId === recipe.id}
-								class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
-								title={t('recipes.export_recipe')}
-								aria-label={t('recipes.export_recipe')}
-							>
-								{#if exportLoadingId === recipe.id}
-									<Loader2 class="h-4 w-4 animate-spin text-amber-500" />
-								{:else}
-									<Download class="h-4 w-4" />
-								{/if}
-							</button>
-
-							<!-- Delete (Owner only) -->
-							{#if isRecipeOwner(recipe)}
-								<button
-									type="button"
-									onclick={() => (recipeToDelete = recipe)}
-									class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-400 transition-colors hover:border-red-500/40 hover:bg-red-50 hover:text-red-600 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-									title={t('recipes.delete_recipe')}
-									aria-label={t('recipes.delete_recipe')}
-								>
-									<Trash2 class="h-4 w-4" />
-								</button>
-							{/if}
-						</div>
-
-						<!-- Start Batch (available for all recipes) -->
+				<article
+					class="artisan-card group relative flex flex-col justify-between overflow-hidden rounded-2xl p-0"
+				>
+					{#if recipe.labelImageUrl}
 						<a
-							href="/batches/new?recipeId={recipe.id}"
-							class="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-600 transition-colors hover:bg-amber-500 hover:text-zinc-950 dark:bg-amber-500/15 dark:text-amber-400 dark:hover:bg-amber-400 dark:hover:text-zinc-950"
+							href="/recipes/{recipe.id}"
+							class="relative block h-36 w-full overflow-hidden border-b border-zinc-200/60 bg-zinc-900/60 dark:border-white/5"
 						>
-							<Play class="h-3 w-3 fill-current" />
-							<span>{t('recipes.start_batch')}</span>
+							<img
+								src={resolveApiUrl(recipe.labelImageUrl)}
+								alt={recipe.name}
+								loading="lazy"
+								class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+							/>
+							<div
+								class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"
+							></div>
 						</a>
+					{/if}
+					<div class="flex flex-1 flex-col justify-between p-5">
+						<div class="space-y-3">
+							<div
+								class="flex items-start justify-between gap-3 border-b border-zinc-200/60 pb-3.5 dark:border-white/5"
+							>
+								<div class="min-w-0 flex-1">
+									<a
+										href="/recipes/{recipe.id}"
+										class="block truncate font-editorial text-lg font-bold text-zinc-900 transition-colors group-hover:text-amber-600 dark:text-white dark:group-hover:text-amber-400"
+									>
+										{recipe.name}
+									</a>
+									<div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+										<span
+											class="inline-flex items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300"
+										>
+											{recipe.beerStyle}
+										</span>
+										<span
+											class="rounded-md border border-zinc-200/80 bg-zinc-100/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300"
+										>
+											{recipe.batchSizeLiters}L
+										</span>
+									</div>
+									<div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+										{#if isRecipeOwner(recipe)}
+											<span
+												class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-amber-700 uppercase dark:text-amber-400"
+											>
+												<UserCheck class="h-3 w-3" />
+												{t('recipes.badges.my_recipe')}
+											</span>
+										{:else}
+											<span
+												class="inline-flex items-center gap-1 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-indigo-700 uppercase dark:text-indigo-400"
+											>
+												<Globe class="h-3 w-3" />
+												{t('recipes.badges.shared')}
+											</span>
+											{#if recipe.authorName}
+												<span class="text-zinc-300 dark:text-zinc-700">•</span>
+												<span
+													class="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400"
+												>
+													<User class="h-3 w-3" />
+													{t('recipes.by_author', { author: recipe.authorName })}
+												</span>
+											{/if}
+										{/if}
+									</div>
+								</div>
+								<BeerGlass srm={recipe.colorSrm} size="sm" showLabel class="shrink-0 self-start" />
+							</div>
+
+							{#if recipe.description}
+								<p class="line-clamp-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+									{recipe.description}
+								</p>
+							{/if}
+						</div>
+
+						<!-- Specs Metrics Matrix with Tactile Brewhouse Stamps -->
+						<div
+							class="grid grid-cols-3 gap-2 border-t border-zinc-200/60 pt-3.5 text-center text-xs dark:border-white/5"
+						>
+							<div class="tactile-pill">
+								<span
+									class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+									>ABV</span
+								>
+								<span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+									>{recipe.alcoholByVolume}%</span
+								>
+							</div>
+							<div class="tactile-pill">
+								<span
+									class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+									>IBU</span
+								>
+								<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
+									>{recipe.bitternessIbu}</span
+								>
+							</div>
+							<div class="tactile-pill">
+								<span
+									class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+									>OG</span
+								>
+								<span class="font-mono text-xs font-bold text-copper-500 dark:text-copper-400"
+									>{formatNumber(recipe.originalGravity, 3)}</span
+								>
+							</div>
+						</div>
+
+						<!-- Card Actions: Edit/Clone, Export, Delete, Start Batch -->
+						<div
+							class="mt-4 flex items-center justify-between border-t border-zinc-200/60 pt-3 dark:border-white/5"
+						>
+							<div class="flex items-center gap-1.5">
+								{#if isRecipeOwner(recipe)}
+									<!-- Edit (Owner only) -->
+									<a
+										href="/recipes/{recipe.id}/edit"
+										class="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-50 hover:text-amber-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
+										title={t('recipes.edit_recipe')}
+										aria-label={t('recipes.edit_recipe')}
+									>
+										<Pencil class="h-4 w-4" />
+									</a>
+								{:else}
+									<!-- Clone / Fork (Shared recipes) -->
+									<button
+										type="button"
+										onclick={() => handleCloneRecipe(recipe)}
+										disabled={cloningRecipeId === recipe.id}
+										class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-600 transition-colors hover:border-indigo-500/40 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-400"
+										title={t('recipes.clone_recipe')}
+										aria-label={t('recipes.clone_recipe')}
+									>
+										{#if cloningRecipeId === recipe.id}
+											<Loader2 class="h-4 w-4 animate-spin text-indigo-500" />
+										{:else}
+											<Copy class="h-4 w-4" />
+										{/if}
+									</button>
+								{/if}
+
+								<!-- Export (available to all) -->
+								<button
+									type="button"
+									onclick={() => handleOpenExport(recipe)}
+									disabled={exportLoadingId === recipe.id}
+									class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
+									title={t('recipes.export_recipe')}
+									aria-label={t('recipes.export_recipe')}
+								>
+									{#if exportLoadingId === recipe.id}
+										<Loader2 class="h-4 w-4 animate-spin text-amber-500" />
+									{:else}
+										<Download class="h-4 w-4" />
+									{/if}
+								</button>
+
+								<!-- Delete (Owner only) -->
+								{#if isRecipeOwner(recipe)}
+									<button
+										type="button"
+										onclick={() => (recipeToDelete = recipe)}
+										class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-zinc-200/80 bg-white text-zinc-400 transition-colors hover:border-red-500/40 hover:bg-red-50 hover:text-red-600 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+										title={t('recipes.delete_recipe')}
+										aria-label={t('recipes.delete_recipe')}
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								{/if}
+							</div>
+
+							<!-- Start Batch (available for all recipes) -->
+							<a
+								href="/batches/new?recipeId={recipe.id}"
+								class="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-600 transition-colors hover:bg-amber-500 hover:text-zinc-950 dark:bg-amber-500/15 dark:text-amber-400 dark:hover:bg-amber-400 dark:hover:text-zinc-950"
+							>
+								<Play class="h-3 w-3 fill-current" />
+								<span>{t('recipes.start_batch')}</span>
+							</a>
+						</div>
 					</div>
 				</article>
 			{/each}

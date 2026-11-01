@@ -309,6 +309,159 @@ public static class EquipmentEndpoints
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
 
+        group.MapPut("/{id:guid}/tap-assignment", async (
+            Guid id,
+            [FromBody] AssignTapRequest request,
+            IValidator<AssignTapRequest> validator,
+            ClaimsPrincipal principal,
+            IEquipmentService equipmentService) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Invalid tap assignment request.", details));
+            }
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, equipment, error) = await equipmentService.AssignTapBatchAsync(id, request.BatchId, userId);
+            return result switch
+            {
+                EquipmentAccessResult.Success => Results.Ok(ApiResponse<EquipmentDto>.Ok(equipment!)),
+                EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment or batch not found.")),
+                EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                EquipmentAccessResult.InvalidTapAssignment => Results.Conflict(ApiResponse.Fail("INVALID_TAP_ASSIGNMENT", error ?? "Invalid tap assignment.")),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .WithName("AssignTapBatch")
+        .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
+
+        group.MapDelete("/{id:guid}/tap-assignment", async (
+            Guid id,
+            ClaimsPrincipal principal,
+            IEquipmentService equipmentService) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, equipment, error) = await equipmentService.UnassignTapBatchAsync(id, userId);
+            return result switch
+            {
+                EquipmentAccessResult.Success => Results.Ok(ApiResponse<EquipmentDto>.Ok(equipment!)),
+                EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
+                EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                EquipmentAccessResult.InvalidTapAssignment => Results.BadRequest(ApiResponse.Fail("INVALID_TAP", error ?? "Equipment is not a tap.")),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .WithName("UnassignTapBatch")
+        .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id:guid}/display-link", async (
+            Guid id,
+            ClaimsPrincipal principal,
+            HttpContext context,
+            IConfiguration config,
+            IEquipmentService equipmentService) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var apiBase = $"{context.Request.Scheme}://{context.Request.Host}";
+            var appBase = config["PUBLIC_APP_URL"] ?? "http://localhost:3000";
+
+            var (result, link, error) = await equipmentService.GetTapDisplayLinkAsync(id, userId, appBase, apiBase);
+            return result switch
+            {
+                EquipmentAccessResult.Success => Results.Ok(ApiResponse<TapDisplayLinkDto>.Ok(link!)),
+                EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Display link not enabled.")),
+                EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .WithName("GetTapDisplayLink")
+        .Produces<ApiResponse<TapDisplayLinkDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/display-link", async (
+            Guid id,
+            ClaimsPrincipal principal,
+            HttpContext context,
+            IConfiguration config,
+            IEquipmentService equipmentService) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var apiBase = $"{context.Request.Scheme}://{context.Request.Host}";
+            var appBase = config["PUBLIC_APP_URL"] ?? "http://localhost:3000";
+
+            var (result, link, error) = await equipmentService.EnableOrRegenerateTapDisplayLinkAsync(id, userId, appBase, apiBase);
+            return result switch
+            {
+                EquipmentAccessResult.Success => Results.Ok(ApiResponse<TapDisplayLinkDto>.Ok(link!)),
+                EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
+                EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .WithName("EnableOrRegenerateTapDisplayLink")
+        .Produces<ApiResponse<TapDisplayLinkDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{id:guid}/display-link", async (
+            Guid id,
+            ClaimsPrincipal principal,
+            IEquipmentService equipmentService) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, error) = await equipmentService.RevokeTapDisplayLinkAsync(id, userId);
+            return result switch
+            {
+                EquipmentAccessResult.Success => Results.Ok(ApiResponse.Ok()),
+                EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
+                EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .WithName("RevokeTapDisplayLink")
+        .Produces<ApiResponse>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+
         return group;
     }
 }

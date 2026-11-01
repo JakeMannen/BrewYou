@@ -14,6 +14,8 @@
 	} from '$lib/types/api';
 	import EquipmentModal from '$lib/components/inventory/EquipmentModal.svelte';
 	import DeleteEquipmentModal from '$lib/components/inventory/DeleteEquipmentModal.svelte';
+	import AssignTapModal from '$lib/components/inventory/AssignTapModal.svelte';
+	import TapDisplayLinkModal from '$lib/components/inventory/TapDisplayLinkModal.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
 	import {
@@ -31,7 +33,9 @@
 		Droplets,
 		Battery,
 		ChevronDown,
-		ChevronUp
+		ChevronUp,
+		Beer,
+		Tv
 	} from '@lucide/svelte';
 
 	let equipmentList = $state<EquipmentDto[]>([]);
@@ -52,7 +56,21 @@
 	let editingItem = $state<EquipmentDto | null>(null);
 	let deleteModalOpen = $state(false);
 	let itemToDelete = $state<EquipmentDto | null>(null);
+	let assignTapModalOpen = $state(false);
+	let tapToAssign = $state<EquipmentDto | null>(null);
+	let displayLinkModalOpen = $state(false);
+	let tapForDisplayLink = $state<EquipmentDto | null>(null);
 	let expandedAttributes = $state<Record<string, boolean>>({});
+
+	function openAssignTapModal(item: EquipmentDto) {
+		tapToAssign = item;
+		assignTapModalOpen = true;
+	}
+
+	function openDisplayLinkModal(item: EquipmentDto) {
+		tapForDisplayLink = item;
+		displayLinkModalOpen = true;
+	}
 
 	let telemetryAbortController: AbortController | null = null;
 	let telemetryReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -281,6 +299,8 @@
 				return t('equipment.fermenters');
 			case 'Keg':
 				return t('equipment.kegs');
+			case 'Tap':
+				return t('equipment.taps');
 			case 'Sensor':
 				return t('equipment.sensors');
 			case 'Other':
@@ -306,6 +326,8 @@
 				return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
 			case 'Keg':
 				return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+			case 'Tap':
+				return 'border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400';
 			case 'Sensor':
 				return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400';
 			default:
@@ -555,7 +577,7 @@
 		>
 			<!-- Category Tabs -->
 			<div class="flex items-center gap-1.5 overflow-x-auto p-0.5 text-xs">
-				{#each ['All', 'Boiler', 'Fermenter', 'Keg', 'Sensor', 'Other'] as const as cat}
+				{#each ['All', 'Boiler', 'Fermenter', 'Keg', 'Tap', 'Sensor', 'Other'] as const as cat}
 					<button
 						type="button"
 						data-testid={`filter-tab-${cat.toLowerCase()}`}
@@ -975,6 +997,82 @@
 							</div>
 						{/if}
 
+						<!-- Tap Dispenser & Batch Assignment Box -->
+						{#if item.type === 'Tap'}
+							<div
+								class="mt-4 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+							>
+								<div class="flex items-center justify-between">
+									<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+										{t('taps.tap_status')}
+									</span>
+									<span
+										class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
+											? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+											: 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'}"
+									>
+										{item.assignedBatch ? t('taps.status_pouring') : t('taps.status_empty')}
+									</span>
+								</div>
+
+								{#if item.assignedBatch}
+									<div class="mt-2 space-y-1">
+										<div class="flex items-center gap-2">
+											<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
+												{item.assignedBatch.batchCode}
+											</span>
+											{#if item.assignedBatch.actualAbv != null}
+												<span
+													class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+												>
+													{item.assignedBatch.actualAbv}% ABV
+												</span>
+											{/if}
+										</div>
+										<p class="truncate text-sm font-bold text-zinc-900 dark:text-white">
+											{item.assignedBatch.name}
+										</p>
+										<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+											{item.assignedBatch.beerStyle}
+										</p>
+									</div>
+								{:else}
+									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+										{t('taps.no_batch_assigned_desc')}
+									</p>
+								{/if}
+
+								<!-- Action Buttons -->
+								<div
+									class="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-200/60 pt-2 dark:border-white/5"
+								>
+									<button
+										type="button"
+										onclick={() => openAssignTapModal(item)}
+										class="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500 hover:text-zinc-950 dark:text-amber-400 dark:hover:bg-amber-400 dark:hover:text-zinc-950"
+									>
+										<Beer class="h-3.5 w-3.5" />
+										<span
+											>{item.assignedBatch
+												? t('taps.change_batch_btn')
+												: t('taps.assign_batch_btn')}</span
+										>
+									</button>
+
+									{#if item.subtype === 'RoundDisplayTap' || item.subtype === 'RectDisplayTap'}
+										<button
+											type="button"
+											onclick={() => openDisplayLinkModal(item)}
+											class="flex items-center gap-1.5 rounded-lg border border-zinc-200/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 shadow-xs transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+										>
+											<Tv class="h-3.5 w-3.5 text-zinc-500" />
+											<span>{t('taps.display_link_btn')}</span>
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+
 						{#if item.notes}
 							<p class="mt-3 text-[11px] text-zinc-400 italic">
 								"{item.notes}"
@@ -1006,4 +1104,26 @@
 		itemToDelete = null;
 	}}
 	onDeleted={handleDeleted}
+/>
+
+<!-- Assign Tap Modal -->
+<AssignTapModal
+	open={assignTapModalOpen}
+	tap={tapToAssign}
+	onClose={() => {
+		assignTapModalOpen = false;
+		tapToAssign = null;
+	}}
+	onSaved={handleSaved}
+/>
+
+<!-- Tap Display Link Modal -->
+<TapDisplayLinkModal
+	open={displayLinkModalOpen}
+	tap={tapForDisplayLink}
+	onClose={() => {
+		displayLinkModalOpen = false;
+		tapForDisplayLink = null;
+	}}
+	onUpdated={handleSaved}
 />

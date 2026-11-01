@@ -27,6 +27,9 @@ export const CHAMBER_BOUNDS: Record<
 	ISpindel: { bottomY: 38, topY: 10 },
 	Tilt: { bottomY: 39, topY: 9 },
 	GenericSensor: { bottomY: 38, topY: 14 },
+	StandardTap: { bottomY: 38, topY: 14 },
+	RoundDisplayTap: { bottomY: 38, topY: 14 },
+	RectDisplayTap: { bottomY: 38, topY: 14 },
 	Bottle: { bottomY: 41, topY: 14 },
 	Other: { bottomY: 37, topY: 13 }
 };
@@ -37,11 +40,23 @@ export const CHAMBER_BOUNDS: Record<
 export const SENSOR_SUBTYPES: EquipmentSubtype[] = ['GenericSensor', 'Tilt', 'ISpindel'];
 
 /**
+ * Subtypes that are not liquid-bearing vessels (sensors, taps).
+ */
+export const NON_VESSEL_SUBTYPES: EquipmentSubtype[] = [
+	'GenericSensor',
+	'Tilt',
+	'ISpindel',
+	'StandardTap',
+	'RoundDisplayTap',
+	'RectDisplayTap'
+];
+
+/**
  * Checks whether an equipment subtype represents a fillable vessel (holds liquid volume).
- * Sensors, probes, and hydrometers are not fillable and have no fill levels.
+ * Sensors, probes, and taps are not fillable reservoirs and have no liquid fill levels.
  */
 export function isVesselFillable(subtype: EquipmentSubtype | string): boolean {
-	return !['GenericSensor', 'Tilt', 'ISpindel'].includes(subtype as EquipmentSubtype);
+	return !NON_VESSEL_SUBTYPES.includes(subtype as EquipmentSubtype);
 }
 
 /**

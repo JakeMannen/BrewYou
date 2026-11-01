@@ -32,6 +32,7 @@
 	import FermentationTimelineVisualizer from '$lib/components/brewery/FermentationTimelineVisualizer.svelte';
 	import DeleteRecipeModal from '$lib/components/recipes/DeleteRecipeModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
+	import RecipeLabelCard from '$lib/components/recipes/RecipeLabelCard.svelte';
 	import {
 		ArrowLeft,
 		BookOpen,
@@ -573,6 +574,20 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- Recipe Label & Digital Screen Graphics -->
+		{#if recipeId}
+			<RecipeLabelCard
+				{recipeId}
+				isOwner={isRecipeOwner(recipe)}
+				onLabelUpdated={(lbl) => {
+					if (recipe) {
+						recipe.labelImageUrl = lbl.imageUrls['Bottle'] ?? lbl.imageUrls['Rect'];
+						recipe.hasCustomLabel = !lbl.isDefault;
+					}
+				}}
+			/>
+		{/if}
 
 		<!-- Description & Brewhouse Calibration -->
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">

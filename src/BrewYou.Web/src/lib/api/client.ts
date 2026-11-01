@@ -67,7 +67,11 @@ import type {
 	PreviewRestoreRequest,
 	RestorePreviewReportDto,
 	ExecuteRestoreRequest,
-	RestoreResultDto
+	RestoreResultDto,
+	RecipeLabelDto,
+	UpdateRecipeLabelSettingsRequest,
+	TapDisplayLinkDto,
+	TapDisplayManifestDto
 } from '$lib/types/api';
 
 interface CustomWindow extends Window {
@@ -80,6 +84,18 @@ const API_BASE =
 		: process.env.services__apiservice__http__0 ||
 			process.env.services__apiservice__https__0 ||
 			'http://localhost:5000';
+
+export function getApiBaseUrl(): string {
+	return API_BASE;
+}
+
+export function resolveApiUrl(path: string | null | undefined): string {
+	if (!path) return '';
+	if (path.startsWith('http://') || path.startsWith('https://')) return path;
+	const base = API_BASE.replace(/\/+$/, '');
+	const cleanPath = path.startsWith('/') ? path : `/${path}`;
+	return `${base}${cleanPath}`;
+}
 
 export class ApiClientError extends Error {
 	constructor(
@@ -177,7 +193,9 @@ async function request<T>(path: string, options: RequestInit = {}, isRetry = fal
 	}
 
 	const headers = new Headers(options.headers || {});
-	headers.set('Content-Type', 'application/json');
+	if (!(typeof FormData !== 'undefined' && options.body instanceof FormData)) {
+		headers.set('Content-Type', 'application/json');
+	}
 
 	const token =
 		authToken ?? (typeof window !== 'undefined' ? localStorage.getItem('brewyou_token') : null);
@@ -243,7 +261,9 @@ async function request<T>(path: string, options: RequestInit = {}, isRetry = fal
 			const newToken = await attemptTokenRefresh();
 			if (newToken) {
 				const retryHeaders = new Headers(options.headers || {});
-				retryHeaders.set('Content-Type', 'application/json');
+				if (!(typeof FormData !== 'undefined' && options.body instanceof FormData)) {
+					retryHeaders.set('Content-Type', 'application/json');
+				}
 				retryHeaders.set('Authorization', `Bearer ${newToken}`);
 				return request<T>(path, { ...options, headers: retryHeaders }, true);
 			}
@@ -529,6 +549,35 @@ export const api = {
 				if (options.signal?.aborted) return;
 				options.onError?.(err instanceof Error ? err : new Error(String(err)));
 			}
+		},
+
+		async assignTap(equipmentId: string, batchId: string): Promise<EquipmentDto> {
+			return request<EquipmentDto>(`/api/v1/inventory/equipment/${equipmentId}/tap-assignment`, {
+				method: 'PUT',
+				body: JSON.stringify({ batchId })
+			});
+		},
+
+		async unassignTap(equipmentId: string): Promise<EquipmentDto> {
+			return request<EquipmentDto>(`/api/v1/inventory/equipment/${equipmentId}/tap-assignment`, {
+				method: 'DELETE'
+			});
+		},
+
+		async getDisplayLink(equipmentId: string): Promise<TapDisplayLinkDto> {
+			return request<TapDisplayLinkDto>(`/api/v1/inventory/equipment/${equipmentId}/display-link`);
+		},
+
+		async enableOrRegenerateDisplayLink(equipmentId: string): Promise<TapDisplayLinkDto> {
+			return request<TapDisplayLinkDto>(`/api/v1/inventory/equipment/${equipmentId}/display-link`, {
+				method: 'POST'
+			});
+		},
+
+		async revokeDisplayLink(equipmentId: string): Promise<void> {
+			return request<void>(`/api/v1/inventory/equipment/${equipmentId}/display-link`, {
+				method: 'DELETE'
+			});
 		}
 	},
 
@@ -681,6 +730,33 @@ export const api = {
 				`/api/v1/recipes/check-name?${params.toString()}`
 			);
 			return res.exists;
+		},
+
+		label: {
+			async get(recipeId: string): Promise<RecipeLabelDto> {
+				return request<RecipeLabelDto>(`/api/v1/recipes/${recipeId}/label`);
+			},
+
+			async upload(recipeId: string, formData: FormData): Promise<RecipeLabelDto> {
+				return request<RecipeLabelDto>(`/api/v1/recipes/${recipeId}/label`, {
+					method: 'PUT',
+					body: formData
+				});
+			},
+
+			async updateSettings(
+				recipeId: string,
+				req: UpdateRecipeLabelSettingsRequest
+			): Promise<RecipeLabelDto> {
+				return request<RecipeLabelDto>(`/api/v1/recipes/${recipeId}/label`, {
+					method: 'PATCH',
+					body: JSON.stringify(req)
+				});
+			},
+
+			async delete(recipeId: string): Promise<void> {
+				return request<void>(`/api/v1/recipes/${recipeId}/label`, { method: 'DELETE' });
+			}
 		}
 	},
 
@@ -890,6 +966,12 @@ export const api = {
 				if (options.signal?.aborted) return;
 				options.onError?.(err instanceof Error ? err : new Error(String(err)));
 			}
+		}
+	},
+
+	tap: {
+		async getManifest(token: string): Promise<TapDisplayManifestDto> {
+			return request<TapDisplayManifestDto>(`/api/v1/tap/${token}`);
 		}
 	},
 

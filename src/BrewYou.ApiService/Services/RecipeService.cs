@@ -2,6 +2,7 @@ using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services.Labels;
 using Microsoft.EntityFrameworkCore;
 
 namespace BrewYou.ApiService.Services;
@@ -26,7 +27,7 @@ public interface IRecipeService
     Task<bool> RecipeNameExistsAsync(string name, string userId);
 }
 
-public class RecipeService(BrewYouDbContext db) : IRecipeService
+public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = null) : IRecipeService
 {
     public async Task<(List<RecipeSummaryDto> Items, PaginationMeta Pagination)> GetRecipesAsync(
         string? userId,
@@ -63,12 +64,13 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
         var total = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(total / (double)limit);
 
-        var items = await query
+        var rawItems = await query
             .OrderBy(r => r.Name)
             .ThenByDescending(r => r.UpdatedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
-            .Select(r => new RecipeSummaryDto(
+            .Select(r => new
+            {
                 r.Id,
                 r.Name,
                 r.Description,
@@ -82,12 +84,45 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
                 r.IsPublic,
                 r.CreatedAt,
                 r.UpdatedAt,
-                r.User != null && !string.IsNullOrEmpty(r.User.DisplayName)
+                AuthorName = r.User != null && !string.IsNullOrEmpty(r.User.DisplayName)
                     ? r.User.DisplayName
                     : "Community Brewer",
-                userId != null && r.UserId == userId
-            ))
+                IsOwner = userId != null && r.UserId == userId,
+                HasCustomLabel = r.Label != null,
+                LabelVersion = r.Label != null ? (int?)r.Label.Version : null
+            })
             .ToListAsync();
+
+        var items = rawItems.Select(r =>
+        {
+            string? imageUrl = null;
+            if (urlSigner != null)
+            {
+                imageUrl = r.HasCustomLabel && r.LabelVersion.HasValue
+                    ? urlSigner.BuildSignedImageUrl("", r.Id, "card", 640, r.LabelVersion.Value)
+                    : urlSigner.BuildDefaultImageUrl("", "card", 640, "default");
+            }
+
+            return new RecipeSummaryDto(
+                r.Id,
+                r.Name,
+                r.Description,
+                r.BeerStyle,
+                r.BatchSizeLiters,
+                r.OriginalGravity,
+                r.FinalGravity,
+                r.AlcoholByVolume,
+                r.BitternessIbu,
+                r.ColorSrm,
+                r.IsPublic,
+                r.CreatedAt,
+                r.UpdatedAt,
+                r.AuthorName,
+                r.IsOwner,
+                imageUrl,
+                r.HasCustomLabel
+            );
+        }).ToList();
 
         var meta = new PaginationMeta(page, limit, total, totalPages);
         return (items, meta);
@@ -98,6 +133,7 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
         var recipe = await db.Recipes
             .AsNoTracking()
             .Include(r => r.User)
+            .Include(r => r.Label)
             .Include(r => r.Ingredients)
                 .ThenInclude(ri => ri.Ingredient)
             .Include(r => r.MashSteps)
@@ -487,8 +523,16 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
         return RecipeAccessResult.Success;
     }
 
-    private static RecipeDetailDto MapToDetailDto(Recipe recipe, string? userId = null)
+    private RecipeDetailDto MapToDetailDto(Recipe recipe, string? userId = null)
     {
+        string? imageUrl = null;
+        if (urlSigner != null)
+        {
+            imageUrl = recipe.Label != null
+                ? urlSigner.BuildSignedImageUrl("", recipe.Id, "card", 640, recipe.Label.Version)
+                : urlSigner.BuildDefaultImageUrl("", "card", 640, "default");
+        }
+
         return new RecipeDetailDto(
             recipe.Id,
             recipe.Name,
@@ -548,7 +592,9 @@ public class RecipeService(BrewYouDbContext db) : IRecipeService
             recipe.User != null && !string.IsNullOrEmpty(recipe.User.DisplayName)
                 ? recipe.User.DisplayName
                 : "Community Brewer",
-            userId != null && recipe.UserId == userId
+            userId != null && recipe.UserId == userId,
+            imageUrl,
+            recipe.Label != null
         );
     }
 
