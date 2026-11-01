@@ -246,14 +246,24 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var manifestEnvelope = await manifestRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>();
         var manifest = manifestEnvelope!.Data!;
         manifest.BeerName.Should().Be("Display Amber");
-        manifest.ActualAbv.Should().NotBeNull();
+        manifest.ActualAbv.Should().Be(5.25m);
         manifest.WidthPx.Should().Be(320);
         manifest.HeightPx.Should().Be(240);
 
-        // Public image render access
+        // Public image render access with ABV overlay
         var imageRes = await unauthClient.GetAsync(linkDto.ImageUrl);
         imageRes.StatusCode.Should().Be(HttpStatusCode.OK);
         imageRes.Content.Headers.ContentType!.MediaType.Should().Be("image/webp");
+        var imageWithAbvBytes = await imageRes.Content.ReadAsByteArrayAsync();
+        imageWithAbvBytes.Length.Should().BeGreaterThan(500);
+
+        // Public image render access without ABV overlay
+        var imageNoAbvRes = await unauthClient.GetAsync($"{linkDto.ImageUrl}?abv=false");
+        imageNoAbvRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var imageNoAbvBytes = await imageNoAbvRes.Content.ReadAsByteArrayAsync();
+
+        // The image with the ABV overlay badge has different pixels than without
+        imageWithAbvBytes.Should().NotEqual(imageNoAbvBytes);
 
         // Revoke display link
         var revokeRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{tap.Id}/display-link");

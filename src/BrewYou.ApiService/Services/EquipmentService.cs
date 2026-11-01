@@ -891,6 +891,18 @@ public class EquipmentService : IEquipmentService
 
         // Master Brewer rule: actual measured ABV only
         var actualAbv = equipment.AssignedBatch?.AlcoholByVolume;
+        if (!actualAbv.HasValue && equipment.AssignedBatch?.MeasuredOg.HasValue == true)
+        {
+            var fg = equipment.AssignedBatch.MeasuredFg ?? equipment.AssignedBatch.CurrentGravity;
+            if (fg.HasValue && equipment.AssignedBatch.MeasuredOg.Value > fg.Value)
+            {
+                actualAbv = BrewingCalculator.CalculateActualAbv(equipment.AssignedBatch.MeasuredOg.Value, fg.Value);
+            }
+        }
+        if (actualAbv.HasValue && actualAbv.Value <= 0m)
+        {
+            actualAbv = null;
+        }
 
         var labelVersion = equipment.AssignedBatch != null
             ? $"{equipment.AssignedBatch.Id}:{equipment.AssignedBatch.Recipe?.Label?.Version ?? 0}:{actualAbv}:{equipment.UpdatedAt.Ticks}"
@@ -981,9 +993,22 @@ public class EquipmentService : IEquipmentService
 
         // Master Brewer rule: only actual measured ABV from batch
         string? abvText = null;
-        if (abv && equipment.AssignedBatch?.AlcoholByVolume.HasValue == true)
+        if (abv && equipment.AssignedBatch != null)
         {
-            abvText = FormattableString.Invariant($"{equipment.AssignedBatch.AlcoholByVolume.Value:0.1}% ABV");
+            var actualAbv = equipment.AssignedBatch.AlcoholByVolume;
+            if (!actualAbv.HasValue && equipment.AssignedBatch.MeasuredOg.HasValue)
+            {
+                var fg = equipment.AssignedBatch.MeasuredFg ?? equipment.AssignedBatch.CurrentGravity;
+                if (fg.HasValue && equipment.AssignedBatch.MeasuredOg.Value > fg.Value)
+                {
+                    actualAbv = BrewingCalculator.CalculateActualAbv(equipment.AssignedBatch.MeasuredOg.Value, fg.Value);
+                }
+            }
+
+            if (actualAbv.HasValue && actualAbv.Value > 0m)
+            {
+                abvText = FormattableString.Invariant($"{actualAbv.Value:0.0}% ABV");
+            }
         }
 
         var cacheKey = $"tap:{equipment.Id}:{assetSha}:{targetW}x{targetH}:{targetFormat}:{isRound}:{abvText}";
