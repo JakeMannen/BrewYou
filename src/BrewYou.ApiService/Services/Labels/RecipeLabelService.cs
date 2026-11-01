@@ -327,23 +327,34 @@ public class RecipeLabelService : IRecipeLabelService
 
     private async Task<SystemAsset> GetDefaultAssetAsync()
     {
-        var asset = await _db.SystemAssets.FirstOrDefaultAsync(a => a.Key == DefaultLabelGenerator.DefaultAssetKey);
-        if (asset != null) return asset;
-
-        // On-demand self-healing if table wasn't seeded yet
         var (imageData, contentType, width, height, sha256) = DefaultLabelGenerator.GenerateDefaultLabel();
-        asset = new SystemAsset
+        var asset = await _db.SystemAssets.FirstOrDefaultAsync(a => a.Key == DefaultLabelGenerator.DefaultAssetKey);
+        if (asset == null)
         {
-            Key = DefaultLabelGenerator.DefaultAssetKey,
-            ImageData = imageData,
-            ContentType = contentType,
-            WidthPx = width,
-            HeightPx = height,
-            Sha256 = sha256,
-            UpdatedAt = DateTime.UtcNow
-        };
-        _db.SystemAssets.Add(asset);
-        await _db.SaveChangesAsync();
+            asset = new SystemAsset
+            {
+                Key = DefaultLabelGenerator.DefaultAssetKey,
+                ImageData = imageData,
+                ContentType = contentType,
+                WidthPx = width,
+                HeightPx = height,
+                Sha256 = sha256,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _db.SystemAssets.Add(asset);
+            await _db.SaveChangesAsync();
+        }
+        else if (asset.Sha256 != sha256)
+        {
+            asset.ImageData = imageData;
+            asset.ContentType = contentType;
+            asset.WidthPx = width;
+            asset.HeightPx = height;
+            asset.Sha256 = sha256;
+            asset.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+
         return asset;
     }
 
@@ -419,8 +430,8 @@ public class RecipeLabelService : IRecipeLabelService
         return normalized switch
         {
             "round" => (LabelCrop.Default, true, targetSize, targetSize),
-            "rect" or "card" => (LabelCrop.Default, false, targetSize, (int)(targetSize * 9f / 16f)),
-            "bottle" => (LabelCrop.Default, false, targetSize, (int)(targetSize * (120f / 90f))),
+            "rect" or "card" => (new LabelCrop(0m, 0.21875m, 1m, 0.5625m), false, targetSize, (int)(targetSize * 9f / 16f)),
+            "bottle" => (new LabelCrop(0.125m, 0m, 0.75m, 1m), false, targetSize, (int)(targetSize * (120f / 90f))),
             "original" or _ => (LabelCrop.Default, false, targetSize, targetSize)
         };
     }

@@ -165,5 +165,10 @@ public class LabelImageProcessorTests
         bmp.Should().NotBeNull();
         bmp.Width.Should().Be(1024);
         bmp.Height.Should().Be(1024);
+
+        // Center pixel should be within the golden BrewYou emblem
+        var centerPixel = bmp.GetPixel(512, 512);
+        centerPixel.Red.Should().BeGreaterThan(100);
+        centerPixel.Green.Should().BeGreaterThan(60);
     }
 }

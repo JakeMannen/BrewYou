@@ -946,10 +946,10 @@ public class EquipmentService : IEquipmentService
         }
         else
         {
+            var (genBytes, genType, genW, genH, genSha) = DefaultLabelGenerator.GenerateDefaultLabel();
             var defaultAsset = await _db.SystemAssets.FirstOrDefaultAsync(a => a.Key == DefaultLabelGenerator.DefaultAssetKey);
             if (defaultAsset == null)
             {
-                var (genBytes, genType, genW, genH, genSha) = DefaultLabelGenerator.GenerateDefaultLabel();
                 defaultAsset = new SystemAsset
                 {
                     Key = DefaultLabelGenerator.DefaultAssetKey,
@@ -963,9 +963,19 @@ public class EquipmentService : IEquipmentService
                 _db.SystemAssets.Add(defaultAsset);
                 await _db.SaveChangesAsync();
             }
+            else if (defaultAsset.Sha256 != genSha)
+            {
+                defaultAsset.ImageData = genBytes;
+                defaultAsset.ContentType = genType;
+                defaultAsset.WidthPx = genW;
+                defaultAsset.HeightPx = genH;
+                defaultAsset.Sha256 = genSha;
+                defaultAsset.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
 
             masterBytes = defaultAsset.ImageData;
-            crop = LabelCrop.Default;
+            crop = isRound ? LabelCrop.Default : new LabelCrop(0m, 0.21875m, 1m, 0.5625m);
             assetSha = defaultAsset.Sha256;
         }
 

@@ -28,6 +28,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\BrewYou.ServiceDefaults\BrewYou.ServiceDefaults.csproj" />
   </ItemGroup>
 

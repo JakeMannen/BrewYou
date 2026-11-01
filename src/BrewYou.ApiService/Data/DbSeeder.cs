@@ -132,11 +132,11 @@ public static class DbSeeder
                 await db.SaveChangesAsync();
             }
 
-            // Seed default recipe label system asset if not present
+            // Seed or update default recipe label system asset
+            var (imageData, contentType, width, height, sha256) = DefaultLabelGenerator.GenerateDefaultLabel();
             var defaultAsset = await db.SystemAssets.FirstOrDefaultAsync(a => a.Key == DefaultLabelGenerator.DefaultAssetKey);
             if (defaultAsset == null)
             {
-                var (imageData, contentType, width, height, sha256) = DefaultLabelGenerator.GenerateDefaultLabel();
                 db.SystemAssets.Add(new SystemAsset
                 {
                     Key = DefaultLabelGenerator.DefaultAssetKey,
@@ -147,6 +147,16 @@ public static class DbSeeder
                     Sha256 = sha256,
                     UpdatedAt = DateTime.UtcNow
                 });
+                await db.SaveChangesAsync();
+            }
+            else if (defaultAsset.Sha256 != sha256)
+            {
+                defaultAsset.ImageData = imageData;
+                defaultAsset.ContentType = contentType;
+                defaultAsset.WidthPx = width;
+                defaultAsset.HeightPx = height;
+                defaultAsset.Sha256 = sha256;
+                defaultAsset.UpdatedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
 

@@ -1,4 +1,5 @@
 using SkiaSharp;
+using System.Reflection;
 using System.Security.Cryptography;
 
 namespace BrewYou.ApiService.Services.Labels;
@@ -14,73 +15,87 @@ public static class DefaultLabelGenerator
         using var surface = SKSurface.Create(info);
         var canvas = surface.Canvas;
 
-        // Background: radial gradient from dark amber/slate center to deep charcoal edge
+        // 1. Velvet craft brewery background: deep roasted-malt / obsidian radial gradient
         using var bgPaint = new SKPaint
         {
             IsAntialias = true,
             Shader = SKShader.CreateRadialGradient(
                 new SKPoint(size / 2f, size / 2f),
-                size * 0.7f,
-                [new SKColor(48, 30, 18), new SKColor(22, 18, 15), new SKColor(14, 12, 10)],
-                [0.0f, 0.6f, 1.0f],
+                size * 0.72f,
+                [new SKColor(36, 26, 20), new SKColor(20, 16, 14), new SKColor(11, 9, 8)],
+                [0.0f, 0.55f, 1.0f],
                 SKShaderTileMode.Clamp)
         };
         canvas.DrawRect(0, 0, size, size, bgPaint);
 
-        // Subtle decorative outer ring
-        using var ringPaint = new SKPaint
+        // 2. Warm amber ambient glow behind the centerpiece badge
+        using var glowPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Shader = SKShader.CreateRadialGradient(
+                new SKPoint(size / 2f, size / 2f),
+                size * 0.44f,
+                [new SKColor(217, 119, 6, 45), new SKColor(217, 119, 6, 12), SKColors.Transparent],
+                [0.0f, 0.65f, 1.0f],
+                SKShaderTileMode.Clamp)
+        };
+        canvas.DrawCircle(size / 2f, size / 2f, size * 0.44f, glowPaint);
+
+        // 3. Subtle artisan framing rings (visible on circular tap screens and full bottle labels)
+        using var outerRingPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = new SKColor(217, 119, 6, 90), // amber-600 with opacity
-            StrokeWidth = 4f
+            Color = new SKColor(217, 119, 6, 75), // amber-600
+            StrokeWidth = 2.5f
         };
-        canvas.DrawCircle(size / 2f, size / 2f, size * 0.44f, ringPaint);
+        canvas.DrawCircle(size / 2f, size / 2f, size * 0.465f, outerRingPaint);
 
-        // Inner golden ring
         using var innerRingPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = new SKColor(245, 158, 11, 140), // amber-500
-            StrokeWidth = 2f
+            Color = new SKColor(245, 158, 11, 35), // amber-500
+            StrokeWidth = 1f
         };
-        canvas.DrawCircle(size / 2f, size / 2f, size * 0.42f, innerRingPaint);
+        canvas.DrawCircle(size / 2f, size / 2f, size * 0.45f, innerRingPaint);
 
-        // Center medallion circle
-        using var medallionPaint = new SKPaint
+        // 4. Draw the BrewYou Logo (loaded from embedded asset or local disk)
+        using var logoBitmap = LoadLogoBitmap();
+        if (logoBitmap != null)
         {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Color = new SKColor(32, 22, 14, 230)
-        };
-        canvas.DrawCircle(size / 2f, size / 2f, size * 0.38f, medallionPaint);
+            // Sized 560x560 centered: fits within 16:9 widescreen crops (height 576),
+            // circular dial bezels (diameter 1024), and 4:5 bottle labels without clipping.
+            const float logoSize = 560f;
+            var destRect = new SKRect(
+                (size - logoSize) / 2f,
+                (size - logoSize) / 2f,
+                (size + logoSize) / 2f,
+                (size + logoSize) / 2f);
 
-        // Stylized Hop Cone in Center
-        DrawStylizedHop(canvas, size / 2f, size * 0.44f, size * 0.22f);
-
-        // "BREWYOU" Brand text banner
-        using var textPaint = new SKPaint
+            using var logoPaint = new SKPaint
+            {
+                IsAntialias = true,
+                FilterQuality = SKFilterQuality.High
+            };
+            canvas.DrawBitmap(logoBitmap, destRect, logoPaint);
+        }
+        else
         {
-            IsAntialias = true,
-            Color = new SKColor(254, 243, 199), // amber-100
-            TextSize = 58f,
-            TextAlign = SKTextAlign.Center,
-            Typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold),
-            FakeBoldText = true
-        };
-        canvas.DrawText("BREWYOU", size / 2f, size * 0.68f, textPaint);
+            // Procedural fallback if logo resource is not found
+            DrawStylizedHop(canvas, size / 2f, size * 0.44f, size * 0.22f);
 
-        // Subtitle "CRAFT BREWING"
-        using var subTextPaint = new SKPaint
-        {
-            IsAntialias = true,
-            Color = new SKColor(217, 119, 6), // amber-600
-            TextSize = 26f,
-            TextAlign = SKTextAlign.Center,
-            Typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Normal)
-        };
-        canvas.DrawText("ARTISAN CRAFT BEER", size / 2f, size * 0.74f, subTextPaint);
+            using var textPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Color = new SKColor(254, 243, 199),
+                TextSize = 58f,
+                TextAlign = SKTextAlign.Center,
+                Typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold),
+                FakeBoldText = true
+            };
+            canvas.DrawText("BREWYOU", size / 2f, size * 0.68f, textPaint);
+        }
 
         canvas.Flush();
 
@@ -92,24 +107,61 @@ public static class DefaultLabelGenerator
         return (bytes, "image/webp", size, size, sha256);
     }
 
+    private static SKBitmap? LoadLogoBitmap()
+    {
+        var assembly = typeof(DefaultLabelGenerator).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("default-logo.png", StringComparison.OrdinalIgnoreCase) ||
+                                 n.EndsWith("logo.png", StringComparison.OrdinalIgnoreCase));
+
+        if (resourceName != null)
+        {
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream != null)
+            {
+                return SKBitmap.Decode(stream);
+            }
+        }
+
+        // Fallback paths for filesystem access in test runners or local tooling
+        var candidatePaths = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "default-logo.png"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Assets", "default-logo.png"),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "BrewYou.ApiService", "Assets", "default-logo.png"),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "src", "BrewYou.ApiService", "Assets", "default-logo.png"),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "src", "BrewYou.ApiService", "Assets", "default-logo.png"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "src", "BrewYou.ApiService", "Assets", "default-logo.png")
+        };
+
+        foreach (var path in candidatePaths)
+        {
+            if (File.Exists(path))
+            {
+                using var fs = File.OpenRead(path);
+                return SKBitmap.Decode(fs);
+            }
+        }
+
+        return null;
+    }
+
     private static void DrawStylizedHop(SKCanvas canvas, float cx, float cy, float radius)
     {
-        // Stylized hop cone made of overlapping petals
         using var petalFill = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Fill,
-            Color = new SKColor(245, 158, 11, 210) // amber-500
+            Color = new SKColor(245, 158, 11, 210)
         };
         using var petalStroke = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = new SKColor(251, 191, 36), // amber-400
+            Color = new SKColor(251, 191, 36),
             StrokeWidth = 3f
         };
 
-        // Draw hop cone leaves from top to bottom
         (float dx, float dy, float scale)[] petals =
         [
             (0f, -radius * 0.55f, 0.45f),
