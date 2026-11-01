@@ -47,7 +47,7 @@ describe('i18n Translation Engine', () => {
 			const topKeys = getTopLevelKeysFromRawJson(path.resolve(__dirname, `./locales/${loc}.json`));
 			const unique = new Set(topKeys);
 			expect(topKeys.length).toBe(unique.size);
-			expect(topKeys.length).toBe(20);
+			expect(topKeys.length).toBe(21);
 		}
 	});
 

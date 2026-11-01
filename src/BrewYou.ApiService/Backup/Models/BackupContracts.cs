@@ -188,7 +188,8 @@ public record EquipmentBackupDto(
     bool DisplayLinkEnabled = false,
     string? DisplayTokenEncrypted = null,
     Guid? AssignedBatchId = null,
-    DateTime? AssignedAt = null
+    DateTime? AssignedAt = null,
+    Guid? AssignedKegId = null
 );
 
 public record SharedSetupMembershipBackupDto(

@@ -273,4 +273,86 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var deadManifestRes = await unauthClient.GetAsync(linkDto.ManifestUrl);
         deadManifestRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task TapFlow_WithKegAndDirectBatch_HandlesFillLevelCorrectly()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("kegtapflow");
+        var setup = await GetDefaultSetupAsync(client);
+        var recipe = await CreateSampleRecipeAsync(client, "Keg Flow Stout");
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, BrewStage.Condition);
+
+        // 1. Create a 20L Keg
+        var createKegRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Corny Keg #1",
+            Type: EquipmentType.Keg,
+            Subtype: EquipmentSubtype.Cornelius,
+            Capacity: 20m,
+            Unit: VolumeUnit.Liters
+        ));
+        createKegRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var keg = (await createKegRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // 2. Fill Keg with batch (15 liters)
+        var fillKegRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{keg.Id}/keg-assignment", new AssignKegBatchRequest(batch.Id, 15.0m));
+        fillKegRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var filledKeg = (await fillKegRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        filledKeg.AssignedBatch.Should().NotBeNull();
+        filledKeg.CurrentVolumeLiters.Should().Be(15.0m);
+        filledKeg.FillPercentage.Should().Be(75.0m);
+
+        // 3. Create Tap
+        var createTapRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Tap 1",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.StandardTap,
+            Capacity: 0m,
+            Unit: VolumeUnit.Liters
+        ));
+        var tap = (await createTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // 4. Assign Keg to Tap
+        var assignKegTapRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", new AssignTapRequest(KegId: keg.Id));
+        assignKegTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedTapWithKeg = (await assignKegTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        updatedTapWithKeg.AssignedKegId.Should().Be(keg.Id);
+        updatedTapWithKeg.AssignedKeg.Should().NotBeNull();
+        updatedTapWithKeg.AssignedKeg!.Name.Should().Be("Corny Keg #1");
+        updatedTapWithKeg.AssignedBatch.Should().NotBeNull();
+        updatedTapWithKeg.FillLevelPercent.Should().Be(75.0m);
+
+        // 5. Check manifest shows 75%
+        var enableRes = await client.PostAsync($"/api/v1/inventory/equipment/{tap.Id}/display-link", null);
+        var linkDto = (await enableRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayLinkDto>>())!.Data!;
+        var unauthClient = _factory.CreateClient();
+        var manifestRes = await unauthClient.GetAsync(linkDto.ManifestUrl);
+        var manifest = (await manifestRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifest.KegFillLevel.Should().Be("75%");
+        manifest.KegName.Should().Be("Corny Keg #1");
+        manifest.KegCapacityLiters.Should().Be(20.0m);
+        manifest.KegRemainingLiters.Should().Be(15.0m);
+
+        // 6. Direct Batch assignment to Tap (fallback mode)
+        var assignBatchTapRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", new AssignTapRequest(BatchId: batch.Id));
+        assignBatchTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedTapWithBatch = (await assignBatchTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        updatedTapWithBatch.AssignedKegId.Should().BeNull();
+        updatedTapWithBatch.AssignedKeg.Should().BeNull();
+        updatedTapWithBatch.FillLevelPercent.Should().BeNull();
+
+        // Manifest now shows "N/A"
+        var manifestResDirect = await unauthClient.GetAsync(linkDto.ManifestUrl);
+        var manifestDirect = (await manifestResDirect.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifestDirect.KegFillLevel.Should().Be("N/A");
+        manifestDirect.KegName.Should().BeNull();
+
+        // 7. Kick the keg
+        var kickRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{keg.Id}/keg-assignment");
+        kickRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var kickedKeg = (await kickRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        kickedKeg.AssignedBatch.Should().BeNull();
+        kickedKeg.CurrentVolumeLiters.Should().Be(0m);
+    }
 }

@@ -1093,4 +1093,120 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         manifest.BeerName.Should().Be("Labelled Kellerbier");
         manifest.ActualAbv.Should().NotBeNull();
     }
+
+    [Fact]
+    public async Task RoundTrip_KegAndTapAssignment_RestoresAccurately()
+    {
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("KegTap Source Brewer");
+        var setupRes = await sourceClient.GetAsync("/api/v1/brewery-setups");
+        var defaultSetup = (await setupRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!.First(s => s.IsDefault);
+
+        // 1. Create Recipe
+        var grainRes = await sourceClient.GetAsync("/api/v1/ingredients");
+        var ingredients = (await grainRes.Content.ReadFromJsonAsync<ApiResponse<List<IngredientDto>>>())!.Data!;
+        var grain = ingredients.First(i => i.Type == IngredientType.Fermentable);
+
+        var recipeRes = await sourceClient.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Backup Porter",
+            Description: "Rich dark porter.",
+            BeerStyle: "Baltic Porter",
+            BatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75.0m,
+            IsPublic: true,
+            Ingredients: [new RecipeIngredientInputDto(grain.Id, 5.0m, "kg", 60, IngredientUsage.Mash, "Base")]
+        ));
+        recipeRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var recipe = (await recipeRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        // 2. Create Batch in Condition stage
+        var batchRes = await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: recipe.Id,
+            BatchCode: "B-PORTER-01",
+            Name: "Porter Batch #1",
+            BeerStyle: "Baltic Porter",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20.0m,
+            TargetOg: 1.065m,
+            TargetFg: 1.015m,
+            TargetAbv: 6.5m,
+            TargetIbu: 35m,
+            TargetColorSrm: 30m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: null
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        await sourceClient.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage", new AdvanceBatchStageRequest(
+            TargetStage: BrewStage.Condition,
+            MeasuredOg: 1.065m,
+            MeasuredFg: 1.015m
+        ));
+
+        // 3. Create Keg and fill with 18 liters
+        var kegRes = await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: defaultSetup.Id,
+            Name: "Main Cornelius Keg",
+            Type: EquipmentType.Keg,
+            Subtype: EquipmentSubtype.Cornelius,
+            Capacity: 20m,
+            Unit: VolumeUnit.Liters
+        ));
+        kegRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var keg = (await kegRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        await sourceClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{keg.Id}/keg-assignment", new AssignKegBatchRequest(batch.Id, 18.0m));
+
+        // 4. Create Tap and assign Keg
+        var tapRes = await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: defaultSetup.Id,
+            Name: "Kegerator Faucet 1",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.StandardTap,
+            Capacity: 0m,
+            Unit: VolumeUnit.Liters
+        ));
+        tapRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var tap = (await tapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        await sourceClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", new AssignTapRequest(KegId: keg.Id));
+
+        // 5. Export backup
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest(
+            IncludeSecrets: false,
+            IncludeLabelImages: false
+        ));
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        // 6. Restore onto new user
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("KegTap Restored Brewer");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(
+            envelope,
+            new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)
+        ));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 7. Verify restored equipment
+        var targetEqRes = await targetClient.GetAsync("/api/v1/inventory/equipment");
+        var targetEqList = (await targetEqRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+
+        var restoredKeg = targetEqList.Should().ContainSingle(e => e.Name == "Main Cornelius Keg").Subject;
+        restoredKeg.Type.Should().Be(EquipmentType.Keg);
+        restoredKeg.AssignedBatch.Should().NotBeNull();
+        restoredKeg.AssignedBatch!.BatchCode.Should().Be("B-PORTER-01");
+        restoredKeg.CurrentVolumeLiters.Should().Be(18.0m);
+
+        var restoredTap = targetEqList.Should().ContainSingle(e => e.Name == "Kegerator Faucet 1").Subject;
+        restoredTap.Type.Should().Be(EquipmentType.Tap);
+        restoredTap.AssignedKegId.Should().Be(restoredKeg.Id);
+        restoredTap.AssignedKeg.Should().NotBeNull();
+        restoredTap.AssignedKeg!.Name.Should().Be("Main Cornelius Keg");
+        restoredTap.AssignedBatch.Should().NotBeNull();
+        restoredTap.AssignedBatch!.Name.Should().Be("Porter Batch #1");
+        restoredTap.FillLevelPercent.Should().Be(90.0m);
+    }
 }

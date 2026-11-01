@@ -50,6 +50,8 @@ public class EquipmentService : IEquipmentService
 
         var query = _db.Equipment.AsNoTracking()
             .Include(e => e.AssignedBatch)
+            .Include(e => e.AssignedKeg)
+                .ThenInclude(k => k!.AssignedBatch)
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
             .Where(e => e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))));
@@ -97,6 +99,8 @@ public class EquipmentService : IEquipmentService
     {
         var entity = await _db.Equipment.AsNoTracking()
             .Include(e => e.AssignedBatch)
+            .Include(e => e.AssignedKeg)
+                .ThenInclude(k => k!.AssignedBatch)
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == id && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId)))));
@@ -492,6 +496,42 @@ public class EquipmentService : IEquipmentService
             ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
             : 0m;
 
+        AssignedKegSummaryDto? assignedKegSummary = null;
+        if (e.AssignedKeg != null)
+        {
+            var kegFill = e.AssignedKeg.CapacityLiters > 0
+                ? Math.Round(Math.Clamp((e.AssignedKeg.CurrentVolumeLiters / e.AssignedKeg.CapacityLiters) * 100m, 0m, 100m), 1)
+                : 0m;
+            assignedKegSummary = new AssignedKegSummaryDto(
+                e.AssignedKeg.Id,
+                e.AssignedKeg.Name,
+                e.AssignedKeg.Subtype,
+                e.AssignedKeg.CapacityLiters,
+                e.AssignedKeg.CurrentVolumeLiters,
+                e.AssignedKeg.Unit,
+                kegFill,
+                e.AssignedKeg.AssignedBatch != null
+                    ? new TapAssignedBatchDto(
+                        e.AssignedKeg.AssignedBatch.Id,
+                        e.AssignedKeg.AssignedBatch.BatchCode,
+                        e.AssignedKeg.AssignedBatch.Name,
+                        e.AssignedKeg.AssignedBatch.BeerStyle,
+                        e.AssignedKeg.AssignedBatch.AlcoholByVolume,
+                        e.AssignedKeg.AssignedAt)
+                    : null
+            );
+        }
+
+        var effectiveBatch = e.AssignedKeg?.AssignedBatch ?? e.AssignedBatch;
+        var effectiveAssignedAt = e.AssignedKeg?.AssignedAt ?? e.AssignedAt;
+
+        decimal? fillLevelPercent = e.Type switch
+        {
+            EquipmentType.Keg => fillPercentage,
+            EquipmentType.Tap => assignedKegSummary != null ? assignedKegSummary.FillPercentage : null,
+            _ => fillPercentage
+        };
+
         return new EquipmentDto(
             e.Id,
             e.BrewerySetupId,
@@ -527,15 +567,19 @@ public class EquipmentService : IEquipmentService
             e.DisplayHeightPx,
             e.DisplayOrientation,
             e.DisplayLinkEnabled,
-            e.AssignedBatch != null
+            effectiveBatch != null
                 ? new TapAssignedBatchDto(
-                    e.AssignedBatch.Id,
-                    e.AssignedBatch.BatchCode,
-                    e.AssignedBatch.Name,
-                    e.AssignedBatch.BeerStyle,
-                    e.AssignedBatch.AlcoholByVolume,
-                    e.AssignedAt)
-                : null
+                    effectiveBatch.Id,
+                    effectiveBatch.BatchCode,
+                    effectiveBatch.Name,
+                    effectiveBatch.BeerStyle,
+                    effectiveBatch.AlcoholByVolume,
+                    effectiveAssignedAt)
+                : null,
+            e.AssignedKegId,
+            assignedKegSummary,
+            e.AssignedBatchId,
+            fillLevelPercent
         );
     }
 
@@ -637,12 +681,13 @@ public class EquipmentService : IEquipmentService
         return (EquipmentAccessResult.Success, ToDto(equipment, isOwner: true), newToken);
     }
 
-    public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignTapBatchAsync(
-        Guid tapId, Guid batchId, string userId)
+    public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignTapAsync(
+        Guid tapId, AssignTapRequest request, string userId)
     {
         var equipment = await _db.Equipment
             .Include(e => e.BrewerySetup).ThenInclude(s => s!.Members)
             .Include(e => e.AssignedBatch)
+            .Include(e => e.AssignedKeg).ThenInclude(k => k!.AssignedBatch)
             .FirstOrDefaultAsync(e => e.Id == tapId);
 
         if (equipment == null)
@@ -652,73 +697,7 @@ public class EquipmentService : IEquipmentService
 
         if (equipment.Type != EquipmentType.Tap)
         {
-            return (EquipmentAccessResult.InvalidTapAssignment, null, "Only tap equipment can be assigned a batch.");
-        }
-
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-
-        if (!isOwner && !isBrewer)
-        {
-            return (EquipmentAccessResult.Forbidden, null, "You do not have permission to assign batches to this tap.");
-        }
-
-        var batch = await _db.Batches
-            .Include(b => b.Recipe).ThenInclude(r => r!.Label)
-            .FirstOrDefaultAsync(b => b.Id == batchId);
-
-        if (batch == null)
-        {
-            return (EquipmentAccessResult.NotFound, null, "Batch not found.");
-        }
-
-        // Must belong to the same setup or user
-        if (batch.BrewerySetupId != equipment.BrewerySetupId && batch.UserId != equipment.UserId)
-        {
-            return (EquipmentAccessResult.Forbidden, null, "Batch does not belong to the same brewery setup as the tap.");
-        }
-
-        if (batch.Status == BatchStatus.Archived)
-        {
-            return (EquipmentAccessResult.InvalidTapAssignment, null, "Archived batches cannot be assigned to a tap.");
-        }
-
-        // Servable gate: must be in Condition or Package stage, or status Conditioning / Completed
-        var isServable = batch.CurrentStage is BrewStage.Condition or BrewStage.Package ||
-                         batch.Status is BatchStatus.Conditioning or BatchStatus.Completed;
-
-        if (!isServable)
-        {
-            return (EquipmentAccessResult.InvalidTapAssignment, null, "Batch is not servable yet. Taps can only be assigned batches in conditioning or packaging stages.");
-        }
-
-        equipment.AssignedBatchId = batch.Id;
-        equipment.AssignedBatch = batch;
-        equipment.AssignedAt = DateTime.UtcNow;
-        equipment.UpdatedAt = DateTime.UtcNow;
-
-        await _db.SaveChangesAsync();
-        _logger.LogInformation("Assigned batch {BatchId} ({BatchCode}) to tap {TapId} by user {UserId}", batch.Id, batch.BatchCode, tapId, userId);
-
-        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
-    }
-
-    public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> UnassignTapBatchAsync(
-        Guid tapId, string userId)
-    {
-        var equipment = await _db.Equipment
-            .Include(e => e.BrewerySetup).ThenInclude(s => s!.Members)
-            .Include(e => e.AssignedBatch)
-            .FirstOrDefaultAsync(e => e.Id == tapId);
-
-        if (equipment == null)
-        {
-            return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
-        }
-
-        if (equipment.Type != EquipmentType.Tap)
-        {
-            return (EquipmentAccessResult.InvalidTapAssignment, null, "Equipment is not a tap.");
+            return (EquipmentAccessResult.InvalidTapAssignment, null, "Only tap equipment can be assigned a batch or keg.");
         }
 
         var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
@@ -729,15 +708,199 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.Forbidden, null, "You do not have permission to manage this tap.");
         }
 
-        equipment.AssignedBatchId = null;
-        equipment.AssignedBatch = null;
-        equipment.AssignedAt = null;
+        // Unassignment case
+        if (!request.BatchId.HasValue && !request.KegId.HasValue)
+        {
+            equipment.AssignedKegId = null;
+            equipment.AssignedKeg = null;
+            equipment.AssignedBatchId = null;
+            equipment.AssignedBatch = null;
+            equipment.AssignedAt = null;
+            equipment.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("Unassigned tap {TapId} by user {UserId}", tapId, userId);
+            return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
+        }
+
+        // Assign Keg case
+        if (request.KegId.HasValue)
+        {
+            var keg = await _db.Equipment
+                .Include(k => k.AssignedBatch)
+                .Include(k => k.BrewerySetup).ThenInclude(s => s!.Members)
+                .FirstOrDefaultAsync(k => k.Id == request.KegId.Value);
+
+            if (keg == null)
+            {
+                return (EquipmentAccessResult.NotFound, null, "Keg not found.");
+            }
+
+            if (keg.Type != EquipmentType.Keg)
+            {
+                return (EquipmentAccessResult.InvalidTapAssignment, null, "Selected equipment is not a keg.");
+            }
+
+            if (keg.BrewerySetupId != equipment.BrewerySetupId && keg.UserId != equipment.UserId)
+            {
+                return (EquipmentAccessResult.Forbidden, null, "Keg does not belong to the same brewery setup as the tap.");
+            }
+
+            equipment.AssignedKegId = keg.Id;
+            equipment.AssignedKeg = keg;
+            equipment.AssignedBatchId = null;
+            equipment.AssignedBatch = null;
+            equipment.AssignedAt = DateTime.UtcNow;
+            equipment.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("Assigned keg {KegId} ({KegName}) to tap {TapId} by user {UserId}", keg.Id, keg.Name, tapId, userId);
+            return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
+        }
+
+        // Direct Batch case
+        var batch = await _db.Batches
+            .Include(b => b.Recipe).ThenInclude(r => r!.Label)
+            .FirstOrDefaultAsync(b => b.Id == request.BatchId!.Value);
+
+        if (batch == null)
+        {
+            return (EquipmentAccessResult.NotFound, null, "Batch not found.");
+        }
+
+        if (batch.BrewerySetupId != equipment.BrewerySetupId && batch.UserId != equipment.UserId)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "Batch does not belong to the same brewery setup as the tap.");
+        }
+
+        if (batch.Status == BatchStatus.Archived)
+        {
+            return (EquipmentAccessResult.InvalidTapAssignment, null, "Archived batches cannot be assigned to a tap.");
+        }
+
+        var isServable = batch.CurrentStage is BrewStage.Condition or BrewStage.Package ||
+                         batch.Status is BatchStatus.Conditioning or BatchStatus.Completed;
+
+        if (!isServable)
+        {
+            return (EquipmentAccessResult.InvalidTapAssignment, null, "Batch is not servable yet. Taps can only be assigned batches in conditioning or packaging stages.");
+        }
+
+        equipment.AssignedBatchId = batch.Id;
+        equipment.AssignedBatch = batch;
+        equipment.AssignedKegId = null;
+        equipment.AssignedKeg = null;
+        equipment.AssignedAt = DateTime.UtcNow;
         equipment.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
-        _logger.LogInformation("Unassigned batch from tap {TapId} by user {UserId}", tapId, userId);
-
+        _logger.LogInformation("Assigned direct batch {BatchId} ({BatchCode}) to tap {TapId} by user {UserId}", batch.Id, batch.BatchCode, tapId, userId);
         return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
+    }
+
+    public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignKegBatchAsync(
+        Guid kegId, AssignKegBatchRequest request, string userId)
+    {
+        var keg = await _db.Equipment
+            .Include(e => e.BrewerySetup).ThenInclude(s => s!.Members)
+            .Include(e => e.AssignedBatch)
+            .FirstOrDefaultAsync(e => e.Id == kegId);
+
+        if (keg == null)
+        {
+            return (EquipmentAccessResult.NotFound, null, "Keg not found.");
+        }
+
+        if (keg.Type != EquipmentType.Keg)
+        {
+            return (EquipmentAccessResult.InvalidTapAssignment, null, "Selected equipment is not a keg.");
+        }
+
+        var isOwner = keg.UserId == userId || (keg.BrewerySetup != null && (keg.BrewerySetup.UserId == userId || keg.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+        var isBrewer = keg.BrewerySetup != null && keg.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "You do not have permission to manage this keg.");
+        }
+
+        // Kick / Clear keg
+        if (!request.BatchId.HasValue)
+        {
+            keg.AssignedBatchId = null;
+            keg.AssignedBatch = null;
+            keg.AssignedAt = null;
+            keg.CurrentVolume = 0m;
+            keg.CurrentVolumeLiters = 0m;
+            keg.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("Kicked keg {KegId} by user {UserId}", kegId, userId);
+            return (EquipmentAccessResult.Success, ToDto(keg, isOwner), null);
+        }
+
+        // Fill keg with batch
+        var batch = await _db.Batches
+            .Include(b => b.Recipe).ThenInclude(r => r!.Label)
+            .FirstOrDefaultAsync(b => b.Id == request.BatchId.Value);
+
+        if (batch == null)
+        {
+            return (EquipmentAccessResult.NotFound, null, "Batch not found.");
+        }
+
+        if (batch.BrewerySetupId != keg.BrewerySetupId && batch.UserId != keg.UserId)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "Batch does not belong to the same brewery setup as the keg.");
+        }
+
+        if (batch.Status == BatchStatus.Archived)
+        {
+            return (EquipmentAccessResult.InvalidTapAssignment, null, "Archived batches cannot be filled into a keg.");
+        }
+
+        var isServable = batch.CurrentStage is BrewStage.Condition or BrewStage.Package ||
+                         batch.Status is BatchStatus.Conditioning or BatchStatus.Completed;
+
+        if (!isServable)
+        {
+            return (EquipmentAccessResult.InvalidTapAssignment, null, "Batch is not servable yet. Kegs can only be filled with batches in conditioning or packaging stages.");
+        }
+
+        keg.AssignedBatchId = batch.Id;
+        keg.AssignedBatch = batch;
+        keg.AssignedAt = DateTime.UtcNow;
+
+        if (request.VolumeLiters.HasValue)
+        {
+            var vol = Math.Max(0m, request.VolumeLiters.Value);
+            keg.CurrentVolumeLiters = vol;
+            keg.CurrentVolume = keg.Unit == VolumeUnit.Gallons ? Math.Round(vol / GallonsToLitersFactor, 2) : vol;
+        }
+        else
+        {
+            // Default to full capacity
+            keg.CurrentVolumeLiters = keg.CapacityLiters;
+            keg.CurrentVolume = keg.Capacity;
+        }
+
+        keg.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("Filled keg {KegId} ({KegName}) with batch {BatchId} ({Volume}L) by user {UserId}", kegId, keg.Name, batch.Id, keg.CurrentVolumeLiters, userId);
+        return (EquipmentAccessResult.Success, ToDto(keg, isOwner), null);
+    }
+
+    public Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignTapBatchAsync(
+        Guid tapId, Guid batchId, string userId)
+    {
+        return AssignTapAsync(tapId, new AssignTapRequest(BatchId: batchId), userId);
+    }
+
+    public Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> UnassignTapBatchAsync(
+        Guid tapId, string userId)
+    {
+        return AssignTapAsync(tapId, new AssignTapRequest(), userId);
     }
 
     public async Task<(EquipmentAccessResult Result, TapDisplayLinkDto? Link, string? ErrorMessage)> GetTapDisplayLinkAsync(
@@ -877,26 +1040,31 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.AssignedBatch)
                 .ThenInclude(b => b!.Recipe)
                     .ThenInclude(r => r!.Label)
+            .Include(e => e.AssignedKeg)
+                .ThenInclude(k => k!.AssignedBatch)
+                    .ThenInclude(b => b!.Recipe)
+                        .ThenInclude(r => r!.Label)
             .FirstOrDefaultAsync(e => e.DisplayTokenHash == hash && e.DisplayLinkEnabled && e.Type == EquipmentType.Tap);
 
         if (equipment == null) return null;
 
-        var status = equipment.AssignedBatch != null ? "Serving" : "Empty";
+        var effectiveBatch = equipment.AssignedKeg?.AssignedBatch ?? equipment.AssignedBatch;
+        var status = effectiveBatch != null ? "Serving" : "Empty";
         var shape = equipment.Subtype == EquipmentSubtype.RoundDisplayTap ? "Round" : "Rectangular";
         var w = equipment.DisplayWidthPx ?? (equipment.Subtype == EquipmentSubtype.RoundDisplayTap ? 480 : 800);
         var h = equipment.DisplayHeightPx ?? (equipment.Subtype == EquipmentSubtype.RoundDisplayTap ? 480 : 480);
-        var beerName = equipment.AssignedBatch != null
-            ? (equipment.AssignedBatch.Recipe?.Name ?? equipment.AssignedBatch.Name)
+        var beerName = effectiveBatch != null
+            ? (effectiveBatch.Recipe?.Name ?? effectiveBatch.Name)
             : null;
 
         // Master Brewer rule: actual measured ABV only
-        var actualAbv = equipment.AssignedBatch?.AlcoholByVolume;
-        if (!actualAbv.HasValue && equipment.AssignedBatch?.MeasuredOg.HasValue == true)
+        var actualAbv = effectiveBatch?.AlcoholByVolume;
+        if (!actualAbv.HasValue && effectiveBatch?.MeasuredOg.HasValue == true)
         {
-            var fg = equipment.AssignedBatch.MeasuredFg ?? equipment.AssignedBatch.CurrentGravity;
-            if (fg.HasValue && equipment.AssignedBatch.MeasuredOg.Value > fg.Value)
+            var fg = effectiveBatch.MeasuredFg ?? effectiveBatch.CurrentGravity;
+            if (fg.HasValue && effectiveBatch.MeasuredOg.Value > fg.Value)
             {
-                actualAbv = BrewingCalculator.CalculateActualAbv(equipment.AssignedBatch.MeasuredOg.Value, fg.Value);
+                actualAbv = BrewingCalculator.CalculateActualAbv(effectiveBatch.MeasuredOg.Value, fg.Value);
             }
         }
         if (actualAbv.HasValue && actualAbv.Value <= 0m)
@@ -904,8 +1072,27 @@ public class EquipmentService : IEquipmentService
             actualAbv = null;
         }
 
-        var labelVersion = equipment.AssignedBatch != null
-            ? $"{equipment.AssignedBatch.Id}:{equipment.AssignedBatch.Recipe?.Label?.Version ?? 0}:{actualAbv}:{equipment.UpdatedAt.Ticks}"
+        string? kegName = equipment.AssignedKeg?.Name;
+        string? kegFillLevel = null;
+        decimal? kegCapacity = null;
+        decimal? kegRemaining = null;
+
+        if (equipment.AssignedKeg != null)
+        {
+            var cap = equipment.AssignedKeg.CapacityLiters;
+            var rem = equipment.AssignedKeg.CurrentVolumeLiters;
+            var pct = cap > 0 ? Math.Round(Math.Clamp((rem / cap) * 100m, 0m, 100m), 0) : 0m;
+            kegFillLevel = $"{pct:0}%";
+            kegCapacity = cap;
+            kegRemaining = rem;
+        }
+        else if (equipment.AssignedBatch != null)
+        {
+            kegFillLevel = "N/A";
+        }
+
+        var labelVersion = effectiveBatch != null
+            ? $"{effectiveBatch.Id}:{effectiveBatch.Recipe?.Label?.Version ?? 0}:{actualAbv}:{equipment.UpdatedAt.Ticks}:{kegFillLevel}"
             : $"empty:{equipment.UpdatedAt.Ticks}";
 
         var etag = $"\"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(labelVersion))).ToLowerInvariant()}\"";
@@ -919,7 +1106,11 @@ public class EquipmentService : IEquipmentService
             BeerName: beerName,
             ActualAbv: actualAbv,
             LabelVersion: labelVersion,
-            ImageUrl: imageUrl
+            ImageUrl: imageUrl,
+            KegName: kegName,
+            KegFillLevel: kegFillLevel,
+            KegCapacityLiters: kegCapacity,
+            KegRemainingLiters: kegRemaining
         );
 
         return (manifest, etag);
@@ -936,9 +1127,15 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.AssignedBatch)
                 .ThenInclude(b => b!.Recipe)
                     .ThenInclude(r => r!.Label)
+            .Include(e => e.AssignedKeg)
+                .ThenInclude(k => k!.AssignedBatch)
+                    .ThenInclude(b => b!.Recipe)
+                        .ThenInclude(r => r!.Label)
             .FirstOrDefaultAsync(e => e.DisplayTokenHash == hash && e.DisplayLinkEnabled && e.Type == EquipmentType.Tap);
 
         if (equipment == null) return null;
+
+        var effectiveBatch = equipment.AssignedKeg?.AssignedBatch ?? equipment.AssignedBatch;
 
         var isRound = equipment.Subtype == EquipmentSubtype.RoundDisplayTap;
         var targetW = equipment.DisplayWidthPx ?? (isRound ? 480 : 800);
@@ -949,9 +1146,9 @@ public class EquipmentService : IEquipmentService
         LabelCrop crop;
         string assetSha;
 
-        if (equipment.AssignedBatch?.Recipe?.Label != null)
+        if (effectiveBatch?.Recipe?.Label != null)
         {
-            var lbl = equipment.AssignedBatch.Recipe.Label;
+            var lbl = effectiveBatch.Recipe.Label;
             masterBytes = lbl.ImageData;
             crop = isRound ? lbl.RoundCrop : lbl.RectCrop;
             assetSha = lbl.Sha256;
@@ -993,15 +1190,15 @@ public class EquipmentService : IEquipmentService
 
         // Master Brewer rule: only actual measured ABV from batch
         string? abvText = null;
-        if (abv && equipment.AssignedBatch != null)
+        if (abv && effectiveBatch != null)
         {
-            var actualAbv = equipment.AssignedBatch.AlcoholByVolume;
-            if (!actualAbv.HasValue && equipment.AssignedBatch.MeasuredOg.HasValue)
+            var actualAbv = effectiveBatch.AlcoholByVolume;
+            if (!actualAbv.HasValue && effectiveBatch.MeasuredOg.HasValue)
             {
-                var fg = equipment.AssignedBatch.MeasuredFg ?? equipment.AssignedBatch.CurrentGravity;
-                if (fg.HasValue && equipment.AssignedBatch.MeasuredOg.Value > fg.Value)
+                var fg = effectiveBatch.MeasuredFg ?? effectiveBatch.CurrentGravity;
+                if (fg.HasValue && effectiveBatch.MeasuredOg.Value > fg.Value)
                 {
-                    actualAbv = BrewingCalculator.CalculateActualAbv(equipment.AssignedBatch.MeasuredOg.Value, fg.Value);
+                    actualAbv = BrewingCalculator.CalculateActualAbv(effectiveBatch.MeasuredOg.Value, fg.Value);
                 }
             }
 

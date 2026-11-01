@@ -430,7 +430,13 @@ export interface UpdateRecipeLabelSettingsRequest {
 }
 
 export interface AssignTapRequest {
-	batchId: string;
+	batchId?: string | null;
+	kegId?: string | null;
+}
+
+export interface AssignKegBatchRequest {
+	batchId?: string | null;
+	volumeLiters?: number | null;
 }
 
 export interface TapAssignedBatchDto {
@@ -440,6 +446,17 @@ export interface TapAssignedBatchDto {
 	beerStyle: string;
 	actualAbv?: number | null;
 	assignedAt?: string | null;
+}
+
+export interface AssignedKegSummaryDto {
+	id: string;
+	name: string;
+	subtype: EquipmentSubtype;
+	capacityLiters: number;
+	currentVolumeLiters: number;
+	unit: VolumeUnit;
+	fillPercentage: number;
+	assignedBatch?: TapAssignedBatchDto | null;
 }
 
 export interface TapDisplayLinkDto {
@@ -457,6 +474,10 @@ export interface TapDisplayManifestDto {
 	actualAbv?: number | null;
 	labelVersion: string;
 	imageUrl: string;
+	kegName?: string | null;
+	kegFillLevel?: string | null;
+	kegCapacityLiters?: number | null;
+	kegRemainingLiters?: number | null;
 }
 
 export type EquipmentType = 'Boiler' | 'Fermenter' | 'Keg' | 'Sensor' | 'Tap' | 'Other';
@@ -686,6 +707,10 @@ export interface EquipmentDto {
 	displayOrientation?: DisplayOrientation | null;
 	displayLinkEnabled?: boolean;
 	assignedBatch?: TapAssignedBatchDto | null;
+	assignedKegId?: string | null;
+	assignedKeg?: AssignedKegSummaryDto | null;
+	assignedBatchId?: string | null;
+	fillLevelPercent?: number | null;
 	createdAt: string;
 	updatedAt: string;
 }

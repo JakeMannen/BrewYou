@@ -630,7 +630,21 @@ public class AssignTapRequestValidator : AbstractValidator<AssignTapRequest>
 {
     public AssignTapRequestValidator()
     {
-        RuleFor(x => x.BatchId).NotEmpty().WithMessage("Batch ID is required.");
+        RuleFor(x => x)
+            .Must(x => (x.BatchId.HasValue && x.BatchId.Value != Guid.Empty) ||
+                       (x.KegId.HasValue && x.KegId.Value != Guid.Empty))
+            .WithMessage("Either a Batch ID or a Keg ID must be provided to assign to a tap.");
+    }
+}
+
+public class AssignKegBatchRequestValidator : AbstractValidator<AssignKegBatchRequest>
+{
+    public AssignKegBatchRequestValidator()
+    {
+        RuleFor(x => x.VolumeLiters)
+            .GreaterThan(0m)
+            .When(x => x.VolumeLiters.HasValue)
+            .WithMessage("Volume liters must be greater than zero.");
     }
 }
 

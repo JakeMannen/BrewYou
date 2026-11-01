@@ -193,21 +193,25 @@ The Equipment Inventory provides digital twin management for your brewery's hard
   - **Standard Tap**: Traditional mechanical bar tap faucet and dispensing tower.
   - **Round Display Tap**: Dispensing tower equipped with a circular LCD/OLED digital display screen.
   - **Rectangular Display Tap**: Dispensing tower equipped with a high-resolution widescreen or portrait digital display screen.
-- **Batch Serving Assignment**: Assign any batch currently in the **Conditioning** or **Packaging** stage directly to a tap faucet. The tap card reflects live serving status (_Pouring_ vs _Tap Empty_), batch code, beer style, and actual measured ABV.
+- **Dual-Mode Tap Serving & Keg Flow**:
+  - **Keg Flow (Recommended)**: Fill keg containers (Cornelius, minikegs, etc.) with batches in the Conditioning or Packaging stages, specifying the filled volume. Assign the filled keg to a tap faucet to track real-time keg depletion and display exact fill percentages (`XX% · 14.5 / 19.0 L`).
+  - **Direct Batch Flow (Quick Mode)**: Quickly assign any servable batch directly to a tap faucet without a keg container. The tap manifest and kiosk display `Fill: N/A`.
+  - Both flows strictly honor the Master Brewer rule: only actual measured ABV from the active batch is displayed.
 - **Encrypted Display Tokens**: Display tokens are encrypted at rest using ASP.NET Core `IDataProtectionKeyContext` stored in PostgreSQL. Brewers can inspect and copy existing display links at any time without having to regenerate tokens or disrupt active screens.
 - **Multi-Protocol Screen Connectivity**:
-  - **Interactive Kiosk Web App (`/tap/{token}`)**: Standalone full-bleed display screen designed for smart TVs, iPads, and Raspberry Pi kiosk browsers. Runs outside authentication curtains and polls every 60 seconds to automatically update beer metadata when taps change.
+  - **Interactive Kiosk Web App (`/tap/{token}`)**: Standalone full-bleed display screen designed for smart TVs, iPads, and Raspberry Pi kiosk browsers. Runs outside authentication curtains and polls every 60 seconds to automatically update beer metadata and keg fill levels when taps change.
   - **Pre-Rendered Image Endpoint (`/api/v1/tap/{token}/image`)**: High-performance HTTP endpoint serving pre-rendered, pre-cropped WebP/JPEG graphics with circular alpha masking and measured ABV typography overlay. Ideal for low-memory microcontrollers or direct framebuffers.
-  - **JSON Manifest API (`/api/v1/tap/{token}`)**: Public lightweight JSON payload delivering shape, dimensions, status, beer name, measured ABV, and image URL for custom ESP32/e-paper implementations.
+  - **JSON Manifest API (`/api/v1/tap/{token}`)**: Public lightweight JSON payload delivering shape, dimensions, status, beer name, measured ABV, keg fill level (`XX%` or `N/A`), keg name, keg capacity, and remaining volume for custom ESP32/e-paper implementations.
 
 #### How to Use
 
 1. **View Equipment & Taps**: Go to **Inventory ➔ Equipment** (`/inventory/equipment`) and use the category tabs to filter by **Taps**, **Boilers**, **Fermenters**, **Kegs**, or **Sensors**.
 2. **Add a Dispensing Tap**: Click **Add Equipment**, select **Tap**, choose your subtype (_Standard Tap_, _Round Display Tap_, or _Rectangular Display Tap_), and configure display resolution and orientation if equipped with a digital screen.
-3. **Assign a Batch**: On any tap card, click **Assign Batch** to select an active batch in the Conditioning or Packaging stage.
-4. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. You can regenerate or revoke tokens with a single click.
-5. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
-6. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
+3. **Fill a Keg**: On any keg in your inventory, click **Fill Keg** to assign an active batch in the Conditioning or Packaging stage and specify the filled volume (or kick/empty an active keg).
+4. **Assign to Tap**: On any tap card, click **Assign Tap** to choose between **Tap a Keg** (with fill level tracking) or **Direct Batch** (quick mode).
+5. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. You can regenerate or revoke tokens with a single click.
+6. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
+7. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
 
 ### Ingredient Stock & Inventory
 

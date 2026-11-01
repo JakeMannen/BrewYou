@@ -57,6 +57,17 @@ public record TapAssignedBatchDto(
     DateTime? AssignedAt
 );
 
+public record AssignedKegSummaryDto(
+    Guid Id,
+    string Name,
+    EquipmentSubtype Subtype,
+    decimal CapacityLiters,
+    decimal CurrentVolumeLiters,
+    VolumeUnit Unit,
+    decimal FillPercentage,
+    TapAssignedBatchDto? AssignedBatch
+);
+
 public record EquipmentDto(
     Guid Id,
     Guid BrewerySetupId,
@@ -92,7 +103,11 @@ public record EquipmentDto(
     int? DisplayHeightPx = null,
     DisplayOrientation? DisplayOrientation = null,
     bool DisplayLinkEnabled = false,
-    TapAssignedBatchDto? AssignedBatch = null
+    TapAssignedBatchDto? AssignedBatch = null,
+    Guid? AssignedKegId = null,
+    AssignedKegSummaryDto? AssignedKeg = null,
+    Guid? AssignedBatchId = null,
+    decimal? FillLevelPercent = null
 );
 
 public record EquipmentActiveBatchDto(
@@ -133,6 +148,12 @@ public interface IEquipmentService
 
     Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? NewToken)> RegenerateConnectionTokenAsync(
         Guid id, string userId);
+
+    Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignTapAsync(
+        Guid tapId, AssignTapRequest request, string userId);
+
+    Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignKegBatchAsync(
+        Guid kegId, AssignKegBatchRequest request, string userId);
 
     Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignTapBatchAsync(
         Guid tapId, Guid batchId, string userId);

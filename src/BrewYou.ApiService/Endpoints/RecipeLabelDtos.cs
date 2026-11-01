@@ -49,7 +49,9 @@ public record UpdateRecipeLabelSettingsRequest(
     decimal? BottleHeightMm = null
 );
 
-public record AssignTapRequest(Guid BatchId);
+public record AssignTapRequest(Guid? BatchId = null, Guid? KegId = null);
+
+public record AssignKegBatchRequest(Guid? BatchId = null, decimal? VolumeLiters = null);
 
 public record TapDisplayLinkDto(
     string ManifestUrl,
@@ -65,5 +67,9 @@ public record TapDisplayManifestDto(
     string? BeerName,
     decimal? ActualAbv,
     string LabelVersion,
-    string ImageUrl
+    string ImageUrl,
+    string? KegName = null,
+    string? KegFillLevel = null,
+    decimal? KegCapacityLiters = null,
+    decimal? KegRemainingLiters = null
 );

@@ -237,6 +237,11 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
                   .HasForeignKey(e => e.AssignedBatchId)
                   .OnDelete(DeleteBehavior.SetNull);
 
+            entity.HasOne(e => e.AssignedKeg)
+                  .WithMany()
+                  .HasForeignKey(e => e.AssignedKegId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
             entity.HasIndex(e => new { e.UserId, e.BrewerySetupId });
             entity.HasIndex(e => new { e.UserId, e.BrewerySetupId, e.Name }).IsUnique();
             entity.HasIndex(e => new { e.UserId, e.Type });

@@ -1007,7 +1007,8 @@ public class BackupService : IBackupService
                     .Where(e => e.UserId == userId || userOwnedSetups.Select(s => s.Id).Contains(e.BrewerySetupId))
                     .ToListAsync();
 
-                var pendingTapBatchAssignments = new Dictionary<Guid, Guid>();
+                var pendingEquipmentBatchAssignments = new Dictionary<Guid, Guid>();
+                var pendingTapKegAssignments = new Dictionary<Guid, Guid>();
 
                 foreach (var eqDto in payload.Equipment)
                 {
@@ -1087,9 +1088,13 @@ public class BackupService : IBackupService
                             }
                             existingEq.UpdatedAt = DateTime.UtcNow;
 
-                            if (eqDto.Type == EquipmentType.Tap && eqDto.AssignedBatchId.HasValue)
+                            if (eqDto.AssignedBatchId.HasValue)
                             {
-                                pendingTapBatchAssignments[existingEq.Id] = eqDto.AssignedBatchId.Value;
+                                pendingEquipmentBatchAssignments[existingEq.Id] = eqDto.AssignedBatchId.Value;
+                            }
+                            if (eqDto.Type == EquipmentType.Tap && eqDto.AssignedKegId.HasValue)
+                            {
+                                pendingTapKegAssignments[existingEq.Id] = eqDto.AssignedKegId.Value;
                             }
 
                             eqUpdated++;
@@ -1147,9 +1152,13 @@ public class BackupService : IBackupService
                         existingUserEquipment.Add(newEq);
                         equipmentIdMap[eqDto.Id] = newEq.Id;
 
-                        if (eqDto.Type == EquipmentType.Tap && eqDto.AssignedBatchId.HasValue)
+                        if (eqDto.AssignedBatchId.HasValue)
                         {
-                            pendingTapBatchAssignments[newEq.Id] = eqDto.AssignedBatchId.Value;
+                            pendingEquipmentBatchAssignments[newEq.Id] = eqDto.AssignedBatchId.Value;
+                        }
+                        if (eqDto.Type == EquipmentType.Tap && eqDto.AssignedKegId.HasValue)
+                        {
+                            pendingTapKegAssignments[newEq.Id] = eqDto.AssignedKegId.Value;
                         }
 
                         eqCreated++;
@@ -1157,6 +1166,26 @@ public class BackupService : IBackupService
                 }
 
                 await _db.SaveChangesAsync();
+
+                // Resolve tap-to-keg assignments
+                if (pendingTapKegAssignments.Count > 0)
+                {
+                    var tapIds = pendingTapKegAssignments.Keys.ToList();
+                    var tapEntities = await _db.Equipment
+                        .Where(e => tapIds.Contains(e.Id))
+                        .ToListAsync();
+
+                    foreach (var tap in tapEntities)
+                    {
+                        if (pendingTapKegAssignments.TryGetValue(tap.Id, out var archiveKegId) &&
+                            equipmentIdMap.TryGetValue(archiveKegId, out var targetKegId))
+                        {
+                            tap.AssignedKegId = targetKegId;
+                        }
+                    }
+
+                    await _db.SaveChangesAsync();
+                }
 
                 // 7. Resolve Referenced External Recipes & Restore User Recipes
                 foreach (var extRecipe in payload.ReferencedExternalRecipes)
@@ -1449,21 +1478,21 @@ public class BackupService : IBackupService
 
                 await _db.SaveChangesAsync();
 
-                // Resolve tap batch assignments
-                if (pendingTapBatchAssignments.Count > 0)
+                // Resolve equipment batch assignments (taps and kegs)
+                if (pendingEquipmentBatchAssignments.Count > 0)
                 {
-                    var tapIds = pendingTapBatchAssignments.Keys.ToList();
-                    var tapEntities = await _db.Equipment
-                        .Where(e => tapIds.Contains(e.Id))
+                    var eqIds = pendingEquipmentBatchAssignments.Keys.ToList();
+                    var eqEntities = await _db.Equipment
+                        .Where(e => eqIds.Contains(e.Id))
                         .ToListAsync();
 
-                    foreach (var tap in tapEntities)
+                    foreach (var eq in eqEntities)
                     {
-                        if (pendingTapBatchAssignments.TryGetValue(tap.Id, out var archiveBatchId) &&
+                        if (pendingEquipmentBatchAssignments.TryGetValue(eq.Id, out var archiveBatchId) &&
                             batchIdMap.TryGetValue(archiveBatchId, out var targetBatchId))
                         {
-                            tap.AssignedBatchId = targetBatchId;
-                            tap.AssignedAt = DateTime.UtcNow;
+                            eq.AssignedBatchId = targetBatchId;
+                            eq.AssignedAt = DateTime.UtcNow;
                         }
                     }
 
@@ -1645,7 +1674,8 @@ public class BackupService : IBackupService
             e.DisplayLinkEnabled,
             displayTokenEncrypted,
             e.AssignedBatchId,
-            e.AssignedAt
+            e.AssignedAt,
+            e.AssignedKegId
         );
     }
 

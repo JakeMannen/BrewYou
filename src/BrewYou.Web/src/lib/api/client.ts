@@ -71,7 +71,9 @@ import type {
 	RecipeLabelDto,
 	UpdateRecipeLabelSettingsRequest,
 	TapDisplayLinkDto,
-	TapDisplayManifestDto
+	TapDisplayManifestDto,
+	AssignTapRequest,
+	AssignKegBatchRequest
 } from '$lib/types/api';
 
 interface CustomWindow extends Window {
@@ -551,15 +553,29 @@ export const api = {
 			}
 		},
 
-		async assignTap(equipmentId: string, batchId: string): Promise<EquipmentDto> {
+		async assignTap(equipmentId: string, req: AssignTapRequest | string): Promise<EquipmentDto> {
+			const body = typeof req === 'string' ? { batchId: req } : req;
 			return request<EquipmentDto>(`/api/v1/inventory/equipment/${equipmentId}/tap-assignment`, {
 				method: 'PUT',
-				body: JSON.stringify({ batchId })
+				body: JSON.stringify(body)
 			});
 		},
 
 		async unassignTap(equipmentId: string): Promise<EquipmentDto> {
 			return request<EquipmentDto>(`/api/v1/inventory/equipment/${equipmentId}/tap-assignment`, {
+				method: 'DELETE'
+			});
+		},
+
+		async assignKeg(equipmentId: string, req: AssignKegBatchRequest): Promise<EquipmentDto> {
+			return request<EquipmentDto>(`/api/v1/inventory/equipment/${equipmentId}/keg-assignment`, {
+				method: 'PUT',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async unassignKeg(equipmentId: string): Promise<EquipmentDto> {
+			return request<EquipmentDto>(`/api/v1/inventory/equipment/${equipmentId}/keg-assignment`, {
 				method: 'DELETE'
 			});
 		},

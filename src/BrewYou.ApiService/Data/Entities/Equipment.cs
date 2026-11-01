@@ -184,7 +184,10 @@ public class Equipment
     public string? Description { get; set; }
     public string? Notes { get; set; }
 
-    // Tap-specific configuration
+    // Tap & Keg Assignment configuration
+    public Guid? AssignedKegId { get; set; }
+    public Equipment? AssignedKeg { get; set; }
+
     public Guid? AssignedBatchId { get; set; }
     public Batch? AssignedBatch { get; set; }
     public DateTime? AssignedAt { get; set; }

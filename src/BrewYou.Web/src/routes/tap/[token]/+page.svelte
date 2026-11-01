@@ -48,7 +48,9 @@
 
 	let isRound = $derived(manifest?.shape === 'Round');
 	let isPortrait = $derived((manifest?.heightPx ?? 0) > (manifest?.widthPx ?? 0));
-	let isAssigned = $derived(manifest?.status === 'Active' && !!manifest.beerName);
+	let isAssigned = $derived(
+		(manifest?.status === 'Serving' || manifest?.status === 'Active') && !!manifest?.beerName
+	);
 </script>
 
 <svelte:head>
@@ -121,6 +123,18 @@
 								</span>
 							</div>
 						{/if}
+
+						{#if manifest.kegFillLevel}
+							<div
+								class="mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 py-0.5 font-mono text-xs text-zinc-300 backdrop-blur-md"
+							>
+								<span
+									>{manifest.kegFillLevel === 'N/A'
+										? t('taps.keg_fill_na')
+										: `${t('taps.keg_fill')}: ${manifest.kegFillLevel}`}</span
+								>
+							</div>
+						{/if}
 					</div>
 				</div>
 			{:else}
@@ -174,6 +188,29 @@
 									{manifest.actualAbv.toFixed(1)}%
 								</span>
 								<span class="text-xl font-bold tracking-widest text-zinc-400 uppercase"> ABV </span>
+							</div>
+						{/if}
+
+						<!-- Keg Fill Level Metric -->
+						{#if manifest.kegFillLevel}
+							<div class="flex items-center gap-3">
+								<div
+									class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-zinc-900/80 px-4 py-2 backdrop-blur-md"
+								>
+									<span class="text-xs font-bold tracking-wider text-zinc-400 uppercase"
+										>{t('taps.keg_level')}:</span
+									>
+									<span class="font-mono text-lg font-bold text-amber-400"
+										>{manifest.kegFillLevel}</span
+									>
+									{#if manifest.kegRemainingLiters != null && manifest.kegCapacityLiters != null}
+										<span class="text-xs text-zinc-400"
+											>({manifest.kegRemainingLiters.toFixed(1)} / {manifest.kegCapacityLiters.toFixed(
+												1
+											)} L)</span
+										>
+									{/if}
+								</div>
 							</div>
 						{/if}
 					</div>

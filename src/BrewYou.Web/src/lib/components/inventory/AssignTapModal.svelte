@@ -2,7 +2,7 @@
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import type { EquipmentDto, BatchSummaryDto } from '$lib/types/api';
-	import { X, Beer, Loader2, Check, Search, Unlink } from '@lucide/svelte';
+	import { X, Beer, Loader2, Check, Search, Unlink, Cylinder } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;
@@ -13,30 +13,52 @@
 
 	let { open, tap, onClose, onSaved }: Props = $props();
 
+	type AssignMode = 'keg' | 'batch';
+	let mode = $state<AssignMode>('keg');
+
 	let batches = $state<BatchSummaryDto[]>([]);
+	let kegs = $state<EquipmentDto[]>([]);
 	let loading = $state(true);
 	let saving = $state(false);
 	let unassigning = $state(false);
 	let errorMessage = $state<string | null>(null);
 	let searchQuery = $state('');
 	let selectedBatchId = $state<string | null>(null);
+	let selectedKegId = $state<string | null>(null);
 
 	$effect(() => {
 		if (open && tap) {
-			selectedBatchId = tap.assignedBatch?.id ?? null;
+			if (tap.assignedKegId) {
+				mode = 'keg';
+				selectedKegId = tap.assignedKegId;
+				selectedBatchId = null;
+			} else if (tap.assignedBatchId) {
+				mode = 'batch';
+				selectedBatchId = tap.assignedBatchId;
+				selectedKegId = null;
+			} else {
+				mode = 'keg';
+				selectedKegId = null;
+				selectedBatchId = null;
+			}
 			errorMessage = null;
 			searchQuery = '';
-			loadBatches();
+			loadData();
 		}
 	});
 
-	async function loadBatches() {
+	async function loadData() {
 		loading = true;
 		errorMessage = null;
 		try {
-			// Fetch batches - we'll filter for servable batches (Condition or Package stage)
-			const all = await api.batches.list({ limit: 100 });
-			batches = all.filter((b) => b.currentStage === 'Condition' || b.currentStage === 'Package');
+			const [batchesRes, kegsRes] = await Promise.all([
+				api.batches.list({ limit: 100 }),
+				api.equipment.list('Keg', undefined, 1, 100)
+			]);
+			batches = batchesRes.filter(
+				(b) => b.currentStage === 'Condition' || b.currentStage === 'Package'
+			);
+			kegs = kegsRes;
 		} catch (err) {
 			if (err instanceof ApiClientError) {
 				errorMessage = err.message;
@@ -47,6 +69,18 @@
 			loading = false;
 		}
 	}
+
+	let filteredKegs = $derived(
+		kegs.filter((k) => {
+			if (!searchQuery.trim()) return true;
+			const q = searchQuery.toLowerCase().trim();
+			const matchName = k.name.toLowerCase().includes(q);
+			const matchBatch =
+				k.assignedBatch?.name.toLowerCase().includes(q) ||
+				k.assignedBatch?.batchCode.toLowerCase().includes(q);
+			return matchName || !!matchBatch;
+		})
+	);
 
 	let filteredBatches = $derived(
 		batches.filter((b) => {
@@ -61,11 +95,13 @@
 	);
 
 	async function handleAssign() {
-		if (!tap || !selectedBatchId) return;
+		if (!tap) return;
 		saving = true;
 		errorMessage = null;
 		try {
-			const updated = await api.equipment.assignTap(tap.id, selectedBatchId);
+			const requestPayload =
+				mode === 'keg' ? { kegId: selectedKegId } : { batchId: selectedBatchId };
+			const updated = await api.equipment.assignTap(tap.id, requestPayload);
 			onSaved(updated);
 			onClose();
 		} catch (err) {
@@ -159,6 +195,37 @@
 				</button>
 			</div>
 
+			<!-- Mode Switcher (Tap a Keg vs Direct Batch) -->
+			<div
+				class="border-b border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-white/[0.08] dark:bg-zinc-900/30"
+			>
+				<div class="grid grid-cols-2 gap-2 rounded-xl bg-zinc-200/60 p-1 dark:bg-zinc-800/60">
+					<button
+						type="button"
+						onclick={() => (mode = 'keg')}
+						class="flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-bold transition-all {mode ===
+						'keg'
+							? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-white'
+							: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+					>
+						<Cylinder class="h-3.5 w-3.5" />
+						<span>{t('taps.mode_keg')}</span>
+					</button>
+
+					<button
+						type="button"
+						onclick={() => (mode = 'batch')}
+						class="flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-bold transition-all {mode ===
+						'batch'
+							? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-white'
+							: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+					>
+						<Beer class="h-3.5 w-3.5" />
+						<span>{t('taps.mode_batch')}</span>
+					</button>
+				</div>
+			</div>
+
 			<!-- Search -->
 			<div class="border-b border-zinc-200/80 p-4 dark:border-white/[0.08]">
 				<div class="relative">
@@ -166,13 +233,13 @@
 					<input
 						type="text"
 						bind:value={searchQuery}
-						placeholder={t('taps.search_batches')}
+						placeholder={mode === 'keg' ? t('taps.search_kegs') : t('taps.search_batches')}
 						class="h-9 w-full rounded-xl border border-zinc-300 bg-white pr-3 pl-9 text-xs text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
 					/>
 				</div>
 			</div>
 
-			<!-- Batch Selection List -->
+			<!-- Content Selection List -->
 			<div class="flex-1 space-y-2 overflow-y-auto p-4">
 				{#if errorMessage}
 					<div
@@ -186,64 +253,142 @@
 					<div class="flex h-36 items-center justify-center">
 						<Loader2 class="h-6 w-6 animate-spin text-amber-500" />
 					</div>
-				{:else if filteredBatches.length === 0}
-					<div class="flex flex-col items-center justify-center py-10 text-center">
-						<Beer class="h-8 w-8 text-zinc-400 opacity-60" />
-						<p class="mt-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-							{t('taps.no_servable_batches')}
-						</p>
-						<p class="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-							{t('taps.servable_batches_hint')}
-						</p>
-					</div>
-				{:else}
-					{#each filteredBatches as batch (batch.id)}
-						{@const isSelected = selectedBatchId === batch.id}
-						<button
-							type="button"
-							onclick={() => (selectedBatchId = batch.id)}
-							class="flex w-full items-center justify-between rounded-2xl border p-3.5 text-left transition-all {isSelected
-								? 'border-amber-500 bg-amber-500/10 shadow-sm'
-								: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700'}"
-						>
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2">
-									<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-										{batch.batchCode}
-									</span>
-									<span
-										class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-									>
-										{batch.currentStage}
-									</span>
-								</div>
-								<h4 class="mt-0.5 truncate text-sm font-bold text-zinc-900 dark:text-white">
-									{batch.name}
-								</h4>
-								<div
-									class="mt-1 flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400"
-								>
-									<span>{batch.beerStyle}</span>
-									{#if batch.alcoholByVolume != null}
-										<span>•</span>
-										<span class="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-											{batch.alcoholByVolume}% ABV
+				{:else if mode === 'keg'}
+					<!-- Kegs List -->
+					{#if filteredKegs.length === 0}
+						<div class="flex flex-col items-center justify-center py-10 text-center">
+							<Cylinder class="h-8 w-8 text-zinc-400 opacity-60" />
+							<p class="mt-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+								{t('taps.no_kegs_available')}
+							</p>
+							<p class="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+								{t('taps.no_kegs_hint')}
+							</p>
+						</div>
+					{:else}
+						{#each filteredKegs as keg (keg.id)}
+							{@const isSelected = selectedKegId === keg.id}
+							<button
+								type="button"
+								onclick={() => (selectedKegId = keg.id)}
+								class="flex w-full items-center justify-between rounded-2xl border p-3.5 text-left transition-all {isSelected
+									? 'border-amber-500 bg-amber-500/10 shadow-sm'
+									: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700'}"
+							>
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-2">
+										<span
+											class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+										>
+											{keg.subtype}
 										</span>
+										<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
+											{keg.capacityLiters > 0
+												? Math.round((keg.currentVolumeLiters / keg.capacityLiters) * 100)
+												: 0}% ({keg.currentVolumeLiters.toFixed(1)} / {keg.capacityLiters.toFixed(
+												1
+											)} L)
+										</span>
+									</div>
+									<h4 class="mt-1 truncate text-sm font-bold text-zinc-900 dark:text-white">
+										{keg.name}
+									</h4>
+									{#if keg.assignedBatch}
+										<div
+											class="mt-1 flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400"
+										>
+											<span class="font-bold text-zinc-700 dark:text-zinc-300"
+												>{keg.assignedBatch.batchCode}</span
+											>
+											<span>•</span>
+											<span class="truncate">{keg.assignedBatch.name}</span>
+											{#if keg.assignedBatch.actualAbv != null}
+												<span>•</span>
+												<span class="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+													{keg.assignedBatch.actualAbv}% ABV
+												</span>
+											{/if}
+										</div>
+									{:else}
+										<p class="mt-1 text-[11px] text-zinc-400 italic">
+											{t('taps.keg_empty')}
+										</p>
 									{/if}
 								</div>
-							</div>
 
-							<div
-								class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors {isSelected
-									? 'border-amber-500 bg-amber-500 text-zinc-950'
-									: 'border-zinc-300 dark:border-zinc-700'}"
+								<div
+									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors {isSelected
+										? 'border-amber-500 bg-amber-500 text-zinc-950'
+										: 'border-zinc-300 dark:border-zinc-700'}"
+								>
+									{#if isSelected}
+										<Check class="h-3.5 w-3.5 stroke-[3]" />
+									{/if}
+								</div>
+							</button>
+						{/each}
+					{/if}
+				{:else}
+					<!-- Batches List -->
+					{#if filteredBatches.length === 0}
+						<div class="flex flex-col items-center justify-center py-10 text-center">
+							<Beer class="h-8 w-8 text-zinc-400 opacity-60" />
+							<p class="mt-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+								{t('taps.no_servable_batches')}
+							</p>
+							<p class="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+								{t('taps.servable_batches_hint')}
+							</p>
+						</div>
+					{:else}
+						{#each filteredBatches as batch (batch.id)}
+							{@const isSelected = selectedBatchId === batch.id}
+							<button
+								type="button"
+								onclick={() => (selectedBatchId = batch.id)}
+								class="flex w-full items-center justify-between rounded-2xl border p-3.5 text-left transition-all {isSelected
+									? 'border-amber-500 bg-amber-500/10 shadow-sm'
+									: 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700'}"
 							>
-								{#if isSelected}
-									<Check class="h-3.5 w-3.5 stroke-[3]" />
-								{/if}
-							</div>
-						</button>
-					{/each}
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-2">
+										<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
+											{batch.batchCode}
+										</span>
+										<span
+											class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+										>
+											{batch.currentStage}
+										</span>
+									</div>
+									<h4 class="mt-0.5 truncate text-sm font-bold text-zinc-900 dark:text-white">
+										{batch.name}
+									</h4>
+									<div
+										class="mt-1 flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400"
+									>
+										<span>{batch.beerStyle}</span>
+										{#if batch.alcoholByVolume != null}
+											<span>•</span>
+											<span class="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+												{batch.alcoholByVolume}% ABV
+											</span>
+										{/if}
+									</div>
+								</div>
+
+								<div
+									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors {isSelected
+										? 'border-amber-500 bg-amber-500 text-zinc-950'
+										: 'border-zinc-300 dark:border-zinc-700'}"
+								>
+									{#if isSelected}
+										<Check class="h-3.5 w-3.5 stroke-[3]" />
+									{/if}
+								</div>
+							</button>
+						{/each}
+					{/if}
 				{/if}
 			</div>
 
@@ -252,7 +397,7 @@
 				class="flex items-center justify-between border-t border-zinc-200/80 px-6 py-4 dark:border-white/[0.08]"
 			>
 				<div>
-					{#if tap.assignedBatch}
+					{#if tap.assignedKegId || tap.assignedBatchId}
 						<button
 							type="button"
 							onclick={handleUnassign}
@@ -284,8 +429,10 @@
 						onclick={handleAssign}
 						disabled={saving ||
 							unassigning ||
-							!selectedBatchId ||
-							selectedBatchId === tap.assignedBatch?.id}
+							(mode === 'keg' && !selectedKegId) ||
+							(mode === 'batch' && !selectedBatchId) ||
+							(mode === 'keg' && selectedKegId === tap.assignedKegId) ||
+							(mode === 'batch' && selectedBatchId === tap.assignedBatchId)}
 						class="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-5 py-2 text-xs font-bold text-zinc-950 shadow-md transition-all hover:from-amber-400 hover:to-amber-500 disabled:opacity-50"
 					>
 						{#if saving}

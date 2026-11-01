@@ -15,6 +15,7 @@
 	import EquipmentModal from '$lib/components/inventory/EquipmentModal.svelte';
 	import DeleteEquipmentModal from '$lib/components/inventory/DeleteEquipmentModal.svelte';
 	import AssignTapModal from '$lib/components/inventory/AssignTapModal.svelte';
+	import AssignKegModal from '$lib/components/inventory/AssignKegModal.svelte';
 	import TapDisplayLinkModal from '$lib/components/inventory/TapDisplayLinkModal.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
@@ -58,6 +59,8 @@
 	let itemToDelete = $state<EquipmentDto | null>(null);
 	let assignTapModalOpen = $state(false);
 	let tapToAssign = $state<EquipmentDto | null>(null);
+	let assignKegModalOpen = $state(false);
+	let kegToAssign = $state<EquipmentDto | null>(null);
 	let displayLinkModalOpen = $state(false);
 	let tapForDisplayLink = $state<EquipmentDto | null>(null);
 	let expandedAttributes = $state<Record<string, boolean>>({});
@@ -65,6 +68,11 @@
 	function openAssignTapModal(item: EquipmentDto) {
 		tapToAssign = item;
 		assignTapModalOpen = true;
+	}
+
+	function openAssignKegModal(item: EquipmentDto) {
+		kegToAssign = item;
+		assignKegModalOpen = true;
 	}
 
 	function openDisplayLinkModal(item: EquipmentDto) {
@@ -994,6 +1002,46 @@
 										aria-valuemax="100"
 									></div>
 								</div>
+
+								<!-- Keg Batch & Management Actions -->
+								{#if item.type === 'Keg'}
+									<div class="mt-3 border-t border-zinc-200/60 pt-2.5 dark:border-white/5">
+										{#if item.assignedBatch}
+											<div class="mb-2 space-y-0.5">
+												<div class="flex items-center gap-2">
+													<span
+														class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
+													>
+														{item.assignedBatch.batchCode}
+													</span>
+													{#if item.assignedBatch.actualAbv != null}
+														<span
+															class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+														>
+															{item.assignedBatch.actualAbv}% ABV
+														</span>
+													{/if}
+												</div>
+												<p class="truncate text-xs font-bold text-zinc-900 dark:text-white">
+													{item.assignedBatch.name}
+												</p>
+											</div>
+										{/if}
+
+										<button
+											type="button"
+											onclick={() => openAssignKegModal(item)}
+											class="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500 hover:text-zinc-950 dark:text-amber-400 dark:hover:bg-amber-400 dark:hover:text-zinc-950"
+										>
+											<Beer class="h-3.5 w-3.5" />
+											<span
+												>{item.assignedBatch
+													? t('kegs.manage_keg_btn')
+													: t('kegs.fill_keg_btn')}</span
+											>
+										</button>
+									</div>
+								{/if}
 							</div>
 						{/if}
 
@@ -1003,16 +1051,46 @@
 								class="mt-4 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
 							>
 								<div class="flex items-center justify-between">
-									<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
-										{t('taps.tap_status')}
-									</span>
-									<span
-										class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
-											? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-											: 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'}"
-									>
-										{item.assignedBatch ? t('taps.status_pouring') : t('taps.status_empty')}
-									</span>
+									<div class="flex items-center gap-2">
+										<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+											{t('taps.tap_status')}
+										</span>
+										{#if item.assignedKeg}
+											<span
+												class="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-amber-600 dark:text-amber-400"
+											>
+												{t('taps.keg_badge')}: {item.assignedKeg.name}
+											</span>
+										{:else if item.assignedBatch}
+											<span
+												class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[9px] font-bold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+											>
+												{t('taps.direct_batch_badge')}
+											</span>
+										{/if}
+									</div>
+									<div class="flex items-center gap-1.5">
+										{#if item.fillLevelPercent != null}
+											<span
+												class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
+											>
+												{item.fillLevelPercent}%
+											</span>
+										{:else if item.assignedBatch}
+											<span
+												class="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-mono text-[10px] font-bold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+											>
+												{t('taps.keg_fill_na')}
+											</span>
+										{/if}
+										<span
+											class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
+												? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+												: 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'}"
+										>
+											{item.assignedBatch ? t('taps.status_pouring') : t('taps.status_empty')}
+										</span>
+									</div>
 								</div>
 
 								{#if item.assignedBatch}
@@ -1113,6 +1191,17 @@
 	onClose={() => {
 		assignTapModalOpen = false;
 		tapToAssign = null;
+	}}
+	onSaved={handleSaved}
+/>
+
+<!-- Assign Keg Modal -->
+<AssignKegModal
+	open={assignKegModalOpen}
+	keg={kegToAssign}
+	onClose={() => {
+		assignKegModalOpen = false;
+		kegToAssign = null;
 	}}
 	onSaved={handleSaved}
 />
