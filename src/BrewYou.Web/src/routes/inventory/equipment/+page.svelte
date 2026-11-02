@@ -684,7 +684,7 @@
 					{@const tempInfo = formatTemperatureBadge(item)}
 					{@const extraAttrs = getParsedAttributes(item)}
 					<div
-						class="glass-panel group relative flex flex-col justify-between rounded-2xl border border-zinc-200/80 p-5 transition-all duration-200 hover:border-amber-500/40 hover:shadow-lg dark:border-white/[0.08]"
+						class="glass-panel group relative flex flex-col rounded-2xl border border-zinc-200/80 p-5 transition-all duration-200 hover:border-amber-500/40 hover:shadow-lg dark:border-white/[0.08]"
 						data-testid="equipment-card"
 					>
 						<!-- Top: Hero Vessel Icon, Title & Badges -->
@@ -746,6 +746,12 @@
 							{#if item.description}
 								<p class="mt-3 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
 									{item.description}
+								</p>
+							{/if}
+
+							{#if item.notes}
+								<p class="mt-2 text-[11px] text-zinc-400 italic">
+									"{item.notes}"
 								</p>
 							{/if}
 
@@ -961,56 +967,65 @@
 						<!-- Fill Level & Volume Box (for fillable vessels only) -->
 						{#if isVesselFillable(item.subtype)}
 							<div
-								class="mt-4 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+								class="mt-4 flex flex-1 flex-col justify-between rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
 							>
-								<div class="flex items-center justify-between">
-									<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
-										{t('equipment.fill_level_capacity')}
-									</span>
-									<span
-										class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {status.classes}"
-									>
-										{status.text}
-									</span>
-								</div>
-
-								<div class="mt-1 flex items-baseline justify-between">
-									<div class="flex items-baseline gap-1.5">
-										<span class="font-mono text-lg font-bold text-amber-600 dark:text-amber-400">
-											{metrics.currentFormatted}
+								<div>
+									<div class="flex items-center justify-between">
+										<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+											{t('equipment.fill_level_capacity')}
 										</span>
-										<span class="text-xs text-zinc-400">/</span>
-										<span class="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-											{metrics.capacityFormatted}
+										<span
+											class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {status.classes}"
+										>
+											{status.text}
 										</span>
 									</div>
-								</div>
 
-								<!-- Liquid Fill Progress Bar -->
-								<div
-									class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
-								>
+									<div class="mt-1 flex items-baseline justify-between">
+										<div class="flex items-baseline gap-1.5">
+											<span class="font-mono text-lg font-bold text-amber-600 dark:text-amber-400">
+												{metrics.currentFormatted}
+											</span>
+											<span class="text-xs text-zinc-400">/</span>
+											<span
+												class="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+											>
+												{metrics.capacityFormatted}
+											</span>
+										</div>
+									</div>
+
+									<!-- Liquid Fill Progress Bar -->
 									<div
-										class="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all duration-500 {metrics.fillPct >
-										0
-											? 'shadow-[0_0_8px_rgba(245,158,11,0.35)]'
-											: ''}"
-										style="width: {metrics.fillPct}%"
-										role="progressbar"
-										aria-valuenow={metrics.fillPct}
-										aria-valuemin="0"
-										aria-valuemax="100"
-									></div>
+										class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+									>
+										<div
+											class="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all duration-500 {metrics.fillPct >
+											0
+												? 'shadow-[0_0_8px_rgba(245,158,11,0.35)]'
+												: ''}"
+											style="width: {metrics.fillPct}%"
+											role="progressbar"
+											aria-valuenow={metrics.fillPct}
+											aria-valuemin="0"
+											aria-valuemax="100"
+										></div>
+									</div>
 								</div>
 
 								<!-- Keg Batch & Management Actions -->
 								{#if item.type === 'Keg'}
 									<div class="mt-3 border-t border-zinc-200/60 pt-2.5 dark:border-white/5">
 										{#if item.assignedBatch}
-											<div class="mb-2 space-y-0.5">
+											<a
+												href="/batches/{item.assignedBatch.id}"
+												title={item.assignedBatch.name}
+												data-testid="assigned-batch-link"
+												class="group/batch mb-2 block space-y-0.5 transition-colors"
+											>
 												<div class="flex items-center gap-2">
 													<span
-														class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
+														class="font-mono text-xs font-bold text-amber-600 group-hover/batch:text-amber-500 group-hover/batch:underline dark:text-amber-400 dark:group-hover/batch:text-amber-300"
 													>
 														{item.assignedBatch.batchCode}
 													</span>
@@ -1022,10 +1037,12 @@
 														</span>
 													{/if}
 												</div>
-												<p class="truncate text-xs font-bold text-zinc-900 dark:text-white">
+												<p
+													class="truncate text-xs font-bold text-zinc-900 group-hover/batch:text-amber-600 group-hover/batch:underline dark:text-white dark:group-hover/batch:text-amber-400"
+												>
 													{item.assignedBatch.name}
 												</p>
-											</div>
+											</a>
 										{/if}
 
 										<button
@@ -1048,77 +1065,88 @@
 						<!-- Tap Dispenser & Batch Assignment Box -->
 						{#if item.type === 'Tap'}
 							<div
-								class="mt-4 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+								class="mt-4 flex flex-1 flex-col justify-between rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
 							>
-								<div class="flex items-center justify-between">
-									<div class="flex items-center gap-2">
-										<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
-											{t('taps.tap_status')}
-										</span>
-										{#if item.assignedKeg}
-											<span
-												class="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-amber-600 dark:text-amber-400"
-											>
-												{t('taps.keg_badge')}: {item.assignedKeg.name}
-											</span>
-										{:else if item.assignedBatch}
-											<span
-												class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[9px] font-bold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-											>
-												{t('taps.direct_batch_badge')}
-											</span>
-										{/if}
-									</div>
-									<div class="flex items-center gap-1.5">
-										{#if item.fillLevelPercent != null}
-											<span
-												class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
-											>
-												{item.fillLevelPercent}%
-											</span>
-										{:else if item.assignedBatch}
-											<span
-												class="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-mono text-[10px] font-bold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-											>
-												{t('taps.keg_fill_na')}
-											</span>
-										{/if}
-										<span
-											class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
-												? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-												: 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'}"
-										>
-											{item.assignedBatch ? t('taps.status_pouring') : t('taps.status_empty')}
-										</span>
-									</div>
-								</div>
-
-								{#if item.assignedBatch}
-									<div class="mt-2 space-y-1">
+								<div>
+									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
-											<span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-												{item.assignedBatch.batchCode}
+											<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+												{t('taps.tap_status')}
 											</span>
-											{#if item.assignedBatch.actualAbv != null}
+											{#if item.assignedKeg}
 												<span
-													class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+													class="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-amber-600 dark:text-amber-400"
 												>
-													{item.assignedBatch.actualAbv}% ABV
+													{t('taps.keg_badge')}: {item.assignedKeg.name}
+												</span>
+											{:else if item.assignedBatch}
+												<span
+													class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[9px] font-bold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+												>
+													{t('taps.direct_batch_badge')}
 												</span>
 											{/if}
 										</div>
-										<p class="truncate text-sm font-bold text-zinc-900 dark:text-white">
-											{item.assignedBatch.name}
-										</p>
-										<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-											{item.assignedBatch.beerStyle}
-										</p>
+										<div class="flex items-center gap-1.5">
+											{#if item.fillLevelPercent != null}
+												<span
+													class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
+												>
+													{item.fillLevelPercent}%
+												</span>
+											{:else if item.assignedBatch}
+												<span
+													class="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-mono text-[10px] font-bold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+												>
+													{t('taps.keg_fill_na')}
+												</span>
+											{/if}
+											<span
+												class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
+													? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+													: 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'}"
+											>
+												{item.assignedBatch ? t('taps.status_pouring') : t('taps.status_empty')}
+											</span>
+										</div>
 									</div>
-								{:else}
-									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-										{t('taps.no_batch_assigned_desc')}
-									</p>
-								{/if}
+
+									{#if item.assignedBatch}
+										<a
+											href="/batches/{item.assignedBatch.id}"
+											title={item.assignedBatch.name}
+											data-testid="assigned-batch-link"
+											class="group/batch mt-2 block space-y-1 transition-colors"
+										>
+											<div class="flex items-center gap-2">
+												<span
+													class="font-mono text-xs font-bold text-amber-600 group-hover/batch:text-amber-500 group-hover/batch:underline dark:text-amber-400 dark:group-hover/batch:text-amber-300"
+												>
+													{item.assignedBatch.batchCode}
+												</span>
+												{#if item.assignedBatch.actualAbv != null}
+													<span
+														class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+													>
+														{item.assignedBatch.actualAbv}% ABV
+													</span>
+												{/if}
+											</div>
+											<p
+												class="truncate text-sm font-bold text-zinc-900 group-hover/batch:text-amber-600 group-hover/batch:underline dark:text-white dark:group-hover/batch:text-amber-400"
+											>
+												{item.assignedBatch.name}
+											</p>
+											<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+												{item.assignedBatch.beerStyle}
+											</p>
+										</a>
+									{:else}
+										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+											{t('taps.no_batch_assigned_desc')}
+										</p>
+									{/if}
+								</div>
 
 								<!-- Action Buttons -->
 								<div
@@ -1149,12 +1177,6 @@
 									{/if}
 								</div>
 							</div>
-						{/if}
-
-						{#if item.notes}
-							<p class="mt-3 text-[11px] text-zinc-400 italic">
-								"{item.notes}"
-							</p>
 						{/if}
 					</div>
 				{/each}
