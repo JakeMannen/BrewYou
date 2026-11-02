@@ -1019,7 +1019,6 @@
 		"err_save_failed": "Échec de l'enregistrement de l'équipement.",
 		"telemetry_title": "Connectivité externe & Télémétrie",
 		"telemetry_badge": "IoT & Capteurs",
-		"tap_no_sensor_note": "Les robinets n'ont pas de capteurs IoT. La température est automatiquement relevée à partir du fût connecté.",
 		"telemetry_desc": "Connectez un densimètre Tilt, iSpindel, ESP32 ou un broker MQTT pour des mesures en temps réel.",
 		"temperature_label": "Température actuelle",
 		"temperature_placeholder": "ex. 19.5",

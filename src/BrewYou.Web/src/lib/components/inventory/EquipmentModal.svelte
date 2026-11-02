@@ -1278,18 +1278,7 @@
 					</div>
 				{/if}
 
-				{#if type === 'Tap'}
-					<!-- Tap Equipment: No Direct IoT Sensor -->
-					<div
-						data-testid="tap-no-sensor-note"
-						class="flex items-center gap-2.5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
-					>
-						<Thermometer class="h-4 w-4 shrink-0 text-amber-500" />
-						<p class="text-xs text-zinc-600 dark:text-zinc-300">
-							{t('equipment.tap_no_sensor_note')}
-						</p>
-					</div>
-				{:else}
+				{#if type !== 'Tap'}
 					<!-- External Connectivity & Temperature Section -->
 					<div
 						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"

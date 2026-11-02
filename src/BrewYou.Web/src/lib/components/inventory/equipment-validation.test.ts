@@ -128,16 +128,7 @@ describe('Equipment Name Uniqueness & Validation', () => {
 		expect(err.message).toContain('already exists');
 	});
 
-	it('contains localized tap sensor note and keg temperature strings with 100% key parity', () => {
-		expect(en.equipment.tap_no_sensor_note).toBeDefined();
-		expect(sv.equipment.tap_no_sensor_note).toBeDefined();
-		expect(en.equipment.tap_no_sensor_note).toBe(
-			'Tap equipment does not have IoT sensors. Temperature is automatically taken from the connected keg.'
-		);
-		expect(sv.equipment.tap_no_sensor_note).toBe(
-			'Tappar har inga IoT-sensorer. Temperatur hämtas automatiskt från anslutet fat.'
-		);
-
+	it('contains localized tap keg temperature strings with 100% key parity', () => {
 		expect(en.taps.keg_temperature).toBeDefined();
 		expect(sv.taps.keg_temperature).toBeDefined();
 		expect(en.taps.from_keg).toBeDefined();

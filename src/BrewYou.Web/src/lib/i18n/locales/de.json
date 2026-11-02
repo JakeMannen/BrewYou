@@ -1019,7 +1019,6 @@
 		"err_save_failed": "Speichern der Ausrüstung fehlgeschlagen.",
 		"telemetry_title": "Externe Anbindung & Telemetrie",
 		"telemetry_badge": "IoT & Sensoren",
-		"tap_no_sensor_note": "Zapfhähne verfügen über keine IoT-Sensoren. Die Temperatur wird automatisch vom angeschlossenen Keg übernommen.",
 		"telemetry_desc": "Verbinden Sie Tilt Hydrometer, iSpindel, ESP32 oder MQTT-Broker für Echtzeit-Messwerte.",
 		"temperature_label": "Aktuelle Temperatur",
 		"temperature_placeholder": "z. B. 19.5",
