@@ -475,15 +475,30 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .When(x => x.CurrentTemperatureC.HasValue)
             .WithMessage("Current temperature must be between -20 °C and 120 °C.");
 
+        RuleFor(x => x.CurrentTemperatureC)
+            .Must(temp => !temp.HasValue)
+            .When(x => x.Type == EquipmentType.Tap)
+            .WithMessage("Tap equipment cannot have a direct temperature reading. Temperature is taken from a connected keg.");
+
         RuleFor(x => x.ConnectionType)
             .IsInEnum()
             .When(x => x.ConnectionType.HasValue)
             .WithMessage("Specified connection type is invalid.");
 
+        RuleFor(x => x.ConnectionType)
+            .Must(conn => !conn.HasValue || conn.Value == EquipmentConnectionType.None)
+            .When(x => x.Type == EquipmentType.Tap)
+            .WithMessage("Tap equipment cannot have an IoT sensor connection.");
+
         RuleFor(x => x.ConnectionConfigJson)
             .MaximumLength(4000)
             .When(x => !string.IsNullOrEmpty(x.ConnectionConfigJson))
             .WithMessage("Connection configuration cannot exceed 4,000 characters.");
+
+        RuleFor(x => x.ConnectionConfigJson)
+            .Must(string.IsNullOrEmpty)
+            .When(x => x.Type == EquipmentType.Tap)
+            .WithMessage("Tap equipment cannot have connection configuration.");
     }
 
     internal static bool HaveValidSubtypeForType(EquipmentType type, EquipmentSubtype? subtype)
@@ -614,15 +629,30 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .When(x => x.CurrentTemperatureC.HasValue)
             .WithMessage("Current temperature must be between -20 °C and 120 °C.");
 
+        RuleFor(x => x.CurrentTemperatureC)
+            .Must(temp => !temp.HasValue)
+            .When(x => x.Type == EquipmentType.Tap)
+            .WithMessage("Tap equipment cannot have a direct temperature reading. Temperature is taken from a connected keg.");
+
         RuleFor(x => x.ConnectionType)
             .IsInEnum()
             .When(x => x.ConnectionType.HasValue)
             .WithMessage("Specified connection type is invalid.");
 
+        RuleFor(x => x.ConnectionType)
+            .Must(conn => !conn.HasValue || conn.Value == EquipmentConnectionType.None)
+            .When(x => x.Type == EquipmentType.Tap)
+            .WithMessage("Tap equipment cannot have an IoT sensor connection.");
+
         RuleFor(x => x.ConnectionConfigJson)
             .MaximumLength(4000)
             .When(x => !string.IsNullOrEmpty(x.ConnectionConfigJson))
             .WithMessage("Connection configuration cannot exceed 4,000 characters.");
+
+        RuleFor(x => x.ConnectionConfigJson)
+            .Must(string.IsNullOrEmpty)
+            .When(x => x.Type == EquipmentType.Tap)
+            .WithMessage("Tap equipment cannot have connection configuration.");
     }
 }
 

@@ -143,6 +143,11 @@ public static class TelemetryEndpoints
             }
 
             var (result, updated, _) = await equipmentService.RegenerateConnectionTokenAsync(id, userId);
+            if (result == EquipmentAccessResult.InvalidTapAssignment)
+            {
+                return Results.BadRequest(ApiResponse.Fail("INVALID_TAP", "Tap equipment does not have an IoT sensor connection token."));
+            }
+
             if (result == EquipmentAccessResult.Forbidden)
             {
                 return Results.Json(ApiResponse.Fail("FORBIDDEN", "Only an owner can regenerate connection tokens."), statusCode: StatusCodes.Status403Forbidden);

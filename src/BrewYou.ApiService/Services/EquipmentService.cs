@@ -212,7 +212,8 @@ public class EquipmentService : IEquipmentService
             packagingLoss ??= targetSetup.DefaultPackagingLossLiters;
         }
 
-        var connectionType = request.ConnectionType ?? EquipmentConnectionType.None;
+        var isTap = request.Type == EquipmentType.Tap;
+        var connectionType = isTap ? EquipmentConnectionType.None : (request.ConnectionType ?? EquipmentConnectionType.None);
         string? connectionToken = null;
         if (connectionType == EquipmentConnectionType.HttpPush)
         {
@@ -235,11 +236,11 @@ public class EquipmentService : IEquipmentService
             TrubLossLiters = trubLoss,
             MashTunDeadSpaceLiters = mashDeadSpace,
             PackagingLossLiters = packagingLoss,
-            CurrentTemperatureC = request.CurrentTemperatureC,
-            TemperatureUpdatedAt = request.CurrentTemperatureC.HasValue ? DateTime.UtcNow : null,
+            CurrentTemperatureC = isTap ? null : request.CurrentTemperatureC,
+            TemperatureUpdatedAt = isTap ? null : (request.CurrentTemperatureC.HasValue ? DateTime.UtcNow : null),
             ConnectionType = connectionType,
             ConnectionToken = connectionToken,
-            ConnectionConfigJson = ProtectConfigJson(request.ConnectionConfigJson),
+            ConnectionConfigJson = isTap ? null : ProtectConfigJson(request.ConnectionConfigJson),
             DisplayWidthPx = request.DisplayWidthPx,
             DisplayHeightPx = request.DisplayHeightPx,
             DisplayOrientation = request.DisplayOrientation ?? DisplayOrientation.Landscape,
@@ -342,24 +343,41 @@ public class EquipmentService : IEquipmentService
             equipment.DisplayOrientation = request.DisplayOrientation.Value;
         }
 
-        if (request.ConnectionType.HasValue)
+        if (equipment.Type == EquipmentType.Tap)
         {
-            equipment.ConnectionType = request.ConnectionType.Value;
-            if (equipment.ConnectionType == EquipmentConnectionType.HttpPush && string.IsNullOrEmpty(equipment.ConnectionToken))
+            equipment.ConnectionType = EquipmentConnectionType.None;
+            equipment.ConnectionToken = null;
+            equipment.ConnectionConfigJson = null;
+            equipment.CurrentTemperatureC = null;
+            equipment.TemperatureUpdatedAt = null;
+            equipment.CurrentSpecificGravity = null;
+            equipment.CurrentPressureBar = null;
+            equipment.CurrentBatteryPercent = null;
+            equipment.CurrentBatteryVoltage = null;
+            equipment.LastTelemetryAt = null;
+            equipment.LatestMetricsJson = null;
+        }
+        else
+        {
+            if (request.ConnectionType.HasValue)
             {
-                equipment.ConnectionToken = GenerateConnectionToken();
+                equipment.ConnectionType = request.ConnectionType.Value;
+                if (equipment.ConnectionType == EquipmentConnectionType.HttpPush && string.IsNullOrEmpty(equipment.ConnectionToken))
+                {
+                    equipment.ConnectionToken = GenerateConnectionToken();
+                }
             }
-        }
 
-        if (request.ConnectionConfigJson != null)
-        {
-            equipment.ConnectionConfigJson = ProtectConfigJson(request.ConnectionConfigJson, equipment.ConnectionConfigJson);
-        }
+            if (request.ConnectionConfigJson != null)
+            {
+                equipment.ConnectionConfigJson = ProtectConfigJson(request.ConnectionConfigJson, equipment.ConnectionConfigJson);
+            }
 
-        if (request.CurrentTemperatureC.HasValue)
-        {
-            equipment.CurrentTemperatureC = request.CurrentTemperatureC.Value;
-            equipment.TemperatureUpdatedAt = DateTime.UtcNow;
+            if (request.CurrentTemperatureC.HasValue)
+            {
+                equipment.CurrentTemperatureC = request.CurrentTemperatureC.Value;
+                equipment.TemperatureUpdatedAt = DateTime.UtcNow;
+            }
         }
 
         equipment.Description = request.Description?.Trim();
@@ -518,7 +536,9 @@ public class EquipmentService : IEquipmentService
                         e.AssignedKeg.AssignedBatch.BeerStyle,
                         e.AssignedKeg.AssignedBatch.AlcoholByVolume,
                         e.AssignedKeg.AssignedAt)
-                    : null
+                    : null,
+                e.AssignedKeg.CurrentTemperatureC,
+                e.AssignedKeg.TemperatureUpdatedAt
             );
         }
 
@@ -531,6 +551,50 @@ public class EquipmentService : IEquipmentService
             EquipmentType.Tap => assignedKegSummary != null ? assignedKegSummary.FillPercentage : null,
             _ => fillPercentage
         };
+
+        var effectiveTemperatureC = e.Type == EquipmentType.Tap
+            ? e.AssignedKeg?.CurrentTemperatureC
+            : e.CurrentTemperatureC;
+
+        var effectiveTemperatureUpdatedAt = e.Type == EquipmentType.Tap
+            ? e.AssignedKeg?.TemperatureUpdatedAt
+            : e.TemperatureUpdatedAt;
+
+        var effectiveConnectionType = e.Type == EquipmentType.Tap
+            ? EquipmentConnectionType.None
+            : e.ConnectionType;
+
+        var effectiveConnectionToken = e.Type == EquipmentType.Tap || !isOwner
+            ? null
+            : e.ConnectionToken;
+
+        var effectiveConnectionConfigJson = e.Type == EquipmentType.Tap || !isOwner
+            ? null
+            : SanitizeConfigJson(e.ConnectionConfigJson);
+
+        var effectiveSpecificGravity = e.Type == EquipmentType.Tap
+            ? null
+            : e.CurrentSpecificGravity;
+
+        var effectivePressureBar = e.Type == EquipmentType.Tap
+            ? null
+            : e.CurrentPressureBar;
+
+        var effectiveBatteryPercent = e.Type == EquipmentType.Tap
+            ? null
+            : e.CurrentBatteryPercent;
+
+        var effectiveBatteryVoltage = e.Type == EquipmentType.Tap
+            ? null
+            : e.CurrentBatteryVoltage;
+
+        var effectiveLastTelemetryAt = e.Type == EquipmentType.Tap
+            ? e.AssignedKeg?.LastTelemetryAt
+            : e.LastTelemetryAt;
+
+        var effectiveLatestMetricsJson = e.Type == EquipmentType.Tap
+            ? null
+            : e.LatestMetricsJson;
 
         return new EquipmentDto(
             e.Id,
@@ -548,21 +612,21 @@ public class EquipmentService : IEquipmentService
             e.MashTunDeadSpaceLiters,
             e.PackagingLossLiters,
             fillPercentage,
-            e.CurrentTemperatureC,
-            e.TemperatureUpdatedAt,
-            e.ConnectionType,
-            isOwner ? e.ConnectionToken : null,
-            isOwner ? SanitizeConfigJson(e.ConnectionConfigJson) : null,
+            effectiveTemperatureC,
+            effectiveTemperatureUpdatedAt,
+            effectiveConnectionType,
+            effectiveConnectionToken,
+            effectiveConnectionConfigJson,
             e.Description,
             e.Notes,
             e.CreatedAt,
             e.UpdatedAt,
-            e.CurrentSpecificGravity,
-            e.CurrentPressureBar,
-            e.CurrentBatteryPercent,
-            e.CurrentBatteryVoltage,
-            e.LastTelemetryAt,
-            e.LatestMetricsJson,
+            effectiveSpecificGravity,
+            effectivePressureBar,
+            effectiveBatteryPercent,
+            effectiveBatteryVoltage,
+            effectiveLastTelemetryAt,
+            effectiveLatestMetricsJson,
             e.DisplayWidthPx,
             e.DisplayHeightPx,
             e.DisplayOrientation,
@@ -657,6 +721,11 @@ public class EquipmentService : IEquipmentService
         if (equipment == null)
         {
             return (EquipmentAccessResult.NotFound, null, null);
+        }
+
+        if (equipment.Type == EquipmentType.Tap)
+        {
+            return (EquipmentAccessResult.InvalidTapAssignment, null, null);
         }
 
         var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
@@ -1123,9 +1192,11 @@ public class EquipmentService : IEquipmentService
             kegFillLevel = "N/A";
         }
 
+        decimal? temperatureC = equipment.AssignedKeg?.CurrentTemperatureC;
+
         var labelVersion = effectiveBatch != null
-            ? $"{effectiveBatch.Id}:{effectiveBatch.Recipe?.Label?.Version ?? 0}:{actualAbv}:{equipment.UpdatedAt.Ticks}:{kegFillLevel}"
-            : $"empty:{equipment.UpdatedAt.Ticks}";
+            ? $"{effectiveBatch.Id}:{effectiveBatch.Recipe?.Label?.Version ?? 0}:{actualAbv}:{equipment.UpdatedAt.Ticks}:{kegFillLevel}:{temperatureC}"
+            : $"empty:{equipment.UpdatedAt.Ticks}:{temperatureC}";
 
         var etag = $"\"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(labelVersion))).ToLowerInvariant()}\"";
 
@@ -1161,7 +1232,8 @@ public class EquipmentService : IEquipmentService
             KegName: kegName,
             KegFillLevel: kegFillLevel,
             KegCapacityLiters: kegCapacity,
-            KegRemainingLiters: kegRemaining
+            KegRemainingLiters: kegRemaining,
+            TemperatureC: temperatureC
         );
 
         return (manifest, etag);

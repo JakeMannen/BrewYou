@@ -405,4 +405,156 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var manifest = (await manifestRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
         manifest.ImageUrl.Should().StartWith("http://192.168.1.188:5000/api/v1/tap/");
     }
+
+    [Fact]
+    public async Task Tap_CannotHaveIoTSensorOrDirectTemperature_FailsValidation()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("notapiot");
+        var setup = await GetDefaultSetupAsync(client);
+
+        // 1. Attempting to create Tap with HttpPush connection type -> 400 Validation Error
+        var createPushRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "IoT Tap 1",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.StandardTap,
+            Capacity: 0m,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ));
+        createPushRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 2. Attempting to create Tap with direct temperature -> 400 Validation Error
+        var createTempRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Direct Temp Tap",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.StandardTap,
+            Capacity: 0m,
+            CurrentTemperatureC: 4.5m
+        ));
+        createTempRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 3. Create clean Tap
+        var createCleanRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Clean Tap",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.StandardTap,
+            Capacity: 0m
+        ));
+        createCleanRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var tap = (await createCleanRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        tap.ConnectionType.Should().Be(EquipmentConnectionType.None);
+        tap.ConnectionToken.Should().BeNull();
+        tap.CurrentTemperatureC.Should().BeNull();
+
+        // 4. Attempting to update Tap with connection type -> 400 Validation Error
+        var updateConnRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}", new UpdateEquipmentRequest(
+            Name: "Clean Tap Updated",
+            Type: EquipmentType.Tap,
+            Capacity: 0m,
+            ConnectionType: EquipmentConnectionType.Mqtt
+        ));
+        updateConnRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 5. Attempting to update Tap with direct temperature -> 400 Validation Error
+        var updateTempRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}", new UpdateEquipmentRequest(
+            Name: "Clean Tap Updated",
+            Type: EquipmentType.Tap,
+            Capacity: 0m,
+            CurrentTemperatureC: 6.0m
+        ));
+        updateTempRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 6. Regenerating connection token on Tap -> 400 Bad Request
+        var regenRes = await client.PostAsync($"/api/v1/inventory/equipment/{tap.Id}/regenerate-token", null);
+        regenRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Tap_TemperatureIsTakenFromConnectedKeg_AndReflectedInDtoAndManifest()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("kegtemptap");
+        var setup = await GetDefaultSetupAsync(client);
+
+        // 1. Create Keg with IoT Webhook connection & initial temperature
+        var createKegRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Smart Serving Keg",
+            Type: EquipmentType.Keg,
+            Subtype: EquipmentSubtype.Cornelius,
+            Capacity: 19.0m,
+            Unit: VolumeUnit.Liters,
+            CurrentTemperatureC: 4.2m,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ));
+        createKegRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var keg = (await createKegRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        keg.CurrentTemperatureC.Should().Be(4.2m);
+        keg.ConnectionToken.Should().NotBeNullOrEmpty();
+
+        // 2. Create Tap (initially unassigned)
+        var createTapRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Bar Tap 1",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.RoundDisplayTap,
+            Capacity: 0m,
+            Unit: VolumeUnit.Liters
+        ));
+        createTapRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var tap = (await createTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        tap.CurrentTemperatureC.Should().BeNull();
+        tap.ConnectionType.Should().Be(EquipmentConnectionType.None);
+
+        // 3. Enable Display Link
+        var enableRes = await client.PostAsync($"/api/v1/inventory/equipment/{tap.Id}/display-link", null);
+        var linkDto = (await enableRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayLinkDto>>())!.Data!;
+        var token = linkDto.ManifestUrl.TrimEnd('/').Split('/').Last();
+        var unauthClient = _factory.CreateClient();
+
+        // Verify initial manifest has null temperature
+        var manifestInitialRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
+        var manifestInitial = (await manifestInitialRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifestInitial.TemperatureC.Should().BeNull();
+
+        // 4. Assign Keg to Tap
+        var assignRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", new AssignTapRequest(KegId: keg.Id));
+        assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var tapWithKeg = (await assignRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        tapWithKeg.CurrentTemperatureC.Should().Be(4.2m);
+        tapWithKeg.AssignedKeg.Should().NotBeNull();
+        tapWithKeg.AssignedKeg!.CurrentTemperatureC.Should().Be(4.2m);
+
+        // 5. Query Manifest: Temperature is now 4.2 °C
+        var manifestWithKegRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
+        var manifestWithKeg = (await manifestWithKegRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifestWithKeg.TemperatureC.Should().Be(4.2m);
+        manifestWithKeg.KegName.Should().Be("Smart Serving Keg");
+
+        // 6. Ingest new telemetry on the Keg (e.g. 3.5 °C)
+        var telemetryRes = await unauthClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{keg.ConnectionToken}", new { temperature = 3.5 });
+        telemetryRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Verify Tap now reflects updated keg temperature via GET
+        var getTapRes = await client.GetAsync($"/api/v1/inventory/equipment/{tap.Id}");
+        var updatedTap = (await getTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        updatedTap.CurrentTemperatureC.Should().Be(3.5m);
+
+        // Verify Manifest reflects updated keg temperature
+        var manifestUpdatedRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
+        var manifestUpdated = (await manifestUpdatedRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifestUpdated.TemperatureC.Should().Be(3.5m);
+
+        // 7. Unassign Tap -> Temperature becomes null again
+        var unassignRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment");
+        unassignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var unassignedTap = (await unassignRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        unassignedTap.CurrentTemperatureC.Should().BeNull();
+        unassignedTap.AssignedKeg.Should().BeNull();
+
+        var manifestUnassignedRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
+        var manifestUnassigned = (await manifestUnassignedRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifestUnassigned.TemperatureC.Should().BeNull();
+    }
 }

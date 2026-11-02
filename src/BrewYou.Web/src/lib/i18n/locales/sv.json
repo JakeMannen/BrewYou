@@ -1302,6 +1302,7 @@
 		"err_save_failed": "Kunde inte spara utrustningen.",
 		"telemetry_title": "Extern anslutning & telemetri",
 		"telemetry_badge": "IoT & sensorer",
+		"tap_no_sensor_note": "Tappar har inga IoT-sensorer. Temperatur hämtas automatiskt från anslutet fat.",
 		"telemetry_desc": "Anslut externa sensorer (Tilt, iSpindel, mikrokontroller eller webhooks) för att spåra kärltemperatur i realtid.",
 		"temperature_label": "Aktuell temperatur",
 		"temperature_placeholder": "t.ex. 20.5",
@@ -1548,7 +1549,9 @@
 		"keg_level": "Fatnivå",
 		"keg_fill": "Nivå",
 		"keg_fill_na": "Nivå: N/A",
-		"connected_keg": "Anslutet fat"
+		"connected_keg": "Anslutet fat",
+		"keg_temperature": "Serveringstemp",
+		"from_keg": "Från fat"
 	},
 	"kegs": {
 		"manage_keg_btn": "Hantera fat",

@@ -65,7 +65,9 @@ public record AssignedKegSummaryDto(
     decimal CurrentVolumeLiters,
     VolumeUnit Unit,
     decimal FillPercentage,
-    TapAssignedBatchDto? AssignedBatch
+    TapAssignedBatchDto? AssignedBatch,
+    decimal? CurrentTemperatureC = null,
+    DateTime? TemperatureUpdatedAt = null
 );
 
 public record EquipmentDto(

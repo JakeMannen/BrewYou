@@ -1057,6 +1057,7 @@ public class BackupService : IBackupService
                             existingEq.Name = normName;
                             existingEq.Type = eqDto.Type;
                             existingEq.Subtype = eqDto.Subtype;
+                            var isTap = eqDto.Type == EquipmentType.Tap;
                             existingEq.Capacity = eqDto.Capacity;
                             existingEq.Unit = eqDto.Unit;
                             existingEq.CapacityLiters = eqDto.CapacityLiters;
@@ -1066,17 +1067,25 @@ public class BackupService : IBackupService
                             existingEq.TrubLossLiters = eqDto.TrubLossLiters;
                             existingEq.MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters;
                             existingEq.PackagingLossLiters = eqDto.PackagingLossLiters;
-                            existingEq.CurrentTemperatureC = eqDto.CurrentTemperatureC;
-                            existingEq.CurrentSpecificGravity = eqDto.CurrentSpecificGravity;
-                            existingEq.CurrentPressureBar = eqDto.CurrentPressureBar;
-                            existingEq.CurrentBatteryPercent = eqDto.CurrentBatteryPercent;
-                            existingEq.CurrentBatteryVoltage = eqDto.CurrentBatteryVoltage;
-                            existingEq.TemperatureUpdatedAt = eqDto.TemperatureUpdatedAt;
-                            existingEq.LastTelemetryAt = eqDto.LastTelemetryAt;
-                            existingEq.LatestMetricsJson = eqDto.LatestMetricsJson;
-                            existingEq.ConnectionType = eqDto.ConnectionType;
-                            if (restoredToken != null) existingEq.ConnectionToken = restoredToken;
-                            if (restoredConfigJson != null) existingEq.ConnectionConfigJson = restoredConfigJson;
+                            existingEq.CurrentTemperatureC = isTap ? null : eqDto.CurrentTemperatureC;
+                            existingEq.CurrentSpecificGravity = isTap ? null : eqDto.CurrentSpecificGravity;
+                            existingEq.CurrentPressureBar = isTap ? null : eqDto.CurrentPressureBar;
+                            existingEq.CurrentBatteryPercent = isTap ? null : eqDto.CurrentBatteryPercent;
+                            existingEq.CurrentBatteryVoltage = isTap ? null : eqDto.CurrentBatteryVoltage;
+                            existingEq.TemperatureUpdatedAt = isTap ? null : eqDto.TemperatureUpdatedAt;
+                            existingEq.LastTelemetryAt = isTap ? null : eqDto.LastTelemetryAt;
+                            existingEq.LatestMetricsJson = isTap ? null : eqDto.LatestMetricsJson;
+                            existingEq.ConnectionType = isTap ? EquipmentConnectionType.None : eqDto.ConnectionType;
+                            if (isTap)
+                            {
+                                existingEq.ConnectionToken = null;
+                                existingEq.ConnectionConfigJson = null;
+                            }
+                            else
+                            {
+                                if (restoredToken != null) existingEq.ConnectionToken = restoredToken;
+                                if (restoredConfigJson != null) existingEq.ConnectionConfigJson = restoredConfigJson;
+                            }
                             existingEq.Description = eqDto.Description;
                             existingEq.Notes = eqDto.Notes;
                             existingEq.DisplayWidthPx = eqDto.DisplayWidthPx;
@@ -1110,6 +1119,7 @@ public class BackupService : IBackupService
                     {
                         var idTaken = await _db.Equipment.AnyAsync(e => e.Id == eqDto.Id);
                         var uniqueName = EnsureUniqueEquipmentName(normName, targetSetupId, existingUserEquipment);
+                        var isTap = eqDto.Type == EquipmentType.Tap;
 
                         var newEq = new Equipment
                         {
@@ -1128,17 +1138,17 @@ public class BackupService : IBackupService
                             TrubLossLiters = eqDto.TrubLossLiters,
                             MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters,
                             PackagingLossLiters = eqDto.PackagingLossLiters,
-                            CurrentTemperatureC = eqDto.CurrentTemperatureC,
-                            CurrentSpecificGravity = eqDto.CurrentSpecificGravity,
-                            CurrentPressureBar = eqDto.CurrentPressureBar,
-                            CurrentBatteryPercent = eqDto.CurrentBatteryPercent,
-                            CurrentBatteryVoltage = eqDto.CurrentBatteryVoltage,
-                            TemperatureUpdatedAt = eqDto.TemperatureUpdatedAt,
-                            LastTelemetryAt = eqDto.LastTelemetryAt,
-                            LatestMetricsJson = eqDto.LatestMetricsJson,
-                            ConnectionType = eqDto.ConnectionType,
-                            ConnectionToken = restoredToken,
-                            ConnectionConfigJson = restoredConfigJson,
+                            CurrentTemperatureC = isTap ? null : eqDto.CurrentTemperatureC,
+                            CurrentSpecificGravity = isTap ? null : eqDto.CurrentSpecificGravity,
+                            CurrentPressureBar = isTap ? null : eqDto.CurrentPressureBar,
+                            CurrentBatteryPercent = isTap ? null : eqDto.CurrentBatteryPercent,
+                            CurrentBatteryVoltage = isTap ? null : eqDto.CurrentBatteryVoltage,
+                            TemperatureUpdatedAt = isTap ? null : eqDto.TemperatureUpdatedAt,
+                            LastTelemetryAt = isTap ? null : eqDto.LastTelemetryAt,
+                            LatestMetricsJson = isTap ? null : eqDto.LatestMetricsJson,
+                            ConnectionType = isTap ? EquipmentConnectionType.None : eqDto.ConnectionType,
+                            ConnectionToken = isTap ? null : restoredToken,
+                            ConnectionConfigJson = isTap ? null : restoredConfigJson,
                             Description = eqDto.Description,
                             Notes = eqDto.Notes,
                             DisplayWidthPx = eqDto.DisplayWidthPx,
@@ -1640,6 +1650,7 @@ public class BackupService : IBackupService
             encryptionKey,
             _protector);
 
+        var isTap = e.Type == EquipmentType.Tap;
         return new EquipmentBackupDto(
             e.Id,
             e.BrewerySetupId,
@@ -1655,17 +1666,17 @@ public class BackupService : IBackupService
             e.TrubLossLiters,
             e.MashTunDeadSpaceLiters,
             e.PackagingLossLiters,
-            e.CurrentTemperatureC,
-            e.CurrentSpecificGravity,
-            e.CurrentPressureBar,
-            e.CurrentBatteryPercent,
-            e.CurrentBatteryVoltage,
-            e.TemperatureUpdatedAt,
-            e.LastTelemetryAt,
-            e.LatestMetricsJson,
-            e.ConnectionType,
-            encryptedToken,
-            configJson,
+            isTap ? null : e.CurrentTemperatureC,
+            isTap ? null : e.CurrentSpecificGravity,
+            isTap ? null : e.CurrentPressureBar,
+            isTap ? null : e.CurrentBatteryPercent,
+            isTap ? null : e.CurrentBatteryVoltage,
+            isTap ? null : e.TemperatureUpdatedAt,
+            isTap ? null : e.LastTelemetryAt,
+            isTap ? null : e.LatestMetricsJson,
+            isTap ? EquipmentConnectionType.None : e.ConnectionType,
+            isTap ? null : encryptedToken,
+            isTap ? null : configJson,
             e.Description,
             e.Notes,
             e.CreatedAt,

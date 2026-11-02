@@ -1019,6 +1019,7 @@
 		"err_save_failed": "Failed to save equipment.",
 		"telemetry_title": "External Connectivity & Telemetry",
 		"telemetry_badge": "IoT & Sensors",
+		"tap_no_sensor_note": "Tap equipment does not have IoT sensors. Temperature is automatically taken from the connected keg.",
 		"telemetry_desc": "Connect external sensors (Tilt, iSpindel, custom microcontrollers, or webhooks) to track live vessel temperature.",
 		"temperature_label": "Current Temperature",
 		"temperature_placeholder": "e.g. 20.5",
@@ -1265,7 +1266,9 @@
 		"keg_level": "Keg Level",
 		"keg_fill": "Fill",
 		"keg_fill_na": "Fill: N/A",
-		"connected_keg": "Connected Keg"
+		"connected_keg": "Connected Keg",
+		"keg_temperature": "Serving Temp",
+		"from_keg": "From Keg"
 	},
 	"kegs": {
 		"manage_keg_btn": "Manage Keg",

@@ -461,6 +461,8 @@ export interface AssignedKegSummaryDto {
 	unit: VolumeUnit;
 	fillPercentage: number;
 	assignedBatch?: TapAssignedBatchDto | null;
+	currentTemperatureC?: number | null;
+	temperatureUpdatedAt?: string | null;
 }
 
 export interface TapDisplayLinkDto {
@@ -482,6 +484,7 @@ export interface TapDisplayManifestDto {
 	kegFillLevel?: string | null;
 	kegCapacityLiters?: number | null;
 	kegRemainingLiters?: number | null;
+	temperatureC?: number | null;
 }
 
 export type EquipmentType = 'Boiler' | 'Fermenter' | 'Keg' | 'Sensor' | 'Tap' | 'Other';

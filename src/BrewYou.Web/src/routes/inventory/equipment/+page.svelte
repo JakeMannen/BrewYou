@@ -156,6 +156,32 @@
 										: existing.fillPercentage
 							};
 						}
+
+						// Also update connected Taps if this reading is for their assigned Keg
+						for (let i = 0; i < equipmentList.length; i++) {
+							const item = equipmentList[i];
+							if (item.type === 'Tap' && item.assignedKegId === reading.equipmentId) {
+								equipmentList[i] = {
+									...item,
+									currentTemperatureC:
+										reading.temperatureC !== undefined
+											? reading.temperatureC
+											: item.currentTemperatureC,
+									temperatureUpdatedAt: reading.timestamp,
+									lastTelemetryAt: reading.timestamp,
+									assignedKeg: item.assignedKeg
+										? {
+												...item.assignedKeg,
+												currentTemperatureC:
+													reading.temperatureC !== undefined
+														? reading.temperatureC
+														: item.assignedKeg.currentTemperatureC,
+												temperatureUpdatedAt: reading.timestamp
+											}
+										: item.assignedKeg
+								};
+							}
+						}
 					},
 					onError: () => {
 						// Stream disconnected or errored; wait and reconnect below
@@ -770,6 +796,14 @@
 												<Thermometer class="h-3.5 w-3.5 text-amber-500" />
 												{tempInfo.displayTemp}
 											</span>
+											{#if item.type === 'Tap' && item.assignedKeg}
+												<span
+													data-testid="tap-keg-temp-badge"
+													class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400"
+												>
+													{t('taps.from_keg')}: {item.assignedKeg.name}
+												</span>
+											{/if}
 											{#if item.connectionType === 'Mqtt'}
 												<span
 													data-testid="equipment-mqtt-tag"
@@ -888,7 +922,7 @@
 							{/if}
 
 							<!-- Custom Telemetry Attributes & Full JSON Inspector -->
-							{#if extraAttrs.length > 0 || item.latestMetricsJson}
+							{#if item.type !== 'Tap' && (extraAttrs.length > 0 || item.latestMetricsJson)}
 								<div
 									class="mt-2.5 rounded-xl border border-zinc-200/60 bg-zinc-50/50 p-2.5 dark:border-zinc-800/60 dark:bg-zinc-900/40"
 								>

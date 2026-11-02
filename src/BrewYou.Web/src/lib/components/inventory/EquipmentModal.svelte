@@ -372,6 +372,14 @@
 		const defaultSub = DEFAULT_SUBTYPE_BY_TYPE[newType];
 		subtype = defaultSub;
 
+		if (newType === 'Tap') {
+			connectionType = 'None';
+			connectionToken = null;
+			currentTemperature = '';
+			pollUrl = '';
+			mqttTopic = '';
+		}
+
 		// Suggest default capacity and losses if creating new equipment
 		if (!equipment) {
 			const defLiters = DEFAULT_CAPACITIES_LITERS[defaultSub] ?? 20;
@@ -635,7 +643,11 @@
 			}
 
 			let numTemperatureC: number | null = null;
-			if (
+			if (type === 'Tap') {
+				connectionType = 'None';
+				configJson = null;
+				numTemperatureC = null;
+			} else if (
 				currentTemperature !== '' &&
 				currentTemperature !== null &&
 				!isNaN(Number(currentTemperature))
@@ -1266,564 +1278,577 @@
 					</div>
 				{/if}
 
-				<!-- External Connectivity & Temperature Section -->
-				<div
-					class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
-				>
-					<div class="flex items-center justify-between">
-						<div class="flex items-center gap-1.5">
-							<Thermometer class="h-4 w-4 text-amber-500" />
-							<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-								{t('equipment.telemetry_title')}
+				{#if type === 'Tap'}
+					<!-- Tap Equipment: No Direct IoT Sensor -->
+					<div
+						data-testid="tap-no-sensor-note"
+						class="flex items-center gap-2.5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
+					>
+						<Thermometer class="h-4 w-4 shrink-0 text-amber-500" />
+						<p class="text-xs text-zinc-600 dark:text-zinc-300">
+							{t('equipment.tap_no_sensor_note')}
+						</p>
+					</div>
+				{:else}
+					<!-- External Connectivity & Temperature Section -->
+					<div
+						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+					>
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-1.5">
+								<Thermometer class="h-4 w-4 text-amber-500" />
+								<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+									{t('equipment.telemetry_title')}
+								</span>
+							</div>
+							<span
+								class="rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+							>
+								{t('equipment.telemetry_badge')}
 							</span>
 						</div>
-						<span
-							class="rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-						>
-							{t('equipment.telemetry_badge')}
-						</span>
-					</div>
-					<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-						{t('equipment.telemetry_desc')}
-					</p>
+						<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('equipment.telemetry_desc')}
+						</p>
 
-					<!-- Current Temperature & Connection Protocol -->
-					<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-						<div>
-							<label
-								for="equipment-current-temp"
-								class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-							>
-								{t('equipment.temperature_label')} ({settings.tempShort})
-							</label>
-							<div class="mt-1 flex items-center gap-2">
-								<input
-									id="equipment-current-temp"
-									type="number"
-									step="0.1"
-									min="-20"
-									max="120"
-									bind:value={currentTemperature}
-									placeholder={t('equipment.temperature_placeholder')}
-									class="h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-								/>
-								{#if currentTemperature !== ''}
-									<button
-										type="button"
-										onclick={() => (currentTemperature = '')}
-										class="rounded-lg p-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-										title={t('equipment.clear_temperature')}
-									>
-										<X class="h-4 w-4" />
-									</button>
-								{/if}
-							</div>
-						</div>
-
-						<!-- Connection Protocol Selector -->
-						<div>
-							<label
-								for="equipment-connection-type"
-								class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-							>
-								{t('equipment.connection_type_label')}
-							</label>
-							<select
-								id="equipment-connection-type"
-								bind:value={connectionType}
-								class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-							>
-								<option value="None">{t('equipment.conn_none')}</option>
-								<option value="HttpPush">{t('equipment.conn_http_push')}</option>
-								<option value="HttpPoll">{t('equipment.conn_http_poll')}</option>
-								<option value="Mqtt">{t('equipment.conn_mqtt')}</option>
-							</select>
-						</div>
-					</div>
-
-					<!-- HttpPush (Inbound Webhook) View -->
-					{#if connectionType === 'HttpPush'}
-						<div
-							class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 dark:border-amber-500/20 dark:bg-amber-500/10"
-						>
-							<div class="flex items-center justify-between">
-								<div
-									class="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400"
+						<!-- Current Temperature & Connection Protocol -->
+						<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div>
+								<label
+									for="equipment-current-temp"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 								>
-									<Wifi class="h-3.5 w-3.5" />
-									<span>{t('equipment.webhook_instructions_title')}</span>
+									{t('equipment.temperature_label')} ({settings.tempShort})
+								</label>
+								<div class="mt-1 flex items-center gap-2">
+									<input
+										id="equipment-current-temp"
+										type="number"
+										step="0.1"
+										min="-20"
+										max="120"
+										bind:value={currentTemperature}
+										placeholder={t('equipment.temperature_placeholder')}
+										class="h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+									/>
+									{#if currentTemperature !== ''}
+										<button
+											type="button"
+											onclick={() => (currentTemperature = '')}
+											class="rounded-lg p-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+											title={t('equipment.clear_temperature')}
+										>
+											<X class="h-4 w-4" />
+										</button>
+									{/if}
 								</div>
-								{#if equipment}
-									<button
-										type="button"
-										onclick={() => (showRegenerateTokenModal = true)}
-										disabled={isRegeneratingToken}
-										class="flex items-center gap-1 text-[11px] font-semibold text-zinc-500 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
-									>
-										<RefreshCw class="h-3 w-3 {isRegeneratingToken ? 'animate-spin' : ''}" />
-										<span>{t('equipment.regenerate_token')}</span>
-									</button>
-								{/if}
 							</div>
-							<p class="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-								{t('equipment.webhook_instructions_desc')}
-							</p>
 
-							{#if connectionToken}
-								{#if isWebhookLocalhost}
+							<!-- Connection Protocol Selector -->
+							<div>
+								<label
+									for="equipment-connection-type"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('equipment.connection_type_label')}
+								</label>
+								<select
+									id="equipment-connection-type"
+									bind:value={connectionType}
+									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+								>
+									<option value="None">{t('equipment.conn_none')}</option>
+									<option value="HttpPush">{t('equipment.conn_http_push')}</option>
+									<option value="HttpPoll">{t('equipment.conn_http_poll')}</option>
+									<option value="Mqtt">{t('equipment.conn_mqtt')}</option>
+								</select>
+							</div>
+						</div>
+
+						<!-- HttpPush (Inbound Webhook) View -->
+						{#if connectionType === 'HttpPush'}
+							<div
+								class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 dark:border-amber-500/20 dark:bg-amber-500/10"
+							>
+								<div class="flex items-center justify-between">
 									<div
-										class="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200"
-										role="alert"
-										data-testid="webhook-localhost-warning"
+										class="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400"
 									>
-										<div class="flex items-start gap-2">
-											<AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-											<div class="flex-1 space-y-1">
-												<p class="text-[11px] leading-relaxed font-medium">
-													{t('equipment.webhook_localhost_warning')}
-												</p>
-												<div class="flex flex-wrap items-center gap-2 pt-0.5 text-[10px]">
-													<button
-														type="button"
-														onclick={() => (showWebhookOverride = !showWebhookOverride)}
-														class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
-													>
-														{t('equipment.override_webhook_host')}
-													</button>
-													<span>•</span>
-													<a
-														href="/settings#connectivity"
-														class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
-													>
-														{t('equipment.open_settings')}
-													</a>
+										<Wifi class="h-3.5 w-3.5" />
+										<span>{t('equipment.webhook_instructions_title')}</span>
+									</div>
+									{#if equipment}
+										<button
+											type="button"
+											onclick={() => (showRegenerateTokenModal = true)}
+											disabled={isRegeneratingToken}
+											class="flex items-center gap-1 text-[11px] font-semibold text-zinc-500 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
+										>
+											<RefreshCw class="h-3 w-3 {isRegeneratingToken ? 'animate-spin' : ''}" />
+											<span>{t('equipment.regenerate_token')}</span>
+										</button>
+									{/if}
+								</div>
+								<p class="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+									{t('equipment.webhook_instructions_desc')}
+								</p>
+
+								{#if connectionToken}
+									{#if isWebhookLocalhost}
+										<div
+											class="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200"
+											role="alert"
+											data-testid="webhook-localhost-warning"
+										>
+											<div class="flex items-start gap-2">
+												<AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+												<div class="flex-1 space-y-1">
+													<p class="text-[11px] leading-relaxed font-medium">
+														{t('equipment.webhook_localhost_warning')}
+													</p>
+													<div class="flex flex-wrap items-center gap-2 pt-0.5 text-[10px]">
+														<button
+															type="button"
+															onclick={() => (showWebhookOverride = !showWebhookOverride)}
+															class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+														>
+															{t('equipment.override_webhook_host')}
+														</button>
+														<span>•</span>
+														<a
+															href="/settings#connectivity"
+															class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+														>
+															{t('equipment.open_settings')}
+														</a>
+													</div>
 												</div>
 											</div>
 										</div>
-									</div>
-								{/if}
-
-								{#if showWebhookOverride}
-									<div class="mt-2 space-y-1" data-testid="webhook-override-section">
-										<label
-											for="webhook-override-host"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.override_webhook_label')}
-										</label>
-										<div class="flex items-center gap-2">
-											<div class="relative flex-1">
-												<Globe
-													class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
-												/>
-												<input
-													id="webhook-override-host"
-													data-testid="webhook-override-input"
-													type="text"
-													bind:value={customWebhookBase}
-													placeholder={settings.resolvedWebhookBaseUrl}
-													class="w-full rounded-lg border border-zinc-200 bg-white py-1 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
-												/>
-											</div>
-											{#if customWebhookBase}
-												<button
-													type="button"
-													onclick={() => (customWebhookBase = '')}
-													class="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-												>
-													Reset
-												</button>
-											{/if}
-										</div>
-									</div>
-								{/if}
-
-								<div class="mt-2 flex items-center gap-2">
-									<input
-										type="text"
-										readonly
-										value={webhookUrl}
-										class="h-8 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-									/>
-									<button
-										type="button"
-										onclick={copyWebhookUrl}
-										class="flex h-8 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-									>
-										{#if copiedWebhook}
-											<CheckCheck class="h-3.5 w-3.5 text-emerald-500" />
-											<span class="text-emerald-600 dark:text-emerald-400"
-												>{t('equipment.copied')}</span
-											>
-										{:else}
-											<Copy class="h-3.5 w-3.5" />
-											<span>{t('equipment.copy_url')}</span>
-										{/if}
-									</button>
-								</div>
-							{:else}
-								<p class="mt-2 text-xs text-amber-600 italic dark:text-amber-400">
-									{t('equipment.webhook_token_on_save')}
-								</p>
-							{/if}
-
-							<div class="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-								<span>
-									{t('equipment.supported_formats')}: <code>Tilt</code>, <code>iSpindel</code>,
-									<code>Generic JSON</code>
-								</span>
-							</div>
-						</div>
-					{/if}
-
-					<!-- HttpPoll View -->
-					{#if connectionType === 'HttpPoll'}
-						<div
-							class="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-white/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
-						>
-							<div
-								class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
-							>
-								<Globe class="h-3.5 w-3.5 text-amber-500" />
-								<span>{t('equipment.poll_config_title')}</span>
-							</div>
-
-							<div>
-								<label
-									for="poll-url"
-									class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-								>
-									{t('equipment.poll_url_label')}
-								</label>
-								<input
-									id="poll-url"
-									type="url"
-									bind:value={pollUrl}
-									placeholder="http://192.168.1.120/status"
-									class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-								/>
-							</div>
-
-							<div class="grid grid-cols-2 gap-2">
-								<div>
-									<label
-										for="poll-interval"
-										class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-									>
-										{t('equipment.poll_interval_label')}
-									</label>
-									<select
-										id="poll-interval"
-										bind:value={pollIntervalSeconds}
-										class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-									>
-										<option value={30}>30 {t('equipment.seconds')}</option>
-										<option value={60}>60 {t('equipment.seconds')}</option>
-										<option value={120}>2 {t('equipment.minutes')}</option>
-										<option value={300}>5 {t('equipment.minutes')}</option>
-										<option value={900}>15 {t('equipment.minutes')}</option>
-									</select>
-								</div>
-								<div>
-									<label
-										for="poll-json-path"
-										class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-									>
-										{t('equipment.poll_json_path_label')}
-									</label>
-									<input
-										id="poll-json-path"
-										type="text"
-										bind:value={pollJsonPath}
-										placeholder="temperature"
-										class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-									/>
-								</div>
-							</div>
-
-							<div class="flex items-center justify-between pt-1">
-								<button
-									type="button"
-									onclick={handleTestPoll}
-									disabled={isTestingPoll || !pollUrl.trim()}
-									class="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-								>
-									{#if isTestingPoll}
-										<Loader2 class="h-3 w-3 animate-spin text-amber-500" />
 									{/if}
-									<span>{t('equipment.poll_test_btn')}</span>
-								</button>
-								{#if testPollMessage}
-									<span
-										class="text-[11px] {testPollMessage.type === 'success'
-											? 'text-emerald-600 dark:text-emerald-400'
-											: 'text-red-600 dark:text-red-400'}"
-									>
-										{testPollMessage.text}
-									</span>
-								{/if}
-							</div>
-						</div>
-					{/if}
 
-					<!-- Mqtt View -->
-					{#if connectionType === 'Mqtt'}
-						<div
-							class="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-white/60 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
-						>
-							<div class="flex flex-wrap items-center justify-between gap-2">
+									{#if showWebhookOverride}
+										<div class="mt-2 space-y-1" data-testid="webhook-override-section">
+											<label
+												for="webhook-override-host"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.override_webhook_label')}
+											</label>
+											<div class="flex items-center gap-2">
+												<div class="relative flex-1">
+													<Globe
+														class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+													/>
+													<input
+														id="webhook-override-host"
+														data-testid="webhook-override-input"
+														type="text"
+														bind:value={customWebhookBase}
+														placeholder={settings.resolvedWebhookBaseUrl}
+														class="w-full rounded-lg border border-zinc-200 bg-white py-1 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
+													/>
+												</div>
+												{#if customWebhookBase}
+													<button
+														type="button"
+														onclick={() => (customWebhookBase = '')}
+														class="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+													>
+														Reset
+													</button>
+												{/if}
+											</div>
+										</div>
+									{/if}
+
+									<div class="mt-2 flex items-center gap-2">
+										<input
+											type="text"
+											readonly
+											value={webhookUrl}
+											class="h-8 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+										/>
+										<button
+											type="button"
+											onclick={copyWebhookUrl}
+											class="flex h-8 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+										>
+											{#if copiedWebhook}
+												<CheckCheck class="h-3.5 w-3.5 text-emerald-500" />
+												<span class="text-emerald-600 dark:text-emerald-400"
+													>{t('equipment.copied')}</span
+												>
+											{:else}
+												<Copy class="h-3.5 w-3.5" />
+												<span>{t('equipment.copy_url')}</span>
+											{/if}
+										</button>
+									</div>
+								{:else}
+									<p class="mt-2 text-xs text-amber-600 italic dark:text-amber-400">
+										{t('equipment.webhook_token_on_save')}
+									</p>
+								{/if}
+
+								<div class="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+									<span>
+										{t('equipment.supported_formats')}: <code>Tilt</code>, <code>iSpindel</code>,
+										<code>Generic JSON</code>
+									</span>
+								</div>
+							</div>
+						{/if}
+
+						<!-- HttpPoll View -->
+						{#if connectionType === 'HttpPoll'}
+							<div
+								class="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-white/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
+							>
 								<div
 									class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
 								>
-									<Radio class="h-3.5 w-3.5 text-amber-500" />
-									<span>{t('equipment.mqtt_config_title')}</span>
+									<Globe class="h-3.5 w-3.5 text-amber-500" />
+									<span>{t('equipment.poll_config_title')}</span>
 								</div>
 
-								<!-- Configuration Source Selector (User Settings vs Custom) -->
-								<div
-									class="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 text-[11px] dark:border-zinc-700 dark:bg-zinc-800"
-								>
-									<button
-										type="button"
-										data-testid="mqtt-source-settings-btn"
-										onclick={() => (mqttSource = 'userSettings')}
-										class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
-										'userSettings'
-											? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
-											: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+								<div>
+									<label
+										for="poll-url"
+										class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
 									>
-										{t('equipment.mqtt_source_settings')}
-									</button>
-									<button
-										type="button"
-										data-testid="mqtt-source-custom-btn"
-										onclick={() => (mqttSource = 'custom')}
-										class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
-										'custom'
-											? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
-											: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
-									>
-										{t('equipment.mqtt_source_custom')}
-									</button>
-								</div>
-							</div>
-
-							{#if mqttSource === 'userSettings'}
-								{#if settings.hasMqttConfigured}
-									<!-- Display configured user settings broker summary -->
-									<div
-										data-testid="mqtt-user-settings-summary"
-										class="rounded-lg border p-3 {settings.mqttConnected === false
-											? 'border-red-500/20 bg-red-500/5 dark:border-red-500/20 dark:bg-red-500/10'
-											: 'border-amber-500/20 bg-amber-500/5 dark:border-amber-500/20 dark:bg-amber-500/10'}"
-									>
-										<div class="flex flex-wrap items-center justify-between gap-2">
-											<div class="flex items-center gap-2">
-												<span
-													class="h-2 w-2 rounded-full {settings.mqttConnected === false
-														? 'bg-red-500'
-														: 'animate-pulse bg-emerald-500'}"
-												></span>
-												<span class="font-mono text-xs font-bold text-zinc-900 dark:text-white">
-													{settings.mqttHost}:{settings.mqttPort}
-												</span>
-												<span
-													class="rounded px-1.5 py-0.5 text-[10px] font-semibold {settings.mqttConnected ===
-													false
-														? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-														: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}"
-												>
-													{settings.mqttConnected === false
-														? t('equipment.mqtt_disconnected')
-														: t('equipment.mqtt_connected')}
-												</span>
-											</div>
-											<div class="flex items-center gap-2">
-												{#if settings.mqttUsername}
-													<span
-														class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-													>
-														{t('equipment.mqtt_auth_configured')}
-													</span>
-												{/if}
-												{#if settings.mqttCertificate}
-													<span
-														class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-													>
-														{t('equipment.mqtt_cert_configured')}
-													</span>
-												{/if}
-												<a
-													href="/settings#connectivity"
-													target="_blank"
-													class="text-[11px] font-semibold text-amber-600 hover:underline dark:text-amber-400"
-												>
-													{t('equipment.mqtt_configure_in_settings')}
-												</a>
-											</div>
-										</div>
-										<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('equipment.mqtt_using_settings')}
-										</p>
-									</div>
-								{:else}
-									<!-- Alert: No settings configured yet -->
-									<div
-										data-testid="mqtt-no-settings-alert"
-										class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
-									>
-										<div class="text-[11px] text-amber-900 dark:text-amber-200">
-											{t('equipment.mqtt_settings_not_configured')}
-										</div>
-										<a
-											href="/settings#connectivity"
-											target="_blank"
-											class="rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-zinc-950 hover:bg-amber-400"
-										>
-											{t('equipment.mqtt_configure_in_settings')}
-										</a>
-									</div>
-								{/if}
-							{:else}
-								<!-- Custom Broker Fields -->
-								<div class="grid grid-cols-3 gap-2">
-									<div class="col-span-2">
-										<label
-											for="mqtt-host"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.mqtt_host')}
-										</label>
-										<input
-											id="mqtt-host"
-											data-testid="mqtt-custom-host-input"
-											type="text"
-											bind:value={mqttBrokerHost}
-											placeholder="192.168.1.50"
-											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-										/>
-									</div>
-									<div>
-										<label
-											for="mqtt-port"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.mqtt_port')}
-										</label>
-										<input
-											id="mqtt-port"
-											data-testid="mqtt-custom-port-input"
-											type="number"
-											bind:value={mqttBrokerPort}
-											placeholder="1883"
-											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-										/>
-									</div>
+										{t('equipment.poll_url_label')}
+									</label>
+									<input
+										id="poll-url"
+										type="url"
+										bind:value={pollUrl}
+										placeholder="http://192.168.1.120/status"
+										class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+									/>
 								</div>
 
 								<div class="grid grid-cols-2 gap-2">
 									<div>
 										<label
-											for="mqtt-custom-username"
+											for="poll-interval"
 											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
 										>
-											{t('equipment.mqtt_username')}
+											{t('equipment.poll_interval_label')}
 										</label>
-										<input
-											id="mqtt-custom-username"
-											data-testid="mqtt-custom-username-input"
-											type="text"
-											bind:value={mqttUsername}
-											placeholder="sensor_user"
-											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-										/>
+										<select
+											id="poll-interval"
+											bind:value={pollIntervalSeconds}
+											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+										>
+											<option value={30}>30 {t('equipment.seconds')}</option>
+											<option value={60}>60 {t('equipment.seconds')}</option>
+											<option value={120}>2 {t('equipment.minutes')}</option>
+											<option value={300}>5 {t('equipment.minutes')}</option>
+											<option value={900}>15 {t('equipment.minutes')}</option>
+										</select>
 									</div>
 									<div>
 										<label
-											for="mqtt-custom-password"
+											for="poll-json-path"
 											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
 										>
-											{t('equipment.mqtt_password')}
+											{t('equipment.poll_json_path_label')}
 										</label>
-										<div class="relative mt-1">
-											<input
-												id="mqtt-custom-password"
-												data-testid="mqtt-custom-password-input"
-												type={showMqttCustomPassword ? 'text' : 'password'}
-												bind:value={mqttPassword}
-												placeholder="••••••••"
-												class="h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 pr-8 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-											/>
-											<button
-												type="button"
-												onclick={() => (showMqttCustomPassword = !showMqttCustomPassword)}
-												class="absolute inset-y-0 right-0 flex items-center pr-2 text-zinc-400 hover:text-zinc-600"
-											>
-												{#if showMqttCustomPassword}
-													<EyeOff class="h-3.5 w-3.5" />
-												{:else}
-													<Eye class="h-3.5 w-3.5" />
-												{/if}
-											</button>
-										</div>
+										<input
+											id="poll-json-path"
+											type="text"
+											bind:value={pollJsonPath}
+											placeholder="temperature"
+											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+										/>
 									</div>
 								</div>
 
-								<div>
-									<label
-										for="mqtt-custom-cert"
-										class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-									>
-										{t('equipment.mqtt_certificate')}
-									</label>
-									<textarea
-										id="mqtt-custom-cert"
-										data-testid="mqtt-custom-cert-input"
-										rows="2"
-										bind:value={mqttCertificate}
-										placeholder="-----BEGIN CERTIFICATE-----..."
-										class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-2 font-mono text-[11px] text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-									></textarea>
-								</div>
-							{/if}
-
-							<!-- Sensor Specific Topic (Always Required) -->
-							<div>
-								<div class="flex items-center justify-between">
-									<label
-										for="mqtt-topic"
-										class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-									>
-										{t('equipment.mqtt_topic')}
-									</label>
+								<div class="flex items-center justify-between pt-1">
 									<button
 										type="button"
-										data-testid="auto-generate-topic-btn"
-										class="text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-										onclick={() => {
-											isTopicCustomized = false;
-											mqttTopic = generateEquipmentTopic(settings.mqttTopicPrefix, name);
-										}}
+										onclick={handleTestPoll}
+										disabled={isTestingPoll || !pollUrl.trim()}
+										class="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
 									>
-										{t('equipment.mqtt_topic_auto_slug')}
+										{#if isTestingPoll}
+											<Loader2 class="h-3 w-3 animate-spin text-amber-500" />
+										{/if}
+										<span>{t('equipment.poll_test_btn')}</span>
 									</button>
+									{#if testPollMessage}
+										<span
+											class="text-[11px] {testPollMessage.type === 'success'
+												? 'text-emerald-600 dark:text-emerald-400'
+												: 'text-red-600 dark:text-red-400'}"
+										>
+											{testPollMessage.text}
+										</span>
+									{/if}
 								</div>
-								<input
-									id="mqtt-topic"
-									data-testid="mqtt-topic-input"
-									type="text"
-									bind:value={mqttTopic}
-									oninput={() => {
-										isTopicCustomized = true;
-									}}
-									placeholder={generateEquipmentTopic(settings.mqttTopicPrefix, 'kettle') ||
-										'brewyou/equipment/kettle/telemetry'}
-									class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-								/>
 							</div>
-						</div>
-					{/if}
-				</div>
+						{/if}
+
+						<!-- Mqtt View -->
+						{#if connectionType === 'Mqtt'}
+							<div
+								class="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-white/60 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+							>
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<div
+										class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
+									>
+										<Radio class="h-3.5 w-3.5 text-amber-500" />
+										<span>{t('equipment.mqtt_config_title')}</span>
+									</div>
+
+									<!-- Configuration Source Selector (User Settings vs Custom) -->
+									<div
+										class="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 text-[11px] dark:border-zinc-700 dark:bg-zinc-800"
+									>
+										<button
+											type="button"
+											data-testid="mqtt-source-settings-btn"
+											onclick={() => (mqttSource = 'userSettings')}
+											class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
+											'userSettings'
+												? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
+												: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+										>
+											{t('equipment.mqtt_source_settings')}
+										</button>
+										<button
+											type="button"
+											data-testid="mqtt-source-custom-btn"
+											onclick={() => (mqttSource = 'custom')}
+											class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
+											'custom'
+												? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
+												: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+										>
+											{t('equipment.mqtt_source_custom')}
+										</button>
+									</div>
+								</div>
+
+								{#if mqttSource === 'userSettings'}
+									{#if settings.hasMqttConfigured}
+										<!-- Display configured user settings broker summary -->
+										<div
+											data-testid="mqtt-user-settings-summary"
+											class="rounded-lg border p-3 {settings.mqttConnected === false
+												? 'border-red-500/20 bg-red-500/5 dark:border-red-500/20 dark:bg-red-500/10'
+												: 'border-amber-500/20 bg-amber-500/5 dark:border-amber-500/20 dark:bg-amber-500/10'}"
+										>
+											<div class="flex flex-wrap items-center justify-between gap-2">
+												<div class="flex items-center gap-2">
+													<span
+														class="h-2 w-2 rounded-full {settings.mqttConnected === false
+															? 'bg-red-500'
+															: 'animate-pulse bg-emerald-500'}"
+													></span>
+													<span class="font-mono text-xs font-bold text-zinc-900 dark:text-white">
+														{settings.mqttHost}:{settings.mqttPort}
+													</span>
+													<span
+														class="rounded px-1.5 py-0.5 text-[10px] font-semibold {settings.mqttConnected ===
+														false
+															? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+															: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}"
+													>
+														{settings.mqttConnected === false
+															? t('equipment.mqtt_disconnected')
+															: t('equipment.mqtt_connected')}
+													</span>
+												</div>
+												<div class="flex items-center gap-2">
+													{#if settings.mqttUsername}
+														<span
+															class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+														>
+															{t('equipment.mqtt_auth_configured')}
+														</span>
+													{/if}
+													{#if settings.mqttCertificate}
+														<span
+															class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+														>
+															{t('equipment.mqtt_cert_configured')}
+														</span>
+													{/if}
+													<a
+														href="/settings#connectivity"
+														target="_blank"
+														class="text-[11px] font-semibold text-amber-600 hover:underline dark:text-amber-400"
+													>
+														{t('equipment.mqtt_configure_in_settings')}
+													</a>
+												</div>
+											</div>
+											<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+												{t('equipment.mqtt_using_settings')}
+											</p>
+										</div>
+									{:else}
+										<!-- Alert: No settings configured yet -->
+										<div
+											data-testid="mqtt-no-settings-alert"
+											class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
+										>
+											<div class="text-[11px] text-amber-900 dark:text-amber-200">
+												{t('equipment.mqtt_settings_not_configured')}
+											</div>
+											<a
+												href="/settings#connectivity"
+												target="_blank"
+												class="rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-zinc-950 hover:bg-amber-400"
+											>
+												{t('equipment.mqtt_configure_in_settings')}
+											</a>
+										</div>
+									{/if}
+								{:else}
+									<!-- Custom Broker Fields -->
+									<div class="grid grid-cols-3 gap-2">
+										<div class="col-span-2">
+											<label
+												for="mqtt-host"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.mqtt_host')}
+											</label>
+											<input
+												id="mqtt-host"
+												data-testid="mqtt-custom-host-input"
+												type="text"
+												bind:value={mqttBrokerHost}
+												placeholder="192.168.1.50"
+												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											/>
+										</div>
+										<div>
+											<label
+												for="mqtt-port"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.mqtt_port')}
+											</label>
+											<input
+												id="mqtt-port"
+												data-testid="mqtt-custom-port-input"
+												type="number"
+												bind:value={mqttBrokerPort}
+												placeholder="1883"
+												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											/>
+										</div>
+									</div>
+
+									<div class="grid grid-cols-2 gap-2">
+										<div>
+											<label
+												for="mqtt-custom-username"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.mqtt_username')}
+											</label>
+											<input
+												id="mqtt-custom-username"
+												data-testid="mqtt-custom-username-input"
+												type="text"
+												bind:value={mqttUsername}
+												placeholder="sensor_user"
+												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											/>
+										</div>
+										<div>
+											<label
+												for="mqtt-custom-password"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.mqtt_password')}
+											</label>
+											<div class="relative mt-1">
+												<input
+													id="mqtt-custom-password"
+													data-testid="mqtt-custom-password-input"
+													type={showMqttCustomPassword ? 'text' : 'password'}
+													bind:value={mqttPassword}
+													placeholder="••••••••"
+													class="h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 pr-8 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+												/>
+												<button
+													type="button"
+													onclick={() => (showMqttCustomPassword = !showMqttCustomPassword)}
+													class="absolute inset-y-0 right-0 flex items-center pr-2 text-zinc-400 hover:text-zinc-600"
+												>
+													{#if showMqttCustomPassword}
+														<EyeOff class="h-3.5 w-3.5" />
+													{:else}
+														<Eye class="h-3.5 w-3.5" />
+													{/if}
+												</button>
+											</div>
+										</div>
+									</div>
+
+									<div>
+										<label
+											for="mqtt-custom-cert"
+											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+										>
+											{t('equipment.mqtt_certificate')}
+										</label>
+										<textarea
+											id="mqtt-custom-cert"
+											data-testid="mqtt-custom-cert-input"
+											rows="2"
+											bind:value={mqttCertificate}
+											placeholder="-----BEGIN CERTIFICATE-----..."
+											class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-2 font-mono text-[11px] text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+										></textarea>
+									</div>
+								{/if}
+
+								<!-- Sensor Specific Topic (Always Required) -->
+								<div>
+									<div class="flex items-center justify-between">
+										<label
+											for="mqtt-topic"
+											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+										>
+											{t('equipment.mqtt_topic')}
+										</label>
+										<button
+											type="button"
+											data-testid="auto-generate-topic-btn"
+											class="text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+											onclick={() => {
+												isTopicCustomized = false;
+												mqttTopic = generateEquipmentTopic(settings.mqttTopicPrefix, name);
+											}}
+										>
+											{t('equipment.mqtt_topic_auto_slug')}
+										</button>
+									</div>
+									<input
+										id="mqtt-topic"
+										data-testid="mqtt-topic-input"
+										type="text"
+										bind:value={mqttTopic}
+										oninput={() => {
+											isTopicCustomized = true;
+										}}
+										placeholder={generateEquipmentTopic(settings.mqttTopicPrefix, 'kettle') ||
+											'brewyou/equipment/kettle/telemetry'}
+										class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+									/>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Description -->
 				<div>

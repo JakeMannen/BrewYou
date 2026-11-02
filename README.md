@@ -197,6 +197,7 @@ The Equipment Inventory provides digital twin management for your brewery's hard
 - **Dual-Mode Tap Serving & Keg Flow**:
   - **Keg Flow (Recommended)**: Fill keg containers (Cornelius, minikegs, etc.) with batches in the Conditioning or Packaging stages, specifying the filled volume. Assign the filled keg to a tap faucet to track real-time keg depletion and display exact fill percentages (`XX% · 14.5 / 19.0 L`).
   - **Direct Batch Flow (Quick Mode)**: Quickly assign any servable batch directly to a tap faucet without a keg container. The tap manifest and kiosk display `Fill: N/A`.
+  - **Keg Temperature Inheritance**: Taps do not hold independent IoT sensors; instead, serving temperature is automatically inherited from the connected keg and rendered on equipment cards, digital kiosk displays, and JSON manifests.
   - Both flows strictly honor the Master Brewer rule: only actual measured ABV from the active batch is displayed.
 - **Encrypted Display Tokens**: Display tokens are encrypted at rest using ASP.NET Core `IDataProtectionKeyContext` stored in PostgreSQL. Brewers can inspect and copy existing display links at any time without having to regenerate tokens or disrupt active screens.
 - **Multi-Protocol Screen Connectivity**:

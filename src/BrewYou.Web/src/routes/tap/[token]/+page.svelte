@@ -3,8 +3,9 @@
 	import { page } from '$app/state';
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import type { TapDisplayManifestDto } from '$lib/types/api';
-	import { Beer, Loader2, AlertCircle } from '@lucide/svelte';
+	import { Beer, Loader2, AlertCircle, Thermometer } from '@lucide/svelte';
 
 	let token = $derived(page.params.token);
 	let manifest = $state<TapDisplayManifestDto | null>(null);
@@ -135,6 +136,16 @@
 								>
 							</div>
 						{/if}
+
+						{#if manifest.temperatureC != null}
+							<div
+								class="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-black/60 px-3 py-0.5 font-mono text-xs text-amber-300 backdrop-blur-md"
+								data-testid="tap-display-temperature"
+							>
+								<Thermometer class="h-3 w-3 text-amber-400" />
+								<span>{settings.formatTemp(manifest.temperatureC, 1)}</span>
+							</div>
+						{/if}
 					</div>
 				</div>
 			{:else}
@@ -210,6 +221,24 @@
 											)} L)</span
 										>
 									{/if}
+								</div>
+							</div>
+						{/if}
+
+						<!-- Keg Serving Temperature Metric -->
+						{#if manifest.temperatureC != null}
+							<div class="flex items-center gap-3">
+								<div
+									class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-zinc-900/80 px-4 py-2 backdrop-blur-md"
+									data-testid="tap-display-temperature"
+								>
+									<Thermometer class="h-4 w-4 text-amber-400" />
+									<span class="text-xs font-bold tracking-wider text-zinc-400 uppercase"
+										>{t('taps.keg_temperature')}:</span
+									>
+									<span class="font-mono text-lg font-bold text-amber-400"
+										>{settings.formatTemp(manifest.temperatureC, 1)}</span
+									>
 								</div>
 							</div>
 						{/if}

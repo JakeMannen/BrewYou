@@ -127,4 +127,82 @@ describe('Equipment Name Uniqueness & Validation', () => {
 		expect(err.code).toBe('DUPLICATE_NAME');
 		expect(err.message).toContain('already exists');
 	});
+
+	it('contains localized tap sensor note and keg temperature strings with 100% key parity', () => {
+		expect(en.equipment.tap_no_sensor_note).toBeDefined();
+		expect(sv.equipment.tap_no_sensor_note).toBeDefined();
+		expect(en.equipment.tap_no_sensor_note).toBe(
+			'Tap equipment does not have IoT sensors. Temperature is automatically taken from the connected keg.'
+		);
+		expect(sv.equipment.tap_no_sensor_note).toBe(
+			'Tappar har inga IoT-sensorer. Temperatur hämtas automatiskt från anslutet fat.'
+		);
+
+		expect(en.taps.keg_temperature).toBeDefined();
+		expect(sv.taps.keg_temperature).toBeDefined();
+		expect(en.taps.from_keg).toBeDefined();
+		expect(sv.taps.from_keg).toBeDefined();
+	});
+
+	it('derives temperature for tap from connected keg', () => {
+		const connectedKeg = {
+			id: 'keg-1',
+			name: 'Serving Keg',
+			subtype: 'Cornelius' as const,
+			capacityLiters: 19,
+			currentVolumeLiters: 15,
+			unit: 'Liters' as const,
+			fillPercentage: 78.9,
+			currentTemperatureC: 4.2,
+			temperatureUpdatedAt: '2026-11-02T12:00:00Z'
+		};
+
+		const tapWithKeg: EquipmentDto = {
+			id: 'tap-1',
+			brewerySetupId: setup1Id,
+			name: 'Main Tap',
+			type: 'Tap',
+			subtype: 'RoundDisplayTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			connectionType: 'None',
+			currentTemperatureC: connectedKeg.currentTemperatureC,
+			temperatureUpdatedAt: connectedKeg.temperatureUpdatedAt,
+			assignedKegId: connectedKeg.id,
+			assignedKeg: connectedKeg,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z'
+		};
+
+		expect(tapWithKeg.connectionType).toBe('None');
+		expect(tapWithKeg.currentTemperatureC).toBe(4.2);
+		expect(tapWithKeg.assignedKeg?.currentTemperatureC).toBe(4.2);
+
+		const tapWithoutKeg: EquipmentDto = {
+			id: 'tap-2',
+			brewerySetupId: setup1Id,
+			name: 'Direct Tap',
+			type: 'Tap',
+			subtype: 'StandardTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			connectionType: 'None',
+			currentTemperatureC: null,
+			assignedKegId: null,
+			assignedKeg: null,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z'
+		};
+
+		expect(tapWithoutKeg.connectionType).toBe('None');
+		expect(tapWithoutKeg.currentTemperatureC).toBeNull();
+	});
 });

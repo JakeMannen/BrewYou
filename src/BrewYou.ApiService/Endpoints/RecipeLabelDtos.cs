@@ -71,5 +71,6 @@ public record TapDisplayManifestDto(
     string? KegName = null,
     string? KegFillLevel = null,
     decimal? KegCapacityLiters = null,
-    decimal? KegRemainingLiters = null
+    decimal? KegRemainingLiters = null,
+    decimal? TemperatureC = null
 );

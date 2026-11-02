@@ -72,6 +72,11 @@ public class TelemetryService : ITelemetryService
             return new TelemetryIngestResult(TelemetryIngestStatus.NotFound, null, "Equipment not found for provided token.");
         }
 
+        if (equipment.Type == EquipmentType.Tap)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
+        }
+
         NormalizedTelemetryData? normalized = null;
         if (payload.ValueKind == JsonValueKind.Object)
         {
@@ -175,6 +180,11 @@ public class TelemetryService : ITelemetryService
         {
             _logger.LogWarning("MQTT telemetry rejected: Equipment {EquipmentId} not found", equipmentId);
             return new TelemetryIngestResult(TelemetryIngestStatus.NotFound, null, "Equipment not found.");
+        }
+
+        if (equipment.Type == EquipmentType.Tap)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
         }
 
         decimal? tempC = null;
@@ -330,6 +340,11 @@ public class TelemetryService : ITelemetryService
             return new TelemetryPollResult(false, null, "Equipment not found.");
         }
 
+        if (equipment.Type == EquipmentType.Tap)
+        {
+            return new TelemetryPollResult(false, null, "Tap equipment does not support IoT sensor polling.");
+        }
+
         return await ExecutePollAsync(equipment, isTestOnly: true);
     }
 
@@ -343,6 +358,11 @@ public class TelemetryService : ITelemetryService
         if (equipment == null)
         {
             return new TelemetryPollResult(false, null, "Equipment not found.");
+        }
+
+        if (equipment.Type == EquipmentType.Tap)
+        {
+            return new TelemetryPollResult(false, null, "Tap equipment does not support IoT sensor polling.");
         }
 
         return await ExecutePollAsync(equipment, isTestOnly: false);
@@ -764,6 +784,53 @@ public class TelemetryService : ITelemetryService
                 if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
                 {
                     _broadcastService.BroadcastEquipmentReading(member.UserId, equipmentUpdate);
+                }
+            }
+        }
+
+        // 1b. If this equipment is a Keg, broadcast updated temperature to any connected Taps
+        if (equipment.Type == EquipmentType.Keg)
+        {
+            var connectedTaps = _db.Equipment.AsNoTracking()
+                .Where(t => t.Type == EquipmentType.Tap && t.AssignedKegId == equipment.Id)
+                .ToList();
+
+            foreach (var tap in connectedTaps)
+            {
+                var tapUpdate = new EquipmentTelemetryUpdateDto(
+                    tap.Id,
+                    tap.Name,
+                    reading.TemperatureC,
+                    reading.Timestamp,
+                    reading.Source,
+                    tap.AssignedBatchId,
+                    null,
+                    0m,
+                    equipmentUpdate.FillPercentage,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                );
+
+                _broadcastService.BroadcastEquipmentReading(equipment.UserId, tapUpdate);
+
+                if (equipment.BrewerySetup != null)
+                {
+                    if (equipment.BrewerySetup.UserId != equipment.UserId)
+                    {
+                        _broadcastService.BroadcastEquipmentReading(equipment.BrewerySetup.UserId, tapUpdate);
+                    }
+
+                    foreach (var member in equipment.BrewerySetup.Members)
+                    {
+                        if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
+                        {
+                            _broadcastService.BroadcastEquipmentReading(member.UserId, tapUpdate);
+                        }
+                    }
                 }
             }
         }

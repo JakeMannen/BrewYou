@@ -1019,6 +1019,7 @@
 		"err_save_failed": "Error al guardar el equipo.",
 		"telemetry_title": "Conectividad externa y telemetría",
 		"telemetry_badge": "IoT y sensores",
+		"tap_no_sensor_note": "Los grifos no tienen sensores IoT. La temperatura se toma automáticamente del barril conectado.",
 		"telemetry_desc": "Conecta densímetros Tilt, iSpindel, ESP32 o brokers MQTT para mediciones en tiempo real.",
 		"temperature_label": "Temperatura actual",
 		"temperature_placeholder": "ej. 19.5",
@@ -1265,7 +1266,9 @@
 		"keg_level": "Nivel de barril",
 		"keg_fill": "Nivel",
 		"keg_fill_na": "Nivel: N/A",
-		"connected_keg": "Barril conectado"
+		"connected_keg": "Barril conectado",
+		"keg_temperature": "Temp de servicio",
+		"from_keg": "Del barril"
 	},
 	"kegs": {
 		"manage_keg_btn": "Gestionar barril",
