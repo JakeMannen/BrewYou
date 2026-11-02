@@ -552,6 +552,10 @@ public class EquipmentService : IEquipmentService
             _ => fillPercentage
         };
 
+        var effectiveFillPercentage = e.Type == EquipmentType.Tap
+            ? (assignedKegSummary?.FillPercentage ?? 0m)
+            : fillPercentage;
+
         var effectiveTemperatureC = e.Type == EquipmentType.Tap
             ? e.AssignedKeg?.CurrentTemperatureC
             : e.CurrentTemperatureC;
@@ -611,7 +615,7 @@ public class EquipmentService : IEquipmentService
             e.TrubLossLiters,
             e.MashTunDeadSpaceLiters,
             e.PackagingLossLiters,
-            fillPercentage,
+            effectiveFillPercentage,
             effectiveTemperatureC,
             effectiveTemperatureUpdatedAt,
             effectiveConnectionType,

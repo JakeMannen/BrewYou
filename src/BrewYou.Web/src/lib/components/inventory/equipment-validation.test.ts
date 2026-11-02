@@ -196,4 +196,86 @@ describe('Equipment Name Uniqueness & Validation', () => {
 		expect(tapWithoutKeg.connectionType).toBe('None');
 		expect(tapWithoutKeg.currentTemperatureC).toBeNull();
 	});
+
+	it('derives fill level and volume metrics for tap from connected keg', () => {
+		const connectedKeg = {
+			id: 'keg-1',
+			name: 'Serving Keg',
+			subtype: 'Cornelius' as const,
+			capacityLiters: 19,
+			currentVolumeLiters: 15,
+			unit: 'Liters' as const,
+			fillPercentage: 78.9,
+			currentTemperatureC: 4.2,
+			temperatureUpdatedAt: '2026-11-02T12:00:00Z'
+		};
+
+		const tapWithKeg: EquipmentDto = {
+			id: 'tap-1',
+			brewerySetupId: setup1Id,
+			name: 'Main Tap',
+			type: 'Tap',
+			subtype: 'RoundDisplayTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 78.9,
+			fillLevelPercent: 78.9,
+			connectionType: 'None',
+			assignedKegId: connectedKeg.id,
+			assignedKeg: connectedKeg,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z'
+		};
+
+		function deriveMetrics(e: EquipmentDto) {
+			const cap =
+				e.type === 'Tap' && e.assignedKeg ? e.assignedKeg.capacityLiters : e.capacityLiters;
+			const vol =
+				e.type === 'Tap' && e.assignedKeg
+					? e.assignedKeg.currentVolumeLiters
+					: e.currentVolumeLiters;
+			const rawPct =
+				e.type === 'Tap'
+					? (e.fillLevelPercent ?? e.assignedKeg?.fillPercentage ?? e.fillPercentage)
+					: e.fillPercentage;
+			return {
+				capacity: cap,
+				volume: vol,
+				fillPct: Math.round(rawPct)
+			};
+		}
+
+		const metricsWithKeg = deriveMetrics(tapWithKeg);
+		expect(metricsWithKeg.capacity).toBe(19);
+		expect(metricsWithKeg.volume).toBe(15);
+		expect(metricsWithKeg.fillPct).toBe(79);
+
+		const tapWithoutKeg: EquipmentDto = {
+			id: 'tap-2',
+			brewerySetupId: setup1Id,
+			name: 'Empty Tap',
+			type: 'Tap',
+			subtype: 'StandardTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			fillLevelPercent: null,
+			connectionType: 'None',
+			assignedKegId: null,
+			assignedKeg: null,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z'
+		};
+
+		const metricsWithoutKeg = deriveMetrics(tapWithoutKeg);
+		expect(metricsWithoutKeg.capacity).toBe(0);
+		expect(metricsWithoutKeg.volume).toBe(0);
+		expect(metricsWithoutKeg.fillPct).toBe(0);
+	});
 });

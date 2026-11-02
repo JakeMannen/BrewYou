@@ -161,6 +161,15 @@
 						for (let i = 0; i < equipmentList.length; i++) {
 							const item = equipmentList[i];
 							if (item.type === 'Tap' && item.assignedKegId === reading.equipmentId) {
+								const updatedFillPct =
+									reading.fillPercentage !== undefined && reading.fillPercentage !== null
+										? reading.fillPercentage
+										: item.fillLevelPercent;
+								const updatedVol =
+									reading.currentVolumeLiters !== undefined && reading.currentVolumeLiters !== null
+										? reading.currentVolumeLiters
+										: item.assignedKeg?.currentVolumeLiters;
+
 								equipmentList[i] = {
 									...item,
 									currentTemperatureC:
@@ -169,6 +178,8 @@
 											: item.currentTemperatureC,
 									temperatureUpdatedAt: reading.timestamp,
 									lastTelemetryAt: reading.timestamp,
+									fillLevelPercent: updatedFillPct,
+									fillPercentage: updatedFillPct ?? item.fillPercentage,
 									assignedKeg: item.assignedKeg
 										? {
 												...item.assignedKeg,
@@ -176,7 +187,9 @@
 													reading.temperatureC !== undefined
 														? reading.temperatureC
 														: item.assignedKeg.currentTemperatureC,
-												temperatureUpdatedAt: reading.timestamp
+												temperatureUpdatedAt: reading.timestamp,
+												fillPercentage: updatedFillPct ?? item.assignedKeg.fillPercentage,
+												currentVolumeLiters: updatedVol ?? item.assignedKeg.currentVolumeLiters
 											}
 										: item.assignedKeg
 								};
@@ -371,10 +384,18 @@
 
 	function formatDisplayMetrics(e: EquipmentDto) {
 		const pref = settings.volumeUnit;
-		const fillPct = typeof e.fillPercentage === 'number' ? Math.round(e.fillPercentage) : 0;
+		const capacityLiters =
+			e.type === 'Tap' && e.assignedKeg ? e.assignedKeg.capacityLiters : e.capacityLiters;
+		const currentVolumeLiters =
+			e.type === 'Tap' && e.assignedKeg ? e.assignedKeg.currentVolumeLiters : e.currentVolumeLiters;
+		const rawPct =
+			e.type === 'Tap'
+				? (e.fillLevelPercent ?? e.assignedKeg?.fillPercentage ?? e.fillPercentage)
+				: e.fillPercentage;
+		const fillPct = typeof rawPct === 'number' ? Math.round(rawPct) : 0;
 		if (pref === 'Gallons') {
-			const capGal = litersToGallons(e.capacityLiters);
-			const curGal = litersToGallons(e.currentVolumeLiters);
+			const capGal = litersToGallons(capacityLiters);
+			const curGal = litersToGallons(currentVolumeLiters);
 			return {
 				currentFormatted: `${formatNumber(curGal, 1)} gal`,
 				capacityFormatted: `${formatNumber(capGal, 1)} gal`,
@@ -384,9 +405,9 @@
 			};
 		} else {
 			return {
-				currentFormatted: `${formatNumber(e.currentVolumeLiters, 1)} L`,
-				capacityFormatted: `${formatNumber(e.capacityLiters, 1)} L`,
-				primaryVal: `${formatNumber(e.currentVolumeLiters, 1)} / ${formatNumber(e.capacityLiters, 1)} L`,
+				currentFormatted: `${formatNumber(currentVolumeLiters, 1)} L`,
+				capacityFormatted: `${formatNumber(capacityLiters, 1)} L`,
+				primaryVal: `${formatNumber(currentVolumeLiters, 1)} / ${formatNumber(capacityLiters, 1)} L`,
 				fillPct,
 				unit: 'L'
 			};
@@ -1122,11 +1143,12 @@
 											{/if}
 										</div>
 										<div class="flex items-center gap-1.5">
-											{#if item.fillLevelPercent != null}
+											{#if item.assignedKeg}
 												<span
-													class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
+													class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {status.classes}"
+													data-testid="tap-fill-badge"
 												>
-													{item.fillLevelPercent}%
+													{status.text}
 												</span>
 											{:else if item.assignedBatch}
 												<span
@@ -1145,36 +1167,82 @@
 										</div>
 									</div>
 
-									{#if item.assignedBatch}
-										<a
-											href="/batches/{item.assignedBatch.id}"
-											title={item.assignedBatch.name}
-											data-testid="assigned-batch-link"
-											class="group/batch mt-2 block space-y-1 transition-colors"
-										>
-											<div class="flex items-center gap-2">
-												<span
-													class="font-mono text-xs font-bold text-amber-600 group-hover/batch:text-amber-500 group-hover/batch:underline dark:text-amber-400 dark:group-hover/batch:text-amber-300"
-												>
-													{item.assignedBatch.batchCode}
-												</span>
-												{#if item.assignedBatch.actualAbv != null}
+									<!-- Fill Level & Liquid Progress Bar (Derived from Keg, Located Above Batch Information) -->
+									{#if item.assignedKeg}
+										<div class="mt-2.5" data-testid="tap-keg-fill-section">
+											<div class="flex items-baseline justify-between">
+												<div class="flex items-baseline gap-1.5">
 													<span
-														class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+														class="font-mono text-base font-bold text-amber-600 dark:text-amber-400"
 													>
-														{item.assignedBatch.actualAbv}% ABV
+														{metrics.currentFormatted}
 													</span>
-												{/if}
+													<span class="text-xs text-zinc-400">/</span>
+													<span
+														class="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+													>
+														{metrics.capacityFormatted}
+													</span>
+												</div>
 											</div>
-											<p
-												class="truncate text-sm font-bold text-zinc-900 group-hover/batch:text-amber-600 group-hover/batch:underline dark:text-white dark:group-hover/batch:text-amber-400"
+
+											<!-- Liquid Fill Progress Bar -->
+											<div
+												class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+												data-testid="tap-fill-progressbar"
 											>
-												{item.assignedBatch.name}
-											</p>
-											<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-												{item.assignedBatch.beerStyle}
-											</p>
-										</a>
+												<div
+													class="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all duration-500 {metrics.fillPct >
+													0
+														? 'shadow-[0_0_8px_rgba(245,158,11,0.35)]'
+														: ''}"
+													style="width: {metrics.fillPct}%"
+													role="progressbar"
+													aria-valuenow={metrics.fillPct}
+													aria-valuemin="0"
+													aria-valuemax="100"
+												></div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Batch Information (Located below fill level progress bar) -->
+									{#if item.assignedBatch}
+										<div
+											class={item.assignedKeg
+												? 'mt-3 border-t border-zinc-200/60 pt-2.5 dark:border-white/5'
+												: 'mt-2'}
+										>
+											<a
+												href="/batches/{item.assignedBatch.id}"
+												title={item.assignedBatch.name}
+												data-testid="assigned-batch-link"
+												class="group/batch block space-y-1 transition-colors"
+											>
+												<div class="flex items-center gap-2">
+													<span
+														class="font-mono text-xs font-bold text-amber-600 group-hover/batch:text-amber-500 group-hover/batch:underline dark:text-amber-400 dark:group-hover/batch:text-amber-300"
+													>
+														{item.assignedBatch.batchCode}
+													</span>
+													{#if item.assignedBatch.actualAbv != null}
+														<span
+															class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+														>
+															{item.assignedBatch.actualAbv}% ABV
+														</span>
+													{/if}
+												</div>
+												<p
+													class="truncate text-sm font-bold text-zinc-900 group-hover/batch:text-amber-600 group-hover/batch:underline dark:text-white dark:group-hover/batch:text-amber-400"
+												>
+													{item.assignedBatch.name}
+												</p>
+												<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+													{item.assignedBatch.beerStyle}
+												</p>
+											</a>
+										</div>
 									{:else}
 										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
 											{t('taps.no_batch_assigned_desc')}

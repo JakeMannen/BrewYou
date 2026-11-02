@@ -484,6 +484,7 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             Type: EquipmentType.Keg,
             Subtype: EquipmentSubtype.Cornelius,
             Capacity: 19.0m,
+            CurrentVolume: 15.0m,
             Unit: VolumeUnit.Liters,
             CurrentTemperatureC: 4.2m,
             ConnectionType: EquipmentConnectionType.HttpPush
@@ -491,6 +492,7 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         createKegRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var keg = (await createKegRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
         keg.CurrentTemperatureC.Should().Be(4.2m);
+        keg.FillPercentage.Should().Be(78.9m);
         keg.ConnectionToken.Should().NotBeNullOrEmpty();
 
         // 2. Create Tap (initially unassigned)
@@ -523,8 +525,11 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var tapWithKeg = (await assignRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
         tapWithKeg.CurrentTemperatureC.Should().Be(4.2m);
+        tapWithKeg.FillPercentage.Should().Be(78.9m);
+        tapWithKeg.FillLevelPercent.Should().Be(78.9m);
         tapWithKeg.AssignedKeg.Should().NotBeNull();
         tapWithKeg.AssignedKeg!.CurrentTemperatureC.Should().Be(4.2m);
+        tapWithKeg.AssignedKeg.FillPercentage.Should().Be(78.9m);
 
         // 5. Query Manifest: Temperature is now 4.2 °C
         var manifestWithKegRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
@@ -551,6 +556,8 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         unassignRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var unassignedTap = (await unassignRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
         unassignedTap.CurrentTemperatureC.Should().BeNull();
+        unassignedTap.FillPercentage.Should().Be(0m);
+        unassignedTap.FillLevelPercent.Should().BeNull();
         unassignedTap.AssignedKeg.Should().BeNull();
 
         var manifestUnassignedRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
