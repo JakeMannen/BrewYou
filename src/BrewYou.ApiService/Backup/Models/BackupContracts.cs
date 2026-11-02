@@ -1,4 +1,5 @@
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Endpoints;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -182,7 +183,15 @@ public record EquipmentBackupDto(
     string? Description = null,
     string? Notes = null,
     DateTime CreatedAt = default,
-    DateTime UpdatedAt = default
+    DateTime UpdatedAt = default,
+    int? DisplayWidthPx = null,
+    int? DisplayHeightPx = null,
+    DisplayOrientation? DisplayOrientation = null,
+    bool DisplayLinkEnabled = false,
+    string? DisplayTokenEncrypted = null,
+    Guid? AssignedBatchId = null,
+    DateTime? AssignedAt = null,
+    Guid? AssignedKegId = null
 );
 
 public record SharedSetupMembershipBackupDto(
@@ -236,6 +245,22 @@ public record RecipeFermentationStepBackupDto(
     string? Notes = null
 );
 
+public record RecipeLabelBackupDto(
+    string ContentType,
+    string ImageBase64,
+    int WidthPx,
+    int HeightPx,
+    string Sha256,
+    int Version = 1,
+    LabelCropDto? BottleCrop = null,
+    LabelCropDto? RoundCrop = null,
+    LabelCropDto? RectCrop = null,
+    DisplayOrientation RectOrientation = DisplayOrientation.Landscape,
+    decimal BottleWidthMm = 90.0m,
+    decimal BottleHeightMm = 120.0m,
+    string? OriginalFileName = null
+);
+
 public record RecipeBackupDto(
     Guid Id,
     string Name,
@@ -254,7 +279,8 @@ public record RecipeBackupDto(
     DateTime UpdatedAt = default,
     List<RecipeIngredientBackupDto>? Ingredients = null,
     List<RecipeMashStepBackupDto>? MashSteps = null,
-    List<RecipeFermentationStepBackupDto>? FermentationSteps = null
+    List<RecipeFermentationStepBackupDto>? FermentationSteps = null,
+    RecipeLabelBackupDto? Label = null
 );
 
 public record BatchVolumeProfileBackupDto(
@@ -446,7 +472,8 @@ public class BackupPayload
 public record ExportBackupRequest(
     bool IncludeTelemetryReadings = true,
     bool IncludeSecrets = false,
-    string? Passphrase = null
+    string? Passphrase = null,
+    bool IncludeLabelImages = true
 );
 
 public record RestoreOptionsDto(
@@ -479,7 +506,9 @@ public record BackupItemCountsDto(
     int Batches,
     int TelemetryReadings,
     int Collaborators,
-    int PendingInvites
+    int PendingInvites,
+    int Labels = 0,
+    int Taps = 0
 );
 
 public record BackupConflictSummaryDto(

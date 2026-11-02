@@ -41,4 +41,5 @@ public class Recipe
     public ICollection<RecipeIngredient> Ingredients { get; set; } = new List<RecipeIngredient>();
     public ICollection<RecipeMashStep> MashSteps { get; set; } = new List<RecipeMashStep>();
     public ICollection<RecipeFermentationStep> FermentationSteps { get; set; } = new List<RecipeFermentationStep>();
+    public RecipeLabel? Label { get; set; }
 }

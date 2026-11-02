@@ -209,9 +209,9 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Boiler not found.");
             }
 
-            if (boiler.Type == EquipmentType.Sensor || boiler.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (boiler.Type is EquipmentType.Sensor or EquipmentType.Tap || boiler.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
             {
-                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as boilers.");
+                return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as boilers.");
             }
         }
 
@@ -226,9 +226,9 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Fermenter not found.");
             }
 
-            if (fermenter.Type == EquipmentType.Sensor || fermenter.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (fermenter.Type is EquipmentType.Sensor or EquipmentType.Tap || fermenter.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
             {
-                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as fermenters.");
+                return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as fermenters.");
             }
         }
 
@@ -243,9 +243,9 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Packaging vessel not found.");
             }
 
-            if (packagingVessel.Type == EquipmentType.Sensor || packagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (packagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap || packagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
             {
-                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as packaging vessels.");
+                return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
             }
         }
 
@@ -260,9 +260,9 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "HLT equipment not found.");
             }
 
-            if (hlt.Type == EquipmentType.Sensor || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (hlt.Type is EquipmentType.Sensor or EquipmentType.Tap || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
             {
-                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as hot liquor tanks.");
+                return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as hot liquor tanks.");
             }
         }
 
@@ -277,9 +277,9 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Mash tun equipment not found.");
             }
 
-            if (mashTun.Type == EquipmentType.Sensor || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (mashTun.Type is EquipmentType.Sensor or EquipmentType.Tap || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
             {
-                return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as mash tuns.");
+                return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as mash tuns.");
             }
         }
 
@@ -655,16 +655,20 @@ public class BatchService : IBatchService
             }
 
             Equipment? selectedPackagingVessel = null;
-            if (newStage == BrewStage.Package && request.PackagingVesselId.HasValue)
+            var packagingVesselSpecified = request.PackagingVesselId.HasValue;
+            if (newStage == BrewStage.Package && packagingVesselSpecified)
             {
-                selectedPackagingVessel = await GetAccessibleEquipment(userId)
-                    .FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
-
-                if (selectedPackagingVessel != null &&
-                    (selectedPackagingVessel.Type == EquipmentType.Sensor ||
-                     selectedPackagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor))
+                if (request.PackagingVesselId!.Value != Guid.Empty)
                 {
-                    return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as packaging vessels.");
+                    selectedPackagingVessel = await GetAccessibleEquipment(userId)
+                        .FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
+
+                    if (selectedPackagingVessel != null &&
+                        (selectedPackagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap ||
+                         selectedPackagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor))
+                    {
+                        return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
+                    }
                 }
             }
 
@@ -742,6 +746,12 @@ public class BatchService : IBatchService
             {
                 batch.MeasuredFg = request.MeasuredFg.Value;
                 batch.CurrentGravity = request.MeasuredFg.Value;
+
+                var effectiveOg = batch.MeasuredOg ?? (batch.TargetOg > 1.000m ? batch.TargetOg : (decimal?)null);
+                if (effectiveOg.HasValue && effectiveOg.Value > batch.CurrentGravity.Value)
+                {
+                    batch.AlcoholByVolume = BrewingCalculator.CalculateActualAbv(effectiveOg.Value, batch.CurrentGravity.Value);
+                }
             }
             if (!string.IsNullOrWhiteSpace(request.Notes))
             {
@@ -842,20 +852,43 @@ public class BatchService : IBatchService
                 SetEquipmentVolume(batch.Boiler, 0m, now);
                 SetEquipmentVolume(batch.Fermenter, 0m, now);
 
+                var oldPackagingVessel = batch.PackagingVessel;
+
                 // Assign & Fill Packaging Vessel if selected
-                if (selectedPackagingVessel != null)
+                if (packagingVesselSpecified)
                 {
-                    batch.PackagingVesselId = selectedPackagingVessel.Id;
+                    batch.PackagingVesselId = selectedPackagingVessel?.Id;
                     batch.PackagingVessel = selectedPackagingVessel;
+                }
+
+                if (oldPackagingVessel != null &&
+                    oldPackagingVessel.Id != batch.PackagingVesselId &&
+                    oldPackagingVessel.Type == EquipmentType.Keg &&
+                    oldPackagingVessel.AssignedBatchId == batch.Id)
+                {
+                    oldPackagingVessel.AssignedBatchId = null;
+                    oldPackagingVessel.AssignedBatch = null;
+                    oldPackagingVessel.AssignedAt = null;
+                    oldPackagingVessel.CurrentVolume = 0m;
+                    oldPackagingVessel.CurrentVolumeLiters = 0m;
+                    oldPackagingVessel.UpdatedAt = now;
                 }
 
                 if (batch.PackagingVessel != null)
                 {
                     var vol = request.MeasuredPackagedVolumeLiters
+                        ?? batch.VolumeProfile?.MeasuredPackagedVolumeLiters
                         ?? batch.VolumeProfile?.TargetPackagedVolumeLiters
                         ?? batch.MeasuredBatchSizeLiters
                         ?? batch.TargetBatchSizeLiters;
                     SetEquipmentVolume(batch.PackagingVessel, vol, now);
+
+                    if (batch.PackagingVessel.Type == EquipmentType.Keg)
+                    {
+                        batch.PackagingVessel.AssignedBatchId = batch.Id;
+                        batch.PackagingVessel.AssignedBatch = batch;
+                        batch.PackagingVessel.AssignedAt = now;
+                    }
                 }
 
                 batch.Status = BatchStatus.Completed;
@@ -1219,10 +1252,14 @@ public class BatchService : IBatchService
         if (request.MeasuredBatchSizeLiters.HasValue) batch.MeasuredBatchSizeLiters = request.MeasuredBatchSizeLiters.Value;
         if (request.PitchTemperatureC.HasValue) batch.PitchTemperatureC = request.PitchTemperatureC.Value;
 
+        var oldPackagingVessel = batch.PackagingVessel;
+        var packagingVesselChanged = false;
+
         if (request.PackagingVesselId.HasValue)
         {
             if (request.PackagingVesselId.Value == Guid.Empty)
             {
+                if (batch.PackagingVesselId != null) packagingVesselChanged = true;
                 batch.PackagingVesselId = null;
                 batch.PackagingVessel = null;
             }
@@ -1231,11 +1268,12 @@ public class BatchService : IBatchService
                 var vessel = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
                 if (vessel != null)
                 {
-                    if (vessel.Type == EquipmentType.Sensor || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+                    if (vessel.Type is EquipmentType.Sensor or EquipmentType.Tap || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
                     {
-                        return (BatchAccessResult.ValidationFailed, null, "Sensors cannot be used as packaging vessels.");
+                        return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
                     }
 
+                    if (batch.PackagingVesselId != vessel.Id) packagingVesselChanged = true;
                     batch.PackagingVesselId = vessel.Id;
                     batch.PackagingVessel = vessel;
                 }
@@ -1402,6 +1440,42 @@ public class BatchService : IBatchService
             batch.VolumeProfile.UpdatedAt = DateTime.UtcNow;
         }
 
+        if (batch.CurrentStage == BrewStage.Package || batch.Status == BatchStatus.Completed)
+        {
+            var now = DateTime.UtcNow;
+
+            if (packagingVesselChanged && oldPackagingVessel != null &&
+                oldPackagingVessel.Id != batch.PackagingVesselId &&
+                oldPackagingVessel.Type == EquipmentType.Keg &&
+                oldPackagingVessel.AssignedBatchId == batch.Id)
+            {
+                oldPackagingVessel.AssignedBatchId = null;
+                oldPackagingVessel.AssignedBatch = null;
+                oldPackagingVessel.AssignedAt = null;
+                oldPackagingVessel.CurrentVolume = 0m;
+                oldPackagingVessel.CurrentVolumeLiters = 0m;
+                oldPackagingVessel.UpdatedAt = now;
+            }
+
+            if (batch.PackagingVessel != null && (packagingVesselChanged || request.MeasuredPackagedVolumeLiters.HasValue))
+            {
+                var vol = request.MeasuredPackagedVolumeLiters
+                    ?? batch.VolumeProfile?.MeasuredPackagedVolumeLiters
+                    ?? batch.VolumeProfile?.TargetPackagedVolumeLiters
+                    ?? batch.MeasuredBatchSizeLiters
+                    ?? batch.TargetBatchSizeLiters;
+
+                SetEquipmentVolume(batch.PackagingVessel, vol, now);
+
+                if (batch.PackagingVessel.Type == EquipmentType.Keg)
+                {
+                    batch.PackagingVessel.AssignedBatchId = batch.Id;
+                    batch.PackagingVessel.AssignedBatch = batch;
+                    batch.PackagingVessel.AssignedAt ??= now;
+                }
+            }
+        }
+
         if (request.SensorAssignments != null)
         {
             var (sensorsValid, validatedAssignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
@@ -1466,6 +1540,12 @@ public class BatchService : IBatchService
         }
         if (batch.PackagingVessel != null)
         {
+            if (batch.PackagingVessel.Type == EquipmentType.Keg && batch.PackagingVessel.AssignedBatchId == batch.Id)
+            {
+                batch.PackagingVessel.AssignedBatchId = null;
+                batch.PackagingVessel.AssignedBatch = null;
+                batch.PackagingVessel.AssignedAt = null;
+            }
             batch.PackagingVessel.CurrentVolumeLiters = 0m;
             batch.PackagingVessel.CurrentVolume = 0m;
         }

@@ -5,8 +5,10 @@ using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Middleware;
 using BrewYou.ApiService.Services;
+using BrewYou.ApiService.Services.Labels;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +37,14 @@ else
     builder.Services.AddDbContext<BrewYouDbContext>(options =>
         options.UseInMemoryDatabase("BrewYouFallbackDb"));
 }
+
+// Data Protection (Persist keys in DB so tokens and credentials survive container restarts)
+builder.Services.AddDataProtection()
+    .SetApplicationName("BrewYou")
+    .PersistKeysToDbContext<BrewYouDbContext>();
+
+// In-Memory Cache for image renditions and metadata
+builder.Services.AddMemoryCache();
 
 // Identity Core
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
@@ -107,6 +117,9 @@ builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection(G
 builder.Services.AddScoped<IGoogleAuthValidator, GoogleAuthValidator>();
 
 // Domain Services
+builder.Services.AddSingleton<ILabelImageProcessor, SkiaLabelImageProcessor>();
+builder.Services.AddSingleton<ILabelUrlSigner, LabelUrlSigner>();
+builder.Services.AddScoped<IRecipeLabelService, RecipeLabelService>();
 builder.Services.AddScoped<IRecipeService, RecipeService>();
 builder.Services.AddScoped<IIngredientService, IngredientService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -166,6 +179,30 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
     options.AddPolicy("telemetry-rate-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Request.RouteValues["token"]?.ToString()
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 120,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+    options.AddPolicy("label-upload-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+    options.AddPolicy("tap-display-limit", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.Request.RouteValues["token"]?.ToString()
                           ?? httpContext.Connection.RemoteIpAddress?.ToString()
@@ -259,6 +296,9 @@ if (app.Environment.IsDevelopment())
 app.MapAuthEndpoints().RequireRateLimiting("auth-rate-limit");
 app.MapIngredientEndpoints();
 app.MapRecipeEndpoints();
+app.MapRecipeLabelEndpoints();
+app.MapLabelImageEndpoints();
+app.MapTapDisplayEndpoints();
 app.MapEquipmentEndpoints();
 app.MapBrewerySetupEndpoints();
 app.MapBreweryCollaborationEndpoints();

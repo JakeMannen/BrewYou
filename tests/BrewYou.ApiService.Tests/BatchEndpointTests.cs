@@ -224,6 +224,101 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task AdvanceBatchStage_ToPackage_WithKeg_FreesFermenter_AndAssignsAndFillsKeg()
+    {
+        var (client, _, boilerId, fermenterId, kegId) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        // 1. Create Tap and assign Keg to Tap
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var setupsEnv = await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>();
+        var setupId = setupsEnv!.Data!.First(s => s.IsDefault).Id;
+
+        var tapReq = new CreateEquipmentRequest(setupId, "Kegerator Tap #1", EquipmentType.Tap, 0m);
+        var tapRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", tapReq);
+        var tap = (await tapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var assignTapRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", new AssignTapRequest(KegId: kegId));
+        assignTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 2. Create Batch in Ferment stage with 19L
+        var batchCode = $"B-{DateTime.UtcNow:yyyy-MM-dd}-91";
+        var createReq = new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: batchCode,
+            Name: "Citra Hazy IPA",
+            BeerStyle: "New England IPA",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 19.0m,
+            TargetOg: 1.060m,
+            TargetFg: 1.012m,
+            TargetAbv: 6.3m,
+            TargetIbu: 45m,
+            TargetColorSrm: 4m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: boilerId,
+            FermenterId: fermenterId,
+            MeasuredOg: 1.060m,
+            PitchTemperatureC: 19.5m,
+            Notes: "Dry-hopped with Citra"
+        );
+        var createRes = await client.PostAsJsonAsync("/api/v1/batches", createReq);
+        var batchId = (await createRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!.Id;
+
+        // Advance to Ferment
+        await client.PatchAsJsonAsync($"/api/v1/batches/{batchId}/stage", new AdvanceBatchStageRequest(
+            TargetStage: BrewStage.Ferment,
+            MeasuredOg: 1.060m,
+            MeasuredBatchSizeLiters: 19.0m
+        ));
+
+        // Fermenter is occupied
+        var fermBefore = (await (await client.GetAsync($"/api/v1/inventory/equipment/{fermenterId}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        fermBefore.CurrentVolumeLiters.Should().Be(19.0m);
+
+        // 3. Advance to Package specifying the Keg and measured packaged volume (18.5L)
+        var advanceToPackageReq = new AdvanceBatchStageRequest(
+            TargetStage: BrewStage.Package,
+            MeasuredFg: 1.012m,
+            PackagingVesselId: kegId,
+            MeasuredPackagedVolumeLiters: 18.5m
+        );
+        var packageRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batchId}/stage", advanceToPackageReq);
+        packageRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var packagedBatchEnv = await packageRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>();
+        packagedBatchEnv!.Data!.CurrentStage.Should().Be(BrewStage.Package);
+        packagedBatchEnv.Data.Status.Should().Be(BatchStatus.Completed);
+        packagedBatchEnv.Data.PackagingVesselId.Should().Be(kegId);
+
+        // 4. Verify Fermenter is freed (0L)
+        var fermAfter = (await (await client.GetAsync($"/api/v1/inventory/equipment/{fermenterId}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        fermAfter.CurrentVolumeLiters.Should().Be(0m);
+
+        // 5. Verify Keg is automatically filled and assigned
+        var kegAfter = (await (await client.GetAsync($"/api/v1/inventory/equipment/{kegId}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        kegAfter.CurrentVolumeLiters.Should().Be(18.5m);
+        kegAfter.AssignedBatchId.Should().Be(batchId);
+        kegAfter.AssignedBatch.Should().NotBeNull();
+        kegAfter.AssignedBatch!.BatchCode.Should().Be(batchCode);
+        kegAfter.AssignedBatch.Name.Should().Be("Citra Hazy IPA");
+        kegAfter.FillPercentage.Should().Be(97.4m); // 18.5 / 19.0 * 100 = 97.368... -> 97.4%
+
+        // 6. Verify Tap assigned to this Keg immediately reflects the batch and fill level
+        var tapAfter = (await (await client.GetAsync($"/api/v1/inventory/equipment/{tap.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        tapAfter.AssignedKegId.Should().Be(kegId);
+        tapAfter.AssignedBatch.Should().NotBeNull();
+        tapAfter.AssignedBatch!.Name.Should().Be("Citra Hazy IPA");
+        tapAfter.FillLevelPercent.Should().Be(97.4m);
+        tapAfter.AssignedKeg.Should().NotBeNull();
+        tapAfter.AssignedKeg!.FillPercentage.Should().Be(97.4m);
+    }
+
+    [Fact]
     public async Task AddBatchReading_RecalculatesCurrentGravityAndAbv()
     {
         var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();

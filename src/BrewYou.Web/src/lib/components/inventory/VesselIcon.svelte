@@ -50,6 +50,9 @@
 		'ISpindel',
 		'Tilt',
 		'GenericSensor',
+		'StandardTap',
+		'RoundDisplayTap',
+		'RectDisplayTap',
 		'Bottle',
 		'Other'
 	];
@@ -655,6 +658,68 @@
 			<!-- Bottle Label -->
 			<rect x="19.5" y="27" width="9" height="9" rx="1" stroke-width="1.2" opacity="0.8" />
 			<line x1="22" y1="31.5" x2="26" y2="31.5" stroke-width="1" opacity="0.6" />
+		{:else if normalizedSubtype === 'StandardTap'}
+			<!-- Traditional Bar Beer Tap Tower & Faucet -->
+			<path d="M16 41 H32 V43 H16 Z" stroke-width="1.6" class="fill-current" />
+			<path d="M20 18 H28 V41 H20 Z" stroke-width="1.6" />
+			<rect x="15" y="22" width="6" height="5" rx="1" stroke-width="1.4" />
+			<path
+				d="M15 25 L11 29 L11 33"
+				stroke-width="1.6"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			/>
+			<path d="M17 22 L14 10" stroke-width="2" stroke-linecap="round" />
+			<circle cx="13.5" cy="9" r="2" stroke-width="1.4" class="fill-amber-500" />
+			{#if active}
+				<circle cx="11" cy="37" r="1.2" class="fill-amber-500" />
+			{/if}
+		{:else if normalizedSubtype === 'RoundDisplayTap'}
+			<!-- Modern Digital Tap Tower with Circular LCD Screen -->
+			<path d="M16 41 H32 V43 H16 Z" stroke-width="1.6" class="fill-current" />
+			<path d="M21 26 H27 V41 H21 Z" stroke-width="1.6" />
+			<circle
+				cx="24"
+				cy="17"
+				r="10"
+				stroke-width="1.6"
+				class="fill-zinc-900/10 dark:fill-zinc-800/60"
+			/>
+			<circle
+				cx="24"
+				cy="17"
+				r="7.5"
+				stroke-width="1.2"
+				class="fill-zinc-950 stroke-amber-500"
+				stroke-dasharray="2 1"
+			/>
+			<circle cx="24" cy="17" r="4" class="fill-amber-500/80" />
+			<path d="M21 32 H15 L12 36" stroke-width="1.5" stroke-linecap="round" />
+		{:else if normalizedSubtype === 'RectDisplayTap'}
+			<!-- Digital Tap Screen with Rectangular High-Res Display -->
+			<path d="M16 41 H32 V43 H16 Z" stroke-width="1.6" class="fill-current" />
+			<path d="M21 28 H27 V41 H21 Z" stroke-width="1.6" />
+			<rect
+				x="13"
+				y="8"
+				width="22"
+				height="18"
+				rx="2.5"
+				stroke-width="1.6"
+				class="fill-zinc-900/10 dark:fill-zinc-800/60"
+			/>
+			<rect
+				x="15.5"
+				y="10.5"
+				width="17"
+				height="13"
+				rx="1"
+				stroke-width="1.2"
+				class="fill-zinc-950 stroke-amber-500"
+			/>
+			<line x1="18" y1="14" x2="30" y2="14" stroke-width="1" class="stroke-amber-400" />
+			<line x1="18" y1="18" x2="26" y2="18" stroke-width="0.8" class="stroke-zinc-400" />
+			<path d="M21 33 H15 L12 37" stroke-width="1.5" stroke-linecap="round" />
 		{:else}
 			<!-- Fallback Generic Container -->
 			<rect x="15" y="12" width="18" height="26" rx="2" />

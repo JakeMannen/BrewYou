@@ -140,7 +140,11 @@
 			} else if (stage === 'Package') {
 				req.measuredFg = draftMeasuredFg;
 				req.measuredPackagedVolumeLiters = draftPackagedVol;
-				req.packagingVesselId = draftPackagingVesselId || null;
+				req.packagingVesselId = draftPackagingVesselId
+					? draftPackagingVesselId
+					: batch.packagingVesselId
+						? '00000000-0000-0000-0000-000000000000'
+						: null;
 			}
 
 			if (draftNotes !== (batch.notes ?? '')) {

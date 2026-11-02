@@ -234,6 +234,8 @@ export interface RecipeSummaryDto {
 	updatedAt: string;
 	authorName?: string | null;
 	isOwner?: boolean;
+	labelImageUrl?: string;
+	hasCustomLabel?: boolean;
 }
 
 export interface RecipeDetailDto extends RecipeSummaryDto {
@@ -369,7 +371,123 @@ export interface GoogleAuthRequest {
 	preferredLanguage?: string;
 }
 
-export type EquipmentType = 'Boiler' | 'Fermenter' | 'Keg' | 'Sensor' | 'Other';
+export type DisplayOrientation = 'Landscape' | 'Portrait';
+
+export type LabelVariant = 'Bottle' | 'Round' | 'Rect' | 'Card' | 'Original';
+
+export interface LabelCropDto {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+export interface RecipeLabelDto {
+	recipeId: string;
+	isDefault: boolean;
+	version: number;
+	updatedAt?: string | null;
+	widthPx: number;
+	heightPx: number;
+	sizeBytes?: number | null;
+	bottleCrop: LabelCropDto;
+	roundCrop: LabelCropDto;
+	rectCrop: LabelCropDto;
+	rectOrientation: DisplayOrientation;
+	bottleWidthMm: number;
+	bottleHeightMm: number;
+	imageUrls: Record<string, string>;
+	originalFileName?: string | null;
+}
+
+export function getLabelImageUrl(
+	imageUrls?: Record<string, string> | null,
+	variant: string = 'bottle'
+): string {
+	if (!imageUrls) return '';
+	const target = variant.toLowerCase();
+	for (const [key, url] of Object.entries(imageUrls)) {
+		if (key.toLowerCase() === target && url) {
+			return url;
+		}
+	}
+	return (
+		imageUrls['bottle'] ??
+		imageUrls['Bottle'] ??
+		imageUrls['card'] ??
+		imageUrls['Card'] ??
+		imageUrls['rect'] ??
+		imageUrls['Rect'] ??
+		imageUrls['round'] ??
+		imageUrls['Round'] ??
+		''
+	);
+}
+
+export interface UpdateRecipeLabelSettingsRequest {
+	bottleCrop?: LabelCropDto | null;
+	roundCrop?: LabelCropDto | null;
+	rectCrop?: LabelCropDto | null;
+	rectOrientation?: DisplayOrientation | null;
+	bottleWidthMm?: number | null;
+	bottleHeightMm?: number | null;
+}
+
+export interface AssignTapRequest {
+	batchId?: string | null;
+	kegId?: string | null;
+}
+
+export interface AssignKegBatchRequest {
+	batchId?: string | null;
+	volumeLiters?: number | null;
+}
+
+export interface TapAssignedBatchDto {
+	id: string;
+	batchCode: string;
+	name: string;
+	beerStyle: string;
+	actualAbv?: number | null;
+	assignedAt?: string | null;
+}
+
+export interface AssignedKegSummaryDto {
+	id: string;
+	name: string;
+	subtype: EquipmentSubtype;
+	capacityLiters: number;
+	currentVolumeLiters: number;
+	unit: VolumeUnit;
+	fillPercentage: number;
+	assignedBatch?: TapAssignedBatchDto | null;
+	currentTemperatureC?: number | null;
+	temperatureUpdatedAt?: string | null;
+}
+
+export interface TapDisplayLinkDto {
+	manifestUrl: string;
+	imageUrl: string;
+	kioskUrl: string;
+}
+
+export interface TapDisplayManifestDto {
+	status: string;
+	shape: 'Round' | 'Rectangular' | string;
+	widthPx: number;
+	heightPx: number;
+	beerName?: string | null;
+	actualAbv?: number | null;
+	labelVersion: string;
+	imageUrl: string;
+	kegName?: string | null;
+	kegFillLevel?: string | null;
+	kegCapacityLiters?: number | null;
+	kegRemainingLiters?: number | null;
+	temperatureC?: number | null;
+}
+
+export type EquipmentType = 'Boiler' | 'Fermenter' | 'Keg' | 'Sensor' | 'Tap' | 'Other';
 
 export type EquipmentSubtype =
 	| 'AllInOne'
@@ -390,6 +508,9 @@ export type EquipmentSubtype =
 	| 'ISpindel'
 	| 'Tilt'
 	| 'GenericSensor'
+	| 'StandardTap'
+	| 'RoundDisplayTap'
+	| 'RectDisplayTap'
 	| 'Other';
 
 export const EQUIPMENT_SUBTYPES_BY_TYPE: Record<EquipmentType, EquipmentSubtype[]> = {
@@ -397,6 +518,7 @@ export const EQUIPMENT_SUBTYPES_BY_TYPE: Record<EquipmentType, EquipmentSubtype[
 	Fermenter: ['Bucket', 'ConicalFermenter', 'Carboy', 'PressureFermenter', 'StainlessBucket'],
 	Keg: ['Cornelius', 'Minikeg', 'MiniBarrel', 'PetKeg'],
 	Sensor: ['GenericSensor', 'Tilt', 'ISpindel'],
+	Tap: ['StandardTap', 'RoundDisplayTap', 'RectDisplayTap'],
 	Other: ['Other']
 };
 
@@ -405,6 +527,7 @@ export const DEFAULT_SUBTYPE_BY_TYPE: Record<EquipmentType, EquipmentSubtype> = 
 	Fermenter: 'Bucket',
 	Keg: 'Cornelius',
 	Sensor: 'GenericSensor',
+	Tap: 'StandardTap',
 	Other: 'Other'
 };
 
@@ -427,6 +550,9 @@ export const SUBTYPE_LABELS: Record<EquipmentSubtype, string> = {
 	ISpindel: 'iSpindel',
 	Tilt: 'Tilt Hydrometer',
 	GenericSensor: 'Generic Sensor / Probe',
+	StandardTap: 'Standard Tap',
+	RoundDisplayTap: 'Round Screen Tap',
+	RectDisplayTap: 'Rectangular Screen Tap',
 	Other: 'Other'
 };
 
@@ -449,6 +575,9 @@ export const SUBTYPE_DESCRIPTIONS: Record<EquipmentSubtype, string> = {
 	ISpindel: 'Wireless floating WiFi hydrometer and temperature capsule',
 	Tilt: 'Wireless Bluetooth floating hydrometer and thermometer',
 	GenericSensor: 'Digital temperature probe or external telemetry sensor',
+	StandardTap: 'Standard draft tap faucet',
+	RoundDisplayTap: 'Draft tap with round digital screen (e.g. 240x240 / 480x480 OLED/LCD)',
+	RectDisplayTap: 'Draft tap with rectangular digital screen (e.g. 320x240 / 800x480 LCD)',
 	Other: 'Generic container or vessel'
 };
 
@@ -580,6 +709,15 @@ export interface EquipmentDto {
 	connectionConfigJson?: string | null;
 	description?: string | null;
 	notes?: string | null;
+	displayWidthPx?: number | null;
+	displayHeightPx?: number | null;
+	displayOrientation?: DisplayOrientation | null;
+	displayLinkEnabled?: boolean;
+	assignedBatch?: TapAssignedBatchDto | null;
+	assignedKegId?: string | null;
+	assignedKeg?: AssignedKegSummaryDto | null;
+	assignedBatchId?: string | null;
+	fillLevelPercent?: number | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -650,6 +788,9 @@ export interface CreateEquipmentRequest {
 	currentTemperatureC?: number | null;
 	connectionType?: EquipmentConnectionType;
 	connectionConfigJson?: string | null;
+	displayWidthPx?: number | null;
+	displayHeightPx?: number | null;
+	displayOrientation?: DisplayOrientation | null;
 }
 
 export interface UpdateEquipmentRequest {
@@ -669,6 +810,9 @@ export interface UpdateEquipmentRequest {
 	currentTemperatureC?: number | null;
 	connectionType?: EquipmentConnectionType;
 	connectionConfigJson?: string | null;
+	displayWidthPx?: number | null;
+	displayHeightPx?: number | null;
+	displayOrientation?: DisplayOrientation | null;
 }
 
 export interface UpdateVolumeUnitRequest {
@@ -1198,6 +1342,8 @@ export interface BackupItemCountsDto {
 	telemetryReadings: number;
 	collaborators: number;
 	pendingInvites: number;
+	labels?: number;
+	taps?: number;
 }
 
 export interface BackupConflictSummaryDto {

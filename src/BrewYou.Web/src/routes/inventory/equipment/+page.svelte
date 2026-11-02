@@ -14,6 +14,9 @@
 	} from '$lib/types/api';
 	import EquipmentModal from '$lib/components/inventory/EquipmentModal.svelte';
 	import DeleteEquipmentModal from '$lib/components/inventory/DeleteEquipmentModal.svelte';
+	import AssignTapModal from '$lib/components/inventory/AssignTapModal.svelte';
+	import AssignKegModal from '$lib/components/inventory/AssignKegModal.svelte';
+	import TapDisplayLinkModal from '$lib/components/inventory/TapDisplayLinkModal.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
 	import {
@@ -31,7 +34,9 @@
 		Droplets,
 		Battery,
 		ChevronDown,
-		ChevronUp
+		ChevronUp,
+		Beer,
+		Tv
 	} from '@lucide/svelte';
 
 	let equipmentList = $state<EquipmentDto[]>([]);
@@ -52,7 +57,28 @@
 	let editingItem = $state<EquipmentDto | null>(null);
 	let deleteModalOpen = $state(false);
 	let itemToDelete = $state<EquipmentDto | null>(null);
+	let assignTapModalOpen = $state(false);
+	let tapToAssign = $state<EquipmentDto | null>(null);
+	let assignKegModalOpen = $state(false);
+	let kegToAssign = $state<EquipmentDto | null>(null);
+	let displayLinkModalOpen = $state(false);
+	let tapForDisplayLink = $state<EquipmentDto | null>(null);
 	let expandedAttributes = $state<Record<string, boolean>>({});
+
+	function openAssignTapModal(item: EquipmentDto) {
+		tapToAssign = item;
+		assignTapModalOpen = true;
+	}
+
+	function openAssignKegModal(item: EquipmentDto) {
+		kegToAssign = item;
+		assignKegModalOpen = true;
+	}
+
+	function openDisplayLinkModal(item: EquipmentDto) {
+		tapForDisplayLink = item;
+		displayLinkModalOpen = true;
+	}
 
 	let telemetryAbortController: AbortController | null = null;
 	let telemetryReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -129,6 +155,45 @@
 										? reading.fillPercentage
 										: existing.fillPercentage
 							};
+						}
+
+						// Also update connected Taps if this reading is for their assigned Keg
+						for (let i = 0; i < equipmentList.length; i++) {
+							const item = equipmentList[i];
+							if (item.type === 'Tap' && item.assignedKegId === reading.equipmentId) {
+								const updatedFillPct =
+									reading.fillPercentage !== undefined && reading.fillPercentage !== null
+										? reading.fillPercentage
+										: item.fillLevelPercent;
+								const updatedVol =
+									reading.currentVolumeLiters !== undefined && reading.currentVolumeLiters !== null
+										? reading.currentVolumeLiters
+										: item.assignedKeg?.currentVolumeLiters;
+
+								equipmentList[i] = {
+									...item,
+									currentTemperatureC:
+										reading.temperatureC !== undefined
+											? reading.temperatureC
+											: item.currentTemperatureC,
+									temperatureUpdatedAt: reading.timestamp,
+									lastTelemetryAt: reading.timestamp,
+									fillLevelPercent: updatedFillPct,
+									fillPercentage: updatedFillPct ?? item.fillPercentage,
+									assignedKeg: item.assignedKeg
+										? {
+												...item.assignedKeg,
+												currentTemperatureC:
+													reading.temperatureC !== undefined
+														? reading.temperatureC
+														: item.assignedKeg.currentTemperatureC,
+												temperatureUpdatedAt: reading.timestamp,
+												fillPercentage: updatedFillPct ?? item.assignedKeg.fillPercentage,
+												currentVolumeLiters: updatedVol ?? item.assignedKeg.currentVolumeLiters
+											}
+										: item.assignedKeg
+								};
+							}
 						}
 					},
 					onError: () => {
@@ -281,6 +346,8 @@
 				return t('equipment.fermenters');
 			case 'Keg':
 				return t('equipment.kegs');
+			case 'Tap':
+				return t('equipment.taps');
 			case 'Sensor':
 				return t('equipment.sensors');
 			case 'Other':
@@ -306,6 +373,8 @@
 				return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
 			case 'Keg':
 				return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+			case 'Tap':
+				return 'border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400';
 			case 'Sensor':
 				return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400';
 			default:
@@ -315,10 +384,18 @@
 
 	function formatDisplayMetrics(e: EquipmentDto) {
 		const pref = settings.volumeUnit;
-		const fillPct = typeof e.fillPercentage === 'number' ? Math.round(e.fillPercentage) : 0;
+		const capacityLiters =
+			e.type === 'Tap' && e.assignedKeg ? e.assignedKeg.capacityLiters : e.capacityLiters;
+		const currentVolumeLiters =
+			e.type === 'Tap' && e.assignedKeg ? e.assignedKeg.currentVolumeLiters : e.currentVolumeLiters;
+		const rawPct =
+			e.type === 'Tap'
+				? (e.fillLevelPercent ?? e.assignedKeg?.fillPercentage ?? e.fillPercentage)
+				: e.fillPercentage;
+		const fillPct = typeof rawPct === 'number' ? Math.round(rawPct) : 0;
 		if (pref === 'Gallons') {
-			const capGal = litersToGallons(e.capacityLiters);
-			const curGal = litersToGallons(e.currentVolumeLiters);
+			const capGal = litersToGallons(capacityLiters);
+			const curGal = litersToGallons(currentVolumeLiters);
 			return {
 				currentFormatted: `${formatNumber(curGal, 1)} gal`,
 				capacityFormatted: `${formatNumber(capGal, 1)} gal`,
@@ -328,9 +405,9 @@
 			};
 		} else {
 			return {
-				currentFormatted: `${formatNumber(e.currentVolumeLiters, 1)} L`,
-				capacityFormatted: `${formatNumber(e.capacityLiters, 1)} L`,
-				primaryVal: `${formatNumber(e.currentVolumeLiters, 1)} / ${formatNumber(e.capacityLiters, 1)} L`,
+				currentFormatted: `${formatNumber(currentVolumeLiters, 1)} L`,
+				capacityFormatted: `${formatNumber(capacityLiters, 1)} L`,
+				primaryVal: `${formatNumber(currentVolumeLiters, 1)} / ${formatNumber(capacityLiters, 1)} L`,
 				fillPct,
 				unit: 'L'
 			};
@@ -555,7 +632,7 @@
 		>
 			<!-- Category Tabs -->
 			<div class="flex items-center gap-1.5 overflow-x-auto p-0.5 text-xs">
-				{#each ['All', 'Boiler', 'Fermenter', 'Keg', 'Sensor', 'Other'] as const as cat}
+				{#each ['All', 'Boiler', 'Fermenter', 'Keg', 'Tap', 'Sensor', 'Other'] as const as cat}
 					<button
 						type="button"
 						data-testid={`filter-tab-${cat.toLowerCase()}`}
@@ -654,7 +731,7 @@
 					{@const tempInfo = formatTemperatureBadge(item)}
 					{@const extraAttrs = getParsedAttributes(item)}
 					<div
-						class="glass-panel group relative flex flex-col justify-between rounded-2xl border border-zinc-200/80 p-5 transition-all duration-200 hover:border-amber-500/40 hover:shadow-lg dark:border-white/[0.08]"
+						class="glass-panel group relative flex flex-col rounded-2xl border border-zinc-200/80 p-5 transition-all duration-200 hover:border-amber-500/40 hover:shadow-lg dark:border-white/[0.08]"
 						data-testid="equipment-card"
 					>
 						<!-- Top: Hero Vessel Icon, Title & Badges -->
@@ -719,6 +796,12 @@
 								</p>
 							{/if}
 
+							{#if item.notes}
+								<p class="mt-2 text-[11px] text-zinc-400 italic">
+									"{item.notes}"
+								</p>
+							{/if}
+
 							<!-- Live Temperature & Telemetry Status -->
 							{#if tempInfo.hasTemp}
 								<div
@@ -734,6 +817,14 @@
 												<Thermometer class="h-3.5 w-3.5 text-amber-500" />
 												{tempInfo.displayTemp}
 											</span>
+											{#if item.type === 'Tap' && item.assignedKeg}
+												<span
+													data-testid="tap-keg-temp-badge"
+													class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
+												>
+													{t('taps.from_keg')}: {item.assignedKeg.name}
+												</span>
+											{/if}
 											{#if item.connectionType === 'Mqtt'}
 												<span
 													data-testid="equipment-mqtt-tag"
@@ -852,7 +943,7 @@
 							{/if}
 
 							<!-- Custom Telemetry Attributes & Full JSON Inspector -->
-							{#if extraAttrs.length > 0 || item.latestMetricsJson}
+							{#if item.type !== 'Tap' && (extraAttrs.length > 0 || item.latestMetricsJson)}
 								<div
 									class="mt-2.5 rounded-xl border border-zinc-200/60 bg-zinc-50/50 p-2.5 dark:border-zinc-800/60 dark:bg-zinc-900/40"
 								>
@@ -931,54 +1022,249 @@
 						<!-- Fill Level & Volume Box (for fillable vessels only) -->
 						{#if isVesselFillable(item.subtype)}
 							<div
-								class="mt-4 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+								class="mt-4 flex flex-1 flex-col justify-between rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
 							>
-								<div class="flex items-center justify-between">
-									<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
-										{t('equipment.fill_level_capacity')}
-									</span>
-									<span
-										class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {status.classes}"
-									>
-										{status.text}
-									</span>
-								</div>
+								<div>
+									<div class="flex items-center justify-between">
+										<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+											{t('equipment.fill_level_capacity')}
+										</span>
+										<span
+											class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {status.classes}"
+										>
+											{status.text}
+										</span>
+									</div>
 
-								<div class="mt-1 flex items-baseline justify-between">
-									<div class="flex items-baseline gap-1.5">
-										<span class="font-mono text-lg font-bold text-amber-600 dark:text-amber-400">
-											{metrics.currentFormatted}
-										</span>
-										<span class="text-xs text-zinc-400">/</span>
-										<span class="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-											{metrics.capacityFormatted}
-										</span>
+									<div class="mt-1 flex items-baseline justify-between">
+										<div class="flex items-baseline gap-1.5">
+											<span class="font-mono text-lg font-bold text-amber-600 dark:text-amber-400">
+												{metrics.currentFormatted}
+											</span>
+											<span class="text-xs text-zinc-400">/</span>
+											<span
+												class="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+											>
+												{metrics.capacityFormatted}
+											</span>
+										</div>
+									</div>
+
+									<!-- Liquid Fill Progress Bar -->
+									<div
+										class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+									>
+										<div
+											class="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all duration-500 {metrics.fillPct >
+											0
+												? 'shadow-[0_0_8px_rgba(245,158,11,0.35)]'
+												: ''}"
+											style="width: {metrics.fillPct}%"
+											role="progressbar"
+											aria-valuenow={metrics.fillPct}
+											aria-valuemin="0"
+											aria-valuemax="100"
+										></div>
 									</div>
 								</div>
 
-								<!-- Liquid Fill Progress Bar -->
-								<div
-									class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
-								>
-									<div
-										class="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all duration-500 {metrics.fillPct >
-										0
-											? 'shadow-[0_0_8px_rgba(245,158,11,0.35)]'
-											: ''}"
-										style="width: {metrics.fillPct}%"
-										role="progressbar"
-										aria-valuenow={metrics.fillPct}
-										aria-valuemin="0"
-										aria-valuemax="100"
-									></div>
-								</div>
+								<!-- Keg Batch & Management Actions -->
+								{#if item.type === 'Keg'}
+									<div class="mt-3 border-t border-zinc-200/60 pt-2.5 dark:border-white/5">
+										{#if item.assignedBatch}
+											<a
+												href="/batches/{item.assignedBatch.id}"
+												title={item.assignedBatch.name}
+												data-testid="assigned-batch-link"
+												class="group/batch mb-2 block space-y-0.5 transition-colors"
+											>
+												<div class="flex items-center gap-2">
+													<span
+														class="font-mono text-xs font-bold text-amber-600 group-hover/batch:text-amber-500 group-hover/batch:underline dark:text-amber-400 dark:group-hover/batch:text-amber-300"
+													>
+														{item.assignedBatch.batchCode}
+													</span>
+													{#if item.assignedBatch.actualAbv != null}
+														<span
+															class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+														>
+															{item.assignedBatch.actualAbv}% ABV
+														</span>
+													{/if}
+												</div>
+												<p
+													class="truncate text-xs font-bold text-zinc-900 group-hover/batch:text-amber-600 group-hover/batch:underline dark:text-white dark:group-hover/batch:text-amber-400"
+												>
+													{item.assignedBatch.name}
+												</p>
+											</a>
+										{/if}
+
+										<button
+											type="button"
+											onclick={() => openAssignKegModal(item)}
+											class="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500 hover:text-zinc-950 dark:text-amber-400 dark:hover:bg-amber-400 dark:hover:text-zinc-950"
+										>
+											<Beer class="h-3.5 w-3.5" />
+											<span
+												>{item.assignedBatch
+													? t('kegs.manage_keg_btn')
+													: t('kegs.fill_keg_btn')}</span
+											>
+										</button>
+									</div>
+								{/if}
 							</div>
 						{/if}
 
-						{#if item.notes}
-							<p class="mt-3 text-[11px] text-zinc-400 italic">
-								"{item.notes}"
-							</p>
+						<!-- Tap Dispenser & Batch Assignment Box -->
+						{#if item.type === 'Tap'}
+							<div
+								class="mt-4 flex flex-1 flex-col justify-between rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+							>
+								<div>
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-2">
+											<span class="text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+												{t('taps.tap_status')}
+											</span>
+											{#if item.assignedKeg}
+												<span
+													class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
+												>
+													{t('taps.keg_badge')}: {item.assignedKeg.name}
+												</span>
+											{:else if item.assignedBatch}
+												<span
+													class="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-mono text-[10px] font-bold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+												>
+													{t('taps.direct_batch_badge')}
+												</span>
+											{/if}
+										</div>
+										<div class="flex items-center gap-1.5">
+											<span
+												class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
+													? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+													: 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'}"
+											>
+												{item.assignedBatch ? t('taps.status_pouring') : t('taps.status_empty')}
+											</span>
+										</div>
+									</div>
+
+									<!-- Fill Level & Liquid Progress Bar (Derived from Keg, Located Above Batch Information) -->
+									{#if item.assignedKeg}
+										<div class="mt-2.5" data-testid="tap-keg-fill-section">
+											<div class="flex items-baseline justify-between">
+												<div class="flex items-baseline gap-1.5">
+													<span
+														class="font-mono text-base font-bold text-amber-600 dark:text-amber-400"
+													>
+														{metrics.currentFormatted}
+													</span>
+													<span class="text-xs text-zinc-400">/</span>
+													<span
+														class="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+													>
+														{metrics.capacityFormatted}
+													</span>
+												</div>
+											</div>
+
+											<!-- Liquid Fill Progress Bar -->
+											<div
+												class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+												data-testid="tap-fill-progressbar"
+											>
+												<div
+													class="h-full rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 transition-all duration-500 {metrics.fillPct >
+													0
+														? 'shadow-[0_0_8px_rgba(245,158,11,0.35)]'
+														: ''}"
+													style="width: {metrics.fillPct}%"
+													role="progressbar"
+													aria-valuenow={metrics.fillPct}
+													aria-valuemin="0"
+													aria-valuemax="100"
+												></div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Batch Information (Located below fill level progress bar) -->
+									{#if item.assignedBatch}
+										<div
+											class={item.assignedKeg
+												? 'mt-3 border-t border-zinc-200/60 pt-2.5 dark:border-white/5'
+												: 'mt-2'}
+										>
+											<a
+												href="/batches/{item.assignedBatch.id}"
+												title={item.assignedBatch.name}
+												data-testid="assigned-batch-link"
+												class="group/batch block space-y-1 transition-colors"
+											>
+												<div class="flex items-center gap-2">
+													<span
+														class="font-mono text-xs font-bold text-amber-600 group-hover/batch:text-amber-500 group-hover/batch:underline dark:text-amber-400 dark:group-hover/batch:text-amber-300"
+													>
+														{item.assignedBatch.batchCode}
+													</span>
+													{#if item.assignedBatch.actualAbv != null}
+														<span
+															class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400"
+														>
+															{item.assignedBatch.actualAbv}% ABV
+														</span>
+													{/if}
+												</div>
+												<p
+													class="truncate text-sm font-bold text-zinc-900 group-hover/batch:text-amber-600 group-hover/batch:underline dark:text-white dark:group-hover/batch:text-amber-400"
+												>
+													{item.assignedBatch.name}
+												</p>
+												<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+													{item.assignedBatch.beerStyle}
+												</p>
+											</a>
+										</div>
+									{:else}
+										<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+											{t('taps.no_batch_assigned_desc')}
+										</p>
+									{/if}
+								</div>
+
+								<!-- Action Buttons -->
+								<div
+									class="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-200/60 pt-2 dark:border-white/5"
+								>
+									<button
+										type="button"
+										onclick={() => openAssignTapModal(item)}
+										class="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500 hover:text-zinc-950 dark:text-amber-400 dark:hover:bg-amber-400 dark:hover:text-zinc-950"
+									>
+										<Beer class="h-3.5 w-3.5" />
+										<span
+											>{item.assignedBatch
+												? t('taps.change_batch_btn')
+												: t('taps.assign_batch_btn')}</span
+										>
+									</button>
+
+									{#if item.subtype === 'RoundDisplayTap' || item.subtype === 'RectDisplayTap'}
+										<button
+											type="button"
+											onclick={() => openDisplayLinkModal(item)}
+											class="flex items-center gap-1.5 rounded-lg border border-zinc-200/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 shadow-xs transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+										>
+											<Tv class="h-3.5 w-3.5 text-zinc-500" />
+											<span>{t('taps.display_link_btn')}</span>
+										</button>
+									{/if}
+								</div>
+							</div>
 						{/if}
 					</div>
 				{/each}
@@ -1006,4 +1292,37 @@
 		itemToDelete = null;
 	}}
 	onDeleted={handleDeleted}
+/>
+
+<!-- Assign Tap Modal -->
+<AssignTapModal
+	open={assignTapModalOpen}
+	tap={tapToAssign}
+	onClose={() => {
+		assignTapModalOpen = false;
+		tapToAssign = null;
+	}}
+	onSaved={handleSaved}
+/>
+
+<!-- Assign Keg Modal -->
+<AssignKegModal
+	open={assignKegModalOpen}
+	keg={kegToAssign}
+	onClose={() => {
+		assignKegModalOpen = false;
+		kegToAssign = null;
+	}}
+	onSaved={handleSaved}
+/>
+
+<!-- Tap Display Link Modal -->
+<TapDisplayLinkModal
+	open={displayLinkModalOpen}
+	tap={tapForDisplayLink}
+	onClose={() => {
+		displayLinkModalOpen = false;
+		tapForDisplayLink = null;
+	}}
+	onUpdated={handleSaved}
 />

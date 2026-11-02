@@ -56,7 +56,8 @@
 		Clock,
 		Activity,
 		Maximize2,
-		QrCode
+		QrCode,
+		Printer
 	} from '@lucide/svelte';
 
 	let batch = $state<BatchDetailDto | null>(null);
@@ -160,8 +161,12 @@
 
 	async function handleSaveStageMeasurements(req: UpdateBatchRequest) {
 		if (!batch) return;
-		const updated = await api.batches.update(batch.id, req);
+		const [updated, eq] = await Promise.all([
+			api.batches.update(batch.id, req),
+			api.equipment.list().catch(() => equipmentList)
+		]);
 		batch = updated;
+		equipmentList = eq;
 		recalculateBatchAbv();
 	}
 
@@ -970,7 +975,14 @@
 				measuredOg: nextStage === 'Ferment' ? advanceMeasuredOg : null,
 				pitchTemperatureC: nextStage === 'Ferment' ? advancePitchTemp : null,
 				measuredFg: nextStage === 'Package' ? advanceMeasuredFg : null,
-				packagingVesselId: nextStage === 'Package' ? advancePackagingVesselId || null : null,
+				packagingVesselId:
+					nextStage === 'Package'
+						? advancePackagingVesselId
+							? advancePackagingVesselId
+							: batch.packagingVesselId
+								? '00000000-0000-0000-0000-000000000000'
+								: null
+						: null,
 				notes: advanceNotes.trim() || null,
 				measuredPreBoilVolumeLiters: nextStage === 'Boil' ? advancePreBoilVolume : null,
 				measuredPreBoilGravity: nextStage === 'Boil' ? advancePreBoilGravity : null,
@@ -978,9 +990,13 @@
 				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null
 			};
 			const previousStage = batch.currentStage;
-			const updated = await api.batches.advanceStage(batch.id, req);
+			const [updated, eq] = await Promise.all([
+				api.batches.advanceStage(batch.id, req),
+				api.equipment.list().catch(() => equipmentList)
+			]);
 			batchTimer.pauseStage(batch.id, previousStage);
 			batch = updated;
+			equipmentList = eq;
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
@@ -1151,6 +1167,15 @@
 				>
 					<QrCode class="h-4 w-4" />
 				</button>
+
+				<a
+					href="/batches/{batch.id}/labels/print"
+					title={t('labels.print_labels_btn')}
+					aria-label={t('labels.print_labels_btn')}
+					class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-zinc-200 p-2.5 text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-600 dark:border-zinc-800 dark:text-zinc-300 dark:hover:text-amber-400"
+				>
+					<Printer class="h-4 w-4" />
+				</a>
 
 				<button
 					type="button"
