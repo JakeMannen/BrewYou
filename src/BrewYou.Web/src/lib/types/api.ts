@@ -450,6 +450,8 @@ export interface TapAssignedBatchDto {
 	beerStyle: string;
 	actualAbv?: number | null;
 	assignedAt?: string | null;
+	recipeId?: string | null;
+	labelImageUrl?: string | null;
 }
 
 export interface AssignedKegSummaryDto {

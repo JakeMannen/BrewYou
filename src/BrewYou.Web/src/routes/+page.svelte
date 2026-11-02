@@ -4,15 +4,17 @@
 	import { auth } from '$lib/stores/auth.svelte';
 	import { brewery } from '$lib/stores/brewery.svelte';
 	import { dashboard } from '$lib/stores/dashboard.svelte';
-	import type { BatchSummaryDto } from '$lib/types/api';
+	import type { BatchSummaryDto, EquipmentDto } from '$lib/types/api';
 	import DashboardHeader from '$lib/components/dashboard/DashboardHeader.svelte';
 	import ActiveCellarCards from '$lib/components/dashboard/ActiveCellarCards.svelte';
 	import IdleCellarState from '$lib/components/dashboard/IdleCellarState.svelte';
+	import DashboardTapsCard from '$lib/components/dashboard/DashboardTapsCard.svelte';
 	import BrewTasksWidget from '$lib/components/dashboard/BrewTasksWidget.svelte';
 	import EquipmentHealthWidget from '$lib/components/dashboard/EquipmentHealthWidget.svelte';
 	import LiveReadingFeedWidget from '$lib/components/dashboard/LiveReadingFeedWidget.svelte';
 	import QuickReadingModal from '$lib/components/dashboard/QuickReadingModal.svelte';
 	import AdvanceStageModal from '$lib/components/dashboard/AdvanceStageModal.svelte';
+	import AssignTapModal from '$lib/components/inventory/AssignTapModal.svelte';
 	import { Loader2 } from '@lucide/svelte';
 
 	let readingModalOpen = $state(false);
@@ -20,6 +22,9 @@
 
 	let advanceModalOpen = $state(false);
 	let batchToAdvance = $state<BatchSummaryDto | null>(null);
+
+	let assignTapModalOpen = $state(false);
+	let tapToAssign = $state<EquipmentDto | null>(null);
 
 	onMount(() => {
 		dashboard.init();
@@ -56,6 +61,22 @@
 		advanceModalOpen = false;
 		batchToAdvance = null;
 	}
+
+	function handleOpenAssignTap(tap: EquipmentDto) {
+		tapToAssign = tap;
+		assignTapModalOpen = true;
+	}
+
+	function handleCloseAssignTap() {
+		assignTapModalOpen = false;
+		tapToAssign = null;
+	}
+
+	function handleTapSaved() {
+		assignTapModalOpen = false;
+		tapToAssign = null;
+		dashboard.refreshData();
+	}
 </script>
 
 <svelte:head>
@@ -74,10 +95,10 @@
 			</div>
 		</div>
 	{:else}
-		<!-- 2x2 Command Grid: Row 1 Cellar + Equipment | Row 2 Tasks + Live Reading Feed -->
+		<!-- Row 1: Cellar + Equipment Readiness -->
 		<div class="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
 			<!-- Row 1 Left: Active Fermentations / Cellar (8 cols) -->
-			<div class="order-1 flex flex-col lg:order-1 lg:col-span-8">
+			<div class="flex flex-col lg:col-span-8">
 				{#if dashboard.activeBatchCount > 0}
 					<ActiveCellarCards
 						batches={dashboard.activeBatches}
@@ -91,17 +112,23 @@
 			</div>
 
 			<!-- Row 1 Right: Equipment Readiness & Probes (4 cols) -->
-			<div class="order-3 flex flex-col lg:order-2 lg:col-span-4">
+			<div class="flex flex-col lg:col-span-4">
 				<EquipmentHealthWidget />
 			</div>
+		</div>
 
+		<!-- Full-Width Card: Displays all Taps side by side with batch image above each (Placed below first row) -->
+		<DashboardTapsCard taps={dashboard.taps} onAssignTap={handleOpenAssignTap} />
+
+		<!-- Row 2: Today's Tasks + Live Reading Feed -->
+		<div class="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
 			<!-- Row 2 Left: Today's Tasks & Operations Schedule (8 cols) -->
-			<div class="order-2 flex flex-col lg:order-3 lg:col-span-8">
+			<div class="flex flex-col lg:col-span-8">
 				<BrewTasksWidget />
 			</div>
 
 			<!-- Row 2 Right: Live Telemetry Stream & Quick Calculators (4 cols) -->
-			<div class="order-4 flex flex-col lg:order-4 lg:col-span-4">
+			<div class="flex flex-col lg:col-span-4">
 				<LiveReadingFeedWidget />
 			</div>
 		</div>
@@ -120,4 +147,11 @@
 	bind:isOpen={advanceModalOpen}
 	batch={batchToAdvance}
 	onClose={handleCloseAdvanceModal}
+/>
+
+<AssignTapModal
+	open={assignTapModalOpen}
+	tap={tapToAssign}
+	onClose={handleCloseAssignTap}
+	onSaved={handleTapSaved}
 />

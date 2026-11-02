@@ -51,15 +51,16 @@ BrewYou is strictly open-source craft brewing software: **all features are unive
 
 ### Interactive Dashboard & Cellar Operations
 
-The Interactive Dashboard serves as the central command center for your brewery. It provides a real-time overview of your entire operation, aggregating key performance indicators such as active batches, currently fermenting vessels, upcoming schedule milestones, and equipment readiness in one place. Fermenting batches are displayed as active cellar cards showing their current stage, gravity, temperature, and days in vessel. Live telemetry streams from connected IoT sensors feed directly into the dashboard widgets, and modal shortcuts allow quick stage advancements or gravity and temperature logging without navigating away.
+The Interactive Dashboard serves as the central command center for your brewery. It provides a real-time overview of your entire operation, aggregating key performance indicators such as active batches, currently fermenting vessels, upcoming schedule milestones, and equipment readiness in one place. Fermenting batches are displayed as active cellar cards showing their current stage, gravity, temperature, and days in vessel. A full-width Taps overview card displays all serving taps side by side with batch artwork/labels, live serving temperatures, keg volume/fill levels, and quick-action batch assignment. Live telemetry streams from connected IoT sensors feed directly into the dashboard widgets, and modal shortcuts allow quick stage advancements or gravity and temperature logging without navigating away.
 
 #### How to Use
 
 1. **View Brewery KPIs**: Navigate to the **Dashboard** (`/`) to check active batch counts, fermenter utilization, and system status at a glance.
 2. **Monitor Active Fermentations**: Inspect cellar cards to see fermentation stages, wort temperature, specific gravity, and days in vessel.
-3. **Log Measurements Quickly**: Click **Quick Log** (or the hydrometer icon) on any cellar card to record a new gravity or temperature reading.
-4. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from _Fermenting_ to _Conditioning_) with a single click.
-5. **Follow the Operations Schedule**: Review the calendar feed for upcoming brew days, dry hopping windows, and packaging milestones.
+3. **Inspect Serving Taps**: Review the full-width **Taps Overview** card placed below the cellar cards to see all taps side by side with beer style badges, ABV, batch artwork, keg fill levels, and serving temperatures. Click **Assign Batch** to swap or hook up a keg directly from the dashboard.
+4. **Log Measurements Quickly**: Click **Quick Log** (or the hydrometer icon) on any cellar card to record a new gravity or temperature reading.
+5. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from _Fermenting_ to _Conditioning_) with a single click.
+6. **Follow the Operations Schedule**: Review the calendar feed for upcoming brew days, dry hopping windows, and packaging milestones.
 
 ### Multi-Rig Brewery Setup & Loss Profiles
 
@@ -468,13 +469,13 @@ Configured via `appsettings.json`, `appsettings.Development.json`, or environmen
 
 Configured via `.env` or container environment variables:
 
-| Variable                        | Description                                       | Default Value            |
-| :------------------------------ | :------------------------------------------------ | :----------------------- |
+| Variable                        | Description                                                                                     | Default Value            |
+| :------------------------------ | :---------------------------------------------------------------------------------------------- | :----------------------- |
 | `PUBLIC_API_URL`                | Default base URL for browser API calls and external IoT telemetry webhooks (customizable in UI) | `http://localhost:5000`  |
-| `PUBLIC_APP_URL`                | Default public base URL for mobile QR code cellar labels (customizable in UI) | `http://localhost:3000`  |
-| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server | `http://apiservice:5000` |
-| `PORT`                          | Listening port for the SvelteKit node server      | `3000`                   |
-| `HOST`                          | Interface binding for SvelteKit server            | `0.0.0.0`                |
+| `PUBLIC_APP_URL`                | Default public base URL for mobile QR code cellar labels (customizable in UI)                   | `http://localhost:3000`  |
+| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server                                               | `http://apiservice:5000` |
+| `PORT`                          | Listening port for the SvelteKit node server                                                    | `3000`                   |
+| `HOST`                          | Interface binding for SvelteKit server                                                          | `0.0.0.0`                |
 
 ---
 

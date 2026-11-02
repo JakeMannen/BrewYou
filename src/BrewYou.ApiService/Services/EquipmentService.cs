@@ -27,13 +27,15 @@ public class EquipmentService : IEquipmentService
     private readonly IDataProtector? _displayProtector;
     private readonly ILabelImageProcessor? _imageProcessor;
     private readonly IMemoryCache? _cache;
+    private readonly ILabelUrlSigner? _urlSigner;
 
     public EquipmentService(
         BrewYouDbContext db,
         ILogger<EquipmentService> logger,
         IDataProtectionProvider? dataProtectionProvider = null,
         ILabelImageProcessor? imageProcessor = null,
-        IMemoryCache? cache = null)
+        IMemoryCache? cache = null,
+        ILabelUrlSigner? urlSigner = null)
     {
         _db = db;
         _logger = logger;
@@ -41,6 +43,7 @@ public class EquipmentService : IEquipmentService
         _displayProtector = dataProtectionProvider?.CreateProtector("BrewYou.TapDisplay");
         _imageProcessor = imageProcessor;
         _cache = cache;
+        _urlSigner = urlSigner;
     }
 
     public async Task<(List<EquipmentDto> Items, PaginationMeta Pagination)> GetEquipmentListAsync(
@@ -508,7 +511,21 @@ public class EquipmentService : IEquipmentService
         _ => capacity
     };
 
-    private static EquipmentDto ToDto(Equipment e, bool isOwner = true)
+    private string? ResolveBatchLabelUrl(Batch? batch)
+    {
+        if (batch == null || _urlSigner == null) return null;
+        if (batch.RecipeId.HasValue)
+        {
+            var recipeLabel = _db.RecipeLabels.AsNoTracking().FirstOrDefault(l => l.RecipeId == batch.RecipeId.Value);
+            if (recipeLabel != null)
+            {
+                return _urlSigner.BuildSignedImageUrl("", batch.RecipeId.Value, "card", 640, recipeLabel.Version);
+            }
+        }
+        return _urlSigner.BuildDefaultImageUrl("", "card", 640, DefaultLabelGenerator.CurrentSha256);
+    }
+
+    private EquipmentDto ToDto(Equipment e, bool isOwner = true)
     {
         var fillPercentage = e.CapacityLiters > 0
             ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
@@ -520,6 +537,7 @@ public class EquipmentService : IEquipmentService
             var kegFill = e.AssignedKeg.CapacityLiters > 0
                 ? Math.Round(Math.Clamp((e.AssignedKeg.CurrentVolumeLiters / e.AssignedKeg.CapacityLiters) * 100m, 0m, 100m), 1)
                 : 0m;
+            var kegBatch = e.AssignedKeg.AssignedBatch;
             assignedKegSummary = new AssignedKegSummaryDto(
                 e.AssignedKeg.Id,
                 e.AssignedKeg.Name,
@@ -528,14 +546,16 @@ public class EquipmentService : IEquipmentService
                 e.AssignedKeg.CurrentVolumeLiters,
                 e.AssignedKeg.Unit,
                 kegFill,
-                e.AssignedKeg.AssignedBatch != null
+                kegBatch != null
                     ? new TapAssignedBatchDto(
-                        e.AssignedKeg.AssignedBatch.Id,
-                        e.AssignedKeg.AssignedBatch.BatchCode,
-                        e.AssignedKeg.AssignedBatch.Name,
-                        e.AssignedKeg.AssignedBatch.BeerStyle,
-                        e.AssignedKeg.AssignedBatch.AlcoholByVolume,
-                        e.AssignedKeg.AssignedAt)
+                        kegBatch.Id,
+                        kegBatch.BatchCode,
+                        kegBatch.Name,
+                        kegBatch.BeerStyle,
+                        kegBatch.AlcoholByVolume,
+                        e.AssignedKeg.AssignedAt,
+                        kegBatch.RecipeId,
+                        ResolveBatchLabelUrl(kegBatch))
                     : null,
                 e.AssignedKeg.CurrentTemperatureC,
                 e.AssignedKeg.TemperatureUpdatedAt
@@ -642,7 +662,9 @@ public class EquipmentService : IEquipmentService
                     effectiveBatch.Name,
                     effectiveBatch.BeerStyle,
                     effectiveBatch.AlcoholByVolume,
-                    effectiveAssignedAt)
+                    effectiveAssignedAt,
+                    effectiveBatch.RecipeId,
+                    ResolveBatchLabelUrl(effectiveBatch))
                 : null,
             e.AssignedKegId,
             assignedKegSummary,

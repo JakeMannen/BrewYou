@@ -1861,7 +1861,16 @@
 		"advancing": "Changement en cours...",
 		"status_occupied": "Occupée",
 		"status_ready": "Prête",
-		"no_equipment_configured": "Aucun équipement configuré pour le moment."
+		"no_equipment_configured": "Aucun équipement configuré pour le moment.",
+		"taps_title": "Au robinet & service",
+		"taps_subtitle": "Liste des tirages, volumes des fûts et brassins en service",
+		"taps_empty_title": "Aucun robinet configuré",
+		"taps_empty_desc": "Configurez des robinets dans votre inventaire d'équipement pour surveiller les niveaux des fûts et les lignes de tirage.",
+		"manage_taps": "Gérer les robinets",
+		"tap_pouring": "En service",
+		"tap_empty": "Robinet vide",
+		"tap_no_batch": "Aucun brassin assigné",
+		"tap_assign_action": "Assigner un brassin"
 	},
 	"fermentation_profile": {
 		"title": "Profil et étapes de fermentation",
