@@ -1150,4 +1150,68 @@ public class BatchServiceTests
         mlt.CurrentVolumeLiters.Should().Be(0m);
         fermenter.CurrentVolumeLiters.Should().Be(0m);
     }
+
+    [Fact]
+    public async Task AdvanceStageAsync_ToPackage_WithKeg_AssignsKegAndUpdatesVolume()
+    {
+        var userId = $"brewer_pkg_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Test Setup", IsDefault = true };
+        var fermenter = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, Name = "Conical", Type = EquipmentType.Fermenter, Capacity = 30m, CapacityLiters = 30m, Unit = VolumeUnit.Liters };
+        var keg = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, Name = "Cornelius 19L", Type = EquipmentType.Keg, Capacity = 19m, CapacityLiters = 19m, Unit = VolumeUnit.Liters };
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.AddRange(fermenter, keg);
+        await _db.SaveChangesAsync();
+
+        var (createRes, created, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: $"B-{Guid.NewGuid():N}"[..18],
+            Name: "Package Test IPA",
+            BeerStyle: "IPA",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 19.0m,
+            TargetOg: 1.055m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.9m,
+            TargetIbu: 40m,
+            TargetColorSrm: 6m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: fermenter.Id
+        ), userId);
+
+        createRes.Should().Be(BatchAccessResult.Success);
+
+        // Advance to Ferment
+        await _batchService.AdvanceStageAsync(created!.Id, new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m), userId);
+        fermenter.CurrentVolumeLiters.Should().Be(19.0m);
+
+        // Advance to Package with Keg
+        var (pkgRes, pkgBatch, _) = await _batchService.AdvanceStageAsync(
+            created.Id,
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: keg.Id, MeasuredPackagedVolumeLiters: 18.0m, MeasuredFg: 1.010m),
+            userId);
+
+        pkgRes.Should().Be(BatchAccessResult.Success);
+        pkgBatch!.Status.Should().Be(BatchStatus.Completed);
+        fermenter.CurrentVolumeLiters.Should().Be(0m);
+
+        keg.AssignedBatchId.Should().Be(created.Id);
+        keg.AssignedAt.Should().NotBeNull();
+        keg.CurrentVolumeLiters.Should().Be(18.0m);
+
+        // UpdateBatchAsync with new packaged volume
+        var (updRes, _, _) = await _batchService.UpdateBatchAsync(
+            created.Id,
+            new UpdateBatchRequest(MeasuredPackagedVolumeLiters: 17.5m),
+            userId);
+        updRes.Should().Be(BatchAccessResult.Success);
+        keg.CurrentVolumeLiters.Should().Be(17.5m);
+
+        // Delete batch unassigns keg
+        var delRes2 = await _batchService.DeleteBatchAsync(created.Id, userId);
+        delRes2.Should().Be(BatchAccessResult.Success);
+        keg.AssignedBatchId.Should().BeNull();
+        keg.CurrentVolumeLiters.Should().Be(0m);
+    }
 }

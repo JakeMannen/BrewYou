@@ -161,8 +161,12 @@
 
 	async function handleSaveStageMeasurements(req: UpdateBatchRequest) {
 		if (!batch) return;
-		const updated = await api.batches.update(batch.id, req);
+		const [updated, eq] = await Promise.all([
+			api.batches.update(batch.id, req),
+			api.equipment.list().catch(() => equipmentList)
+		]);
 		batch = updated;
+		equipmentList = eq;
 		recalculateBatchAbv();
 	}
 
@@ -971,7 +975,14 @@
 				measuredOg: nextStage === 'Ferment' ? advanceMeasuredOg : null,
 				pitchTemperatureC: nextStage === 'Ferment' ? advancePitchTemp : null,
 				measuredFg: nextStage === 'Package' ? advanceMeasuredFg : null,
-				packagingVesselId: nextStage === 'Package' ? advancePackagingVesselId || null : null,
+				packagingVesselId:
+					nextStage === 'Package'
+						? advancePackagingVesselId
+							? advancePackagingVesselId
+							: batch.packagingVesselId
+								? '00000000-0000-0000-0000-000000000000'
+								: null
+						: null,
 				notes: advanceNotes.trim() || null,
 				measuredPreBoilVolumeLiters: nextStage === 'Boil' ? advancePreBoilVolume : null,
 				measuredPreBoilGravity: nextStage === 'Boil' ? advancePreBoilGravity : null,
@@ -979,9 +990,13 @@
 				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null
 			};
 			const previousStage = batch.currentStage;
-			const updated = await api.batches.advanceStage(batch.id, req);
+			const [updated, eq] = await Promise.all([
+				api.batches.advanceStage(batch.id, req),
+				api.equipment.list().catch(() => equipmentList)
+			]);
 			batchTimer.pauseStage(batch.id, previousStage);
 			batch = updated;
+			equipmentList = eq;
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
