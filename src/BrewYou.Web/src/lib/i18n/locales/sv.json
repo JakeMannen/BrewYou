@@ -47,7 +47,12 @@
 		"optional": "Valfritt",
 		"days": "Dagar",
 		"days_short": "d",
-		"minutes_short": "min"
+		"minutes_short": "min",
+		"copy": "Kopiera",
+		"copied": "Kopierad!",
+		"back": "Tillbaka",
+		"uploading": "Laddar upp...",
+		"error_generic": "Ett oväntat fel uppstod. Försök igen."
 	},
 	"metrics": {
 		"og": "Stamvörtstyrka (OG)",
@@ -997,6 +1002,7 @@
 		"language": {
 			"title": "Språk & Region",
 			"desc": "Välj önskat språk för applikationen.",
+			"select_label": "Välj språk",
 			"auto_save_hint": "Ändringar sparas direkt",
 			"en": "English",
 			"sv": "Svenska",

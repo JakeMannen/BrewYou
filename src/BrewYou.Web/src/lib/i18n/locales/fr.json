@@ -60,7 +60,12 @@
 		"optional": "Facultatif",
 		"days": "Jours",
 		"days_short": "j",
-		"minutes_short": "min"
+		"minutes_short": "min",
+		"copy": "Copier",
+		"copied": "Copié !",
+		"back": "Retour",
+		"uploading": "Téléversement...",
+		"error_generic": "Une erreur inattendue est survenue. Veuillez réessayer."
 	},
 	"metrics": {
 		"og": "Densité initiale (OG)",
@@ -1342,6 +1347,7 @@
 		"language": {
 			"title": "Langue & Région",
 			"desc": "Choisissez votre langue préférée pour l'application",
+			"select_label": "Sélectionner la langue",
 			"auto_save_hint": "Les modifications s'appliquent immédiatement",
 			"en": "English",
 			"sv": "Svenska",

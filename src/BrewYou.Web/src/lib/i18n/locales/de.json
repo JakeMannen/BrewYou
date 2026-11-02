@@ -60,7 +60,12 @@
 		"optional": "Optional",
 		"days": "Tage",
 		"days_short": "T",
-		"minutes_short": "Min"
+		"minutes_short": "Min",
+		"copy": "Kopieren",
+		"copied": "Kopiert!",
+		"back": "Zurück",
+		"uploading": "Wird hochgeladen...",
+		"error_generic": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut."
 	},
 	"metrics": {
 		"og": "Stammwürze (OG)",
@@ -1342,6 +1347,7 @@
 		"language": {
 			"title": "Sprache & Region",
 			"desc": "Wählen Sie Ihre bevorzugte Anwendungssprache",
+			"select_label": "Sprache auswählen",
 			"auto_save_hint": "Änderungen werden sofort angewendet",
 			"en": "English",
 			"sv": "Svenska",

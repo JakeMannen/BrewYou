@@ -329,6 +329,92 @@ describe('i18n Translation Engine', () => {
 		);
 	});
 
+	it('translates common action and generic feedback keys across all locales', () => {
+		i18n.setLocale('en');
+		expect(t('common.copy')).toBe('Copy');
+		expect(t('common.copied')).toBe('Copied!');
+		expect(t('common.back')).toBe('Back');
+		expect(t('common.uploading')).toBe('Uploading...');
+		expect(t('common.error_generic')).toBe('An unexpected error occurred. Please try again.');
+		expect(t('settings.language.select_label')).toBe('Select language');
+
+		i18n.setLocale('sv');
+		expect(t('common.copy')).toBe('Kopiera');
+		expect(t('common.copied')).toBe('Kopierad!');
+		expect(t('common.back')).toBe('Tillbaka');
+		expect(t('common.uploading')).toBe('Laddar upp...');
+		expect(t('common.error_generic')).toBe('Ett oväntat fel uppstod. Försök igen.');
+		expect(t('settings.language.select_label')).toBe('Välj språk');
+
+		i18n.setLocale('de');
+		expect(t('common.copy')).toBe('Kopieren');
+		expect(t('common.copied')).toBe('Kopiert!');
+		expect(t('common.back')).toBe('Zurück');
+		expect(t('common.uploading')).toBe('Wird hochgeladen...');
+		expect(t('common.error_generic')).toBe(
+			'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.'
+		);
+		expect(t('settings.language.select_label')).toBe('Sprache auswählen');
+
+		i18n.setLocale('fr');
+		expect(t('common.copy')).toBe('Copier');
+		expect(t('common.copied')).toBe('Copié !');
+		expect(t('common.back')).toBe('Retour');
+		expect(t('common.uploading')).toBe('Téléversement...');
+		expect(t('common.error_generic')).toBe(
+			'Une erreur inattendue est survenue. Veuillez réessayer.'
+		);
+		expect(t('settings.language.select_label')).toBe('Sélectionner la langue');
+
+		i18n.setLocale('es');
+		expect(t('common.copy')).toBe('Copiar');
+		expect(t('common.copied')).toBe('¡Copiado!');
+		expect(t('common.back')).toBe('Volver');
+		expect(t('common.uploading')).toBe('Subiendo...');
+		expect(t('common.error_generic')).toBe(
+			'Ocurrió un error inesperado. Por favor, inténtelo de nuevo.'
+		);
+		expect(t('settings.language.select_label')).toBe('Seleccionar idioma');
+	});
+
+	it('ensures all static t(...) keys used in source code exist in translation dictionary', () => {
+		const enKeys = new Set(getAllKeys(en));
+		const srcDir = path.resolve(__dirname, '../../');
+
+		function scanDir(dir: string): string[] {
+			let files: string[] = [];
+			for (const item of fs.readdirSync(dir)) {
+				const full = path.join(dir, item);
+				if (fs.statSync(full).isDirectory()) {
+					files = files.concat(scanDir(full));
+				} else if (
+					full.endsWith('.svelte') ||
+					(full.endsWith('.ts') && !full.endsWith('.d.ts') && !full.endsWith('.test.ts'))
+				) {
+					files.push(full);
+				}
+			}
+			return files;
+		}
+
+		const files = scanDir(srcDir);
+		const missing: { key: string; file: string }[] = [];
+		const tRegex = /\bt\(\s*['"]([a-zA-Z0-9_.]+)['"]/g;
+
+		for (const file of files) {
+			const content = fs.readFileSync(file, 'utf8');
+			let match;
+			while ((match = tRegex.exec(content)) !== null) {
+				const key = match[1];
+				if (!enKeys.has(key)) {
+					missing.push({ key, file: path.relative(srcDir, file) });
+				}
+			}
+		}
+
+		expect(missing).toEqual([]);
+	});
+
 	it('falls back to English when a key is absent', () => {
 		i18n.setLocale('de');
 		expect(t('nonexistent.key')).toBe('nonexistent.key');

@@ -60,7 +60,12 @@
 		"optional": "Optional",
 		"days": "Days",
 		"days_short": "d",
-		"minutes_short": "min"
+		"minutes_short": "min",
+		"copy": "Copy",
+		"copied": "Copied!",
+		"back": "Back",
+		"uploading": "Uploading...",
+		"error_generic": "An unexpected error occurred. Please try again."
 	},
 	"metrics": {
 		"og": "Original Gravity",
@@ -1342,6 +1347,7 @@
 		"language": {
 			"title": "Language & Region",
 			"desc": "Choose your preferred application language.",
+			"select_label": "Select language",
 			"auto_save_hint": "Changes apply automatically",
 			"en": "English",
 			"sv": "Svenska",
