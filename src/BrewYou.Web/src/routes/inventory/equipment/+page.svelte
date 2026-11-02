@@ -820,7 +820,7 @@
 											{#if item.type === 'Tap' && item.assignedKeg}
 												<span
 													data-testid="tap-keg-temp-badge"
-													class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400"
+													class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 												>
 													{t('taps.from_keg')}: {item.assignedKeg.name}
 												</span>
@@ -1130,13 +1130,13 @@
 											</span>
 											{#if item.assignedKeg}
 												<span
-													class="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-amber-600 dark:text-amber-400"
+													class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400"
 												>
 													{t('taps.keg_badge')}: {item.assignedKeg.name}
 												</span>
 											{:else if item.assignedBatch}
 												<span
-													class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[9px] font-bold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+													class="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-mono text-[10px] font-bold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
 												>
 													{t('taps.direct_batch_badge')}
 												</span>
