@@ -1143,20 +1143,6 @@
 											{/if}
 										</div>
 										<div class="flex items-center gap-1.5">
-											{#if item.assignedKeg}
-												<span
-													class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {status.classes}"
-													data-testid="tap-fill-badge"
-												>
-													{status.text}
-												</span>
-											{:else if item.assignedBatch}
-												<span
-													class="rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-mono text-[10px] font-bold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-												>
-													{t('taps.keg_fill_na')}
-												</span>
-											{/if}
 											<span
 												class="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold {item.assignedBatch
 													? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
