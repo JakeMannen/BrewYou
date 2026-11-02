@@ -355,4 +355,54 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         kickedKeg.AssignedBatch.Should().BeNull();
         kickedKeg.CurrentVolumeLiters.Should().Be(0m);
     }
+
+    [Fact]
+    public async Task TapDisplayLink_WhenUserConfiguredNetworkSettings_UsesConfiguredHostnames()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("tapnetwork");
+        var setup = await GetDefaultSetupAsync(client);
+
+        // Configure user network hostnames
+        var prefRes = await client.PutAsJsonAsync("/api/v1/auth/me/preferences", new UpdateUserPreferencesRequest(
+            AppBaseUrl: "http://192.168.1.188:3000",
+            WebhookBaseUrl: "http://192.168.1.188:5000"
+        ));
+        prefRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Create tap
+        var createTapRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Network Tap 1",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.RectDisplayTap,
+            Capacity: 0m,
+            Unit: VolumeUnit.Liters
+        ));
+        var tap = (await createTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // Enable display link
+        var enableRes = await client.PostAsync($"/api/v1/inventory/equipment/{tap.Id}/display-link", null);
+        enableRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var linkDto = (await enableRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayLinkDto>>())!.Data!;
+
+        linkDto.KioskUrl.Should().StartWith("http://192.168.1.188:3000/tap/");
+        linkDto.ImageUrl.Should().StartWith("http://192.168.1.188:5000/api/v1/tap/");
+        linkDto.ManifestUrl.Should().StartWith("http://192.168.1.188:5000/api/v1/tap/");
+
+        // Query display link via GET
+        var getRes = await client.GetAsync($"/api/v1/inventory/equipment/{tap.Id}/display-link");
+        getRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getLinkDto = (await getRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayLinkDto>>())!.Data!;
+        getLinkDto.KioskUrl.Should().StartWith("http://192.168.1.188:3000/tap/");
+        getLinkDto.ImageUrl.Should().StartWith("http://192.168.1.188:5000/api/v1/tap/");
+        getLinkDto.ManifestUrl.Should().StartWith("http://192.168.1.188:5000/api/v1/tap/");
+
+        // Query public manifest - image URL must also use configured WebhookBaseUrl
+        var token = linkDto.ManifestUrl.TrimEnd('/').Split('/').Last();
+        var unauthClient = _factory.CreateClient();
+        var manifestRes = await unauthClient.GetAsync($"/api/v1/tap/{token}");
+        manifestRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var manifest = (await manifestRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
+        manifest.ImageUrl.Should().StartWith("http://192.168.1.188:5000/api/v1/tap/");
+    }
 }

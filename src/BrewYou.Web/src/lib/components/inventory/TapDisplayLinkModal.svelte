@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { api, ApiClientError, getApiBaseUrl } from '$lib/api/client';
+	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { isLocalhostUrl } from '$lib/utils/batchQr';
 	import type { EquipmentDto, TapDisplayLinkDto } from '$lib/types/api';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import {
@@ -12,7 +14,9 @@
 		RefreshCw,
 		Trash2,
 		Loader2,
-		ShieldCheck
+		ShieldCheck,
+		AlertTriangle,
+		Globe
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -34,8 +38,49 @@
 	let showRegenConfirm = $state(false);
 	let showRevokeConfirm = $state(false);
 
+	let customAppBase = $state('');
+	let customApiBase = $state('');
+	let showOverrideInput = $state(false);
+
+	function extractPath(urlString: string | null | undefined): string {
+		if (!urlString) return '';
+		try {
+			if (urlString.startsWith('http://') || urlString.startsWith('https://')) {
+				const parsed = new URL(urlString);
+				return `${parsed.pathname}${parsed.search}`;
+			}
+		} catch {
+			// ignore fallback
+		}
+		return urlString.startsWith('/') ? urlString : `/${urlString}`;
+	}
+
+	let activeAppBaseUrl = $derived(
+		customAppBase.trim() ? customAppBase.trim().replace(/\/+$/, '') : settings.resolvedAppBaseUrl
+	);
+
+	let activeApiBaseUrl = $derived.by(() => {
+		if (customApiBase.trim()) {
+			return customApiBase.trim().replace(/\/+$/, '');
+		}
+		if (customAppBase.trim()) {
+			const trimmed = customAppBase.trim().replace(/\/+$/, '');
+			if (!isLocalhostUrl(trimmed) && trimmed.includes(':3000')) {
+				return trimmed.replace(':3000', ':5000');
+			}
+			return trimmed;
+		}
+		return settings.resolvedWebhookBaseUrl;
+	});
+
+	let isLocalhost = $derived(isLocalhostUrl(activeAppBaseUrl) || isLocalhostUrl(activeApiBaseUrl));
+
 	$effect(() => {
 		if (open && tap) {
+			customAppBase = '';
+			customApiBase = '';
+			showOverrideInput = false;
+			copiedKey = null;
 			loadDisplayLink();
 		}
 	});
@@ -98,32 +143,20 @@
 
 	let kioskUrl = $derived.by(() => {
 		if (!linkData?.kioskUrl) return '';
-		if (linkData.kioskUrl.startsWith('http://') || linkData.kioskUrl.startsWith('https://')) {
-			return linkData.kioskUrl;
-		}
-		if (typeof window !== 'undefined') {
-			const clean = linkData.kioskUrl.startsWith('/') ? linkData.kioskUrl : `/${linkData.kioskUrl}`;
-			return `${window.location.origin}${clean}`;
-		}
-		return linkData.kioskUrl;
+		const path = extractPath(linkData.kioskUrl);
+		return `${activeAppBaseUrl}${path}`;
 	});
 
 	let fullImageUrl = $derived.by(() => {
 		if (!linkData?.imageUrl) return '';
-		if (linkData.imageUrl.startsWith('http://') || linkData.imageUrl.startsWith('https://')) {
-			return linkData.imageUrl;
-		}
-		const base = getApiBaseUrl().replace(/\/+$/, '');
-		return `${base}${linkData.imageUrl.startsWith('/') ? linkData.imageUrl : `/${linkData.imageUrl}`}`;
+		const path = extractPath(linkData.imageUrl);
+		return `${activeApiBaseUrl}${path}`;
 	});
 
 	let fullManifestUrl = $derived.by(() => {
 		if (!linkData?.manifestUrl) return '';
-		if (linkData.manifestUrl.startsWith('http://') || linkData.manifestUrl.startsWith('https://')) {
-			return linkData.manifestUrl;
-		}
-		const base = getApiBaseUrl().replace(/\/+$/, '');
-		return `${base}${linkData.manifestUrl.startsWith('/') ? linkData.manifestUrl : `/${linkData.manifestUrl}`}`;
+		const path = extractPath(linkData.manifestUrl);
+		return `${activeApiBaseUrl}${path}`;
 	});
 
 	async function copyToClipboard(text: string, key: string) {
@@ -214,6 +247,129 @@
 						<Loader2 class="h-6 w-6 animate-spin text-amber-500" />
 					</div>
 				{:else if linkData?.kioskUrl}
+					{#if isLocalhost}
+						<!-- Localhost Warning Alert -->
+						<div
+							class="space-y-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"
+							role="alert"
+							data-testid="tap-localhost-warning"
+						>
+							<div class="flex items-start gap-2">
+								<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+								<div class="flex-1 space-y-1">
+									<p class="leading-relaxed font-medium">
+										{t('taps.localhost_warning')}
+									</p>
+									<div class="flex flex-wrap items-center gap-3 pt-0.5 text-[11px]">
+										<button
+											type="button"
+											onclick={() => (showOverrideInput = !showOverrideInput)}
+											data-testid="tap-override-toggle-btn"
+											class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+										>
+											{t('taps.override_host_btn')}
+										</button>
+										<span>•</span>
+										<a
+											href="/settings#connectivity"
+											class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+										>
+											{t('taps.open_settings')}
+										</a>
+									</div>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					{#if showOverrideInput}
+						<!-- Network Host Override Section -->
+						<div
+							class="space-y-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-white/10 dark:bg-zinc-900/60"
+							data-testid="tap-override-section"
+						>
+							<div class="space-y-1">
+								<label
+									for="tap-override-app-host"
+									class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+								>
+									{t('taps.override_app_host_label')}
+								</label>
+								<div class="flex items-center gap-2">
+									<div class="relative flex-1">
+										<Globe
+											class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+										/>
+										<input
+											id="tap-override-app-host"
+											data-testid="tap-override-app-input"
+											type="text"
+											bind:value={customAppBase}
+											placeholder={settings.resolvedAppBaseUrl}
+											class="w-full rounded-lg border border-zinc-200 bg-white py-1.5 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
+										/>
+									</div>
+									{#if customAppBase}
+										<button
+											type="button"
+											onclick={() => (customAppBase = '')}
+											data-testid="tap-reset-app-btn"
+											class="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+										>
+											{t('taps.reset_override')}
+										</button>
+									{/if}
+								</div>
+							</div>
+
+							<div class="space-y-1">
+								<label
+									for="tap-override-api-host"
+									class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+								>
+									{t('taps.override_api_host_label')}
+								</label>
+								<div class="flex items-center gap-2">
+									<div class="relative flex-1">
+										<Globe
+											class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+										/>
+										<input
+											id="tap-override-api-host"
+											data-testid="tap-override-api-input"
+											type="text"
+											bind:value={customApiBase}
+											placeholder={activeApiBaseUrl}
+											class="w-full rounded-lg border border-zinc-200 bg-white py-1.5 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
+										/>
+									</div>
+									{#if customApiBase}
+										<button
+											type="button"
+											onclick={() => (customApiBase = '')}
+											data-testid="tap-reset-api-btn"
+											class="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+										>
+											{t('taps.reset_override')}
+										</button>
+									{/if}
+								</div>
+							</div>
+						</div>
+					{:else if !isLocalhost}
+						<div class="flex justify-end">
+							<button
+								type="button"
+								onclick={() => (showOverrideInput = true)}
+								data-testid="tap-override-toggle-btn"
+								class="flex items-center gap-1.5 text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+							>
+								<Globe class="h-3.5 w-3.5" />
+								<span>{t('taps.override_host_btn')}</span>
+							</button>
+						</div>
+					{/if}
+
 					<!-- Live Kiosk Web View URL -->
 					<div class="space-y-1.5">
 						<div class="flex items-center justify-between">
@@ -235,11 +391,13 @@
 								type="text"
 								readonly
 								value={kioskUrl}
+								data-testid="tap-kiosk-url-input"
 								class="h-9 flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-3 font-mono text-xs text-zinc-900 select-all dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 							/>
 							<button
 								type="button"
 								onclick={() => copyToClipboard(kioskUrl, 'kiosk')}
+								data-testid="copy-kiosk-link-btn"
 								class="flex h-9 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
 							>
 								{#if copiedKey === 'kiosk'}
@@ -266,11 +424,13 @@
 								type="text"
 								readonly
 								value={fullImageUrl}
+								data-testid="tap-image-url-input"
 								class="h-9 flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-3 font-mono text-xs text-zinc-900 select-all dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 							/>
 							<button
 								type="button"
 								onclick={() => copyToClipboard(fullImageUrl, 'image')}
+								data-testid="copy-image-link-btn"
 								class="flex h-9 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
 							>
 								{#if copiedKey === 'image'}
@@ -297,11 +457,13 @@
 								type="text"
 								readonly
 								value={fullManifestUrl}
+								data-testid="tap-manifest-url-input"
 								class="h-9 flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-3 font-mono text-xs text-zinc-900 select-all dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 							/>
 							<button
 								type="button"
 								onclick={() => copyToClipboard(fullManifestUrl, 'manifest')}
+								data-testid="copy-manifest-link-btn"
 								class="flex h-9 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
 							>
 								{#if copiedKey === 'manifest'}

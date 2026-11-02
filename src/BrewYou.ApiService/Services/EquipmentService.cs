@@ -938,8 +938,7 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.NotFound, null, "Failed to decrypt tap display token.");
         }
 
-        var cleanApi = apiBaseUrl.TrimEnd('/');
-        var cleanApp = appBaseUrl.TrimEnd('/');
+        var (cleanApp, cleanApi) = await ResolveNetworkBaseUrlsAsync(userId, appBaseUrl, apiBaseUrl);
         var link = new TapDisplayLinkDto(
             ManifestUrl: $"{cleanApi}/api/v1/tap/{plainToken}",
             ImageUrl: $"{cleanApi}/api/v1/tap/{plainToken}/image",
@@ -985,8 +984,7 @@ public class EquipmentService : IEquipmentService
 
         await _db.SaveChangesAsync();
 
-        var cleanApi = apiBaseUrl.TrimEnd('/');
-        var cleanApp = appBaseUrl.TrimEnd('/');
+        var (cleanApp, cleanApi) = await ResolveNetworkBaseUrlsAsync(userId, appBaseUrl, apiBaseUrl);
         var link = new TapDisplayLinkDto(
             ManifestUrl: $"{cleanApi}/api/v1/tap/{plainToken}",
             ImageUrl: $"{cleanApi}/api/v1/tap/{plainToken}/image",
@@ -1029,6 +1027,39 @@ public class EquipmentService : IEquipmentService
         return (EquipmentAccessResult.Success, null);
     }
 
+    private async Task<(string AppBaseUrl, string ApiBaseUrl)> ResolveNetworkBaseUrlsAsync(string userId, string fallbackAppBaseUrl, string fallbackApiBaseUrl)
+    {
+        var userNetwork = await _db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.AppBaseUrl, u.WebhookBaseUrl })
+            .FirstOrDefaultAsync();
+
+        var appBase = !string.IsNullOrWhiteSpace(userNetwork?.AppBaseUrl)
+            ? userNetwork.AppBaseUrl.TrimEnd('/')
+            : fallbackAppBaseUrl.TrimEnd('/');
+
+        string apiBase;
+        if (!string.IsNullOrWhiteSpace(userNetwork?.WebhookBaseUrl))
+        {
+            apiBase = userNetwork.WebhookBaseUrl.TrimEnd('/');
+        }
+        else if (!string.IsNullOrWhiteSpace(userNetwork?.AppBaseUrl) &&
+                 !userNetwork.AppBaseUrl.Contains("localhost") &&
+                 !userNetwork.AppBaseUrl.Contains("127.0.0.1"))
+        {
+            apiBase = userNetwork.AppBaseUrl.Contains(":3000")
+                ? userNetwork.AppBaseUrl.Replace(":3000", ":5000").TrimEnd('/')
+                : userNetwork.AppBaseUrl.TrimEnd('/');
+        }
+        else
+        {
+            apiBase = fallbackApiBaseUrl.TrimEnd('/');
+        }
+
+        return (appBase, apiBase);
+    }
+
     public async Task<(TapDisplayManifestDto? Manifest, string ETag)?> GetTapManifestByTokenAsync(
         string token, string apiBaseUrl)
     {
@@ -1037,6 +1068,7 @@ public class EquipmentService : IEquipmentService
 
         var equipment = await _db.Equipment
             .AsNoTracking()
+            .Include(e => e.User)
             .Include(e => e.AssignedBatch)
                 .ThenInclude(b => b!.Recipe)
                     .ThenInclude(r => r!.Label)
@@ -1096,7 +1128,26 @@ public class EquipmentService : IEquipmentService
             : $"empty:{equipment.UpdatedAt.Ticks}";
 
         var etag = $"\"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(labelVersion))).ToLowerInvariant()}\"";
-        var imageUrl = $"{apiBaseUrl.TrimEnd('/')}/api/v1/tap/{token.Trim().ToLowerInvariant()}/image";
+
+        string effectiveApiBase;
+        if (!string.IsNullOrWhiteSpace(equipment.User?.WebhookBaseUrl))
+        {
+            effectiveApiBase = equipment.User.WebhookBaseUrl.TrimEnd('/');
+        }
+        else if (!string.IsNullOrWhiteSpace(equipment.User?.AppBaseUrl) &&
+                 !equipment.User.AppBaseUrl.Contains("localhost") &&
+                 !equipment.User.AppBaseUrl.Contains("127.0.0.1"))
+        {
+            effectiveApiBase = equipment.User.AppBaseUrl.Contains(":3000")
+                ? equipment.User.AppBaseUrl.Replace(":3000", ":5000").TrimEnd('/')
+                : equipment.User.AppBaseUrl.TrimEnd('/');
+        }
+        else
+        {
+            effectiveApiBase = apiBaseUrl.TrimEnd('/');
+        }
+
+        var imageUrl = $"{effectiveApiBase}/api/v1/tap/{token.Trim().ToLowerInvariant()}/image";
 
         var manifest = new TapDisplayManifestDto(
             Status: status,

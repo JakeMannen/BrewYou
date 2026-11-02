@@ -203,6 +203,7 @@ The Equipment Inventory provides digital twin management for your brewery's hard
   - **Interactive Kiosk Web App (`/tap/{token}`)**: Standalone full-bleed display screen designed for smart TVs, iPads, and Raspberry Pi kiosk browsers. Runs outside authentication curtains and polls every 60 seconds to automatically update beer metadata and keg fill levels when taps change.
   - **Pre-Rendered Image Endpoint (`/api/v1/tap/{token}/image`)**: High-performance HTTP endpoint serving pre-rendered, pre-cropped WebP/JPEG graphics with circular alpha masking and measured ABV typography overlay. Ideal for low-memory microcontrollers or direct framebuffers.
   - **JSON Manifest API (`/api/v1/tap/{token}`)**: Public lightweight JSON payload delivering shape, dimensions, status, beer name, measured ABV, keg fill level (`XX%` or `N/A`), keg name, keg capacity, and remaining volume for custom ESP32/e-paper implementations.
+  - **Network Settings Integration & Host Customization**: Tap dialog links (kiosk web view, rendered image, and JSON manifest) dynamically take advantage of user-configured network hostnames (**Settings ➔ Network ➔ Network & External Access**), flag localhost loopback addresses with actionable warnings, and provide inline host overrides with quick settings access for seamless Wi-Fi kiosk and IoT microcontroller deployments.
 
 #### How to Use
 
@@ -210,7 +211,7 @@ The Equipment Inventory provides digital twin management for your brewery's hard
 2. **Add a Dispensing Tap**: Click **Add Equipment**, select **Tap**, choose your subtype (_Standard Tap_, _Round Display Tap_, or _Rectangular Display Tap_), and configure display resolution and orientation if equipped with a digital screen.
 3. **Fill a Keg**: On any keg in your inventory, click **Fill Keg** to assign an active batch in the Conditioning or Packaging stage and specify the filled volume (or kick/empty an active keg).
 4. **Assign to Tap**: On any tap card, click **Assign Tap** to choose between **Tap a Keg** (with fill level tracking) or **Direct Batch** (quick mode).
-5. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. You can regenerate or revoke tokens with a single click.
+5. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. The modal automatically reflects your configured network hostnames, highlights localhost warnings with inline host customization, and lets you regenerate or revoke tokens with a single click.
 6. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
 7. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
 
