@@ -31,7 +31,12 @@
 		return b.targetAbv ?? null;
 	}
 
-	let displayAbv = $derived(computeBatchAbv(batch));
+	function formatAbv(val: number | null | undefined): string | null {
+		if (val == null || isNaN(val)) return null;
+		return val.toFixed(1);
+	}
+
+	let displayAbv = $derived(formatAbv(computeBatchAbv(batch)));
 
 	const PRESETS = [
 		{ name: 'Small (50x70mm)', w: 50, h: 70, count: 12 },

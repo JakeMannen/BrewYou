@@ -51,13 +51,18 @@
 			: null;
 	}
 
+	function formatAbv(val: number | null | undefined): string | null {
+		if (val == null || isNaN(val)) return null;
+		return val.toFixed(1);
+	}
+
 	let selectedBatch = $derived(batches.find((b) => b.id === selectedBatchId) ?? null);
 
 	let displayAbv = $derived.by(() => {
 		if (selectedBatch) {
-			return computeBatchAbv(selectedBatch) ?? recipe?.alcoholByVolume ?? null;
+			return formatAbv(computeBatchAbv(selectedBatch) ?? recipe?.alcoholByVolume ?? null);
 		}
-		return recipe?.alcoholByVolume ?? null;
+		return formatAbv(recipe?.alcoholByVolume ?? null);
 	});
 
 	let isTheoretical = $derived(!selectedBatch);
@@ -231,9 +236,9 @@
 					{#each batches as b}
 						<option value={b.id}>
 							{b.batchCode} — {b.name} ({b.alcoholByVolume != null
-								? `${b.alcoholByVolume}% ABV`
+								? `${formatAbv(b.alcoholByVolume)}%`
 								: computeBatchAbv(b) != null
-									? `${computeBatchAbv(b)}% ABV`
+									? `${formatAbv(computeBatchAbv(b))}%`
 									: t('batches.workspace.stage_status_in_progress')})
 						</option>
 					{/each}
@@ -251,7 +256,7 @@
 						<Info class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
 						<span>
 							{t('labels.theoretical_abv_notice', {
-								abv: displayAbv ?? recipe?.alcoholByVolume ?? 0
+								abv: displayAbv ?? formatAbv(recipe?.alcoholByVolume) ?? '0.0'
 							})}
 						</span>
 					</div>
@@ -263,7 +268,7 @@
 						<span>
 							{t('labels.actual_batch_abv_notice', {
 								code: selectedBatch.batchCode,
-								abv: displayAbv ?? 0
+								abv: displayAbv ?? '0.0'
 							})}
 						</span>
 					</div>

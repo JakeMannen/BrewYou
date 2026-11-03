@@ -247,4 +247,34 @@ describe('Bottle Label Print & Crop Feature Invariants', () => {
 		expect(batchContent).not.toContain('{displayAbv}% ABV');
 		expect(recipeContent).not.toContain('{displayAbv}% ABV');
 	});
+
+	it('rounds the ABV display to one decimal place on bottle labels (e.g. 5.21% = 5.2%)', () => {
+		function formatAbv(val: number | null | undefined): string | null {
+			if (val == null || isNaN(val)) return null;
+			return val.toFixed(1);
+		}
+
+		expect(formatAbv(5.21)).toBe('5.2');
+		expect(formatAbv(5.25)).toBe('5.3');
+		expect(formatAbv(5.29)).toBe('5.3');
+		expect(formatAbv(5.0)).toBe('5.0');
+		expect(formatAbv(5)).toBe('5.0');
+		expect(formatAbv(null)).toBeNull();
+		expect(formatAbv(undefined)).toBeNull();
+
+		const batchPrintPath = path.resolve(
+			__dirname,
+			'../../../routes/batches/[id]/labels/print/+page.svelte'
+		);
+		const recipePrintPath = path.resolve(
+			__dirname,
+			'../../../routes/recipes/[id]/labels/print/+page.svelte'
+		);
+
+		const batchContent = fs.readFileSync(batchPrintPath, 'utf8');
+		const recipeContent = fs.readFileSync(recipePrintPath, 'utf8');
+
+		expect(batchContent).toContain('val.toFixed(1)');
+		expect(recipeContent).toContain('val.toFixed(1)');
+	});
 });
