@@ -3,12 +3,20 @@
 	import { page } from '$app/state';
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import { type RecipeDetailDto, type RecipeLabelDto, getLabelImageUrl } from '$lib/types/api';
-	import { Printer, ArrowLeft, Loader2 } from '@lucide/svelte';
+	import {
+		type RecipeDetailDto,
+		type RecipeLabelDto,
+		type BatchSummaryDto,
+		getLabelImageUrl
+	} from '$lib/types/api';
+	import { Printer, ArrowLeft, Loader2, Info, CheckCircle2 } from '@lucide/svelte';
 
 	let recipeId = $derived(page.params.id);
 	let recipe = $state<RecipeDetailDto | null>(null);
 	let label = $state<RecipeLabelDto | null>(null);
+	let batches = $state<BatchSummaryDto[]>([]);
+	let selectedBatchId = $state<string>('');
+	let showAbv = $state(true);
 	let loading = $state(true);
 	let errorMessage = $state<string | null>(null);
 
@@ -30,6 +38,30 @@
 		labelCount = p.count;
 	}
 
+	function computeBatchAbv(b: BatchSummaryDto | null): number | null {
+		if (!b) return null;
+		if (b.alcoholByVolume != null) return b.alcoholByVolume;
+		const og = b.measuredOg ?? (b.targetOg > 1.0 ? b.targetOg : null);
+		const fg = b.measuredFg ?? b.currentGravity;
+		if (og != null && fg != null && og > fg) {
+			return Math.round((og - fg) * 131.25 * 10) / 10;
+		}
+		return b.targetOg && b.targetFg
+			? Math.round((b.targetOg - b.targetFg) * 131.25 * 10) / 10
+			: null;
+	}
+
+	let selectedBatch = $derived(batches.find((b) => b.id === selectedBatchId) ?? null);
+
+	let displayAbv = $derived.by(() => {
+		if (selectedBatch) {
+			return computeBatchAbv(selectedBatch) ?? recipe?.alcoholByVolume ?? null;
+		}
+		return recipe?.alcoholByVolume ?? null;
+	});
+
+	let isTheoretical = $derived(!selectedBatch);
+
 	onMount(async () => {
 		const currentRecipeId = recipeId;
 		if (!currentRecipeId) {
@@ -37,12 +69,18 @@
 			return;
 		}
 		try {
-			const [rec, lbl] = await Promise.all([
+			const [rec, lbl, allBatches] = await Promise.all([
 				api.recipes.getById(currentRecipeId),
-				api.recipes.label.get(currentRecipeId)
+				api.recipes.label.get(currentRecipeId),
+				api.batches.list({ limit: 100 })
 			]);
 			recipe = rec;
 			label = lbl;
+			batches = allBatches.filter((b) => b.recipeId === currentRecipeId);
+			const urlBatchId = page.url.searchParams.get('batchId');
+			if (urlBatchId && batches.some((b) => b.id === urlBatchId)) {
+				selectedBatchId = urlBatchId;
+			}
 		} catch (err) {
 			if (err instanceof ApiClientError) {
 				errorMessage = err.message;
@@ -168,7 +206,70 @@
 				/>
 				<span class="text-zinc-600 dark:text-zinc-300">{t('labels.show_cut_lines')}</span>
 			</label>
+
+			<!-- Include ABV Toggle -->
+			<label class="flex cursor-pointer items-center gap-1.5">
+				<input
+					type="checkbox"
+					bind:checked={showAbv}
+					class="rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+				/>
+				<span class="text-zinc-600 dark:text-zinc-300">{t('labels.include_abv')}</span>
+			</label>
+
+			<!-- Batch Selector Dropdown -->
+			<div class="flex items-center gap-2">
+				<label for="recipe-batch-select" class="font-semibold whitespace-nowrap text-zinc-500">
+					{t('labels.select_batch_source')}:
+				</label>
+				<select
+					id="recipe-batch-select"
+					bind:value={selectedBatchId}
+					class="h-7 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-800 shadow-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+				>
+					<option value="">{t('labels.no_batch_theoretical')}</option>
+					{#each batches as b}
+						<option value={b.id}>
+							{b.batchCode} — {b.name} ({b.alcoholByVolume != null
+								? `${b.alcoholByVolume}% ABV`
+								: computeBatchAbv(b) != null
+									? `${computeBatchAbv(b)}% ABV`
+									: t('batches.workspace.stage_status_in_progress')})
+						</option>
+					{/each}
+				</select>
+			</div>
 		</div>
+
+		<!-- Note highlighting theoretical vs actual ABV -->
+		{#if showAbv}
+			<div class="mt-3">
+				{#if !selectedBatch}
+					<div
+						class="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/15 dark:text-amber-300"
+					>
+						<Info class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+						<span>
+							{t('labels.theoretical_abv_notice', {
+								abv: displayAbv ?? recipe?.alcoholByVolume ?? 0
+							})}
+						</span>
+					</div>
+				{:else}
+					<div
+						class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-xs text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-300"
+					>
+						<CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+						<span>
+							{t('labels.actual_batch_abv_notice', {
+								code: selectedBatch.batchCode,
+								abv: displayAbv ?? 0
+							})}
+						</span>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</header>
 
 	{#if loading}
@@ -188,16 +289,31 @@
 		>
 			{#each Array.from({ length: labelCount }, (_, i) => i) as idx}
 				<div
-					class="bottle-label-item relative overflow-hidden bg-white {showCutLines
+					class="bottle-label-item relative flex flex-col justify-between overflow-hidden bg-white {showCutLines
 						? 'border border-dashed border-zinc-300 print:border-zinc-400'
 						: ''}"
 					style="width: {labelWidthMm}mm; height: {labelHeightMm}mm;"
 				>
-					<img
-						src={resolveApiUrl(getLabelImageUrl(label.imageUrls, 'bottle'))}
-						alt="{recipe.name} label #{idx + 1}"
-						class="h-full w-full object-cover"
-					/>
+					<div class="relative flex-1 overflow-hidden">
+						<img
+							src={resolveApiUrl(getLabelImageUrl(label.imageUrls, 'bottle'))}
+							alt="{recipe.name} label #{idx + 1}"
+							class="h-full w-full object-cover"
+						/>
+					</div>
+
+					{#if showAbv && displayAbv != null}
+						<div
+							class="border-t border-zinc-200 bg-white px-2 py-1 text-center font-mono text-[9px] font-bold text-zinc-900"
+						>
+							<span>{displayAbv}% ABV</span>
+							{#if isTheoretical}
+								<span class="ml-1 text-[7px] font-medium text-amber-800">
+									({t('labels.theoretical_indicator')})
+								</span>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -233,6 +349,8 @@
 		.bottle-label-item {
 			page-break-inside: avoid;
 			break-inside: avoid;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
 		}
 
 		@page {

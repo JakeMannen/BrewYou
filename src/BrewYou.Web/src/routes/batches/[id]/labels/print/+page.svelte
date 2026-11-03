@@ -18,6 +18,20 @@
 	let labelCount = $state(8);
 	let showCutLines = $state(true);
 	let showBatchMeta = $state(true);
+	let showAbv = $state(true);
+
+	function computeBatchAbv(b: BatchDetailDto | null): number | null {
+		if (!b) return null;
+		if (b.alcoholByVolume != null) return b.alcoholByVolume;
+		const og = b.measuredOg ?? (b.targetOg > 1.0 ? b.targetOg : null);
+		const fg = b.measuredFg ?? b.currentGravity;
+		if (og != null && fg != null && og > fg) {
+			return Math.round((og - fg) * 131.25 * 10) / 10;
+		}
+		return b.targetAbv ?? null;
+	}
+
+	let displayAbv = $derived(computeBatchAbv(batch));
 
 	const PRESETS = [
 		{ name: 'Small (50x70mm)', w: 50, h: 70, count: 12 },
@@ -174,6 +188,15 @@
 			<label class="flex cursor-pointer items-center gap-1.5">
 				<input
 					type="checkbox"
+					bind:checked={showAbv}
+					class="rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+				/>
+				<span class="text-zinc-600 dark:text-zinc-300">{t('labels.include_abv')}</span>
+			</label>
+
+			<label class="flex cursor-pointer items-center gap-1.5">
+				<input
+					type="checkbox"
 					bind:checked={showBatchMeta}
 					class="rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
 				/>
@@ -215,17 +238,23 @@
 
 					<!-- Batch Meta Strip Footer -->
 					{#if showBatchMeta}
-						<div class="border-t border-black/40 bg-zinc-950 px-2 py-1 text-white">
+						<div class="border-t border-zinc-200 bg-white px-2 py-1 text-zinc-900">
 							<div class="flex items-center justify-between font-mono text-[8px]">
-								<span class="font-bold text-amber-400">{batch.batchCode}</span>
-								{#if batch.alcoholByVolume != null}
-									<span class="font-bold text-emerald-400">{batch.alcoholByVolume}% ABV</span>
+								<span class="font-bold text-amber-800">{batch.batchCode}</span>
+								{#if showAbv && displayAbv != null}
+									<span class="font-bold text-emerald-800">{displayAbv}% ABV</span>
 								{/if}
 							</div>
-							<div class="flex items-center justify-between text-[7px] text-zinc-400">
+							<div class="flex items-center justify-between text-[7px] text-zinc-600">
 								<span class="truncate">{batch.recipeName}</span>
 								<span>{new Date(batch.brewDate).toLocaleDateString()}</span>
 							</div>
+						</div>
+					{:else if showAbv && displayAbv != null}
+						<div
+							class="border-t border-zinc-200 bg-white px-2 py-1 text-center font-mono text-[9px] font-bold text-zinc-900"
+						>
+							<span>{displayAbv}% ABV</span>
 						</div>
 					{/if}
 				</div>
@@ -263,6 +292,8 @@
 		.bottle-label-item {
 			page-break-inside: avoid;
 			break-inside: avoid;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
 		}
 
 		@page {

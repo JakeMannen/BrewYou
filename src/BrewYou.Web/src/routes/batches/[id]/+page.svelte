@@ -1157,6 +1157,15 @@
 					</button>
 				{/if}
 
+				<a
+					href="/batches/{batch.id}/labels/print"
+					title={t('labels.print_labels_btn')}
+					aria-label={t('labels.print_labels_btn')}
+					class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-zinc-200 p-2.5 text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-600 dark:border-zinc-800 dark:text-zinc-300 dark:hover:text-amber-400"
+				>
+					<Printer class="h-4 w-4" />
+				</a>
+
 				<button
 					type="button"
 					data-testid="batch-detail-qr-btn"
@@ -1167,15 +1176,6 @@
 				>
 					<QrCode class="h-4 w-4" />
 				</button>
-
-				<a
-					href="/batches/{batch.id}/labels/print"
-					title={t('labels.print_labels_btn')}
-					aria-label={t('labels.print_labels_btn')}
-					class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-zinc-200 p-2.5 text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-600 dark:border-zinc-800 dark:text-zinc-300 dark:hover:text-amber-400"
-				>
-					<Printer class="h-4 w-4" />
-				</a>
 
 				<button
 					type="button"

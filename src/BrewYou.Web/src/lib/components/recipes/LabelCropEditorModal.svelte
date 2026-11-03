@@ -522,14 +522,6 @@
 						</div>
 					</div>
 				</div>
-
-				<!-- Master Brewer Compliance Notice -->
-				<div
-					class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300"
-				>
-					<strong>{t('labels.bjcp_accuracy_notice')}:</strong>
-					{t('labels.bjcp_accuracy_notice_desc')}
-				</div>
 			</div>
 
 			<!-- Footer -->

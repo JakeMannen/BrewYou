@@ -119,7 +119,7 @@ BrewYou bridges physical packaging and digital taproom displays through integrat
   - **Round Tap Displays**: 1:1 circular crop with true alpha-channel circular masking for digital tap handles and round bezel screens.
   - **Rectangular Tap Displays**: 16:9 widescreen landscape or 9:16 vertical portrait crops for wall-mounted kiosks, tablets, and digital menu boards.
 - **Master Brewer Compliance (Strict Actual ABV)**: In strict accordance with BJCP standards, only actual measured alcohol by volume from an assigned batch (`Batch.AlcoholByVolume`) is rendered onto badges and overlays—never theoretical recipe target estimations.
-- **Printable Bottle Label Sheets**: Generate print-ready sheets formatted for standard A4 and Letter paper (`/recipes/[id]/labels/print` and `/batches/[id]/labels/print`), featuring adjustable presets, configurable labels-per-sheet counts, dashed cutting guidelines, and batch metadata strips (batch code, measured ABV, and brew date).
+- **Printable Bottle Label Sheets**: Generate print-ready sheets formatted for standard A4 and Letter paper (`/recipes/[id]/labels/print` and `/batches/[id]/labels/print`), featuring adjustable presets, configurable labels-per-sheet counts, dashed cutting guidelines, batch selection dropdown for actual vs. theoretical recipe ABV with user callout notices, toggleable ABV bottom label inclusion, and direct one-click printing from batch cards.
 - **Recipe Gallery Integration**: Recipe cards across `/recipes` prominently feature your customized label artwork banner with seamless fallback to the artisan craft graphic.
 - **Full User Backup & Restore Coverage**: Recipe label metadata and crop configurations are seamlessly serialized into schema v2 of `.brewyou.json` backups with optional embedded image asset portability.
 
@@ -127,8 +127,8 @@ BrewYou bridges physical packaging and digital taproom displays through integrat
 
 1. **Manage Label Artwork**: Open any recipe (`/recipes/[id]`) and scroll to the **Recipe Labels & Screen Graphics** panel.
 2. **Upload Custom Art**: Click **Upload Image** to select a PNG, JPEG, or WebP graphic.
-3. **Fine-Tune Viewport Crops**: Click **Adjust Crops & ABV** to open the modal and adjust horizontal offset, vertical offset, zoom, and orientation across Bottle, Round Display, and Rectangular Display tabs.
-4. **Print Bottle Labels**: Click **Print Bottle Labels** (from the recipe card or directly from a completed batch) to generate a printable sheet with cut guidelines.
+3. **Fine-Tune Viewport Crops**: Click **Adjust Crops** to open the modal and adjust horizontal offset, vertical offset, zoom, and orientation across Bottle, Round Display, and Rectangular Display tabs.
+4. **Print Bottle Labels**: Click **Print Bottle Labels** (from the recipe card, directly from any batch card in the batches list, or from a batch workspace) to generate a printable sheet with cut guidelines and optional ABV display.
 5. **Reset to Default**: Click the trash icon to revert the recipe back to the default artisan craft graphic at any time.
 
 ### Batch Tracking & Live Brew Day Execution
