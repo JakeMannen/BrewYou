@@ -227,4 +227,24 @@ describe('Bottle Label Print & Crop Feature Invariants', () => {
 			'bg-zinc-950 px-2 py-1 text-center font-mono text-[9px] font-bold text-white'
 		);
 	});
+
+	it('drops the ABV unit ending from labels so 5.2% ABV is displayed as 5.2%', () => {
+		const batchPrintPath = path.resolve(
+			__dirname,
+			'../../../routes/batches/[id]/labels/print/+page.svelte'
+		);
+		const recipePrintPath = path.resolve(
+			__dirname,
+			'../../../routes/recipes/[id]/labels/print/+page.svelte'
+		);
+
+		const batchContent = fs.readFileSync(batchPrintPath, 'utf8');
+		const recipeContent = fs.readFileSync(recipePrintPath, 'utf8');
+
+		// Both must render {displayAbv}% without the trailing ABV unit
+		expect(batchContent).toContain('{displayAbv}%</span>');
+		expect(recipeContent).toContain('<span>{displayAbv}%</span>');
+		expect(batchContent).not.toContain('{displayAbv}% ABV');
+		expect(recipeContent).not.toContain('{displayAbv}% ABV');
+	});
 });

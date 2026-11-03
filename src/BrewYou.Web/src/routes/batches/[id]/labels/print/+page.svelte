@@ -242,7 +242,7 @@
 							<div class="flex items-center justify-between font-mono text-[8px]">
 								<span class="font-bold text-amber-800">{batch.batchCode}</span>
 								{#if showAbv && displayAbv != null}
-									<span class="font-bold text-emerald-800">{displayAbv}% ABV</span>
+									<span class="font-bold text-emerald-800">{displayAbv}%</span>
 								{/if}
 							</div>
 							<div class="flex items-center justify-between text-[7px] text-zinc-600">
@@ -254,7 +254,7 @@
 						<div
 							class="border-t border-zinc-200 bg-white px-2 py-1 text-center font-mono text-[9px] font-bold text-zinc-900"
 						>
-							<span>{displayAbv}% ABV</span>
+							<span>{displayAbv}%</span>
 						</div>
 					{/if}
 				</div>

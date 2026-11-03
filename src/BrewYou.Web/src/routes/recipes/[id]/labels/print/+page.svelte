@@ -306,7 +306,7 @@
 						<div
 							class="border-t border-zinc-200 bg-white px-2 py-1 text-center font-mono text-[9px] font-bold text-zinc-900"
 						>
-							<span>{displayAbv}% ABV</span>
+							<span>{displayAbv}%</span>
 							{#if isTheoretical}
 								<span class="ml-1 text-[7px] font-medium text-amber-800">
 									({t('labels.theoretical_indicator')})
