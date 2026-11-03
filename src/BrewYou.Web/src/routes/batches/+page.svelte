@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Activity, Plus, Search, ArrowUpRight, Loader2, QrCode } from '@lucide/svelte';
+	import { Activity, Plus, Search, ArrowUpRight, Loader2, QrCode, Printer } from '@lucide/svelte';
 	import { api } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { t } from '$lib/i18n/index.svelte';
@@ -496,6 +496,20 @@
 						</div>
 
 						<div class="flex items-center gap-2">
+							<a
+								href="/batches/{batch.id}/labels/print"
+								data-testid="batch-card-print-label-btn"
+								class="flex h-7 items-center gap-1 rounded-lg border border-zinc-200/80 bg-zinc-100/60 px-2 text-xs font-semibold text-zinc-600 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-600 dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-300 dark:hover:text-amber-400"
+								title={t('labels.print_labels_btn')}
+								aria-label={t('labels.print_batch_label_aria', {
+									code: batch.batchCode,
+									name: batch.name
+								})}
+							>
+								<Printer class="h-3.5 w-3.5" />
+								<span class="font-mono text-[11px]">{t('labels.print_btn_label')}</span>
+							</a>
+
 							<button
 								type="button"
 								data-testid="open-batch-qr-btn"
