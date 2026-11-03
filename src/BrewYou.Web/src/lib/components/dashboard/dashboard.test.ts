@@ -3,6 +3,7 @@ import type { BatchSummaryDto, EquipmentDto, BrewStage } from '$lib/types/api';
 import { getBatchEquipment, getBatchSubtype } from './ActiveCellarCards.svelte';
 import { isEquipmentOccupied, getOccupiedEquipmentCount } from './EquipmentHealthWidget.svelte';
 import { getTapImageUrl } from './DashboardTapsCard.svelte';
+import { sortEquipmentByName } from '$lib/utils/equipment-order';
 
 export function calculateCellarUtilization(
 	activeBatchCount: number,
@@ -491,11 +492,22 @@ describe('Dashboard Operational Logic & Calculations', () => {
 				{ ...unassignedTap, id: 't20', name: 'Tap 20' }
 			];
 
-			const sorted = [...rawTaps].sort((a, b) =>
-				a.name.localeCompare(b.name, undefined, { numeric: true })
-			);
+			const sorted = sortEquipmentByName(rawTaps);
 
 			expect(sorted.map((t) => t.name)).toEqual(['Tap 1', 'Tap 2', 'Tap 10', 'Tap 20']);
+		});
+
+		it('orders taps alphabetically by name from left to right', () => {
+			const rawTaps: EquipmentDto[] = [
+				{ ...unassignedTap, id: 't-stout', name: 'Stout Tap' },
+				{ ...unassignedTap, id: 't-ipa', name: 'IPA Tap' },
+				{ ...unassignedTap, id: 't-lager', name: 'lager tap' },
+				{ ...unassignedTap, id: 't-cider', name: 'Cider Tap' }
+			];
+
+			const sorted = sortEquipmentByName(rawTaps);
+
+			expect(sorted.map((t) => t.name)).toEqual(['Cider Tap', 'IPA Tap', 'lager tap', 'Stout Tap']);
 		});
 	});
 });

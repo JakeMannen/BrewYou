@@ -13,6 +13,7 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { sortEquipmentByName } from '$lib/utils/equipment-order';
 	import { Beer, ChevronRight, Plus, Thermometer } from '@lucide/svelte';
 
 	interface Props {
@@ -22,7 +23,8 @@
 
 	let { taps, onAssignTap }: Props = $props();
 
-	let pouringTapCount = $derived(taps.filter((t) => !!t.assignedBatch).length);
+	let sortedTaps = $derived(sortEquipmentByName(taps));
+	let pouringTapCount = $derived(sortedTaps.filter((t) => !!t.assignedBatch).length);
 </script>
 
 <div
@@ -95,7 +97,7 @@
 			class="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
 			data-testid="dashboard-taps-grid"
 		>
-			{#each taps as tap (tap.id)}
+			{#each sortedTaps as tap (tap.id)}
 				<article
 					class="artisan-card group flex flex-col justify-between overflow-hidden rounded-2xl border border-zinc-200/80 bg-white/70 p-0 shadow-xs transition-all hover:border-amber-500/40 dark:border-zinc-800/80 dark:bg-zinc-900/60"
 					data-testid="tap-card-{tap.id}"
