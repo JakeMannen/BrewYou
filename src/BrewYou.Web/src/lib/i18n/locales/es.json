@@ -1861,7 +1861,16 @@
 		"advancing": "Avanzando...",
 		"status_occupied": "Ocupado",
 		"status_ready": "Listo",
-		"no_equipment_configured": "No hay equipamiento configurado todavía."
+		"no_equipment_configured": "No hay equipamiento configurado todavía.",
+		"taps_title": "En grifo y servicio",
+		"taps_subtitle": "Lista de grifos, volúmenes de barril y lotes sirviendo",
+		"taps_empty_title": "No hay grifos configurados",
+		"taps_empty_desc": "Configure grifos en su inventario de equipo para monitorear niveles de barril y líneas de servicio.",
+		"manage_taps": "Administrar grifos",
+		"tap_pouring": "Sirviendo",
+		"tap_empty": "Grifo vacío",
+		"tap_no_batch": "Ningún lote asignado",
+		"tap_assign_action": "Asignar lote"
 	},
 	"fermentation_profile": {
 		"title": "Perfil y etapas de fermentación",

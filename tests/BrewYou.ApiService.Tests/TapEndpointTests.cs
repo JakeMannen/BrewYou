@@ -564,4 +564,59 @@ public class TapEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var manifestUnassigned = (await manifestUnassignedRes.Content.ReadFromJsonAsync<ApiResponse<TapDisplayManifestDto>>())!.Data!;
         manifestUnassigned.TemperatureC.Should().BeNull();
     }
+
+    [Fact]
+    public async Task TapAssignedBatch_WhenRecipeLabelUpdated_ReflectsUpdatedLabelImageUrl()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("tapartupd");
+        var setup = await GetDefaultSetupAsync(client);
+        var recipe = await CreateSampleRecipeAsync(client, "Artwork IPA");
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, BrewStage.Condition);
+
+        var createTapRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Tap Artwork 1",
+            Type: EquipmentType.Tap,
+            Subtype: EquipmentSubtype.StandardTap,
+            Capacity: 0m,
+            Unit: VolumeUnit.Liters
+        ));
+        var tap = (await createTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var assignRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", new AssignTapRequest(batch.Id));
+        assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Initial list - should have default label
+        var listRes1 = await client.GetAsync("/api/v1/inventory/equipment");
+        listRes1.StatusCode.Should().Be(HttpStatusCode.OK);
+        var list1 = (await listRes1.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        var tap1 = list1.First(t => t.Id == tap.Id);
+        tap1.AssignedBatch.Should().NotBeNull();
+        tap1.AssignedBatch!.LabelImageUrl.Should().Contain("/labels/default/image/");
+
+        // Now upload custom label to the recipe
+        using var surface = SkiaSharp.SKSurface.Create(new SkiaSharp.SKImageInfo(300, 300, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul));
+        surface.Canvas.Clear(SkiaSharp.SKColors.DarkBlue);
+        using var img = surface.Snapshot();
+        using var data = img.Encode(SkiaSharp.SKEncodedImageFormat.Png, 90);
+        var pngBytes = data.ToArray();
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(pngBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        content.Add(fileContent, "file", "craft_label.png");
+
+        var uploadRes = await client.PutAsync($"/api/v1/recipes/{recipe.Id}/label", content);
+        uploadRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Fetch equipment list again
+        var listRes2 = await client.GetAsync("/api/v1/inventory/equipment");
+        listRes2.StatusCode.Should().Be(HttpStatusCode.OK);
+        var list2 = (await listRes2.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        var tap2 = list2.First(t => t.Id == tap.Id);
+        tap2.AssignedBatch.Should().NotBeNull();
+        tap2.AssignedBatch!.LabelImageUrl.Should().NotBeNullOrWhiteSpace();
+        tap2.AssignedBatch!.LabelImageUrl.Should().Contain($"/labels/{recipe.Id}/image/card");
+        tap2.AssignedBatch.LabelImageUrl.Should().NotBe(tap1.AssignedBatch.LabelImageUrl);
+    }
 }

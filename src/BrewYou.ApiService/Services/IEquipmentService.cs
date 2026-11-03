@@ -54,7 +54,9 @@ public record TapAssignedBatchDto(
     string Name,
     string BeerStyle,
     decimal? ActualAbv,
-    DateTime? AssignedAt
+    DateTime? AssignedAt,
+    Guid? RecipeId = null,
+    string? LabelImageUrl = null
 );
 
 public record AssignedKegSummaryDto(

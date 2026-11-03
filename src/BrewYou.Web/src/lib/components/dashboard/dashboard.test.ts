@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { BatchSummaryDto, EquipmentDto, BrewStage } from '$lib/types/api';
 import { getBatchEquipment, getBatchSubtype } from './ActiveCellarCards.svelte';
 import { isEquipmentOccupied, getOccupiedEquipmentCount } from './EquipmentHealthWidget.svelte';
+import { getTapImageUrl } from './DashboardTapsCard.svelte';
 
 export function calculateCellarUtilization(
 	activeBatchCount: number,
@@ -399,6 +400,102 @@ describe('Dashboard Operational Logic & Calculations', () => {
 			expect(isEquipmentOccupied('ferm-1', [batchInFerment])).toBe(true);
 
 			expect(getOccupiedEquipmentCount(equipmentList, [batchInFerment])).toBe(1);
+		});
+	});
+
+	describe('DashboardTapsCard and tap helpers', () => {
+		const sampleTapWithImage: EquipmentDto = {
+			id: 'tap-1',
+			brewerySetupId: 's1',
+			name: 'Tap 1',
+			type: 'Tap',
+			subtype: 'StandardTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			assignedBatch: {
+				id: 'b-1',
+				batchCode: 'B-01',
+				name: 'Hazy Pale Ale',
+				beerStyle: 'Pale Ale',
+				recipeId: 'rec-1',
+				labelImageUrl: '/api/v1/recipes/rec-1/label/image?token=xyz'
+			},
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		const sampleTapWithoutImage: EquipmentDto = {
+			id: 'tap-2',
+			brewerySetupId: 's1',
+			name: 'Tap 2',
+			type: 'Tap',
+			subtype: 'StandardTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			assignedBatch: {
+				id: 'b-2',
+				batchCode: 'B-02',
+				name: 'Belgian Dubbel',
+				beerStyle: 'Dubbel',
+				recipeId: 'rec-2',
+				labelImageUrl: null
+			},
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		const unassignedTap: EquipmentDto = {
+			id: 'tap-3',
+			brewerySetupId: 's1',
+			name: 'Tap 3',
+			type: 'Tap',
+			subtype: 'StandardTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		it('resolves custom signed label image URL when available', () => {
+			const url = getTapImageUrl(sampleTapWithImage);
+			expect(url).toContain('/api/v1/recipes/rec-1/label/image?token=xyz');
+		});
+
+		it('falls back to default label image when assigned batch has no custom label image', () => {
+			const url = getTapImageUrl(sampleTapWithoutImage);
+			expect(url).toContain('/api/v1/labels/default/image/card?size=640');
+		});
+
+		it('falls back to default label image when tap has no assigned batch', () => {
+			const url = getTapImageUrl(unassignedTap);
+			expect(url).toContain('/api/v1/labels/default/image/card?size=640');
+		});
+
+		it('sorts taps in natural numerical order', () => {
+			const rawTaps: EquipmentDto[] = [
+				{ ...unassignedTap, id: 't10', name: 'Tap 10' },
+				{ ...unassignedTap, id: 't1', name: 'Tap 1' },
+				{ ...unassignedTap, id: 't2', name: 'Tap 2' },
+				{ ...unassignedTap, id: 't20', name: 'Tap 20' }
+			];
+
+			const sorted = [...rawTaps].sort((a, b) =>
+				a.name.localeCompare(b.name, undefined, { numeric: true })
+			);
+
+			expect(sorted.map((t) => t.name)).toEqual(['Tap 1', 'Tap 2', 'Tap 10', 'Tap 20']);
 		});
 	});
 });

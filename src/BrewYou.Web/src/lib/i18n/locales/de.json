@@ -1861,7 +1861,16 @@
 		"advancing": "Wird umgeschaltet...",
 		"status_occupied": "Belegt",
 		"status_ready": "Bereit",
-		"no_equipment_configured": "Noch keine Ausrüstung eingerichtet."
+		"no_equipment_configured": "Noch keine Ausrüstung eingerichtet.",
+		"taps_title": "Am Zapfhahn & Ausschank",
+		"taps_subtitle": "Aktuelle Zapfliste, Fassvolumen und ausgeschenkte Chargen",
+		"taps_empty_title": "Keine Zapfhähne konfiguriert",
+		"taps_empty_desc": "Konfigurieren Sie Zapfhähne in Ihrem Ausrüstungsinventar, um Füllstände und Schanklinien zu überwachen.",
+		"manage_taps": "Zapfhähne verwalten",
+		"tap_pouring": "Ausschenken",
+		"tap_empty": "Hahn leer",
+		"tap_no_batch": "Keine Charge zugewiesen",
+		"tap_assign_action": "Charge zuweisen"
 	},
 	"fermentation_profile": {
 		"title": "Gärprofil & Stufen",

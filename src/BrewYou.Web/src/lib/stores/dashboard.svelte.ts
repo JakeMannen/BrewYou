@@ -87,6 +87,16 @@ class DashboardStore {
 		);
 	});
 
+	// Dispenser taps
+	taps = $derived.by(() => {
+		return this.equipment
+			.filter((e) => e.type === 'Tap')
+			.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+	});
+
+	tapCount = $derived(this.taps.length);
+	activeTapCount = $derived(this.taps.filter((t) => !!t.assignedBatch).length);
+
 	// Active cellar batches: batches currently in fermentation or conditioning
 	activeCellarBatches = $derived.by(() => {
 		return this.activeBatches.filter(
@@ -587,6 +597,43 @@ class DashboardStore {
 						? reading.fillPercentage
 						: this.equipment[eqIdx].fillPercentage
 			};
+		}
+
+		// Also update connected Taps if this reading is for their assigned Keg
+		for (let i = 0; i < this.equipment.length; i++) {
+			const item = this.equipment[i];
+			if (item.type === 'Tap' && item.assignedKegId === reading.equipmentId) {
+				const updatedFillPct =
+					reading.fillPercentage !== undefined && reading.fillPercentage !== null
+						? reading.fillPercentage
+						: (item.assignedKeg?.fillPercentage ?? 0);
+				const updatedVol =
+					reading.currentVolumeLiters !== undefined && reading.currentVolumeLiters !== null
+						? reading.currentVolumeLiters
+						: (item.assignedKeg?.currentVolumeLiters ?? 0);
+				const updatedTemp =
+					reading.temperatureC !== undefined
+						? reading.temperatureC
+						: (item.assignedKeg?.currentTemperatureC ?? null);
+				const updatedTempAt = reading.timestamp ?? item.assignedKeg?.temperatureUpdatedAt;
+
+				this.equipment[i] = {
+					...item,
+					fillLevelPercent: updatedFillPct,
+					fillPercentage: updatedFillPct,
+					currentTemperatureC: updatedTemp,
+					temperatureUpdatedAt: updatedTempAt,
+					assignedKeg: item.assignedKeg
+						? {
+								...item.assignedKeg,
+								fillPercentage: updatedFillPct,
+								currentVolumeLiters: updatedVol,
+								currentTemperatureC: updatedTemp,
+								temperatureUpdatedAt: updatedTempAt
+							}
+						: item.assignedKeg
+				};
+			}
 		}
 
 		// Also update batch telemetry if reading is linked to a batch

@@ -1861,7 +1861,16 @@
 		"advancing": "Advancing...",
 		"status_occupied": "Occupied",
 		"status_ready": "Ready",
-		"no_equipment_configured": "No equipment configured yet."
+		"no_equipment_configured": "No equipment configured yet.",
+		"taps_title": "On Tap & Serving",
+		"taps_subtitle": "Live draft list, keg volumes, and pouring batches",
+		"taps_empty_title": "No Taps Configured",
+		"taps_empty_desc": "Configure dispensing taps in your Equipment Inventory to monitor draft levels and serving lines.",
+		"manage_taps": "Manage Taps",
+		"tap_pouring": "Pouring",
+		"tap_empty": "Tap Empty",
+		"tap_no_batch": "No batch assigned",
+		"tap_assign_action": "Assign Batch"
 	},
 	"fermentation_profile": {
 		"title": "Fermentation Profile & Stages",

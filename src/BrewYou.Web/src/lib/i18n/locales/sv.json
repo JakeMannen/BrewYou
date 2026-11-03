@@ -1861,7 +1861,16 @@
 		"advancing": "Ändrar steg...",
 		"status_occupied": "Upptagen",
 		"status_ready": "Redo",
-		"no_equipment_configured": "Ingen utrustning tillagd ännu."
+		"no_equipment_configured": "Ingen utrustning tillagd ännu.",
+		"taps_title": "På fat och kran",
+		"taps_subtitle": "Aktuell fatlista, volymer och serverade brygder",
+		"taps_empty_title": "Inga tappkranar konfigurerade",
+		"taps_empty_desc": "Konfigurera tappkranar i din utrustningsinventering för att övervaka fatnivåer och serveringslinjer.",
+		"manage_taps": "Hantera tappkranar",
+		"tap_pouring": "Serverar",
+		"tap_empty": "Kran tom",
+		"tap_no_batch": "Ingen brygd tilldelad",
+		"tap_assign_action": "Tilldela brygd"
 	},
 	"fermentation_profile": {
 		"title": "Jäsningsprofil & steg",
