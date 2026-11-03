@@ -19,6 +19,7 @@
 	import TapDisplayLinkModal from '$lib/components/inventory/TapDisplayLinkModal.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
+	import { sortEquipmentByName } from '$lib/utils/equipment-order';
 	import {
 		Wrench,
 		Plus,
@@ -40,6 +41,7 @@
 	} from '@lucide/svelte';
 
 	let equipmentList = $state<EquipmentDto[]>([]);
+	let sortedEquipmentList = $derived(sortEquipmentByName(equipmentList));
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let selectedCategory = $state<string>('All');
@@ -725,7 +727,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-				{#each equipmentList as item (item.id)}
+				{#each sortedEquipmentList as item (item.id)}
 					{@const metrics = formatDisplayMetrics(item)}
 					{@const status = getFillStatusBadge(metrics.fillPct)}
 					{@const tempInfo = formatTemperatureBadge(item)}

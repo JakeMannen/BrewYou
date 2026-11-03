@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { sortEquipmentByName } from '$lib/utils/equipment-order';
 import {
 	type EquipmentType,
 	type EquipmentSubtype,
@@ -399,5 +400,127 @@ describe('Equipment Tab Brewery Setup Filter and Cross-Setup Hints', () => {
 	it('resolves setupId filter correctly for api.equipment.list', () => {
 		expect(resolveSetupIdFilter('default-1', 'default-1')).toBeUndefined();
 		expect(resolveSetupIdFilter('setup-guid-123', 'default-1')).toBe('setup-guid-123');
+	});
+});
+
+describe('Equipment Card List Alphabetical Ordering', () => {
+	const sampleEquipment: EquipmentDto[] = [
+		{
+			id: 'eq-3',
+			brewerySetupId: 'setup-1',
+			name: 'Ss Brewtech 7 Gal Chronical',
+			type: 'Fermenter',
+			subtype: 'ConicalFermenter',
+			capacity: 27,
+			unit: 'Liters',
+			capacityLiters: 27,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		},
+		{
+			id: 'eq-1',
+			brewerySetupId: 'setup-1',
+			name: 'Anvil Foundry 10.5',
+			type: 'Boiler',
+			subtype: 'AllInOne',
+			capacity: 40,
+			unit: 'Liters',
+			capacityLiters: 40,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		},
+		{
+			id: 'eq-2',
+			brewerySetupId: 'setup-1',
+			name: 'Kegland Ferzilla 30L',
+			type: 'Fermenter',
+			subtype: 'PressureFermenter',
+			capacity: 30,
+			unit: 'Liters',
+			capacityLiters: 30,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		},
+		{
+			id: 'eq-4',
+			brewerySetupId: 'setup-1',
+			name: 'Corny Keg 19L #2',
+			type: 'Keg',
+			subtype: 'Cornelius',
+			capacity: 19,
+			unit: 'Liters',
+			capacityLiters: 19,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		},
+		{
+			id: 'eq-5',
+			brewerySetupId: 'setup-1',
+			name: 'Corny Keg 19L #1',
+			type: 'Keg',
+			subtype: 'Cornelius',
+			capacity: 19,
+			unit: 'Liters',
+			capacityLiters: 19,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		}
+	];
+
+	it('orders equipment card list alphabetically by name with natural numerical order', () => {
+		const sorted = sortEquipmentByName(sampleEquipment);
+
+		expect(sorted.map((e) => e.name)).toEqual([
+			'Anvil Foundry 10.5',
+			'Corny Keg 19L #1',
+			'Corny Keg 19L #2',
+			'Kegland Ferzilla 30L',
+			'Ss Brewtech 7 Gal Chronical'
+		]);
+	});
+
+	it('keeps items alphabetically sorted when new equipment is added', () => {
+		const currentList = sortEquipmentByName(sampleEquipment);
+		const newItem: EquipmentDto = {
+			id: 'eq-new',
+			brewerySetupId: 'setup-1',
+			name: 'Braumeister 20L',
+			type: 'Boiler',
+			subtype: 'AllInOne',
+			capacity: 25,
+			unit: 'Liters',
+			capacityLiters: 25,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '',
+			updatedAt: ''
+		};
+
+		const updatedList = sortEquipmentByName([newItem, ...currentList]);
+
+		expect(updatedList.map((e) => e.name)).toEqual([
+			'Anvil Foundry 10.5',
+			'Braumeister 20L',
+			'Corny Keg 19L #1',
+			'Corny Keg 19L #2',
+			'Kegland Ferzilla 30L',
+			'Ss Brewtech 7 Gal Chronical'
+		]);
 	});
 });

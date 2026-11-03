@@ -83,7 +83,8 @@ public class EquipmentService : IEquipmentService
         var totalPages = (int)Math.Ceiling(total / (double)limit);
 
         var entities = await query
-            .OrderByDescending(e => e.CreatedAt)
+            .OrderBy(e => e.Name)
+            .ThenByDescending(e => e.CreatedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
             .ToListAsync();

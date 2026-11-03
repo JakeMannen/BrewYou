@@ -4,6 +4,7 @@ import { brewery, DEFAULT_BREWERY_ID } from '$lib/stores/brewery.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { calculateActualAbv } from '$lib/calculators/brewing';
+import { sortEquipmentByName } from '$lib/utils/equipment-order';
 import type {
 	BatchSummaryDto,
 	EquipmentDto,
@@ -89,9 +90,7 @@ class DashboardStore {
 
 	// Dispenser taps
 	taps = $derived.by(() => {
-		return this.equipment
-			.filter((e) => e.type === 'Tap')
-			.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+		return sortEquipmentByName(this.equipment.filter((e) => e.type === 'Tap'));
 	});
 
 	tapCount = $derived(this.taps.length);

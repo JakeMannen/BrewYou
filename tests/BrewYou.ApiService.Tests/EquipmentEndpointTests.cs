@@ -192,6 +192,32 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
+    public async Task GetEquipmentList_ReturnsItemsOrderedAlphabeticallyByName()
+    {
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync();
+
+        // Create equipment items deliberately out of alphabetical order
+        await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Zeta Fermenter", EquipmentType.Fermenter, 50));
+        await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Alpha Boiler", EquipmentType.Boiler, 30));
+        await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Beta Keg", EquipmentType.Keg, 19));
+        await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Alpha Mash Tun", EquipmentType.Boiler, 40));
+
+        var response = await client.GetAsync($"/api/v1/inventory/equipment?setupId={setupId}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var envelope = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        envelope.Should().NotBeNull();
+        envelope!.Success.Should().BeTrue();
+
+        var names = envelope.Data!.Select(e => e.Name).ToList();
+        names.Should().Equal("Alpha Boiler", "Alpha Mash Tun", "Beta Keg", "Zeta Fermenter");
+    }
+
+    [Fact]
     public async Task GetEquipmentList_FiltersBySetupId_ReturnsOnlyScopedEquipment()
     {
         var (client, _, _, setup1Id) = await CreateAuthenticatedUserAsync();
