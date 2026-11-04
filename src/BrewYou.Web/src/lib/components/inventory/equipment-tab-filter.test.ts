@@ -562,15 +562,7 @@ describe('Equipment Card List Alphabetical Ordering', () => {
 			const index = equipmentList.findIndex((e) => e.id === savedTapUpdate.id);
 			expect(index).toBe(0);
 
-			const existing = equipmentList[index];
-			const merged: EquipmentDto = {
-				...savedTapUpdate,
-				assignedBatch: savedTapUpdate.assignedBatch ?? existing.assignedBatch,
-				assignedBatchId: savedTapUpdate.assignedBatchId ?? existing.assignedBatchId,
-				assignedKeg: savedTapUpdate.assignedKeg ?? existing.assignedKeg,
-				assignedKegId: savedTapUpdate.assignedKegId ?? existing.assignedKegId
-			};
-			equipmentList[index] = merged;
+			equipmentList[index] = savedTapUpdate;
 
 			expect(equipmentList[0].name).toBe('Main Bar Tap #1');
 			expect(equipmentList[0].assignedBatchId).toBe('batch-99');
@@ -642,14 +634,7 @@ describe('Equipment Card List Alphabetical Ordering', () => {
 
 			// Simulate handleSaved
 			const kegIdx = equipmentList.findIndex((e) => e.id === savedKegUpdate.id);
-			const existingKeg = equipmentList[kegIdx];
-			equipmentList[kegIdx] = {
-				...savedKegUpdate,
-				assignedBatch: savedKegUpdate.assignedBatch ?? existingKeg.assignedBatch,
-				assignedBatchId: savedKegUpdate.assignedBatchId ?? existingKeg.assignedBatchId,
-				assignedKeg: savedKegUpdate.assignedKeg ?? existingKeg.assignedKeg,
-				assignedKegId: savedKegUpdate.assignedKegId ?? existingKeg.assignedKegId
-			};
+			equipmentList[kegIdx] = savedKegUpdate;
 
 			if (savedKegUpdate.type === 'Keg') {
 				equipmentList = equipmentList.map((item) => {
@@ -681,7 +666,7 @@ describe('Equipment Card List Alphabetical Ordering', () => {
 								currentTemperatureC: savedKegUpdate.currentTemperatureC,
 								temperatureUpdatedAt: savedKegUpdate.temperatureUpdatedAt
 							},
-							assignedBatch: savedKegUpdate.assignedBatch ?? item.assignedBatch,
+							assignedBatch: savedKegUpdate.assignedBatch,
 							fillLevelPercent: fillPct
 						};
 					}
@@ -698,6 +683,126 @@ describe('Equipment Card List Alphabetical Ordering', () => {
 			expect(equipmentList[1].assignedKegId).toBe('keg-1');
 			expect(equipmentList[1].assignedKeg?.name).toBe('Keg Beta');
 			expect(equipmentList[1].assignedBatch?.name).toBe('Nelson Sauvin Pils');
+		});
+
+		it('detaches batch from keg and empties connected tap when clicking kick/unassign', () => {
+			const filledKeg: EquipmentDto = {
+				id: 'keg-1',
+				brewerySetupId: 'setup-1',
+				name: 'Keg Alpha',
+				type: 'Keg',
+				subtype: 'Cornelius',
+				capacity: 19,
+				unit: 'Liters',
+				capacityLiters: 19,
+				currentVolume: 18.5,
+				currentVolumeLiters: 18.5,
+				fillPercentage: 97.4,
+				assignedBatchId: 'batch-101',
+				assignedBatch: {
+					id: 'batch-101',
+					batchCode: 'B-101',
+					name: 'Nelson Sauvin Pils',
+					beerStyle: 'German Pils',
+					actualAbv: 5.1,
+					assignedAt: '2026-11-04T10:00:00Z'
+				},
+				createdAt: '',
+				updatedAt: ''
+			};
+
+			const connectedTap: EquipmentDto = {
+				id: 'tap-2',
+				brewerySetupId: 'setup-1',
+				name: 'Tap #2',
+				type: 'Tap',
+				subtype: 'StandardTap',
+				capacity: 0,
+				unit: 'Liters',
+				capacityLiters: 0,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 97.4,
+				assignedKegId: 'keg-1',
+				assignedKeg: {
+					id: 'keg-1',
+					name: 'Keg Alpha',
+					subtype: 'Cornelius',
+					capacityLiters: 19,
+					currentVolumeLiters: 18.5,
+					unit: 'Liters',
+					fillPercentage: 97.4,
+					assignedBatch: filledKeg.assignedBatch
+				},
+				assignedBatch: filledKeg.assignedBatch,
+				createdAt: '',
+				updatedAt: ''
+			};
+
+			let equipmentList: EquipmentDto[] = [filledKeg, connectedTap];
+
+			// Kick keg: unassignKeg returns cleared batch and 0 volume
+			const kickedKeg: EquipmentDto = {
+				...filledKeg,
+				assignedBatch: null,
+				assignedBatchId: null,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				fillLevelPercent: 0,
+				updatedAt: '2026-11-04T15:00:00Z'
+			};
+
+			// Simulate handleSaved
+			const kegIdx = equipmentList.findIndex((e) => e.id === kickedKeg.id);
+			equipmentList[kegIdx] = kickedKeg;
+
+			if (kickedKeg.type === 'Keg') {
+				equipmentList = equipmentList.map((item) => {
+					if (
+						item.type === 'Tap' &&
+						(item.assignedKegId === kickedKeg.id || item.assignedKeg?.id === kickedKeg.id)
+					) {
+						const fillPct =
+							kickedKeg.fillLevelPercent ??
+							kickedKeg.fillPercentage ??
+							(kickedKeg.capacityLiters > 0
+								? Math.round((kickedKeg.currentVolumeLiters / kickedKeg.capacityLiters) * 100)
+								: 0);
+
+						return {
+							...item,
+							assignedKegId: kickedKeg.id,
+							assignedKeg: {
+								id: kickedKeg.id,
+								name: kickedKeg.name,
+								subtype: kickedKeg.subtype,
+								capacityLiters: kickedKeg.capacityLiters,
+								currentVolumeLiters: kickedKeg.currentVolumeLiters,
+								unit: kickedKeg.unit,
+								fillPercentage: fillPct,
+								assignedBatch: kickedKeg.assignedBatch,
+								currentTemperatureC: kickedKeg.currentTemperatureC,
+								temperatureUpdatedAt: kickedKeg.temperatureUpdatedAt
+							},
+							assignedBatch: kickedKeg.assignedBatch,
+							fillLevelPercent: fillPct
+						};
+					}
+					return item;
+				});
+			}
+
+			// Verify Keg: batch is detached and volume is 0
+			expect(equipmentList[0].assignedBatch).toBeNull();
+			expect(equipmentList[0].assignedBatchId).toBeNull();
+			expect(equipmentList[0].currentVolume).toBe(0);
+
+			// Verify Tap: batch is detached and tap reflects empty keg
+			expect(equipmentList[1].assignedKegId).toBe('keg-1');
+			expect(equipmentList[1].assignedKeg?.assignedBatch).toBeNull();
+			expect(equipmentList[1].assignedBatch).toBeNull();
+			expect(equipmentList[1].fillLevelPercent).toBe(0);
 		});
 	});
 });

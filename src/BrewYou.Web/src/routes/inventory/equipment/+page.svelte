@@ -318,17 +318,8 @@
 	function handleSaved(saved: EquipmentDto) {
 		const index = equipmentList.findIndex((e) => e.id === saved.id);
 		if (index >= 0) {
-			const existing = equipmentList[index];
-			const merged: EquipmentDto = {
-				...saved,
-				assignedBatch: saved.assignedBatch ?? existing.assignedBatch,
-				assignedBatchId: saved.assignedBatchId ?? existing.assignedBatchId,
-				assignedKeg: saved.assignedKeg ?? existing.assignedKeg,
-				assignedKegId: saved.assignedKegId ?? existing.assignedKegId
-			};
-
 			if (selectedCategory === 'All' || selectedCategory === saved.type) {
-				equipmentList[index] = merged;
+				equipmentList[index] = saved;
 			} else {
 				equipmentList = equipmentList.filter((e) => e.id !== saved.id);
 			}
@@ -338,7 +329,7 @@
 			}
 		}
 
-		// When a Keg is saved/renamed, synchronize any Tap in equipmentList that has this Keg assigned
+		// When a Keg is saved/renamed/kicked, synchronize any Tap in equipmentList that has this Keg assigned
 		if (saved.type === 'Keg') {
 			equipmentList = equipmentList.map((item) => {
 				if (
@@ -369,7 +360,7 @@
 						...item,
 						assignedKegId: saved.id,
 						assignedKeg: updatedAssignedKeg,
-						assignedBatch: saved.assignedBatch ?? item.assignedBatch,
+						assignedBatch: saved.assignedBatch,
 						fillLevelPercent: fillPct
 					};
 				}
