@@ -747,5 +747,167 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         b3Dto.SensorAssignments.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task UpdateEquipment_RenamingTapWithDirectBatch_PreservesAttachedBatchAndReturnsPopulatedDto()
+    {
+        // 1. Arrange: Authenticated user and default setup
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync("tap_rename_batch");
+        var recipe = await CreateSampleRecipeAsync(client, "Tap Direct Batch Recipe");
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, status: BatchStatus.Conditioning, stage: BrewStage.Condition);
+
+        // 2. Create tap equipment
+        var tap = await CreateEquipmentAsync(client, setupId, "Main Bar Tap 1", EquipmentType.Tap, EquipmentSubtype.StandardTap);
+
+        // 3. Assign batch directly to tap
+        var assignReq = new AssignTapRequest(BatchId: batch.Id);
+        var assignRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", assignReq);
+        assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var assignedDto = (await assignRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        assignedDto.AssignedBatchId.Should().Be(batch.Id);
+        assignedDto.AssignedBatch.Should().NotBeNull();
+        assignedDto.AssignedBatch!.Id.Should().Be(batch.Id);
+
+        // 4. Act: Rename tap via PUT /api/v1/inventory/equipment/{id}
+        var updateReq = new UpdateEquipmentRequest(
+            Name: "Main Bar Tap 1 (Renamed)",
+            Type: EquipmentType.Tap,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.StandardTap,
+            Unit: VolumeUnit.Liters
+        );
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}", updateReq);
+
+        // 5. Assert: 200 OK, Name updated, Attached Batch fully preserved in returned DTO
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedDto = (await updateRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        updatedDto.Name.Should().Be("Main Bar Tap 1 (Renamed)");
+        updatedDto.AssignedBatchId.Should().Be(batch.Id, "Renaming a tap must not disconnect current attached batch ID");
+        updatedDto.AssignedBatch.Should().NotBeNull("Renaming a tap must not clear current attached batch navigation DTO");
+        updatedDto.AssignedBatch!.Id.Should().Be(batch.Id);
+        updatedDto.AssignedBatch.Name.Should().Be(batch.Name);
+
+        // 6. Assert: GET endpoint also returns populated assigned batch
+        var getRes = await client.GetAsync($"/api/v1/inventory/equipment/{tap.Id}");
+        getRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getDto = (await getRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        getDto.Name.Should().Be("Main Bar Tap 1 (Renamed)");
+        getDto.AssignedBatchId.Should().Be(batch.Id);
+        getDto.AssignedBatch.Should().NotBeNull();
+        getDto.AssignedBatch!.Id.Should().Be(batch.Id);
+
+        // 7. Assert: Database entity preserves AssignedBatchId
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var dbTap = await db.Equipment.FindAsync(tap.Id);
+        dbTap!.Name.Should().Be("Main Bar Tap 1 (Renamed)");
+        dbTap.AssignedBatchId.Should().Be(batch.Id);
+    }
+
+    [Fact]
+    public async Task UpdateEquipment_RenamingTapWithAttachedKeg_PreservesAttachedKegAndBatch()
+    {
+        // 1. Arrange: Authenticated user and default setup
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync("tap_rename_keg");
+        var recipe = await CreateSampleRecipeAsync(client, "Tap Keg Recipe");
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, status: BatchStatus.Conditioning, stage: BrewStage.Condition);
+
+        // 2. Create Keg and fill with batch
+        var keg = await CreateEquipmentAsync(client, setupId, "Cornelius Keg #1", EquipmentType.Keg, EquipmentSubtype.Cornelius, capacity: 19m);
+        var fillReq = new AssignKegBatchRequest(BatchId: batch.Id, VolumeLiters: 19m);
+        var fillRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{keg.Id}/keg-assignment", fillReq);
+        fillRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 3. Create Tap and assign Keg
+        var tap = await CreateEquipmentAsync(client, setupId, "Kegerator Tap #1", EquipmentType.Tap, EquipmentSubtype.StandardTap);
+        var assignTapReq = new AssignTapRequest(KegId: keg.Id);
+        var assignTapRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", assignTapReq);
+        assignTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 4. Act: Rename Tap
+        var updateTapReq = new UpdateEquipmentRequest(
+            Name: "Kegerator Tap #1 (Renamed)",
+            Type: EquipmentType.Tap,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.StandardTap,
+            Unit: VolumeUnit.Liters
+        );
+        var updateTapRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}", updateTapReq);
+
+        // 5. Assert: Attached keg and batch preserved
+        updateTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedTapDto = (await updateTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        updatedTapDto.Name.Should().Be("Kegerator Tap #1 (Renamed)");
+        updatedTapDto.AssignedKegId.Should().Be(keg.Id, "Renaming a tap must not disconnect current attached keg ID");
+        updatedTapDto.AssignedKeg.Should().NotBeNull("Renaming a tap must return populated AssignedKeg summary");
+        updatedTapDto.AssignedKeg!.Id.Should().Be(keg.Id);
+        updatedTapDto.AssignedKeg.Name.Should().Be("Cornelius Keg #1");
+        updatedTapDto.AssignedBatch.Should().NotBeNull("Renaming a tap must return effective batch from assigned keg");
+        updatedTapDto.AssignedBatch!.Id.Should().Be(batch.Id);
+
+        // 6. Assert DB entity state
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var dbTap = await db.Equipment.FindAsync(tap.Id);
+        dbTap!.Name.Should().Be("Kegerator Tap #1 (Renamed)");
+        dbTap.AssignedKegId.Should().Be(keg.Id);
+    }
+
+    [Fact]
+    public async Task UpdateEquipment_RenamingKeg_PreservesAttachedBatchAndUpdatesTapAssociation()
+    {
+        // 1. Arrange: Authenticated user and default setup
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync("keg_rename_flow");
+        var recipe = await CreateSampleRecipeAsync(client, "Keg Rename Recipe");
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, status: BatchStatus.Conditioning, stage: BrewStage.Condition);
+
+        // 2. Create Keg and fill with batch
+        var keg = await CreateEquipmentAsync(client, setupId, "Keg Alpha", EquipmentType.Keg, EquipmentSubtype.Cornelius, capacity: 19m);
+        var fillReq = new AssignKegBatchRequest(BatchId: batch.Id, VolumeLiters: 18.5m);
+        var fillRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{keg.Id}/keg-assignment", fillReq);
+        fillRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 3. Create Tap and assign Keg
+        var tap = await CreateEquipmentAsync(client, setupId, "Tap A", EquipmentType.Tap, EquipmentSubtype.StandardTap);
+        var assignTapReq = new AssignTapRequest(KegId: keg.Id);
+        var assignTapRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tap.Id}/tap-assignment", assignTapReq);
+        assignTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 4. Act: Rename Keg to "Keg Beta"
+        var updateKegReq = new UpdateEquipmentRequest(
+            Name: "Keg Beta",
+            Type: EquipmentType.Keg,
+            Capacity: 19m,
+            CurrentVolume: 18.5m,
+            Subtype: EquipmentSubtype.Cornelius,
+            Unit: VolumeUnit.Liters
+        );
+        var updateKegRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{keg.Id}", updateKegReq);
+
+        // 5. Assert: Keg response retains attached batch
+        updateKegRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedKegDto = (await updateKegRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        updatedKegDto.Name.Should().Be("Keg Beta");
+        updatedKegDto.AssignedBatchId.Should().Be(batch.Id, "Renaming a keg must not disconnect current attached batch ID");
+        updatedKegDto.AssignedBatch.Should().NotBeNull("Renaming a keg must return populated AssignedBatch summary");
+        updatedKegDto.AssignedBatch!.Id.Should().Be(batch.Id);
+
+        // 6. Assert: Tap query reflects updated Keg name and retains attached batch
+        var getTapRes = await client.GetAsync($"/api/v1/inventory/equipment/{tap.Id}");
+        getTapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var tapDto = (await getTapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        tapDto.AssignedKegId.Should().Be(keg.Id);
+        tapDto.AssignedKeg.Should().NotBeNull();
+        tapDto.AssignedKeg!.Name.Should().Be("Keg Beta", "Tap's assigned keg summary must reflect the renamed keg");
+        tapDto.AssignedBatch.Should().NotBeNull();
+        tapDto.AssignedBatch!.Id.Should().Be(batch.Id);
+
+        // 7. Assert DB entity state
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var dbKeg = await db.Equipment.FindAsync(keg.Id);
+        dbKeg!.Name.Should().Be("Keg Beta");
+        dbKeg.AssignedBatchId.Should().Be(batch.Id);
+    }
+
     #endregion
 }

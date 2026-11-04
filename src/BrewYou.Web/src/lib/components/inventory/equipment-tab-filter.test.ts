@@ -523,4 +523,181 @@ describe('Equipment Card List Alphabetical Ordering', () => {
 			'Ss Brewtech 7 Gal Chronical'
 		]);
 	});
+
+	describe('Renaming tap or keg preserves attached batch and cascades name updates', () => {
+		it('preserves attached batch when tap is renamed', () => {
+			const initialTap: EquipmentDto = {
+				id: 'tap-1',
+				brewerySetupId: 'setup-1',
+				name: 'Tap #1',
+				type: 'Tap',
+				subtype: 'StandardTap',
+				capacity: 0,
+				unit: 'Liters',
+				capacityLiters: 0,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 100,
+				assignedBatchId: 'batch-99',
+				assignedBatch: {
+					id: 'batch-99',
+					batchCode: 'B-099',
+					name: 'Citra Hazy IPA',
+					beerStyle: 'Hazy IPA',
+					actualAbv: 6.5,
+					assignedAt: '2026-11-04T12:00:00Z'
+				},
+				createdAt: '',
+				updatedAt: ''
+			};
+
+			const savedTapUpdate: EquipmentDto = {
+				...initialTap,
+				name: 'Main Bar Tap #1',
+				updatedAt: '2026-11-04T13:00:00Z'
+			};
+
+			// Simulate handleSaved logic in equipment page
+			const equipmentList: EquipmentDto[] = [initialTap];
+			const index = equipmentList.findIndex((e) => e.id === savedTapUpdate.id);
+			expect(index).toBe(0);
+
+			const existing = equipmentList[index];
+			const merged: EquipmentDto = {
+				...savedTapUpdate,
+				assignedBatch: savedTapUpdate.assignedBatch ?? existing.assignedBatch,
+				assignedBatchId: savedTapUpdate.assignedBatchId ?? existing.assignedBatchId,
+				assignedKeg: savedTapUpdate.assignedKeg ?? existing.assignedKeg,
+				assignedKegId: savedTapUpdate.assignedKegId ?? existing.assignedKegId
+			};
+			equipmentList[index] = merged;
+
+			expect(equipmentList[0].name).toBe('Main Bar Tap #1');
+			expect(equipmentList[0].assignedBatchId).toBe('batch-99');
+			expect(equipmentList[0].assignedBatch?.name).toBe('Citra Hazy IPA');
+		});
+
+		it('preserves attached batch on keg and cascades renamed keg to assigned tap', () => {
+			const initialKeg: EquipmentDto = {
+				id: 'keg-1',
+				brewerySetupId: 'setup-1',
+				name: 'Keg Alpha',
+				type: 'Keg',
+				subtype: 'Cornelius',
+				capacity: 19,
+				unit: 'Liters',
+				capacityLiters: 19,
+				currentVolume: 18.5,
+				currentVolumeLiters: 18.5,
+				fillPercentage: 97.4,
+				assignedBatchId: 'batch-101',
+				assignedBatch: {
+					id: 'batch-101',
+					batchCode: 'B-101',
+					name: 'Nelson Sauvin Pils',
+					beerStyle: 'German Pils',
+					actualAbv: 5.1,
+					assignedAt: '2026-11-04T10:00:00Z'
+				},
+				createdAt: '',
+				updatedAt: ''
+			};
+
+			const initialTap: EquipmentDto = {
+				id: 'tap-2',
+				brewerySetupId: 'setup-1',
+				name: 'Tap #2',
+				type: 'Tap',
+				subtype: 'StandardTap',
+				capacity: 0,
+				unit: 'Liters',
+				capacityLiters: 0,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 97.4,
+				assignedKegId: 'keg-1',
+				assignedKeg: {
+					id: 'keg-1',
+					name: 'Keg Alpha',
+					subtype: 'Cornelius',
+					capacityLiters: 19,
+					currentVolumeLiters: 18.5,
+					unit: 'Liters',
+					fillPercentage: 97.4,
+					assignedBatch: initialKeg.assignedBatch
+				},
+				assignedBatch: initialKeg.assignedBatch,
+				createdAt: '',
+				updatedAt: ''
+			};
+
+			let equipmentList: EquipmentDto[] = [initialKeg, initialTap];
+
+			// Keg renamed to "Keg Beta"
+			const savedKegUpdate: EquipmentDto = {
+				...initialKeg,
+				name: 'Keg Beta',
+				updatedAt: '2026-11-04T14:00:00Z'
+			};
+
+			// Simulate handleSaved
+			const kegIdx = equipmentList.findIndex((e) => e.id === savedKegUpdate.id);
+			const existingKeg = equipmentList[kegIdx];
+			equipmentList[kegIdx] = {
+				...savedKegUpdate,
+				assignedBatch: savedKegUpdate.assignedBatch ?? existingKeg.assignedBatch,
+				assignedBatchId: savedKegUpdate.assignedBatchId ?? existingKeg.assignedBatchId,
+				assignedKeg: savedKegUpdate.assignedKeg ?? existingKeg.assignedKeg,
+				assignedKegId: savedKegUpdate.assignedKegId ?? existingKeg.assignedKegId
+			};
+
+			if (savedKegUpdate.type === 'Keg') {
+				equipmentList = equipmentList.map((item) => {
+					if (
+						item.type === 'Tap' &&
+						(item.assignedKegId === savedKegUpdate.id || item.assignedKeg?.id === savedKegUpdate.id)
+					) {
+						const fillPct =
+							savedKegUpdate.fillLevelPercent ??
+							savedKegUpdate.fillPercentage ??
+							(savedKegUpdate.capacityLiters > 0
+								? Math.round(
+										(savedKegUpdate.currentVolumeLiters / savedKegUpdate.capacityLiters) * 100
+									)
+								: 0);
+
+						return {
+							...item,
+							assignedKegId: savedKegUpdate.id,
+							assignedKeg: {
+								id: savedKegUpdate.id,
+								name: savedKegUpdate.name,
+								subtype: savedKegUpdate.subtype,
+								capacityLiters: savedKegUpdate.capacityLiters,
+								currentVolumeLiters: savedKegUpdate.currentVolumeLiters,
+								unit: savedKegUpdate.unit,
+								fillPercentage: fillPct,
+								assignedBatch: savedKegUpdate.assignedBatch,
+								currentTemperatureC: savedKegUpdate.currentTemperatureC,
+								temperatureUpdatedAt: savedKegUpdate.temperatureUpdatedAt
+							},
+							assignedBatch: savedKegUpdate.assignedBatch ?? item.assignedBatch,
+							fillLevelPercent: fillPct
+						};
+					}
+					return item;
+				});
+			}
+
+			// Verify Keg itself
+			expect(equipmentList[0].name).toBe('Keg Beta');
+			expect(equipmentList[0].assignedBatchId).toBe('batch-101');
+			expect(equipmentList[0].assignedBatch?.name).toBe('Nelson Sauvin Pils');
+
+			// Verify Tap connected to the Keg
+			expect(equipmentList[1].assignedKegId).toBe('keg-1');
+			expect(equipmentList[1].assignedKeg?.name).toBe('Keg Beta');
+			expect(equipmentList[1].assignedBatch?.name).toBe('Nelson Sauvin Pils');
+		});
+	});
 });

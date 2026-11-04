@@ -275,6 +275,9 @@ public class EquipmentService : IEquipmentService
         var equipment = await _db.Equipment
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
+            .Include(e => e.AssignedBatch)
+            .Include(e => e.AssignedKeg)
+                .ThenInclude(k => k!.AssignedBatch)
             .FirstOrDefaultAsync(e => e.Id == id);
 
         if (equipment == null)
@@ -327,9 +330,31 @@ public class EquipmentService : IEquipmentService
         var currentVolume = isSensorOrTap ? 0.0m : (request.CurrentVolume ?? equipment.CurrentVolume);
         var currentVolumeLiters = isSensorOrTap ? 0.0m : ToLiters(currentVolume, inputUnit);
 
+        var previousType = equipment.Type;
         equipment.Name = normalizedName;
         equipment.Type = request.Type;
         equipment.Subtype = subtype;
+
+        if (previousType == EquipmentType.Tap && request.Type != EquipmentType.Tap)
+        {
+            equipment.AssignedKegId = null;
+            equipment.AssignedKeg = null;
+            equipment.AssignedBatchId = null;
+            equipment.AssignedBatch = null;
+            equipment.AssignedAt = null;
+        }
+        else if (previousType == EquipmentType.Keg && request.Type != EquipmentType.Keg)
+        {
+            var attachedTaps = await _db.Equipment.Where(e => e.AssignedKegId == id).ToListAsync();
+            foreach (var tap in attachedTaps)
+            {
+                tap.AssignedKegId = null;
+                tap.AssignedKeg = null;
+            }
+            equipment.AssignedBatchId = null;
+            equipment.AssignedBatch = null;
+            equipment.AssignedAt = null;
+        }
         equipment.Capacity = Math.Round(capacity, 2);
         equipment.Unit = inputUnit;
         equipment.CapacityLiters = Math.Round(capacityLiters, 2);
@@ -637,24 +662,38 @@ public class EquipmentService : IEquipmentService
 
     private EquipmentDto ToDto(Equipment e, bool isOwner = true)
     {
+        var assignedKeg = e.AssignedKeg;
+        if (assignedKeg == null && e.AssignedKegId.HasValue)
+        {
+            assignedKeg = _db.Equipment
+                .Include(k => k.AssignedBatch)
+                .FirstOrDefault(k => k.Id == e.AssignedKegId.Value);
+        }
+
+        var assignedBatch = e.AssignedBatch;
+        if (assignedBatch == null && e.AssignedBatchId.HasValue)
+        {
+            assignedBatch = _db.Batches.FirstOrDefault(b => b.Id == e.AssignedBatchId.Value);
+        }
+
         var fillPercentage = e.CapacityLiters > 0
             ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
             : 0m;
 
         AssignedKegSummaryDto? assignedKegSummary = null;
-        if (e.AssignedKeg != null)
+        if (assignedKeg != null)
         {
-            var kegFill = e.AssignedKeg.CapacityLiters > 0
-                ? Math.Round(Math.Clamp((e.AssignedKeg.CurrentVolumeLiters / e.AssignedKeg.CapacityLiters) * 100m, 0m, 100m), 1)
+            var kegFill = assignedKeg.CapacityLiters > 0
+                ? Math.Round(Math.Clamp((assignedKeg.CurrentVolumeLiters / assignedKeg.CapacityLiters) * 100m, 0m, 100m), 1)
                 : 0m;
-            var kegBatch = e.AssignedKeg.AssignedBatch;
+            var kegBatch = assignedKeg.AssignedBatch;
             assignedKegSummary = new AssignedKegSummaryDto(
-                e.AssignedKeg.Id,
-                e.AssignedKeg.Name,
-                e.AssignedKeg.Subtype,
-                e.AssignedKeg.CapacityLiters,
-                e.AssignedKeg.CurrentVolumeLiters,
-                e.AssignedKeg.Unit,
+                assignedKeg.Id,
+                assignedKeg.Name,
+                assignedKeg.Subtype,
+                assignedKeg.CapacityLiters,
+                assignedKeg.CurrentVolumeLiters,
+                assignedKeg.Unit,
                 kegFill,
                 kegBatch != null
                     ? new TapAssignedBatchDto(
@@ -663,17 +702,17 @@ public class EquipmentService : IEquipmentService
                         kegBatch.Name,
                         kegBatch.BeerStyle,
                         kegBatch.AlcoholByVolume,
-                        e.AssignedKeg.AssignedAt,
+                        assignedKeg.AssignedAt,
                         kegBatch.RecipeId,
                         ResolveBatchLabelUrl(kegBatch))
                     : null,
-                e.AssignedKeg.CurrentTemperatureC,
-                e.AssignedKeg.TemperatureUpdatedAt
+                assignedKeg.CurrentTemperatureC,
+                assignedKeg.TemperatureUpdatedAt
             );
         }
 
-        var effectiveBatch = e.AssignedKeg?.AssignedBatch ?? e.AssignedBatch;
-        var effectiveAssignedAt = e.AssignedKeg?.AssignedAt ?? e.AssignedAt;
+        var effectiveBatch = assignedKeg?.AssignedBatch ?? assignedBatch;
+        var effectiveAssignedAt = assignedKeg?.AssignedAt ?? e.AssignedAt;
 
         decimal? fillLevelPercent = e.Type switch
         {
@@ -687,11 +726,11 @@ public class EquipmentService : IEquipmentService
             : fillPercentage;
 
         var effectiveTemperatureC = e.Type == EquipmentType.Tap
-            ? e.AssignedKeg?.CurrentTemperatureC
+            ? assignedKeg?.CurrentTemperatureC
             : e.CurrentTemperatureC;
 
         var effectiveTemperatureUpdatedAt = e.Type == EquipmentType.Tap
-            ? e.AssignedKeg?.TemperatureUpdatedAt
+            ? assignedKeg?.TemperatureUpdatedAt
             : e.TemperatureUpdatedAt;
 
         var effectiveConnectionType = e.Type == EquipmentType.Tap
@@ -723,7 +762,7 @@ public class EquipmentService : IEquipmentService
             : e.CurrentBatteryVoltage;
 
         var effectiveLastTelemetryAt = e.Type == EquipmentType.Tap
-            ? e.AssignedKeg?.LastTelemetryAt
+            ? assignedKeg?.LastTelemetryAt
             : e.LastTelemetryAt;
 
         var effectiveLatestMetricsJson = e.Type == EquipmentType.Tap
@@ -852,6 +891,9 @@ public class EquipmentService : IEquipmentService
         var equipment = await _db.Equipment
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
+            .Include(e => e.AssignedBatch)
+            .Include(e => e.AssignedKeg)
+                .ThenInclude(k => k!.AssignedBatch)
             .FirstOrDefaultAsync(e => e.Id == id);
 
         if (equipment == null)

@@ -10,7 +10,8 @@
 		type EquipmentDto,
 		type EquipmentType,
 		type EquipmentSubtype,
-		type EquipmentTelemetryUpdateDto
+		type EquipmentTelemetryUpdateDto,
+		type AssignedKegSummaryDto
 	} from '$lib/types/api';
 	import EquipmentModal from '$lib/components/inventory/EquipmentModal.svelte';
 	import DeleteEquipmentModal from '$lib/components/inventory/DeleteEquipmentModal.svelte';
@@ -317,8 +318,17 @@
 	function handleSaved(saved: EquipmentDto) {
 		const index = equipmentList.findIndex((e) => e.id === saved.id);
 		if (index >= 0) {
+			const existing = equipmentList[index];
+			const merged: EquipmentDto = {
+				...saved,
+				assignedBatch: saved.assignedBatch ?? existing.assignedBatch,
+				assignedBatchId: saved.assignedBatchId ?? existing.assignedBatchId,
+				assignedKeg: saved.assignedKeg ?? existing.assignedKeg,
+				assignedKegId: saved.assignedKegId ?? existing.assignedKegId
+			};
+
 			if (selectedCategory === 'All' || selectedCategory === saved.type) {
-				equipmentList[index] = saved;
+				equipmentList[index] = merged;
 			} else {
 				equipmentList = equipmentList.filter((e) => e.id !== saved.id);
 			}
@@ -326,6 +336,45 @@
 			if (selectedCategory === 'All' || selectedCategory === saved.type) {
 				equipmentList = [saved, ...equipmentList];
 			}
+		}
+
+		// When a Keg is saved/renamed, synchronize any Tap in equipmentList that has this Keg assigned
+		if (saved.type === 'Keg') {
+			equipmentList = equipmentList.map((item) => {
+				if (
+					item.type === 'Tap' &&
+					(item.assignedKegId === saved.id || item.assignedKeg?.id === saved.id)
+				) {
+					const fillPct =
+						saved.fillLevelPercent ??
+						saved.fillPercentage ??
+						(saved.capacityLiters > 0
+							? Math.round((saved.currentVolumeLiters / saved.capacityLiters) * 100)
+							: 0);
+
+					const updatedAssignedKeg: AssignedKegSummaryDto = {
+						id: saved.id,
+						name: saved.name,
+						subtype: saved.subtype,
+						capacityLiters: saved.capacityLiters,
+						currentVolumeLiters: saved.currentVolumeLiters,
+						unit: saved.unit,
+						fillPercentage: fillPct,
+						assignedBatch: saved.assignedBatch,
+						currentTemperatureC: saved.currentTemperatureC,
+						temperatureUpdatedAt: saved.temperatureUpdatedAt
+					};
+
+					return {
+						...item,
+						assignedKegId: saved.id,
+						assignedKeg: updatedAssignedKeg,
+						assignedBatch: saved.assignedBatch ?? item.assignedBatch,
+						fillLevelPercent: fillPct
+					};
+				}
+				return item;
+			});
 		}
 	}
 
