@@ -84,6 +84,17 @@ export interface UpdateIngredientStockRequest {
 	unit?: string | null;
 }
 
+export interface UpdateIngredientRequest {
+	name: string;
+	type: IngredientType;
+	potentialGravity?: number | null;
+	colorSrm?: number | null;
+	alphaAcidPercent?: number | null;
+	attenuationPercent?: number | null;
+	description?: string | null;
+	form?: string | null;
+}
+
 export interface IngredientUsageRecipeDto {
 	id: string;
 	name: string;
@@ -730,6 +741,15 @@ export interface EquipmentActiveBatchDto {
 	name: string;
 	status: BatchStatus;
 	currentStage: BrewStage;
+	role?: string | null;
+}
+
+export interface RecipeActiveBatchDto {
+	id: string;
+	batchCode: string;
+	name: string;
+	status: BatchStatus;
+	currentStage: BrewStage;
 }
 
 export interface EquipmentReadingDto {
@@ -831,6 +851,7 @@ export interface BatchSummaryDto {
 	batchCode: string;
 	name: string;
 	recipeId?: string | null;
+	recipeName?: string | null;
 	beerStyle: string;
 	status: BatchStatus;
 	currentStage: BrewStage;

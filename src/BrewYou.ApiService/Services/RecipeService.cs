@@ -12,9 +12,18 @@ public enum RecipeAccessResult
     Success,
     NotFound,
     Forbidden,
+    Conflict,
     DuplicateName,
     InvalidIngredient
 }
+
+public record RecipeActiveBatchDto(
+    Guid Id,
+    string BatchCode,
+    string Name,
+    BatchStatus Status,
+    BrewStage CurrentStage
+);
 
 public interface IRecipeService
 {
@@ -23,7 +32,8 @@ public interface IRecipeService
     Task<(RecipeAccessResult Result, RecipeDetailDto? Recipe, string? Error)> CreateRecipeAsync(CreateRecipeRequest request, string userId);
     Task<CalculateRecipeResponse> CalculateRecipeAsync(CalculateRecipeRequest request, string? userId = null);
     Task<(RecipeAccessResult Result, RecipeDetailDto? Recipe, string? Error)> UpdateRecipeAsync(Guid id, UpdateRecipeRequest request, string userId);
-    Task<RecipeAccessResult> DeleteRecipeAsync(Guid id, string userId);
+    Task<RecipeAccessResult> DeleteRecipeAsync(Guid id, string userId, bool force = false);
+    Task<(RecipeAccessResult Result, List<RecipeActiveBatchDto>? Batches)> GetActiveBatchesForRecipeAsync(Guid recipeId, string userId);
     Task<bool> RecipeNameExistsAsync(string name, string userId);
 }
 
@@ -497,7 +507,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
         );
     }
 
-    public async Task<RecipeAccessResult> DeleteRecipeAsync(Guid id, string userId)
+    public async Task<RecipeAccessResult> DeleteRecipeAsync(Guid id, string userId, bool force = false)
     {
         var recipe = await db.Recipes.FirstOrDefaultAsync(r => r.Id == id);
         if (recipe == null)
@@ -510,17 +520,64 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             return RecipeAccessResult.Forbidden;
         }
 
-        // Decouple linked batches explicitly so In-Memory database & cached entities stay synchronized
+        // Active batch guard: Check if recipe is in use by active batches unless force flag is set
+        if (!force)
+        {
+            var hasActiveBatches = await db.Batches.AsNoTracking().AnyAsync(b =>
+                b.RecipeId == id &&
+                b.Status != BatchStatus.Completed &&
+                b.Status != BatchStatus.Archived);
+
+            if (hasActiveBatches)
+            {
+                return RecipeAccessResult.Conflict;
+            }
+        }
+
+        // Decouple linked batches explicitly and snapshot RecipeName
         var linkedBatches = await db.Batches.Where(b => b.RecipeId == id).ToListAsync();
         foreach (var batch in linkedBatches)
         {
+            batch.RecipeName ??= recipe.Name;
             batch.RecipeId = null;
+            batch.UpdatedAt = DateTime.UtcNow;
         }
 
         db.Recipes.Remove(recipe);
         await db.SaveChangesAsync();
 
         return RecipeAccessResult.Success;
+    }
+
+    public async Task<(RecipeAccessResult Result, List<RecipeActiveBatchDto>? Batches)> GetActiveBatchesForRecipeAsync(Guid recipeId, string userId)
+    {
+        var recipe = await db.Recipes.AsNoTracking().FirstOrDefaultAsync(r => r.Id == recipeId);
+        if (recipe == null)
+        {
+            return (RecipeAccessResult.NotFound, null);
+        }
+
+        if (recipe.UserId != userId)
+        {
+            return (RecipeAccessResult.Forbidden, null);
+        }
+
+        var activeBatches = await db.Batches.AsNoTracking()
+            .Where(b => b.RecipeId == recipeId &&
+                        b.Status != BatchStatus.Completed &&
+                        b.Status != BatchStatus.Archived)
+            .OrderByDescending(b => b.BrewDate)
+            .ThenByDescending(b => b.CreatedAt)
+            .Select(b => new RecipeActiveBatchDto(
+                b.Id,
+                b.BatchCode,
+                b.Name,
+                b.Status,
+                b.CurrentStage
+            ))
+            .ToListAsync();
+
+        return (RecipeAccessResult.Success, activeBatches);
     }
 
     private RecipeDetailDto MapToDetailDto(Recipe recipe, string? userId = null)

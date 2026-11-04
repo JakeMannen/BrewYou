@@ -41,6 +41,7 @@ public class BatchService : IBatchService
 
         var query = _db.Batches
             .AsNoTracking()
+            .Include(b => b.Recipe)
             .Include(b => b.Hlt)
             .Include(b => b.MashTun)
             .Include(b => b.Boiler)
@@ -101,7 +102,8 @@ public class BatchService : IBatchService
             b.MashTunId,
             b.MashTun?.Name,
             b.BoilerId,
-            b.Boiler?.Name
+            b.Boiler?.Name,
+            b.Recipe?.Name ?? b.RecipeName
         )).ToList();
 
         var meta = new PaginationMeta(page, limit, total, totalPages);
@@ -327,6 +329,7 @@ public class BatchService : IBatchService
         {
             UserId = userId,
             RecipeId = recipe?.Id,
+            RecipeName = recipe?.Name,
             BatchCode = batchCode,
             Name = request.Name.Trim(),
             BeerStyle = request.BeerStyle?.Trim() ?? recipe?.BeerStyle ?? "American IPA",
@@ -1727,7 +1730,7 @@ public class BatchService : IBatchService
             Id: b.Id,
             UserId: b.UserId,
             RecipeId: b.RecipeId,
-            RecipeName: b.Recipe?.Name,
+            RecipeName: b.Recipe?.Name ?? b.RecipeName,
             BatchCode: b.BatchCode,
             Name: b.Name,
             BeerStyle: b.BeerStyle,
@@ -2257,7 +2260,14 @@ public class BatchService : IBatchService
         {
             var ingredient = item.SourceIngredientId.HasValue
                 ? await _db.Ingredients.FindAsync(item.SourceIngredientId.Value)
-                : await _db.Ingredients.FirstOrDefaultAsync(i => i.Name.ToLower() == item.Name.ToLower());
+                : null;
+
+            if (ingredient == null)
+            {
+                ingredient = await _db.Ingredients.FirstOrDefaultAsync(i =>
+                    (i.IsCatalogItem || i.CreatedByUserId == userId) &&
+                    i.Name.ToLower() == item.Name.ToLower());
+            }
 
             if (ingredient != null)
             {
@@ -2299,7 +2309,14 @@ public class BatchService : IBatchService
         {
             var ingredient = item.SourceIngredientId.HasValue
                 ? await _db.Ingredients.FindAsync(item.SourceIngredientId.Value)
-                : await _db.Ingredients.FirstOrDefaultAsync(i => i.Name.ToLower() == item.Name.ToLower());
+                : null;
+
+            if (ingredient == null)
+            {
+                ingredient = await _db.Ingredients.FirstOrDefaultAsync(i =>
+                    (i.IsCatalogItem || i.CreatedByUserId == userId) &&
+                    i.Name.ToLower() == item.Name.ToLower());
+            }
 
             if (ingredient != null)
             {

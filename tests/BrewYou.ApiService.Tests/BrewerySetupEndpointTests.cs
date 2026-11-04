@@ -279,4 +279,57 @@ public class BrewerySetupEndpointTests : IClassFixture<WebApplicationFactory<Pro
         setup.Name.Should().Be("Mitt bryggeri");
         setup.IsDefault.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task DeleteBrewerySetup_WhenEquipmentHasSensorAssignments_PreCleansAndDeletesSuccessfully()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync();
+
+        // Create second setup
+        var createRes = await client.PostAsJsonAsync("/api/v1/brewery-setups",
+            new CreateBrewerySetupRequest("Setup With Sensors"));
+        var setup2 = (await createRes.Content.ReadFromJsonAsync<ApiResponse<BrewerySetupDto>>())!.Data!;
+
+        // Add sensor to setup 2
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setup2.Id, "Tilt Hydrometer Pink", EquipmentType.Sensor, 0));
+        var sensor = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // Create a batch and assign the sensor
+        var batchReq = new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: $"B-{Guid.NewGuid():N}"[..12],
+            Name: "Setup Cascade Batch",
+            BeerStyle: "Pilsner",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.048m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.0m,
+            TargetIbu: 35m,
+            TargetColorSrm: 4m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: null
+        );
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", batchReq);
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var sensorInput = new List<BatchSensorAssignmentInput>
+        {
+            new(sensor.Id, BrewStage.Ferment)
+        };
+        var assignRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors", sensorInput);
+        assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Delete setup 2
+        var delRes = await client.DeleteAsync($"/api/v1/brewery-setups/{setup2.Id}");
+        delRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Verify setup 2 is gone
+        var checkRes = await client.GetAsync($"/api/v1/brewery-setups/{setup2.Id}");
+        checkRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }

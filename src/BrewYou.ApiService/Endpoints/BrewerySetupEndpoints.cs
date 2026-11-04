@@ -154,13 +154,19 @@ public static class BrewerySetupEndpoints
                 return Results.BadRequest(ApiResponse.Fail("CANNOT_DELETE_LAST_SETUP", errorMessage ?? "Cannot delete the last remaining brewery setup."));
             }
 
+            if (result == BrewerySetupAccessResult.Conflict)
+            {
+                return Results.Conflict(ApiResponse.Fail("SETUP_IN_USE", errorMessage ?? "Cannot delete brewery setup in use or constrained by dependent records."));
+            }
+
             return Results.Ok(ApiResponse.Ok());
         })
         .WithName("DeleteBrewerySetup")
         .Produces<ApiResponse>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         group.MapPost("/{id:guid}/set-default", async (
             Guid id,

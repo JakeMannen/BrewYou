@@ -336,6 +336,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.HasKey(b => b.Id);
             entity.Property(b => b.BatchCode).HasMaxLength(30).IsRequired();
             entity.Property(b => b.Name).HasMaxLength(150).IsRequired();
+            entity.Property(b => b.RecipeName).HasMaxLength(150);
             entity.Property(b => b.BeerStyle).HasMaxLength(100).IsRequired();
             entity.Property(b => b.Status).HasConversion<string>().HasMaxLength(30).IsRequired();
             entity.Property(b => b.CurrentStage).HasConversion<string>().HasMaxLength(30).IsRequired();

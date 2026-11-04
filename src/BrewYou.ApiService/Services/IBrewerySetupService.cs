@@ -54,7 +54,8 @@ public enum BrewerySetupAccessResult
     NotFound,
     Forbidden,
     CannotDeleteLastSetup,
-    QuotaExceeded
+    QuotaExceeded,
+    Conflict
 }
 
 public interface IBrewerySetupService

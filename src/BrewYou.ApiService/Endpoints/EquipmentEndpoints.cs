@@ -259,7 +259,8 @@ public static class EquipmentEndpoints
         group.MapDelete("/{id:guid}", async (
             Guid id,
             ClaimsPrincipal principal,
-            IEquipmentService equipmentService) =>
+            IEquipmentService equipmentService,
+            [FromQuery] bool force = false) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
@@ -267,7 +268,7 @@ public static class EquipmentEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var result = await equipmentService.DeleteEquipmentAsync(id, userId);
+            var result = await equipmentService.DeleteEquipmentAsync(id, userId, force);
             if (result == EquipmentAccessResult.Forbidden)
             {
                 return Results.Json(ApiResponse.Fail("FORBIDDEN", "Viewers cannot delete equipment."), statusCode: StatusCodes.Status403Forbidden);
@@ -278,12 +279,19 @@ public static class EquipmentEndpoints
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Equipment not found."));
             }
 
+            if (result == EquipmentAccessResult.Conflict)
+            {
+                return Results.Conflict(ApiResponse.Fail("EQUIPMENT_IN_USE", "Cannot delete equipment currently assigned to active batches without force."));
+            }
+
             return Results.Ok(ApiResponse.Ok());
         })
         .WithName("DeleteEquipment")
         .Produces<ApiResponse>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         group.MapGet("/{id:guid}/active-batches", async (
             Guid id,

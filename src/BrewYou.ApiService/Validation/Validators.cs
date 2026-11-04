@@ -285,6 +285,48 @@ public class CreateIngredientRequestValidator : AbstractValidator<CreateIngredie
     }
 }
 
+public class UpdateIngredientRequestValidator : AbstractValidator<UpdateIngredientRequest>
+{
+    public UpdateIngredientRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().WithMessage("Ingredient name is required.")
+            .MinimumLength(2).WithMessage("Ingredient name must be at least 2 characters long.")
+            .MaximumLength(100).WithMessage("Ingredient name cannot exceed 100 characters.")
+            .Must(name => !name.Any(char.IsControl))
+            .WithMessage("Ingredient name cannot contain control characters.")
+            .Must(name => !name.Contains('<') && !name.Contains('>'))
+            .WithMessage("Ingredient name contains invalid characters.");
+        RuleFor(x => x.Description)
+            .MaximumLength(1000).WithMessage("Description cannot exceed 1000 characters.")
+            .Must(desc => string.IsNullOrEmpty(desc) || !desc.Any(c => char.IsControl(c) && c != '\r' && c != '\n' && c != '\t'))
+            .WithMessage("Description cannot contain control characters.")
+            .Must(desc => string.IsNullOrEmpty(desc) || (!desc.Contains('<') && !desc.Contains('>')))
+            .WithMessage("Description contains invalid characters.");
+        RuleFor(x => x.Type)
+            .IsInEnum().WithMessage("A valid ingredient type is required.");
+        RuleFor(x => x.PotentialGravity)
+            .InclusiveBetween(1.000m, 1.200m)
+            .When(x => x.PotentialGravity.HasValue)
+            .WithMessage("Potential gravity must be between 1.000 and 1.200.");
+        RuleFor(x => x.ColorSrm)
+            .InclusiveBetween(0m, 1000m)
+            .When(x => x.ColorSrm.HasValue)
+            .WithMessage("Color SRM must be between 0 and 1000.");
+        RuleFor(x => x.AlphaAcidPercent)
+            .InclusiveBetween(0, 100)
+            .When(x => x.AlphaAcidPercent.HasValue)
+            .WithMessage("Alpha acid percent must be between 0 and 100.");
+        RuleFor(x => x.AttenuationPercent)
+            .InclusiveBetween(0, 100)
+            .When(x => x.AttenuationPercent.HasValue)
+            .WithMessage("Attenuation percent must be between 0 and 100.");
+        RuleFor(x => x.Form)
+            .MaximumLength(50).WithMessage("Form cannot exceed 50 characters.")
+            .Must(f => string.IsNullOrEmpty(f) || (!f.Contains('<') && !f.Contains('>')))
+            .WithMessage("Form contains forbidden characters.");
+    }
+}
+
 public class UpdateIngredientStockRequestValidator : AbstractValidator<UpdateIngredientStockRequest>
 {
     public UpdateIngredientStockRequestValidator()

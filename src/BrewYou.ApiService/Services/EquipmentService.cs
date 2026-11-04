@@ -402,7 +402,7 @@ public class EquipmentService : IEquipmentService
         return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
     }
 
-    public async Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId)
+    public async Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId, bool force = false)
     {
         var equipment = await _db.Equipment
             .Include(e => e.BrewerySetup)
@@ -426,9 +426,35 @@ public class EquipmentService : IEquipmentService
             return EquipmentAccessResult.Forbidden;
         }
 
-        // Decouple from any batches using this equipment
+        // Active batch guard: Check if assigned to active batches unless force flag is set
+        if (!force)
+        {
+            var hasActiveBatches = await _db.Batches.AsNoTracking().AnyAsync(b =>
+                (b.UserId == userId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
+                (b.BoilerId == id ||
+                 b.FermenterId == id ||
+                 b.PackagingVesselId == id ||
+                 b.HltId == id ||
+                 b.MashTunId == id ||
+                 (equipment.AssignedBatchId != null && b.Id == equipment.AssignedBatchId) ||
+                 b.SensorAssignments.Any(sa => sa.EquipmentId == id)) &&
+                b.Status != BatchStatus.Completed &&
+                b.Status != BatchStatus.Archived);
+
+            if (hasActiveBatches)
+            {
+                _logger.LogWarning("Rejecting deletion of equipment {EquipmentId} as it is in use by active batches and force flag was false", id);
+                return EquipmentAccessResult.Conflict;
+            }
+        }
+
+        // 1. Decouple all 5 batch vessels using this equipment
         var batchesWithEquipment = await _db.Batches
-            .Where(b => b.BoilerId == id || b.FermenterId == id || b.PackagingVesselId == id)
+            .Where(b => b.BoilerId == id ||
+                        b.FermenterId == id ||
+                        b.PackagingVesselId == id ||
+                        b.HltId == id ||
+                        b.MashTunId == id)
             .ToListAsync();
 
         foreach (var b in batchesWithEquipment)
@@ -436,11 +462,60 @@ public class EquipmentService : IEquipmentService
             if (b.BoilerId == id) b.BoilerId = null;
             if (b.FermenterId == id) b.FermenterId = null;
             if (b.PackagingVesselId == id) b.PackagingVesselId = null;
+            if (b.HltId == id) b.HltId = null;
+            if (b.MashTunId == id) b.MashTunId = null;
             b.UpdatedAt = DateTime.UtcNow;
         }
 
+        // 2. Pre-clean/remove BatchSensorAssignments referencing this equipment to prevent FK 23503 DbUpdateException
+        var sensorAssignments = await _db.BatchSensorAssignments
+            .Where(sa => sa.EquipmentId == id)
+            .ToListAsync();
+
+        if (sensorAssignments.Count > 0)
+        {
+            _db.BatchSensorAssignments.RemoveRange(sensorAssignments);
+        }
+
+        // 3. Decouple any taps referencing this equipment (if this equipment is an assigned keg)
+        var referencingTaps = await _db.Equipment
+            .Where(e => e.AssignedKegId == id)
+            .ToListAsync();
+
+        foreach (var tap in referencingTaps)
+        {
+            tap.AssignedKegId = null;
+            tap.AssignedKeg = null;
+            tap.UpdatedAt = DateTime.UtcNow;
+        }
+
+        // 4. Decouple batch or keg assignments if deleting a Tap or Keg
+        if (equipment.AssignedBatchId != null)
+        {
+            equipment.AssignedBatchId = null;
+            equipment.AssignedBatch = null;
+            equipment.AssignedAt = null;
+            equipment.CurrentVolume = 0m;
+            equipment.CurrentVolumeLiters = 0m;
+        }
+
+        if (equipment.AssignedKegId != null)
+        {
+            equipment.AssignedKegId = null;
+            equipment.AssignedKeg = null;
+        }
+
         _db.Equipment.Remove(equipment);
-        await _db.SaveChangesAsync();
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database conflict occurred while deleting equipment {EquipmentId}", id);
+            return EquipmentAccessResult.Conflict;
+        }
 
         _logger.LogInformation("Equipment {EquipmentId} deleted by user {UserId}", id, userId);
         return EquipmentAccessResult.Success;
@@ -459,21 +534,55 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.NotFound, null);
         }
 
-        var activeBatches = await _db.Batches.AsNoTracking()
+        var batchList = await _db.Batches.AsNoTracking()
             .Where(b => (b.UserId == userId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
-                        (b.BoilerId == equipmentId || b.FermenterId == equipmentId || b.PackagingVesselId == equipmentId) &&
+                        (b.BoilerId == equipmentId ||
+                         b.FermenterId == equipmentId ||
+                         b.PackagingVesselId == equipmentId ||
+                         b.HltId == equipmentId ||
+                         b.MashTunId == equipmentId ||
+                         (equipment.AssignedBatchId != null && b.Id == equipment.AssignedBatchId) ||
+                         b.SensorAssignments.Any(sa => sa.EquipmentId == equipmentId)) &&
                         b.Status != BatchStatus.Completed &&
                         b.Status != BatchStatus.Archived)
             .OrderByDescending(b => b.BrewDate)
             .ThenByDescending(b => b.CreatedAt)
-            .Select(b => new EquipmentActiveBatchDto(
+            .Select(b => new
+            {
                 b.Id,
                 b.BatchCode,
                 b.Name,
                 b.Status,
-                b.CurrentStage
-            ))
+                b.CurrentStage,
+                IsBoiler = b.BoilerId == equipmentId,
+                IsFermenter = b.FermenterId == equipmentId,
+                IsHlt = b.HltId == equipmentId,
+                IsMashTun = b.MashTunId == equipmentId,
+                IsPackaging = b.PackagingVesselId == equipmentId,
+                IsSensor = b.SensorAssignments.Any(sa => sa.EquipmentId == equipmentId),
+                IsAssigned = equipment.AssignedBatchId != null && b.Id == equipment.AssignedBatchId
+            })
             .ToListAsync();
+
+        var activeBatches = batchList.Select(b =>
+        {
+            string? role = b.IsBoiler ? "Boiler" :
+                           b.IsFermenter ? "Fermenter" :
+                           b.IsHlt ? "Hlt" :
+                           b.IsMashTun ? "MashTun" :
+                           b.IsPackaging ? "Packaging" :
+                           b.IsSensor ? "Sensor" :
+                           b.IsAssigned ? (equipment.Type == EquipmentType.Tap ? "Tap" : "Keg") : null;
+
+            return new EquipmentActiveBatchDto(
+                b.Id,
+                b.BatchCode,
+                b.Name,
+                b.Status,
+                b.CurrentStage,
+                role
+            );
+        }).ToList();
 
         return (EquipmentAccessResult.Success, activeBatches);
     }

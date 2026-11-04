@@ -13,12 +13,14 @@ import type {
 	CreateBrewerySetupRequest,
 	CreateEquipmentRequest,
 	CreateIngredientRequest,
+	UpdateIngredientRequest,
 	UpdateIngredientStockRequest,
 	CreateRecipeRequest,
 	UpdateRecipeRequest,
 	EquipmentDto,
 	EquipmentTelemetryUpdateDto,
 	EquipmentActiveBatchDto,
+	RecipeActiveBatchDto,
 	EquipmentReadingDto,
 	TelemetryPollResult,
 	EquipmentType,
@@ -406,6 +408,13 @@ export const api = {
 			});
 		},
 
+		async update(id: string, data: UpdateIngredientRequest): Promise<IngredientDto> {
+			return request<IngredientDto>(`/api/v1/ingredients/${id}`, {
+				method: 'PUT',
+				body: JSON.stringify(data)
+			});
+		},
+
 		async updateStock(id: string, data: UpdateIngredientStockRequest): Promise<IngredientDto> {
 			return request<IngredientDto>(`/api/v1/ingredients/${id}/stock`, {
 				method: 'PUT',
@@ -417,8 +426,9 @@ export const api = {
 			return request<IngredientUsageDto>(`/api/v1/ingredients/${id}/usage`);
 		},
 
-		async delete(id: string): Promise<void> {
-			return request<void>(`/api/v1/ingredients/${id}`, { method: 'DELETE' });
+		async delete(id: string, force = false): Promise<void> {
+			const query = force ? '?force=true' : '';
+			return request<void>(`/api/v1/ingredients/${id}${query}`, { method: 'DELETE' });
 		}
 	},
 
@@ -458,8 +468,9 @@ export const api = {
 			});
 		},
 
-		async delete(id: string): Promise<void> {
-			return request<void>(`/api/v1/inventory/equipment/${id}`, { method: 'DELETE' });
+		async delete(id: string, force = false): Promise<void> {
+			const query = force ? '?force=true' : '';
+			return request<void>(`/api/v1/inventory/equipment/${id}${query}`, { method: 'DELETE' });
 		},
 
 		async getActiveBatches(id: string): Promise<EquipmentActiveBatchDto[]> {
@@ -738,8 +749,13 @@ export const api = {
 			});
 		},
 
-		async delete(id: string): Promise<void> {
-			return request<void>(`/api/v1/recipes/${id}`, { method: 'DELETE' });
+		async delete(id: string, force = false): Promise<void> {
+			const query = force ? '?force=true' : '';
+			return request<void>(`/api/v1/recipes/${id}${query}`, { method: 'DELETE' });
+		},
+
+		async getActiveBatches(id: string): Promise<RecipeActiveBatchDto[]> {
+			return request<RecipeActiveBatchDto[]>(`/api/v1/recipes/${id}/active-batches`);
 		},
 
 		async checkName(name: string): Promise<boolean> {

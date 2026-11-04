@@ -290,14 +290,6 @@
 			}
 		}
 
-		// 5. Fallback: first equipment in list if any
-		if (equipmentList.length > 0) {
-			return {
-				id: equipmentList[0].id,
-				name: equipmentList[0].name
-			};
-		}
-
 		return null;
 	});
 
@@ -1751,7 +1743,7 @@
 							? () =>
 									openLogTempModal('Mash', selectedMashStepGraphId ?? currentSelectedMashStep?.id)
 							: undefined}
-						equipmentName={currentStageEquipmentName ?? batch.boilerName}
+						equipmentName={currentStageEquipmentName}
 					/>
 
 					<!-- Mash Additions Checklist -->
@@ -2007,7 +1999,7 @@
 							targetTemperatureC={100.0}
 							isLive={isTelemetryLive && isInspectingActiveStage}
 							onOpenLogModal={canLogInspectedStage ? () => openLogTempModal('Boil') : undefined}
-							equipmentName={currentStageEquipmentName ?? batch.boilerName}
+							equipmentName={currentStageEquipmentName}
 						/>
 					</div>
 

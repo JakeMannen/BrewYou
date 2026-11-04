@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { api } from '$lib/api/client';
+	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import type { EquipmentDto, EquipmentActiveBatchDto } from '$lib/types/api';
-	import { AlertTriangle, Loader2, X, ExternalLink, Trash2 } from '@lucide/svelte';
+	import { AlertTriangle, Loader2, X, ExternalLink, Trash2, ShieldAlert } from '@lucide/svelte';
 
 	interface Props {
 		open: boolean;
@@ -17,10 +17,14 @@
 	let isLoadingBatches = $state(false);
 	let isDeleting = $state(false);
 	let errorMessage = $state<string | null>(null);
+	let isConflict = $state(false);
+	let forceDelete = $state(false);
 
 	$effect(() => {
 		if (open && equipment) {
 			errorMessage = null;
+			isConflict = false;
+			forceDelete = false;
 			activeBatches = [];
 			loadActiveBatches(equipment.id);
 		} else {
@@ -28,6 +32,8 @@
 			isLoadingBatches = false;
 			isDeleting = false;
 			errorMessage = null;
+			isConflict = false;
+			forceDelete = false;
 		}
 	});
 
@@ -38,7 +44,6 @@
 			const batches = await api.equipment.getActiveBatches(equipmentId);
 			activeBatches = batches;
 		} catch (err: unknown) {
-			// Non-fatal: if active-batches query fails, let brewer still proceed with delete
 			console.error('Failed to load active batches for equipment:', err);
 		} finally {
 			isLoadingBatches = false;
@@ -51,11 +56,20 @@
 		isDeleting = true;
 		errorMessage = null;
 		try {
-			await api.equipment.delete(equipment.id);
+			await api.equipment.delete(equipment.id, forceDelete);
 			onDeleted(equipment.id);
 			onClose();
 		} catch (err: unknown) {
-			errorMessage = (err as Error).message || t('equipment.delete_failed');
+			if (
+				err instanceof ApiClientError &&
+				(err.status === 409 || err.code === 'EQUIPMENT_IN_USE')
+			) {
+				isConflict = true;
+				errorMessage = t('equipment.delete_modal.conflict_error');
+				loadActiveBatches(equipment.id);
+			} else {
+				errorMessage = (err as Error).message || t('equipment.delete_failed');
+			}
 		} finally {
 			isDeleting = false;
 		}
@@ -65,6 +79,13 @@
 		if (e.key === 'Escape' && open && !isDeleting) {
 			onClose();
 		}
+	}
+
+	function formatRoleLabel(role?: string | null): string | null {
+		if (!role) return null;
+		const key = `equipment.delete_modal.role_${role.toLowerCase().replace(/[^a-z]/g, '')}`;
+		const localized = t(key);
+		return localized !== key ? localized : role;
 	}
 </script>
 
@@ -147,7 +168,7 @@
 					>
 						<div class="flex items-start gap-3">
 							<AlertTriangle class="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-							<div class="space-y-2">
+							<div class="w-full space-y-2">
 								<h3 class="text-sm font-semibold text-amber-900 dark:text-amber-200">
 									{t('equipment.delete_modal.in_use_warning_title')}
 								</h3>
@@ -159,12 +180,26 @@
 										<div
 											class="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs"
 										>
-											<span class="font-medium text-zinc-800 dark:text-zinc-200">
-												{batch.name}
-												<span class="font-mono text-[11px] text-amber-700 dark:text-amber-400"
-													>({batch.batchCode})</span
+											<div class="flex flex-wrap items-center gap-2">
+												<span class="font-medium text-zinc-800 dark:text-zinc-200">
+													{batch.name}
+													<span class="font-mono text-[11px] text-amber-700 dark:text-amber-400"
+														>({batch.batchCode})</span
+													>
+												</span>
+												{#if batch.role}
+													<span
+														class="rounded-md border border-amber-500/30 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:text-amber-200"
+													>
+														{formatRoleLabel(batch.role)}
+													</span>
+												{/if}
+												<span
+													class="rounded-md bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
 												>
-											</span>
+													{t(`batches.stages.${batch.currentStage.toLowerCase()}`)}
+												</span>
+											</div>
 											<a
 												href="/batches/{batch.id}"
 												target="_blank"
@@ -182,13 +217,31 @@
 					</div>
 				{/if}
 
-				<!-- Error Banner -->
+				<!-- Conflict / Error Banner -->
 				{#if errorMessage}
 					<div
-						class="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs font-medium text-red-600 dark:text-red-400"
+						class="flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs font-medium text-red-600 dark:text-red-400"
+						role="alert"
 					>
-						{errorMessage}
+						<ShieldAlert class="mt-0.5 h-4 w-4 shrink-0" />
+						<div>{errorMessage}</div>
 					</div>
+				{/if}
+
+				<!-- Force Delete Option -->
+				{#if activeBatches.length > 0 || isConflict}
+					<label
+						class="flex cursor-pointer items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-900 dark:text-red-200"
+					>
+						<input
+							type="checkbox"
+							bind:checked={forceDelete}
+							class="mt-0.5 h-4 w-4 rounded border-red-300 text-red-600 focus:ring-red-500 dark:border-red-700 dark:bg-zinc-800"
+						/>
+						<span class="font-medium">
+							{t('equipment.delete_modal.force_delete_checkbox')}
+						</span>
+					</label>
 				{/if}
 			</div>
 
@@ -208,12 +261,15 @@
 				<button
 					type="button"
 					onclick={handleConfirmDelete}
-					disabled={isDeleting}
+					disabled={isDeleting || ((activeBatches.length > 0 || isConflict) && !forceDelete)}
 					class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:opacity-50"
 				>
 					{#if isDeleting}
 						<Loader2 class="h-4 w-4 animate-spin" />
 						<span>{t('equipment.delete_modal.deleting')}</span>
+					{:else if forceDelete}
+						<Trash2 class="h-4 w-4" />
+						<span>{t('equipment.delete_modal.force_confirm_button')}</span>
 					{:else}
 						<Trash2 class="h-4 w-4" />
 						<span>{t('equipment.delete_modal.confirm_button')}</span>

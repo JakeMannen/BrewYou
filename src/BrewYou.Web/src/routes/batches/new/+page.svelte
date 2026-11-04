@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { api } from '$lib/api/client';
+	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import type {
@@ -39,6 +39,7 @@
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
+	let staleRecipeWarning = $state<string | null>(null);
 
 	let recipes = $state<RecipeSummaryDto[]>([]);
 	let equipment = $state<EquipmentDto[]>([]);
@@ -375,8 +376,27 @@
 			// Check URL query param
 			const urlRecipeId = page.url.searchParams.get('recipeId');
 			if (urlRecipeId) {
-				selectedRecipeId = urlRecipeId;
-				await handleRecipeSelect(urlRecipeId);
+				const recipeInList = recipes.find((r) => r.id === urlRecipeId);
+				if (recipeInList) {
+					selectedRecipeId = urlRecipeId;
+					await handleRecipeSelect(urlRecipeId);
+				} else {
+					try {
+						selectedRecipeId = urlRecipeId;
+						await handleRecipeSelect(urlRecipeId);
+					} catch {
+						staleRecipeWarning = t('batches.wizard.recipe_not_found_warning');
+						if (recipes.length > 0) {
+							selectedRecipeId = recipes[0].id;
+							await handleRecipeSelect(recipes[0].id);
+						} else {
+							isAdHoc = true;
+							selectedRecipeId = '';
+							batchName = t('batches.wizard.default_adhoc_name');
+							recipeMashSteps = [];
+						}
+					}
+				}
 			} else if (recipes.length > 0) {
 				selectedRecipeId = recipes[0].id;
 				await handleRecipeSelect(recipes[0].id);
@@ -437,7 +457,21 @@
 				recipeFermentationSteps = [];
 			}
 		} catch (err: unknown) {
-			error = (err as Error).message;
+			if (err instanceof ApiClientError && err.status === 404) {
+				staleRecipeWarning = t('batches.wizard.recipe_not_found_warning');
+				if (recipes.length > 0 && selectedRecipeId !== recipes[0].id) {
+					selectedRecipeId = recipes[0].id;
+					await handleRecipeSelect(recipes[0].id);
+				} else {
+					isAdHoc = true;
+					selectedRecipeId = '';
+					batchName = t('batches.wizard.default_adhoc_name');
+					recipeMashSteps = [];
+				}
+			} else {
+				error = (err as Error).message;
+			}
+			throw err;
 		}
 	}
 
@@ -670,6 +704,31 @@
 			class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
 		>
 			{error}
+		</div>
+	{/if}
+
+	{#if staleRecipeWarning}
+		<div
+			role="status"
+			class="flex items-start justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-800 dark:border-amber-500/20 dark:text-amber-300"
+		>
+			<div class="flex items-start gap-2.5">
+				<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+				<div>
+					<p class="font-semibold text-amber-900 dark:text-amber-200">
+						{t('batches.wizard.recipe_not_found_title')}
+					</p>
+					<p class="mt-0.5 leading-relaxed">{staleRecipeWarning}</p>
+				</div>
+			</div>
+			<button
+				type="button"
+				onclick={() => (staleRecipeWarning = null)}
+				class="rounded-lg p-1 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+				aria-label={t('common.close')}
+			>
+				<X class="h-4 w-4" />
+			</button>
 		</div>
 	{/if}
 

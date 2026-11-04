@@ -335,7 +335,18 @@
 	}
 
 	function handleDeleted(equipmentId: string) {
-		equipmentList = equipmentList.filter((e) => e.id !== equipmentId);
+		equipmentList = equipmentList
+			.filter((e) => e.id !== equipmentId)
+			.map((e) => {
+				if (e.assignedKegId === equipmentId || e.assignedKeg?.id === equipmentId) {
+					return {
+						...e,
+						assignedKegId: null,
+						assignedKeg: null
+					};
+				}
+				return e;
+			});
 	}
 
 	function getCategoryName(cat: string): string {

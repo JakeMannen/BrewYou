@@ -25,6 +25,17 @@ public record UpdateIngredientStockRequest(
     string? Unit = null
 );
 
+public record UpdateIngredientRequest(
+    string Name,
+    IngredientType Type,
+    decimal? PotentialGravity,
+    decimal? ColorSrm,
+    decimal? AlphaAcidPercent,
+    decimal? AttenuationPercent,
+    string? Description,
+    string? Form = null
+);
+
 public record IngredientDto(
     Guid Id,
     string Name,
@@ -136,6 +147,46 @@ public static class IngredientEndpoints
         .Produces<ApiResponse>(StatusCodes.Status409Conflict)
         .Produces<ApiResponse>(StatusCodes.Status422UnprocessableEntity);
 
+        group.MapPut("/{id:guid}", async (
+            Guid id,
+            [FromBody] UpdateIngredientRequest request,
+            IValidator<UpdateIngredientRequest> validator,
+            ClaimsPrincipal principal,
+            IIngredientService ingredientService) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Validation failed.", details));
+            }
+
+            var (result, ingredient, errorMessage) = await ingredientService.UpdateIngredientAsync(id, request, userId);
+            return result switch
+            {
+                IngredientOperationResult.Success => Results.Ok(ApiResponse<IngredientDto>.Ok(ingredient!)),
+                IngredientOperationResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Ingredient not found.")),
+                IngredientOperationResult.DuplicateName => Results.Conflict(ApiResponse.Fail("DUPLICATE_NAME", errorMessage ?? "An ingredient with this name already exists.")),
+                IngredientOperationResult.CatalogItemImmutable => Results.BadRequest(ApiResponse.Fail("CATALOG_ITEM_CANNOT_BE_MODIFIED", errorMessage ?? "Catalog ingredients cannot be modified.")),
+                IngredientOperationResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "You do not have permission to modify this ingredient."), statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .RequireAuthorization()
+        .WithName("UpdateIngredient")
+        .Produces<ApiResponse<IngredientDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
+
         group.MapPut("/{id:guid}/stock", async (
             Guid id,
             [FromBody] UpdateIngredientStockRequest request,
@@ -203,7 +254,8 @@ public static class IngredientEndpoints
         group.MapDelete("/{id:guid}", async (
             Guid id,
             ClaimsPrincipal principal,
-            IIngredientService ingredientService) =>
+            IIngredientService ingredientService,
+            [FromQuery] bool force = false) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
@@ -211,11 +263,12 @@ public static class IngredientEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var (result, errorMessage) = await ingredientService.DeleteIngredientAsync(id, userId);
+            var (result, errorMessage) = await ingredientService.DeleteIngredientAsync(id, userId, force);
             return result switch
             {
                 IngredientOperationResult.Success => Results.Ok(ApiResponse.Ok()),
                 IngredientOperationResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Ingredient not found.")),
+                IngredientOperationResult.Conflict => Results.Conflict(ApiResponse.Fail("INGREDIENT_IN_USE", errorMessage ?? "Cannot delete ingredient currently in use.")),
                 IngredientOperationResult.CatalogItemImmutable => Results.BadRequest(ApiResponse.Fail("CATALOG_ITEM_CANNOT_BE_DELETED", errorMessage ?? "Catalog ingredients cannot be deleted.")),
                 IngredientOperationResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "You do not have permission to delete this ingredient."), statusCode: StatusCodes.Status403Forbidden),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
@@ -227,7 +280,8 @@ public static class IngredientEndpoints
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         return group;
     }

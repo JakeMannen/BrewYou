@@ -53,7 +53,7 @@
 		resolvedEquipment?.name ??
 			equipmentName ??
 			(defaultEquipmentId ? equipmentList.find((e) => e.id === defaultEquipmentId)?.name : null) ??
-			(equipmentList.length > 0 ? equipmentList[0].name : '')
+			null
 	);
 
 	let resolvedStep = $derived.by(() => {
@@ -66,8 +66,7 @@
 	// Sync defaults on open
 	$effect(() => {
 		if (isOpen) {
-			selectedEquipmentId =
-				defaultEquipmentId ?? (equipmentList.length > 0 ? equipmentList[0].id : '');
+			selectedEquipmentId = defaultEquipmentId ?? '';
 			selectedMashStepId = defaultMashStepId ?? (mashSteps.length > 0 ? mashSteps[0].id : '');
 			const matchedStep =
 				stage === 'Mash' && selectedMashStepId
@@ -262,6 +261,7 @@
 									bind:value={selectedEquipmentId}
 									class="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
 								>
+									<option value="">{t('batches.workspace.no_vessel_assigned')}</option>
 									{#each equipmentList as eq (eq.id)}
 										<option value={eq.id}>{eq.name}</option>
 									{/each}
