@@ -424,6 +424,36 @@ public static class RecipeEndpoints
         group.MapDelete("/{id:guid}", async (
             Guid id,
             ClaimsPrincipal principal,
+            IRecipeService recipeService,
+            [FromQuery] bool force = false) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var result = await recipeService.DeleteRecipeAsync(id, userId, force);
+            return result switch
+            {
+                RecipeAccessResult.Success => Results.Ok(ApiResponse.Ok()),
+                RecipeAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Recipe not found.")),
+                RecipeAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", "You do not have permission to delete this recipe."), statusCode: StatusCodes.Status403Forbidden),
+                RecipeAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("RECIPE_IN_USE_BY_ACTIVE_BATCHES", "Cannot delete recipe currently linked to active batches without force.")),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        })
+        .RequireAuthorization()
+        .WithName("DeleteRecipe")
+        .Produces<ApiResponse>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
+
+        group.MapGet("/{id:guid}/active-batches", async (
+            Guid id,
+            ClaimsPrincipal principal,
             IRecipeService recipeService) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -432,18 +462,18 @@ public static class RecipeEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var result = await recipeService.DeleteRecipeAsync(id, userId);
+            var (result, batches) = await recipeService.GetActiveBatchesForRecipeAsync(id, userId);
             return result switch
             {
-                RecipeAccessResult.Success => Results.Ok(ApiResponse.Ok()),
+                RecipeAccessResult.Success => Results.Ok(ApiResponse<List<RecipeActiveBatchDto>>.Ok(batches!)),
                 RecipeAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Recipe not found.")),
-                RecipeAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", "You do not have permission to delete this recipe."), statusCode: StatusCodes.Status403Forbidden),
+                RecipeAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", "You do not have access to this recipe."), statusCode: StatusCodes.Status403Forbidden),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })
         .RequireAuthorization()
-        .WithName("DeleteRecipe")
-        .Produces<ApiResponse>(StatusCodes.Status200OK)
+        .WithName("GetRecipeActiveBatches")
+        .Produces<ApiResponse<List<RecipeActiveBatchDto>>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);

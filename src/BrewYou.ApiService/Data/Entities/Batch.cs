@@ -33,6 +33,8 @@ public class Batch
     public Guid? RecipeId { get; set; }
     public Recipe? Recipe { get; set; }
 
+    public string? RecipeName { get; set; }
+
     public Guid? BrewerySetupId { get; set; }
     public BrewerySetup? BrewerySetup { get; set; }
 

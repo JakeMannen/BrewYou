@@ -210,6 +210,10 @@
 					<p class="text-xs text-zinc-500 dark:text-zinc-400">
 						{equipmentName}
 					</p>
+				{:else}
+					<p class="text-xs text-zinc-400 italic dark:text-zinc-500">
+						{t('batches.workspace.no_vessel_assigned')}
+					</p>
 				{/if}
 			</div>
 		</div>

@@ -317,6 +317,67 @@ public class BrewerySetupService : IBrewerySetupService
             return (BrewerySetupAccessResult.CannotDeleteLastSetup, "Cannot delete the last remaining brewery setup.");
         }
 
+        // 1. Identify all equipment in this setup
+        var setupEquipmentIds = await _db.Equipment
+            .Where(e => e.BrewerySetupId == id)
+            .Select(e => e.Id)
+            .ToListAsync();
+
+        if (setupEquipmentIds.Count > 0)
+        {
+            // Pre-clean BatchSensorAssignments for all equipment in the setup to prevent FK 23503 DbUpdateException
+            var sensorAssignments = await _db.BatchSensorAssignments
+                .Where(sa => setupEquipmentIds.Contains(sa.EquipmentId))
+                .ToListAsync();
+
+            if (sensorAssignments.Count > 0)
+            {
+                _db.BatchSensorAssignments.RemoveRange(sensorAssignments);
+            }
+
+            // Decouple any batches using equipment from this setup across all 5 vessels
+            var batchesWithSetupEquipment = await _db.Batches
+                .Where(b => (b.BoilerId != null && setupEquipmentIds.Contains(b.BoilerId.Value)) ||
+                            (b.FermenterId != null && setupEquipmentIds.Contains(b.FermenterId.Value)) ||
+                            (b.PackagingVesselId != null && setupEquipmentIds.Contains(b.PackagingVesselId.Value)) ||
+                            (b.HltId != null && setupEquipmentIds.Contains(b.HltId.Value)) ||
+                            (b.MashTunId != null && setupEquipmentIds.Contains(b.MashTunId.Value)))
+                .ToListAsync();
+
+            foreach (var b in batchesWithSetupEquipment)
+            {
+                if (b.BoilerId != null && setupEquipmentIds.Contains(b.BoilerId.Value)) b.BoilerId = null;
+                if (b.FermenterId != null && setupEquipmentIds.Contains(b.FermenterId.Value)) b.FermenterId = null;
+                if (b.PackagingVesselId != null && setupEquipmentIds.Contains(b.PackagingVesselId.Value)) b.PackagingVesselId = null;
+                if (b.HltId != null && setupEquipmentIds.Contains(b.HltId.Value)) b.HltId = null;
+                if (b.MashTunId != null && setupEquipmentIds.Contains(b.MashTunId.Value)) b.MashTunId = null;
+                b.UpdatedAt = DateTime.UtcNow;
+            }
+
+            // Decouple any external taps referencing kegs in this setup
+            var tapsWithKegs = await _db.Equipment
+                .Where(e => e.AssignedKegId != null && setupEquipmentIds.Contains(e.AssignedKegId.Value))
+                .ToListAsync();
+
+            foreach (var tap in tapsWithKegs)
+            {
+                tap.AssignedKegId = null;
+                tap.AssignedKeg = null;
+                tap.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        // Decouple any batches referencing this brewery setup
+        var batchesWithSetup = await _db.Batches
+            .Where(b => b.BrewerySetupId == id)
+            .ToListAsync();
+
+        foreach (var b in batchesWithSetup)
+        {
+            b.BrewerySetupId = null;
+            b.UpdatedAt = DateTime.UtcNow;
+        }
+
         bool wasDefault = setup.IsDefault;
         _db.BrewerySetups.Remove(setup);
 
@@ -334,7 +395,15 @@ public class BrewerySetupService : IBrewerySetupService
             }
         }
 
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database conflict occurred while deleting brewery setup {SetupId}", id);
+            return (BrewerySetupAccessResult.Conflict, "Cannot delete brewery setup due to database dependency conflict.");
+        }
 
         _logger.LogInformation("Brewery setup {SetupId} deleted by user {UserId}", id, userId);
         return (BrewerySetupAccessResult.Success, null);

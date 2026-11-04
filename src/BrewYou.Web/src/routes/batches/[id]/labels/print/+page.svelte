@@ -60,7 +60,13 @@
 			const b = await api.batches.getById(currentBatchId);
 			batch = b;
 			if (b.recipeId) {
-				label = await api.recipes.label.get(b.recipeId);
+				try {
+					label = await api.recipes.label.get(b.recipeId);
+				} catch {
+					// Recipe may not have a custom label generated, or recipe was deleted/missing.
+					// Gracefully fall back to null so default label fallback renders.
+					label = null;
+				}
 			}
 		} catch (err) {
 			if (err instanceof ApiClientError) {
@@ -251,7 +257,7 @@
 								{/if}
 							</div>
 							<div class="flex items-center justify-between text-[7px] text-zinc-600">
-								<span class="truncate">{batch.recipeName}</span>
+								<span class="truncate">{batch.recipeName ?? batch.beerStyle}</span>
 								<span>{new Date(batch.brewDate).toLocaleDateString()}</span>
 							</div>
 						</div>
@@ -262,6 +268,67 @@
 							<span>{displayAbv}%</span>
 						</div>
 					{/if}
+				</div>
+			{/each}
+		</div>
+	{:else if batch}
+		<!-- Default Artisan Bottle Label Sheet Canvas (Fallback when label is null / missing / recipe decoupled) -->
+		<div
+			data-testid="default-bottle-labels-canvas"
+			class="sheet-canvas mx-auto flex flex-wrap justify-center gap-4 bg-white p-6 shadow-md print:m-0 print:gap-2 print:p-0 print:shadow-none"
+		>
+			{#each Array.from({ length: labelCount }, (_, i) => i) as idx}
+				<div
+					data-label-index={idx + 1}
+					class="bottle-label-item relative flex flex-col justify-between overflow-hidden bg-white p-3 text-zinc-900 {showCutLines
+						? 'border border-dashed border-zinc-300 print:border-zinc-400'
+						: ''}"
+					style="width: {labelWidthMm}mm; height: {labelHeightMm}mm;"
+				>
+					<!-- Decorative Inner Border Frame -->
+					<div
+						class="relative flex h-full w-full flex-col justify-between rounded-lg border-2 border-amber-900/40 bg-gradient-to-b from-amber-50/40 via-white to-amber-50/20 p-3 shadow-inner"
+					>
+						<!-- Label Header -->
+						<div class="text-center">
+							<span class="font-mono text-[8px] font-bold tracking-widest text-amber-800 uppercase">
+								{t('labels.default_craft_mark')}
+							</span>
+							<div class="mx-auto my-1 h-px w-10 bg-amber-800/30"></div>
+							<h3
+								class="line-clamp-2 font-serif text-sm leading-tight font-extrabold tracking-tight text-zinc-900"
+							>
+								{batch.name}
+							</h3>
+							<p class="mt-0.5 text-[10px] font-medium text-amber-900/80">
+								{batch.beerStyle}
+							</p>
+						</div>
+
+						<!-- Label Body / Recipe Fallback -->
+						<div class="my-auto py-2 text-center">
+							{#if batch.recipeName}
+								<div
+									class="inline-block rounded border border-amber-800/20 bg-amber-100/60 px-2 py-0.5 text-[9px] font-medium text-amber-950"
+								>
+									{t('labels.recipe')}: {batch.recipeName}
+								</div>
+							{/if}
+							{#if showAbv && displayAbv != null}
+								<div class="mt-1 font-mono text-base font-black tracking-tight text-emerald-900">
+									<span>{displayAbv}%</span>
+								</div>
+							{/if}
+						</div>
+
+						<!-- Label Footer / Batch Meta -->
+						<div class="border-t border-amber-900/20 pt-1 text-zinc-700">
+							<div class="flex items-center justify-between font-mono text-[8px] font-semibold">
+								<span class="text-amber-800">{batch.batchCode}</span>
+								<span>{new Date(batch.brewDate).toLocaleDateString()}</span>
+							</div>
+						</div>
+					</div>
 				</div>
 			{/each}
 		</div>

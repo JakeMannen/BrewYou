@@ -119,7 +119,8 @@ public record EquipmentActiveBatchDto(
     string BatchCode,
     string Name,
     BatchStatus Status,
-    BrewStage CurrentStage
+    BrewStage CurrentStage,
+    string? Role = null
 );
 
 public enum EquipmentAccessResult
@@ -129,7 +130,8 @@ public enum EquipmentAccessResult
     Forbidden,
     QuotaExceeded,
     DuplicateName,
-    InvalidTapAssignment
+    InvalidTapAssignment,
+    Conflict
 }
 
 public interface IEquipmentService
@@ -145,7 +147,7 @@ public interface IEquipmentService
     Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> UpdateEquipmentAsync(
         Guid id, UpdateEquipmentRequest request, string userId);
 
-    Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId);
+    Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId, bool force = false);
 
     Task<(EquipmentAccessResult Result, List<EquipmentActiveBatchDto>? Batches)> GetActiveBatchesForEquipmentAsync(
         Guid equipmentId, string userId);

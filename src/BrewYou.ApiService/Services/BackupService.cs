@@ -284,6 +284,7 @@ public class BackupService : IBackupService
         // 8. Batches
         var batchEntities = await _db.Batches
             .AsNoTracking()
+            .Include(b => b.Recipe)
             .Include(b => b.VolumeProfile)
             .Include(b => b.Ingredients)
             .Include(b => b.MashSteps)
@@ -1370,6 +1371,8 @@ public class BackupService : IBackupService
                         if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
                         {
                             existingBatch.RecipeId = mappedRecipeId;
+                            var mappedRecipe = mappedRecipeId.HasValue ? existingUserRecipes.FirstOrDefault(r => r.Id == mappedRecipeId.Value) : null;
+                            existingBatch.RecipeName = batchDto.RecipeName ?? mappedRecipe?.Name ?? existingBatch.RecipeName;
                             existingBatch.BrewerySetupId = mappedSetupId;
                             existingBatch.Name = batchDto.Name.Trim();
                             existingBatch.BeerStyle = batchDto.BeerStyle;
@@ -1441,12 +1444,14 @@ public class BackupService : IBackupService
                         var idTaken = await _db.Batches.AnyAsync(b => b.Id == batchDto.Id);
                         var uniqueCode = EnsureUniqueBatchCode(normCode, existingUserBatches);
                         var newBatchId = idTaken ? Guid.NewGuid() : batchDto.Id;
+                        var mappedRecipe = mappedRecipeId.HasValue ? existingUserRecipes.FirstOrDefault(r => r.Id == mappedRecipeId.Value) : null;
 
                         var newBatch = new Batch
                         {
                             Id = newBatchId,
                             UserId = userId,
                             RecipeId = mappedRecipeId,
+                            RecipeName = batchDto.RecipeName ?? mappedRecipe?.Name,
                             BrewerySetupId = mappedSetupId,
                             BatchCode = uniqueCode,
                             Name = string.IsNullOrWhiteSpace(batchDto.Name) ? uniqueCode : batchDto.Name.Trim(),
@@ -1918,7 +1923,8 @@ public class BackupService : IBackupService
                 sa.Stage,
                 sa.BatchMashStepId,
                 sa.CreatedAt
-            )).ToList()
+            )).ToList(),
+            RecipeName: b.Recipe?.Name ?? b.RecipeName
         );
     }
 
@@ -2436,9 +2442,11 @@ public class BackupService : IBackupService
         {
             Id = Guid.NewGuid(),
             BatchId = batch.Id,
-            SourceIngredientId = bi.SourceIngredientId.HasValue && ingredientIdMap.TryGetValue(bi.SourceIngredientId.Value, out var sIngId)
-                ? sIngId
-                : bi.SourceIngredientId,
+            SourceIngredientId = bi.SourceIngredientId.HasValue
+                ? (ingredientIdMap.TryGetValue(bi.SourceIngredientId.Value, out var sIngId)
+                    ? sIngId
+                    : (ingredientIdMap.ContainsValue(bi.SourceIngredientId.Value) ? bi.SourceIngredientId : null))
+                : null,
             Name = string.IsNullOrWhiteSpace(bi.Name) ? "Ingredient" : bi.Name.Trim(),
             Type = bi.Type,
             Amount = Math.Max(0.001m, bi.Amount),

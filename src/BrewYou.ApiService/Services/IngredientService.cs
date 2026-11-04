@@ -13,6 +13,7 @@ public enum IngredientOperationResult
     QuotaExceeded,
     NotFound,
     Forbidden,
+    Conflict,
     CatalogItemImmutable
 }
 
@@ -33,6 +34,11 @@ public interface IIngredientService
         CreateIngredientRequest request,
         string userId);
 
+    Task<(IngredientOperationResult Result, IngredientDto? Ingredient, string? ErrorMessage)> UpdateIngredientAsync(
+        Guid id,
+        UpdateIngredientRequest request,
+        string userId);
+
     Task<(IngredientOperationResult Result, IngredientDto? Ingredient, string? ErrorMessage)> UpdateStockAsync(
         Guid id,
         UpdateIngredientStockRequest request,
@@ -44,7 +50,8 @@ public interface IIngredientService
 
     Task<(IngredientOperationResult Result, string? ErrorMessage)> DeleteIngredientAsync(
         Guid id,
-        string userId);
+        string userId,
+        bool force = false);
 }
 
 public class IngredientService(BrewYouDbContext db) : IIngredientService
@@ -359,9 +366,111 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         return (IngredientOperationResult.Success, usage, null);
     }
 
+    public async Task<(IngredientOperationResult Result, IngredientDto? Ingredient, string? ErrorMessage)> UpdateIngredientAsync(
+        Guid id,
+        UpdateIngredientRequest request,
+        string userId)
+    {
+        var ingredient = await db.Ingredients.FindAsync(id);
+        if (ingredient == null)
+        {
+            return (IngredientOperationResult.NotFound, null, "Ingredient not found.");
+        }
+
+        if (ingredient.IsCatalogItem)
+        {
+            return (IngredientOperationResult.CatalogItemImmutable, null, "Catalog ingredients cannot be modified.");
+        }
+
+        if (ingredient.CreatedByUserId != userId)
+        {
+            return (IngredientOperationResult.Forbidden, null, "You do not have permission to modify this ingredient.");
+        }
+
+        var trimmedName = request.Name.Trim();
+        var duplicateExists = await db.Ingredients.AnyAsync(i =>
+            i.Id != id &&
+            (i.IsCatalogItem || i.CreatedByUserId == userId) &&
+            i.Name.ToLower() == trimmedName.ToLower());
+
+        if (duplicateExists)
+        {
+            return (IngredientOperationResult.DuplicateName, null, "An ingredient with this name already exists.");
+        }
+
+        ingredient.Name = trimmedName;
+        ingredient.Type = request.Type;
+        ingredient.PotentialGravity = request.PotentialGravity;
+        ingredient.ColorSrm = request.ColorSrm;
+        ingredient.AlphaAcidPercent = request.AlphaAcidPercent;
+        ingredient.AttenuationPercent = request.AttenuationPercent;
+        ingredient.Description = request.Description?.Trim();
+        ingredient.Form = request.Form?.Trim();
+
+        // Recalculate dependent recipes if this custom ingredient is used in recipes
+        var affectedRecipeIds = await db.RecipeIngredients
+            .Where(ri => ri.IngredientId == id)
+            .Select(ri => ri.RecipeId)
+            .Distinct()
+            .ToListAsync();
+
+        if (affectedRecipeIds.Count > 0)
+        {
+            var affectedRecipes = await db.Recipes
+                .Include(r => r.Ingredients)
+                    .ThenInclude(ri => ri.Ingredient)
+                .Where(r => affectedRecipeIds.Contains(r.Id))
+                .ToListAsync();
+
+            foreach (var recipe in affectedRecipes)
+            {
+                var calc = BrewingCalculator.Calculate(
+                    recipe.BatchSizeLiters,
+                    recipe.EfficiencyPercent,
+                    recipe.BoilTimeMinutes,
+                    recipe.Ingredients
+                );
+
+                recipe.OriginalGravity = calc.OriginalGravity;
+                recipe.FinalGravity = calc.FinalGravity;
+                recipe.AlcoholByVolume = calc.AlcoholByVolume;
+                recipe.BitternessIbu = calc.BitternessIbu;
+                recipe.ColorSrm = calc.ColorSrm;
+                recipe.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await db.SaveChangesAsync();
+
+        var stock = await db.IngredientStocks
+            .FirstOrDefaultAsync(s => s.UserId == userId && s.IngredientId == ingredient.Id);
+        var defaultUnit = ingredient.Type == IngredientType.Fermentable ? "kg" : "g";
+        var stockAmount = stock?.Amount ?? 0.0m;
+        var stockUnit = stock != null && !string.IsNullOrWhiteSpace(stock.Unit) ? stock.Unit : defaultUnit;
+
+        var dto = new IngredientDto(
+            ingredient.Id,
+            ingredient.Name,
+            ingredient.Type,
+            ingredient.PotentialGravity,
+            ingredient.ColorSrm,
+            ingredient.AlphaAcidPercent,
+            ingredient.AttenuationPercent,
+            ingredient.Description,
+            ingredient.IsCatalogItem,
+            stockAmount,
+            stockUnit,
+            stockAmount > 0,
+            ingredient.Form
+        );
+
+        return (IngredientOperationResult.Success, dto, null);
+    }
+
     public async Task<(IngredientOperationResult Result, string? ErrorMessage)> DeleteIngredientAsync(
         Guid id,
-        string userId)
+        string userId,
+        bool force = false)
     {
         var ingredient = await db.Ingredients.FindAsync(id);
         if (ingredient == null)
@@ -383,6 +492,22 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         var affectedRecipeIngredients = await db.RecipeIngredients
             .Where(ri => ri.IngredientId == id)
             .ToListAsync();
+
+        if (!force && affectedRecipeIngredients.Count > 0)
+        {
+            return (IngredientOperationResult.Conflict, $"Cannot delete ingredient in use by {affectedRecipeIngredients.Count} recipe(s).");
+        }
+
+        var hasActiveBatches = await db.BatchIngredients
+            .Include(bi => bi.Batch)
+            .AnyAsync(bi => bi.SourceIngredientId == id &&
+                            bi.Batch!.Status != BatchStatus.Completed &&
+                            bi.Batch.Status != BatchStatus.Archived);
+
+        if (!force && hasActiveBatches)
+        {
+            return (IngredientOperationResult.Conflict, "Cannot delete ingredient currently used by active batches.");
+        }
 
         var affectedRecipeIds = affectedRecipeIngredients
             .Select(ri => ri.RecipeId)

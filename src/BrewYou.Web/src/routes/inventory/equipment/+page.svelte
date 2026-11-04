@@ -10,7 +10,8 @@
 		type EquipmentDto,
 		type EquipmentType,
 		type EquipmentSubtype,
-		type EquipmentTelemetryUpdateDto
+		type EquipmentTelemetryUpdateDto,
+		type AssignedKegSummaryDto
 	} from '$lib/types/api';
 	import EquipmentModal from '$lib/components/inventory/EquipmentModal.svelte';
 	import DeleteEquipmentModal from '$lib/components/inventory/DeleteEquipmentModal.svelte';
@@ -327,6 +328,45 @@
 				equipmentList = [saved, ...equipmentList];
 			}
 		}
+
+		// When a Keg is saved/renamed/kicked, synchronize any Tap in equipmentList that has this Keg assigned
+		if (saved.type === 'Keg') {
+			equipmentList = equipmentList.map((item) => {
+				if (
+					item.type === 'Tap' &&
+					(item.assignedKegId === saved.id || item.assignedKeg?.id === saved.id)
+				) {
+					const fillPct =
+						saved.fillLevelPercent ??
+						saved.fillPercentage ??
+						(saved.capacityLiters > 0
+							? Math.round((saved.currentVolumeLiters / saved.capacityLiters) * 100)
+							: 0);
+
+					const updatedAssignedKeg: AssignedKegSummaryDto = {
+						id: saved.id,
+						name: saved.name,
+						subtype: saved.subtype,
+						capacityLiters: saved.capacityLiters,
+						currentVolumeLiters: saved.currentVolumeLiters,
+						unit: saved.unit,
+						fillPercentage: fillPct,
+						assignedBatch: saved.assignedBatch,
+						currentTemperatureC: saved.currentTemperatureC,
+						temperatureUpdatedAt: saved.temperatureUpdatedAt
+					};
+
+					return {
+						...item,
+						assignedKegId: saved.id,
+						assignedKeg: updatedAssignedKeg,
+						assignedBatch: saved.assignedBatch,
+						fillLevelPercent: fillPct
+					};
+				}
+				return item;
+			});
+		}
 	}
 
 	function requestDelete(item: EquipmentDto) {
@@ -335,7 +375,18 @@
 	}
 
 	function handleDeleted(equipmentId: string) {
-		equipmentList = equipmentList.filter((e) => e.id !== equipmentId);
+		equipmentList = equipmentList
+			.filter((e) => e.id !== equipmentId)
+			.map((e) => {
+				if (e.assignedKegId === equipmentId || e.assignedKeg?.id === equipmentId) {
+					return {
+						...e,
+						assignedKegId: null,
+						assignedKeg: null
+					};
+				}
+				return e;
+			});
 	}
 
 	function getCategoryName(cat: string): string {

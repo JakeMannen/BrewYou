@@ -416,8 +416,8 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
         batch.RecipeId.Should().Be(recipe.Id);
 
-        // 3. Delete recipe
-        var delRes = await client.DeleteAsync($"/api/v1/recipes/{recipe.Id}");
+        // 3. Delete recipe with force=true (batch is in active brewing status)
+        var delRes = await client.DeleteAsync($"/api/v1/recipes/{recipe.Id}?force=true");
         delRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // 4. Verify recipe is gone

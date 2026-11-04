@@ -65,7 +65,9 @@
 		"copied": "Copied!",
 		"back": "Back",
 		"uploading": "Uploading...",
-		"error_generic": "An unexpected error occurred. Please try again."
+		"error_generic": "An unexpected error occurred. Please try again.",
+		"deleted": "Deleted",
+		"unavailable": "Unavailable"
 	},
 	"metrics": {
 		"og": "Original Gravity",
@@ -174,6 +176,14 @@
 			"batches_notice": "Existing batches brewed from this recipe will remain intact as standalone batches.",
 			"confirm": "Delete Recipe",
 			"cancel": "Cancel",
+			"checking_batches": "Checking for active batches brewed from this recipe...",
+			"in_use_warning_title": "Active Batches in Progress",
+			"in_use_warning_desc": "This recipe is currently linked to {count} active batch(es). Deleting it will decouple the recipe definition from these in-progress batches while preserving their logged metrics and frozen recipe name.",
+			"active_batches_warning": "Warning: Active batches are currently linked to this recipe.",
+			"view_batch": "View Batch",
+			"conflict_error": "Cannot delete recipe while active batches are in progress. Please complete or decouple active batches, or enable force delete.",
+			"force_delete_checkbox": "Force delete anyway (preserves batch history and recipe name snapshot, detaches recipe link)",
+			"force_confirm_button": "Force Delete Recipe",
 			"error": "Failed to delete recipe."
 		},
 		"import_modal": {
@@ -327,6 +337,8 @@
 			"mode_recipe": "From Recipe",
 			"mode_adhoc": "Ad-Hoc Batch",
 			"default_adhoc_name": "My Craft Batch",
+			"recipe_not_found_title": "Recipe Not Found",
+			"recipe_not_found_warning": "The recipe linked to this new batch could not be found (it may have been deleted). You can choose another recipe or formulate an ad-hoc batch.",
 			"err_init_failed": "Failed to initialize batch wizard.",
 			"err_create_failed": "Failed to start batch.",
 			"select_recipe": "Select Recipe",
@@ -528,6 +540,8 @@
 			"stage_destination_label": "Stage Destination",
 			"stage_transition_notes_label": "Stage Transition Notes",
 			"bottled_cellared_option": "Bottled & Cellared (No vessel assigned)",
+			"no_vessel_assigned": "No vessel assigned",
+			"deleted_vessel": "Deleted vessel",
 			"boil_timer": "Boil Timer",
 			"boil_timer_desc": "Rolling Boil & Hop Extractions",
 			"mash_timer": "Mash Rest Timer",
@@ -1094,7 +1108,18 @@
 			"in_use_warning_desc": "This equipment is currently assigned to one or more active batches. Deleting it will unlink the vessel from these batches.",
 			"view_batch": "View Batch",
 			"confirm_button": "Delete Equipment",
-			"deleting": "Deleting..."
+			"deleting": "Deleting...",
+			"conflict_error": "Cannot delete equipment while it is in use by active batches. Please decouple or complete the active batches, or enable force delete.",
+			"force_delete_checkbox": "Force delete anyway (decouples from all active batches and sensor assignments)",
+			"force_confirm_button": "Force Delete Equipment",
+			"role_boiler": "Boiler",
+			"role_fermenter": "Fermenter",
+			"role_hlt": "Hot Liquor Tank (HLT)",
+			"role_mashtun": "Mash Tun",
+			"role_packaging": "Packaging Vessel",
+			"role_sensor": "Sensor / Probe",
+			"role_tap": "Tap",
+			"role_keg": "Keg"
 		},
 		"subtypes": {
 			"AllInOne": "All in one",
@@ -1153,6 +1178,10 @@
 		"orientation_portrait": "Portrait"
 	},
 	"labels": {
+		"recipe": "Recipe",
+		"default_craft_mark": "Artisan Craft Brew",
+		"using_default_label": "Default Bottle Label (No custom artwork uploaded)",
+		"default_label_desc": "Standard artisan bottle label formatted with batch metadata, style, ABV, and brew date.",
 		"card_title": "Recipe Labels & Screen Graphics",
 		"card_desc": "Manage bottle label art and digital display tap graphics with automatic BJCP unit-safe scaling.",
 		"status_default": "Artisan Default",

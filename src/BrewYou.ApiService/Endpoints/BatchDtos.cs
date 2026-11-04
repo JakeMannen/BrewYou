@@ -33,7 +33,8 @@ public record BatchSummaryDto(
     Guid? MashTunId = null,
     string? MashTunName = null,
     Guid? BoilerId = null,
-    string? BoilerName = null
+    string? BoilerName = null,
+    string? RecipeName = null
 );
 
 public record BatchReadingDto(

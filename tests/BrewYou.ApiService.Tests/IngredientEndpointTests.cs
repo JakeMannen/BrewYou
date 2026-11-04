@@ -676,8 +676,8 @@ public class IngredientEndpointTests : IClassFixture<WebApplicationFactory<Progr
         initialOg.Should().BeGreaterThan(1.080m);
         initialAbv.Should().BeGreaterThan(8.0m);
 
-        // 4. Delete the custom malt
-        var deleteRes = await client.DeleteAsync($"/api/v1/ingredients/{customMalt.Id}");
+        // 4. Delete the custom malt with force=true
+        var deleteRes = await client.DeleteAsync($"/api/v1/ingredients/{customMalt.Id}?force=true");
         deleteRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // 5. Fetch recipe and verify:

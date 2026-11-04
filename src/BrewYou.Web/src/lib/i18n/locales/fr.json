@@ -65,7 +65,9 @@
 		"copied": "Copié !",
 		"back": "Retour",
 		"uploading": "Téléversement...",
-		"error_generic": "Une erreur inattendue est survenue. Veuillez réessayer."
+		"error_generic": "Une erreur inattendue est survenue. Veuillez réessayer.",
+		"deleted": "Supprimé",
+		"unavailable": "Indisponible"
 	},
 	"metrics": {
 		"og": "Densité initiale (OG)",
@@ -174,6 +176,14 @@
 			"batches_notice": "Cette recette est utilisée par des brassins en cours.",
 			"confirm": "Supprimer",
 			"cancel": "Annuler",
+			"checking_batches": "Vérification des brassins actifs issus de cette recette...",
+			"in_use_warning_title": "Brassins actifs en cours",
+			"in_use_warning_desc": "Cette recette est actuellement liée à {count} brassin(s) actif(s). Sa suppression dissociera la recette tout en conservant l'historique des mesures et le nom figé de la recette.",
+			"active_batches_warning": "Attention : des brassins actifs sont actuellement associés à cette recette.",
+			"view_batch": "Voir le brassin",
+			"conflict_error": "Impossible de supprimer la recette tant que des brassins actifs sont en cours. Veuillez terminer ou dissocier les brassins actifs, ou forcer la suppression.",
+			"force_delete_checkbox": "Forcer la suppression malgré tout (conserve l'historique et le nom du brassin, dissocie le lien de recette)",
+			"force_confirm_button": "Forcer la suppression de la recette",
 			"error": "Impossible de supprimer la recette."
 		},
 		"import_modal": {
@@ -331,6 +341,8 @@
 			"mode_recipe": "Brasser une recette",
 			"mode_adhoc": "Brassin libre / Ad hoc",
 			"default_adhoc_name": "Mon brassin artisanal",
+			"recipe_not_found_title": "Recette introuvable",
+			"recipe_not_found_warning": "La recette associée à ce nouveau brassin est introuvable (elle a peut-être été supprimée). Vous pouvez choisir une autre recette ou formuler un brassin ponctuel.",
 			"err_init_failed": "Impossible d'initialiser l'assistant de brassage.",
 			"err_create_failed": "Impossible de démarrer le brassin.",
 			"select_recipe": "Sélectionner une recette",
@@ -532,6 +544,8 @@
 			"stage_destination_label": "Étape de destination",
 			"stage_transition_notes_label": "Notes de transition",
 			"bottled_cellared_option": "Mis en bouteilles ou fûts",
+			"no_vessel_assigned": "Aucune cuve assignée",
+			"deleted_vessel": "Cuve supprimée",
 			"boil_timer": "Minuteur d'ébullition",
 			"boil_timer_desc": "Durée totale d'ébullition et ajouts de houblon",
 			"mash_timer": "Minuteur d'empâtage",
@@ -1094,7 +1108,18 @@
 			"in_use_warning_desc": "Cet équipement est actuellement assigné à un ou plusieurs brassins actifs. Sa suppression le dissociera de ces brassins.",
 			"view_batch": "Voir le brassin",
 			"confirm_button": "Supprimer définitivement",
-			"deleting": "Suppression..."
+			"deleting": "Suppression...",
+			"conflict_error": "Impossible de supprimer l'équipement tant qu'il est utilisé par des brassins actifs. Veuillez détacher ou terminer les brassins actifs, ou forcer la suppression.",
+			"force_delete_checkbox": "Forcer la suppression malgré tout (dissocie de tous les brassins actifs et affectations de capteurs)",
+			"force_confirm_button": "Forcer la suppression",
+			"role_boiler": "Cuve d'ébullition",
+			"role_fermenter": "Fermenteur",
+			"role_hlt": "Cuve eau chaude (HLT)",
+			"role_mashtun": "Cuve d'empâtage",
+			"role_packaging": "Cuve de conditionnement",
+			"role_sensor": "Capteur / Sonde",
+			"role_tap": "Robinet",
+			"role_keg": "Fût"
 		},
 		"subtypes": {
 			"AllInOne": "Tout-en-un",
@@ -1153,6 +1178,10 @@
 		"orientation_portrait": "Portrait"
 	},
 	"labels": {
+		"recipe": "Recette",
+		"default_craft_mark": "Bière artisanale",
+		"using_default_label": "Étiquette standard (Aucune illustration importée)",
+		"default_label_desc": "Étiquette standard mise en forme avec les métadonnées du brassin, le style et l'alcool.",
 		"card_title": "Étiquettes de recette & graphismes d'écran",
 		"card_desc": "Gérez les étiquettes de bouteilles et les visuels de becs numériques avec mise à l'échelle automatique conforme au BJCP.",
 		"status_default": "Illustration artisanale par défaut",

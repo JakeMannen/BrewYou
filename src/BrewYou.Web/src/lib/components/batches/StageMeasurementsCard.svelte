@@ -140,11 +140,13 @@
 			} else if (stage === 'Package') {
 				req.measuredFg = draftMeasuredFg;
 				req.measuredPackagedVolumeLiters = draftPackagedVol;
-				req.packagingVesselId = draftPackagingVesselId
-					? draftPackagingVesselId
-					: batch.packagingVesselId
-						? '00000000-0000-0000-0000-000000000000'
-						: null;
+				if (draftPackagingVesselId !== (batch.packagingVesselId ?? '')) {
+					req.packagingVesselId = draftPackagingVesselId
+						? draftPackagingVesselId
+						: batch.packagingVesselId
+							? '00000000-0000-0000-0000-000000000000'
+							: null;
+				}
 			}
 
 			if (draftNotes !== (batch.notes ?? '')) {
@@ -414,7 +416,15 @@
 						{t('batches.equipment.packaging_vessel')}
 					</span>
 					<div class="mt-1 text-xs font-medium text-zinc-900 dark:text-white">
-						{batch.packagingVesselName || t('batches.workspace.bottled_cellared_option')}
+						{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+							<span class="text-zinc-500 italic">
+								{batch.packagingVesselName
+									? `${batch.packagingVesselName} (${t('common.deleted')})`
+									: t('batches.workspace.deleted_vessel')}
+							</span>
+						{:else}
+							{batch.packagingVesselName || t('batches.workspace.bottled_cellared_option')}
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -636,6 +646,13 @@
 							bind:value={draftPackagingVesselId}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						>
+							{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+								<option value={batch.packagingVesselId} disabled>
+									{batch.packagingVesselName
+										? `${batch.packagingVesselName} (${t('common.deleted')})`
+										: t('batches.workspace.deleted_vessel')}
+								</option>
+							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
 							{#each equipmentList.filter((e) => e.type === 'Keg') as keg}
 								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>

@@ -427,7 +427,8 @@ public record BatchBackupDto(
     List<BatchFermentationStepBackupDto>? FermentationSteps = null,
     List<BatchStageHistoryBackupDto>? StageHistory = null,
     List<BatchReadingBackupDto>? Readings = null,
-    List<BatchSensorAssignmentBackupDto>? SensorAssignments = null
+    List<BatchSensorAssignmentBackupDto>? SensorAssignments = null,
+    string? RecipeName = null
 );
 
 public record EquipmentReadingBackupDto(

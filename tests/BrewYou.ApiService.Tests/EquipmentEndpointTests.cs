@@ -740,8 +740,16 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
 
-        // Delete the equipment
-        var delRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}");
+        // Attempt unforced delete - should return 409 Conflict
+        var conflictRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}");
+        conflictRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var conflictEnv = await conflictRes.Content.ReadFromJsonAsync<ApiResponse>();
+        conflictEnv!.Success.Should().BeFalse();
+        conflictEnv.Error!.Code.Should().Be("EQUIPMENT_IN_USE");
+
+        // Force delete the equipment with ?force=true
+        var delRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}?force=true");
         delRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Batch should still exist with BoilerId set to null
