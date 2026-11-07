@@ -20,7 +20,7 @@ describe('All-In-One Equipment Presets', () => {
 		const g30 = ALL_IN_ONE_PRESETS.find((p) => p.name === 'Grainfather G30')!;
 		expect(g30.capacityLiters).toBe(30);
 		expect(g30.mashTunDeadSpaceLiters).toBe(3.5);
-		expect(g30.boilOffRatePerHour).toBe(2.5);
+		expect(g30.boilOffRatePerHour).toBe(3.0);
 		expect(g30.trubLossLiters).toBe(2.0);
 
 		const g40 = ALL_IN_ONE_PRESETS.find((p) => p.name === 'Grainfather G40')!;

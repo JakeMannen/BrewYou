@@ -412,7 +412,7 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         batch.VolumeProfile.Should().NotBeNull();
         var vp = batch.VolumeProfile!;
         vp.TotalWaterLiters.Should().BeGreaterThan(25m);
-        vp.StrikeWaterLiters.Should().Be(15.0m); // 5.0kg * 3.0 L/kg
+        vp.StrikeWaterLiters.Should().Be(13.5m); // 5.0kg * 2.7 L/kg for All-In-One boiler
         vp.TargetFermenterVolumeLiters.Should().Be(20.0m);
         vp.TargetPreBoilVolumeLiters.Should().BeGreaterThan(20.0m);
         vp.TargetPostBoilVolumeLiters.Should().BeGreaterThan(20.0m);

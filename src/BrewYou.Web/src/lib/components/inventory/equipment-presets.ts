@@ -11,7 +11,7 @@ export const ALL_IN_ONE_PRESETS: AllInOnePreset[] = [
 		name: 'Grainfather G30',
 		capacityLiters: 30,
 		mashTunDeadSpaceLiters: 3.5,
-		boilOffRatePerHour: 2.5,
+		boilOffRatePerHour: 3.0,
 		trubLossLiters: 2.0
 	},
 	{

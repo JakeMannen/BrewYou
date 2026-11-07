@@ -252,6 +252,16 @@
 		}
 	}
 
+	let isBoilerUsedForMashing = $derived(
+		selectedBoiler !== null &&
+			(brewhouseTopology === '1V' ||
+				brewhouseTopology === '2V_AIO_HLT' ||
+				selectedBoiler.subtype === 'AllInOne' ||
+				(selectedMashTunId !== '' && selectedMashTunId === selectedBoilerId))
+	);
+
+	let isAllInOne = $derived(isBoilerUsedForMashing);
+
 	let waterSchedule = $derived.by(() => {
 		return calculateWaterRequirements({
 			targetBatchSizeLiters,
@@ -267,20 +277,14 @@
 			spargeMethod,
 			fermenterLossLiters: customFermenterLoss,
 			packagingLossLiters: customPackagingLoss,
-			coolingShrinkagePercent: 4.0,
-			mashThicknessLitersPerKg: 3.0
+			coolingShrinkagePercent: isAllInOne ? 0.0 : 4.0,
+			grainAbsorptionRate: isAllInOne ? 0.8 : 0.96,
+			mashThicknessLitersPerKg: isAllInOne ? 2.7 : 3.0,
+			recoverMashTunDeadSpace: isAllInOne
 		});
 	});
 
 	let totalMashVolumeLiters = $derived(waterSchedule.strikeWaterLiters + totalGrainKg * 0.67);
-
-	let isBoilerUsedForMashing = $derived(
-		selectedBoiler !== null &&
-			(brewhouseTopology === '1V' ||
-				brewhouseTopology === '2V_AIO_HLT' ||
-				selectedBoiler.subtype === 'AllInOne' ||
-				(selectedMashTunId !== '' && selectedMashTunId === selectedBoilerId))
-	);
 
 	let isBoilerMashOverCapacity = $derived(
 		selectedBoiler !== null &&

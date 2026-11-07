@@ -19,6 +19,7 @@ export interface VolumeCalculationInput {
 	coolingShrinkagePercent?: number;
 	packagingLossLiters?: number;
 	mashThicknessLitersPerKg?: number;
+	recoverMashTunDeadSpace?: boolean;
 }
 
 export interface VolumeCalculationResult {
@@ -69,6 +70,7 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 	const shrinkagePercent = input.coolingShrinkagePercent ?? 4.0;
 	const packagingLoss = input.packagingLossLiters ?? 0.5;
 	const mashThickness = input.mashThicknessLitersPerKg ?? 3.0;
+	const recoverMashTunDeadSpace = input.recoverMashTunDeadSpace ?? false;
 
 	let targetFermenter: number;
 	let targetPackaged: number;
@@ -102,8 +104,10 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 	// Grain absorption
 	const grainAbsorption = input.totalGrainWeightKg * grainAbsorptionRate;
 
-	// Total water (includes mash dead space, HLT dead space, and pump/transfer plumbing losses)
-	const totalWater = preBoilCold + grainAbsorption + mashTunDeadSpace + hltDeadSpace + plumbingLoss;
+	// Total water (includes unrecovered mash dead space, HLT dead space, and pump/transfer plumbing losses)
+	const unrecoveredMashDeadSpace = recoverMashTunDeadSpace ? 0.0 : mashTunDeadSpace;
+	const totalWater =
+		preBoilCold + grainAbsorption + unrecoveredMashDeadSpace + hltDeadSpace + plumbingLoss;
 
 	// Strike and sparge water split
 	const sparge = input.spargeEnabled ?? true;
@@ -136,7 +140,7 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 		shrinkageLossLiters: roundTo(postBoilHot - postBoilCold, 2),
 		fermenterLossLiters: roundTo(fermenterLoss, 2),
 		packagingLossLiters: roundTo(packagingLoss, 2),
-		mashTunDeadSpaceLossLiters: roundTo(mashTunDeadSpace, 2),
+		mashTunDeadSpaceLossLiters: roundTo(unrecoveredMashDeadSpace, 2),
 		hltDeadSpaceLossLiters: roundTo(hltDeadSpace, 2),
 		plumbingLossLiters: roundTo(plumbingLoss, 2),
 		spargeMethod
@@ -280,11 +284,13 @@ export function calculateActualGrainAbsorption(
 	totalWaterUsedLiters: number,
 	preBoilVolumeLiters: number,
 	mashTunDeadSpaceLiters: number,
-	totalGrainWeightKg: number
+	totalGrainWeightKg: number,
+	recoverMashTunDeadSpace: boolean = false
 ): number {
 	if (totalGrainWeightKg <= 0) return 0;
 
-	const grainAbsorption = totalWaterUsedLiters - preBoilVolumeLiters - mashTunDeadSpaceLiters;
+	const unrecoveredDeadSpace = recoverMashTunDeadSpace ? 0.0 : mashTunDeadSpaceLiters;
+	const grainAbsorption = totalWaterUsedLiters - preBoilVolumeLiters - unrecoveredDeadSpace;
 	const rate = grainAbsorption / totalGrainWeightKg;
 	return Math.max(0, roundTo(rate, 2));
 }

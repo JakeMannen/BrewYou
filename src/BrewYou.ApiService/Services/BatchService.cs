@@ -292,6 +292,10 @@ public class BatchService : IBatchService
         var setup = boiler?.BrewerySetup ?? mashTun?.BrewerySetup ?? hlt?.BrewerySetup ?? (request.BoilerId.HasValue ? null :
             await _db.BrewerySetups.FirstOrDefaultAsync(s => s.UserId == userId && s.IsDefault));
 
+        var isAllInOne = boiler?.Subtype == EquipmentSubtype.AllInOne ||
+                         mashTun?.Subtype == EquipmentSubtype.AllInOne ||
+                         (boiler != null && mashTun != null && boiler.Id == mashTun.Id);
+
         var boilOffRate = request.BoilOffRatePerHour ?? boiler?.BoilOffRatePerHour ?? setup?.DefaultBoilOffRatePerHour ?? 3.0m;
         var kettleTrub = request.KettleTrubLossLiters ?? boiler?.TrubLossLiters ?? setup?.DefaultKettleTrubLossLiters ?? 1.5m;
         var mashDeadSpace = request.MashTunDeadSpaceLiters ?? mashTun?.MashTunDeadSpaceLiters ?? boiler?.MashTunDeadSpaceLiters ?? setup?.DefaultMashTunDeadSpaceLiters ?? 0.0m;
@@ -299,8 +303,9 @@ public class BatchService : IBatchService
         var plumbingLoss = request.PlumbingLossLiters ?? 0.0m;
         var spargeMethod = request.SpargeMethod ?? "Batch";
         var fermenterLoss = request.FermenterLossLiters ?? fermenter?.TrubLossLiters ?? setup?.DefaultFermenterLossLiters ?? 1.5m;
-        var grainAbsorption = setup?.DefaultGrainAbsorptionRate ?? 0.96m;
-        var shrinkage = setup?.CoolingShrinkagePercent ?? 4.0m;
+        var grainAbsorption = isAllInOne ? 0.80m : (setup?.DefaultGrainAbsorptionRate ?? 0.96m);
+        var shrinkage = isAllInOne ? 0.0m : (setup?.CoolingShrinkagePercent ?? 4.0m);
+        var mashThickness = isAllInOne ? 2.7m : 3.0m;
         var packagingLoss = request.PackagingLossLiters ?? packagingVessel?.PackagingLossLiters ?? setup?.DefaultPackagingLossLiters ?? 0.5m;
         var targetBasis = request.TargetVolumeBasis ?? TargetVolumeBasis.Fermenter;
 
@@ -530,9 +535,11 @@ public class BatchService : IBatchService
             MashTunDeadSpaceLiters: mashDeadSpace,
             CoolingShrinkagePercent: shrinkage,
             PackagingLossLiters: packagingLoss,
+            MashThicknessLitersPerKg: mashThickness,
             HltDeadSpaceLiters: hltDeadSpace,
             PlumbingLossLiters: plumbingLoss,
-            SpargeMethod: spargeMethod
+            SpargeMethod: spargeMethod,
+            RecoverMashTunDeadSpace: isAllInOne
         );
 
         var volumeResult = VolumeCalculator.CalculateWaterRequirements(volumeInput);
@@ -1394,6 +1401,11 @@ public class BatchService : IBatchService
 
             if (lossOrSpargeChanged)
             {
+                var isAllInOne = batch.Boiler?.Subtype == EquipmentSubtype.AllInOne ||
+                                 batch.MashTun?.Subtype == EquipmentSubtype.AllInOne ||
+                                 (batch.Boiler != null && batch.MashTun != null && batch.Boiler.Id == batch.MashTun.Id);
+                var mashThickness = isAllInOne ? 2.7m : 3.0m;
+
                 var totalGrainKg = batch.Ingredients
                     .Where(i => i.Type == IngredientType.Fermentable && IsMassUnit(i.Unit))
                     .Sum(i => ConvertUnitAmount(i.Amount, i.Unit, "kg"));
@@ -1414,9 +1426,11 @@ public class BatchService : IBatchService
                     MashTunDeadSpaceLiters: batch.VolumeProfile.MashTunDeadSpaceLiters,
                     CoolingShrinkagePercent: batch.VolumeProfile.CoolingShrinkagePercent,
                     PackagingLossLiters: batch.VolumeProfile.PackagingLossLiters,
+                    MashThicknessLitersPerKg: mashThickness,
                     HltDeadSpaceLiters: batch.VolumeProfile.HltDeadSpaceLiters,
                     PlumbingLossLiters: batch.VolumeProfile.PlumbingLossLiters,
-                    SpargeMethod: batch.VolumeProfile.SpargeMethod
+                    SpargeMethod: batch.VolumeProfile.SpargeMethod,
+                    RecoverMashTunDeadSpace: isAllInOne
                 ));
 
                 batch.VolumeProfile.TotalWaterLiters = recalcResult.TotalWaterLiters;
