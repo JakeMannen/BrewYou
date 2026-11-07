@@ -984,4 +984,18 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         env.Error.Should().NotBeNull();
         env.Error!.Code.Should().Be("BAD_REQUEST");
     }
+
+    [Fact]
+    public async Task Register_CreatesCleanBrewerySetupWithZeroEquipment()
+    {
+        var (client, _, _, _) = await CreateAuthenticatedUserAsync();
+
+        var getRes = await client.GetAsync("/api/v1/inventory/equipment");
+        getRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var env = await getRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        env.Should().NotBeNull();
+        env!.Success.Should().BeTrue();
+        env.Data.Should().BeEmpty("New user registration must produce a clean digital twin with 0 unowned equipment");
+    }
 }

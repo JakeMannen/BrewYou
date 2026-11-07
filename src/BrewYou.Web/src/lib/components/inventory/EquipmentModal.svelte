@@ -26,6 +26,7 @@
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import VesselIcon from './VesselIcon.svelte';
 	import { isVesselFillable } from './vessel-geometry';
+	import { ALL_IN_ONE_PRESETS } from './equipment-presets';
 	import { isLocalhostUrl } from '$lib/utils/batchQr';
 	import {
 		X,
@@ -75,6 +76,7 @@
 	let trubLossLiters = $state<number | ''>('');
 	let mashTunDeadSpaceLiters = $state<number | ''>('');
 	let packagingLossLiters = $state<number | ''>('');
+	let selectedAioPreset = $state('');
 
 	// Tap Display Settings
 	let displayWidthPx = $state<number | ''>('');
@@ -289,6 +291,11 @@
 				mashTunDeadSpaceLiters = equipment.mashTunDeadSpaceLiters ?? '';
 				packagingLossLiters = equipment.packagingLossLiters ?? '';
 
+				const matchingPreset = ALL_IN_ONE_PRESETS.find(
+					(p) => p.name.toLowerCase() === equipment.name.toLowerCase()
+				);
+				selectedAioPreset = matchingPreset ? matchingPreset.name : '';
+
 				// Tap display settings
 				displayWidthPx = equipment.displayWidthPx ?? '';
 				displayHeightPx = equipment.displayHeightPx ?? '';
@@ -417,6 +424,7 @@
 				mqttCertificate = '';
 				mqttSource = settings.hasMqttConfigured ? 'userSettings' : 'custom';
 			}
+			selectedAioPreset = '';
 			testPollMessage = null;
 			errorMessage = null;
 		}
@@ -443,6 +451,7 @@
 
 	function handleCategoryChange(newType: EquipmentType) {
 		type = newType;
+		selectedAioPreset = '';
 		const defaultSub = DEFAULT_SUBTYPE_BY_TYPE[newType];
 		subtype = defaultSub;
 
@@ -488,6 +497,7 @@
 
 	function handleSubtypeSelect(selectedSub: EquipmentSubtype) {
 		subtype = selectedSub;
+		selectedAioPreset = '';
 		if (connectionType === 'BrewLink' && !(type === 'Boiler' && selectedSub === 'AllInOne')) {
 			connectionType = 'None';
 		}
@@ -511,6 +521,32 @@
 				displayHeightPx = '';
 			}
 		}
+	}
+
+	function handleAioPresetSelect(presetName: string) {
+		selectedAioPreset = presetName;
+		const preset = ALL_IN_ONE_PRESETS.find((p) => p.name === presetName);
+		if (!preset) return;
+
+		const currentLower = name.trim().toLowerCase();
+		const isGenericOrPreset =
+			!currentLower ||
+			currentLower === 'all-in-one' ||
+			currentLower === 'all in one' ||
+			ALL_IN_ONE_PRESETS.some((p) => p.name.toLowerCase() === currentLower);
+
+		if (isGenericOrPreset || !equipment) {
+			name = preset.name;
+		}
+
+		if (unit === 'Gallons') {
+			capacity = parseFloat(litersToGallons(preset.capacityLiters).toFixed(1));
+		} else {
+			capacity = preset.capacityLiters;
+		}
+		boilOffRatePerHour = preset.boilOffRatePerHour;
+		trubLossLiters = preset.trubLossLiters;
+		mashTunDeadSpaceLiters = preset.mashTunDeadSpaceLiters;
 	}
 
 	let fillPercent = $derived.by(() => {
@@ -1038,6 +1074,38 @@
 						{/each}
 					</div>
 				</div>
+
+				<!-- All-In-One Model Preset Selector -->
+				{#if type === 'Boiler' && subtype === 'AllInOne'}
+					<div
+						data-testid="aio-preset-container"
+						class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
+					>
+						<label
+							for="aio-preset-select"
+							class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+						>
+							{t('equipment.preset_select_label')}
+						</label>
+						<select
+							id="aio-preset-select"
+							data-testid="aio-preset-select"
+							value={selectedAioPreset}
+							onchange={(e) => handleAioPresetSelect(e.currentTarget.value)}
+							class="mt-1.5 h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+						>
+							<option value="">{t('equipment.preset_select_placeholder')}</option>
+							{#each ALL_IN_ONE_PRESETS as preset}
+								<option value={preset.name}>
+									{preset.name} ({preset.capacityLiters}L)
+								</option>
+							{/each}
+						</select>
+						<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+							{t('equipment.preset_select_help')}
+						</p>
+					</div>
+				{/if}
 
 				{#if isFillable}
 					<!-- Capacity & Unit -->

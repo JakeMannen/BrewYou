@@ -209,6 +209,21 @@ The Equipment Inventory provides digital twin management for your brewery's hard
   - **JSON Manifest API (`/api/v1/tap/{token}`)**: Public lightweight JSON payload delivering shape, dimensions, status, beer name, measured ABV, keg fill level (`XX%` or `N/A`), keg name, keg capacity, and remaining volume for custom ESP32/e-paper implementations.
   - **Network Settings Integration & Host Customization**: Tap dialog links (kiosk web view, rendered image, and JSON manifest) dynamically take advantage of user-configured network hostnames (**Settings ➔ Network ➔ Network & External Access**), flag localhost loopback addresses with actionable warnings, and provide inline host overrides with quick settings access for seamless Wi-Fi kiosk and IoT microcontroller deployments.
 - **Cascading Equipment Integrity & Sensor Decoupling**: Decommissioning or deleting equipment cleanly decouples all 5 vessel roles (`HLT`, `Mash Tun`, `Boiler`, `Fermenter`, and `Packaging Vessel`), pre-cleans associated temperature probe sensor assignments without foreign key restrict exceptions, and decouples tap-to-keg links. Active batch guards protect in-use hardware and require explicit force confirmation.
+- **Factory All-In-One System Profiles & In-Modal Model Selector**:
+  - Provides factory-calibrated profiles for the 8 most common All-In-One brewing rigs via an on-demand model selector in the All-In-One equipment configuration dialog (in both Create and Edit modes):
+    - **Grainfather G30** (30 L, 3.5 L dead space, 2.5 L/hr boil-off, 2.0 L trub loss)
+    - **Grainfather G40** (40 L, 4.5 L dead space, 3.5 L/hr boil-off, 2.5 L trub loss)
+    - **Grainfather G70** (70 L, 8.0 L dead space, 4.0 L/hr boil-off, 3.5 L trub loss)
+    - **BrewZilla 35L Gen 4** (35 L, 3.5 L dead space, 3.0 L/hr boil-off, 2.0 L trub loss)
+    - **BrewZilla 65L Gen 4** (65 L, 6.0 L dead space, 4.5 L/hr boil-off, 3.5 L trub loss)
+    - **Speidel Braumeister 20L** (25 L, 2.5 L dead space, 2.5 L/hr boil-off, 1.5 L trub loss)
+    - **Brewtools B40pro** (46 L, 3.0 L dead space, 3.5 L/hr boil-off, 2.0 L trub loss)
+    - **Anvil Foundry 10.5** (40 L, 2.5 L dead space, 3.0 L/hr boil-off, 1.5 L trub loss)
+  - Selecting a model applies its factory loss profile and volume capacity while allowing brewers to fine-tune any individual value. Preserves a clean equipment inventory without cluttering the user's brewery with unowned hardware.
+- **Batch Vessel Overfilling & Boilover Headspace Protections**:
+  - **Mash Displacement Check**: Dynamically computes total mash volume ($V_{\text{strike}} + W_{\text{grain}} \times 0.67\text{ L/kg}$) and raises a prominent overflow alert if the grain and strike water exceed boiler/mash tun capacity.
+  - **Pre-Boil Capacity Warning**: Alerts brewers if target pre-boil wort volume exceeds the kettle's maximum liquid capacity.
+  - **Boilover Headroom Warning**: Warns whenever pre-boil wort volume occupies $>85\%$ of kettle capacity ($<15\%$ headspace), protecting brewers from hot break boilover events.
 
 #### How to Use
 
