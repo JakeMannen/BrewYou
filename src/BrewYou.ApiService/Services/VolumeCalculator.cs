@@ -27,7 +27,8 @@ public record VolumeCalculationInput(
     decimal MashThicknessLitersPerKg = 3.0m,
     decimal HltDeadSpaceLiters = 0.0m,
     decimal PlumbingLossLiters = 0.0m,
-    string SpargeMethod = "Batch"
+    string SpargeMethod = "Batch",
+    bool RecoverMashTunDeadSpace = false
 );
 
 public record VolumeCalculationResult(
@@ -97,8 +98,9 @@ public static class VolumeCalculator
         // 7. Grain absorption
         var grainAbsorption = input.TotalGrainWeightKg * input.GrainAbsorptionRate;
 
-        // 8. Total water (including mash dead space, HLT dead space, and plumbing transfer losses)
-        var totalWater = preBoilCold + grainAbsorption + input.MashTunDeadSpaceLiters + input.HltDeadSpaceLiters + input.PlumbingLossLiters;
+        // 8. Total water (including unrecovered mash dead space, HLT dead space, and plumbing transfer losses)
+        var unrecoveredMashDeadSpace = input.RecoverMashTunDeadSpace ? 0.0m : input.MashTunDeadSpaceLiters;
+        var totalWater = preBoilCold + grainAbsorption + unrecoveredMashDeadSpace + input.HltDeadSpaceLiters + input.PlumbingLossLiters;
 
         // 9. Strike and sparge water split
         decimal strikeWater;
@@ -131,7 +133,7 @@ public static class VolumeCalculator
             ShrinkageLossLiters: Math.Round(postBoilHot - postBoilCold, 2),
             FermenterLossLiters: Math.Round(input.FermenterLossLiters, 2),
             PackagingLossLiters: Math.Round(input.PackagingLossLiters, 2),
-            MashTunDeadSpaceLossLiters: Math.Round(input.MashTunDeadSpaceLiters, 2),
+            MashTunDeadSpaceLossLiters: Math.Round(unrecoveredMashDeadSpace, 2),
             HltDeadSpaceLossLiters: Math.Round(input.HltDeadSpaceLiters, 2),
             PlumbingLossLiters: Math.Round(input.PlumbingLossLiters, 2)
         );
@@ -247,14 +249,16 @@ public static class VolumeCalculator
         decimal totalWaterUsedLiters,
         decimal preBoilVolumeLiters,
         decimal mashTunDeadSpaceLiters,
-        decimal totalGrainWeightKg)
+        decimal totalGrainWeightKg,
+        bool recoverMashTunDeadSpace = false)
     {
         if (totalGrainWeightKg <= 0m)
         {
             return 0.0m;
         }
 
-        var grainAbsorption = totalWaterUsedLiters - preBoilVolumeLiters - mashTunDeadSpaceLiters;
+        var unrecoveredDeadSpace = recoverMashTunDeadSpace ? 0.0m : mashTunDeadSpaceLiters;
+        var grainAbsorption = totalWaterUsedLiters - preBoilVolumeLiters - unrecoveredDeadSpace;
         var rate = grainAbsorption / totalGrainWeightKg;
         return Math.Max(0.0m, Math.Round(rate, 2));
     }

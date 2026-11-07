@@ -252,6 +252,16 @@
 		}
 	}
 
+	let isBoilerUsedForMashing = $derived(
+		selectedBoiler !== null &&
+			(brewhouseTopology === '1V' ||
+				brewhouseTopology === '2V_AIO_HLT' ||
+				selectedBoiler.subtype === 'AllInOne' ||
+				(selectedMashTunId !== '' && selectedMashTunId === selectedBoilerId))
+	);
+
+	let isAllInOne = $derived(isBoilerUsedForMashing);
+
 	let waterSchedule = $derived.by(() => {
 		return calculateWaterRequirements({
 			targetBatchSizeLiters,
@@ -267,16 +277,40 @@
 			spargeMethod,
 			fermenterLossLiters: customFermenterLoss,
 			packagingLossLiters: customPackagingLoss,
-			coolingShrinkagePercent: 4.0,
-			mashThicknessLitersPerKg: 3.0
+			coolingShrinkagePercent: isAllInOne ? 0.0 : 4.0,
+			grainAbsorptionRate: isAllInOne ? 0.8 : 0.96,
+			mashThicknessLitersPerKg: isAllInOne ? 2.7 : 3.0,
+			recoverMashTunDeadSpace: isAllInOne
 		});
 	});
+
+	let totalMashVolumeLiters = $derived(waterSchedule.strikeWaterLiters + totalGrainKg * 0.67);
+
+	let isBoilerMashOverCapacity = $derived(
+		selectedBoiler !== null &&
+			selectedBoiler.capacityLiters > 0 &&
+			isBoilerUsedForMashing &&
+			totalMashVolumeLiters > selectedBoiler.capacityLiters
+	);
 
 	let isBoilerOverCapacity = $derived(
 		selectedBoiler !== null &&
 			selectedBoiler.capacityLiters > 0 &&
 			waterSchedule.targetPreBoilVolumeLiters > selectedBoiler.capacityLiters
 	);
+
+	let isBoiloverRisk = $derived(
+		selectedBoiler !== null &&
+			selectedBoiler.capacityLiters > 0 &&
+			waterSchedule.targetPreBoilVolumeLiters <= selectedBoiler.capacityLiters &&
+			waterSchedule.targetPreBoilVolumeLiters > selectedBoiler.capacityLiters * 0.85
+	);
+
+	let boilerHeadspacePercent = $derived.by(() => {
+		if (!selectedBoiler || selectedBoiler.capacityLiters <= 0) return null;
+		const excess = selectedBoiler.capacityLiters - waterSchedule.targetPreBoilVolumeLiters;
+		return Math.round((excess / selectedBoiler.capacityLiters) * 100);
+	});
 
 	let fermenterHeadspacePercent = $derived.by(() => {
 		if (!selectedFermenter || selectedFermenter.capacityLiters <= 0) return null;
@@ -1240,19 +1274,52 @@
 							</div>
 						{/if}
 					{/if}
-					{#if selectedBoiler && isBoilerOverCapacity}
-						<div
-							role="alert"
-							class="mt-2 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
-						>
-							<AlertTriangle class="h-4 w-4 shrink-0" />
-							<span>
-								{t('batches.wizard.boiler_preboil_warning', {
-									preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
-									capacity: formatNumber(selectedBoiler.capacityLiters, 1)
-								})}
-							</span>
-						</div>
+					{#if selectedBoiler}
+						{#if isBoilerMashOverCapacity}
+							<div
+								role="alert"
+								data-testid="boiler-mash-overcapacity-alert"
+								class="mt-2 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+							>
+								<AlertTriangle class="h-4 w-4 shrink-0" />
+								<span>
+									{t('batches.wizard.boiler_mash_warning', {
+										mashVol: formatNumber(totalMashVolumeLiters, 1),
+										capacity: formatNumber(selectedBoiler.capacityLiters, 1)
+									})}
+								</span>
+							</div>
+						{/if}
+						{#if isBoilerOverCapacity}
+							<div
+								role="alert"
+								data-testid="boiler-preboil-overcapacity-alert"
+								class="mt-2 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+							>
+								<AlertTriangle class="h-4 w-4 shrink-0" />
+								<span>
+									{t('batches.wizard.boiler_preboil_warning', {
+										preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
+										capacity: formatNumber(selectedBoiler.capacityLiters, 1)
+									})}
+								</span>
+							</div>
+						{:else if isBoiloverRisk}
+							<div
+								role="alert"
+								data-testid="boiler-boilover-risk-alert"
+								class="mt-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+							>
+								<AlertTriangle class="h-4 w-4 shrink-0" />
+								<span>
+									{t('batches.wizard.boiler_boilover_warning', {
+										preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
+										capacity: formatNumber(selectedBoiler.capacityLiters, 1),
+										headspace: boilerHeadspacePercent ?? 0
+									})}
+								</span>
+							</div>
+						{/if}
 					{/if}
 				</div>
 
@@ -1681,6 +1748,56 @@
 							</span>
 						</div>
 					</div>
+
+					{#if selectedBoiler && (isBoilerMashOverCapacity || isBoilerOverCapacity || isBoiloverRisk)}
+						<div class="mt-3 space-y-2">
+							{#if isBoilerMashOverCapacity}
+								<div
+									role="alert"
+									data-testid="water-schedule-boiler-mash-warning"
+									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>
+										{t('batches.wizard.boiler_mash_warning', {
+											mashVol: formatNumber(totalMashVolumeLiters, 1),
+											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
+										})}
+									</span>
+								</div>
+							{/if}
+							{#if isBoilerOverCapacity}
+								<div
+									role="alert"
+									data-testid="water-schedule-boiler-overcapacity-warning"
+									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>
+										{t('batches.wizard.boiler_preboil_warning', {
+											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
+											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
+										})}
+									</span>
+								</div>
+							{:else if isBoiloverRisk}
+								<div
+									role="alert"
+									data-testid="water-schedule-boiler-boilover-warning"
+									class="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>
+										{t('batches.wizard.boiler_boilover_warning', {
+											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
+											capacity: formatNumber(selectedBoiler.capacityLiters, 1),
+											headspace: boilerHeadspacePercent ?? 0
+										})}
+									</span>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 
 				<!-- Equipment Losses & Calibration Overrides Card -->
@@ -2080,6 +2197,56 @@
 							</div>
 						{/if}
 					</div>
+
+					{#if selectedBoiler && (isBoilerMashOverCapacity || isBoilerOverCapacity || isBoiloverRisk)}
+						<div class="mt-3 space-y-2">
+							{#if isBoilerMashOverCapacity}
+								<div
+									role="alert"
+									data-testid="step3-water-boiler-mash-warning"
+									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>
+										{t('batches.wizard.boiler_mash_warning', {
+											mashVol: formatNumber(totalMashVolumeLiters, 1),
+											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
+										})}
+									</span>
+								</div>
+							{/if}
+							{#if isBoilerOverCapacity}
+								<div
+									role="alert"
+									data-testid="step3-water-boiler-overcapacity-warning"
+									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>
+										{t('batches.wizard.boiler_preboil_warning', {
+											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
+											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
+										})}
+									</span>
+								</div>
+							{:else if isBoiloverRisk}
+								<div
+									role="alert"
+									data-testid="step3-water-boiler-boilover-warning"
+									class="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>
+										{t('batches.wizard.boiler_boilover_warning', {
+											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
+											capacity: formatNumber(selectedBoiler.capacityLiters, 1),
+											headspace: boilerHeadspacePercent ?? 0
+										})}
+									</span>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 
 				<!-- Initial Brew Day Optional Readings -->

@@ -49,6 +49,44 @@ public class VolumeCalculatorTests
     }
 
     [Fact]
+    public void CalculateWaterRequirements_GrainfatherG30_MatchesOfficialGrainfatherCalculator()
+    {
+        // Arrange — Augustiner Lagerbier Hell Clone: 20L into fermenter, 4.6kg grain, 75 min boil
+        // Grainfather G30 specs: 3.0 L/hr boil-off, 2.0L kettle trub, 3.5L dead space, 2.7 L/kg mash thickness, 0.80 L/kg absorption
+        var input = new VolumeCalculationInput(
+            TargetBatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 75,
+            TotalGrainWeightKg: 4.6m,
+            BoilOffRatePerHour: 3.0m,
+            GrainAbsorptionRate: 0.80m,
+            KettleTrubLossLiters: 2.0m,
+            FermenterLossLiters: 1.5m,
+            MashTunDeadSpaceLiters: 3.5m,
+            CoolingShrinkagePercent: 0.0m,
+            PackagingLossLiters: 0.5m,
+            MashThicknessLitersPerKg: 2.7m,
+            RecoverMashTunDeadSpace: true
+        );
+
+        // Act
+        var result = VolumeCalculator.CalculateWaterRequirements(input);
+
+        // Assert — Exactly matching official Grainfather calculator:
+        // Mash Water: 15.92 L
+        // Sparge Water: 13.51 L
+        // Total Water: 29.43 L
+        // Target Pre-Boil: 25.75 L
+        result.StrikeWaterLiters.Should().Be(15.92m);
+        result.SpargeWaterLiters.Should().Be(13.51m);
+        result.TotalWaterLiters.Should().Be(29.43m);
+        result.TargetPreBoilVolumeLiters.Should().Be(25.75m);
+        result.TargetPostBoilVolumeLiters.Should().Be(22.00m);
+        result.TargetFermenterVolumeLiters.Should().Be(20.00m);
+        result.GrainAbsorptionLossLiters.Should().Be(3.68m);
+        result.MashTunDeadSpaceLossLiters.Should().Be(0.00m); // Recovered inside kettle
+    }
+
+    [Fact]
     public void CalculateWaterRequirements_PackagedBasis_WorksBackwardsToDetermineFermenterVolume()
     {
         // Arrange
@@ -341,6 +379,23 @@ public class VolumeCalculatorTests
         // 33.85 - 28.57 - 1.0 = 4.28
         // 4.28 / 4.5 = 0.951...
         result.Should().BeApproximately(0.95m, 0.01m);
+    }
+
+    [Fact]
+    public void CalculateActualGrainAbsorption_WithRecoverMashTunDeadSpace_CalculatesAccurateRate()
+    {
+        // Act — For All-In-One where dead space is recovered inside the kettle:
+        // Total water = 29.43, Pre-boil = 25.75, dead space = 3.5, grain = 4.6 kg
+        // (29.43 - 25.75) / 4.6 = 3.68 / 4.6 = 0.80 L/kg
+        var result = VolumeCalculator.CalculateActualGrainAbsorption(
+            totalWaterUsedLiters: 29.43m,
+            preBoilVolumeLiters: 25.75m,
+            mashTunDeadSpaceLiters: 3.5m,
+            totalGrainWeightKg: 4.6m,
+            recoverMashTunDeadSpace: true
+        );
+
+        result.Should().Be(0.80m);
     }
 
     [Fact]

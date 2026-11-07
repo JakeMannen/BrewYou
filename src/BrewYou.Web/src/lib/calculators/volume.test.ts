@@ -352,4 +352,37 @@ describe('recalculatePostStepMilestones', () => {
 		// Packaged derived from measured fermenter volume: 19.5 - 2.0 = 17.5
 		expect(updated.targetPackagedVolumeLiters).toBe(17.5);
 	});
+
+	it('calculates exact Grainfather G30 water schedule matching the official Grainfather calculator', () => {
+		// Augustiner Lagerbier Hell Clone: 20L batch, 4.6kg grain, 75 min boil
+		// Grainfather G30: 3.0 L/hr boil-off, 2.0L trub loss, 3.5L dead space, 2.7 L/kg mash thickness, 0.80 L/kg absorption
+		const result = calculateWaterRequirements({
+			targetBatchSizeLiters: 20.0,
+			boilTimeMinutes: 75,
+			totalGrainWeightKg: 4.6,
+			boilOffRatePerHour: 3.0,
+			grainAbsorptionRate: 0.8,
+			kettleTrubLossLiters: 2.0,
+			fermenterLossLiters: 1.5,
+			mashTunDeadSpaceLiters: 3.5,
+			coolingShrinkagePercent: 0.0,
+			packagingLossLiters: 0.5,
+			mashThicknessLitersPerKg: 2.7,
+			recoverMashTunDeadSpace: true
+		});
+
+		expect(result.strikeWaterLiters).toBe(15.92);
+		expect(result.spargeWaterLiters).toBe(13.51);
+		expect(result.totalWaterLiters).toBe(29.43);
+		expect(result.targetPreBoilVolumeLiters).toBe(25.75);
+		expect(result.targetPostBoilVolumeLiters).toBe(22.0);
+		expect(result.targetFermenterVolumeLiters).toBe(20.0);
+		expect(result.grainAbsorptionLossLiters).toBe(3.68);
+		expect(result.mashTunDeadSpaceLossLiters).toBe(0.0);
+	});
+
+	it('calculates actual grain absorption correctly with recoverMashTunDeadSpace for All-In-One systems', () => {
+		const rate = calculateActualGrainAbsorption(29.43, 25.75, 3.5, 4.6, true);
+		expect(rate).toBe(0.8);
+	});
 });
