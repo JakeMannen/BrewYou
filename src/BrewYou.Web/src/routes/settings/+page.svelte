@@ -19,6 +19,8 @@
 		type UnitPreset
 	} from '$lib/stores/settings.svelte';
 	import type {
+		BrewLinkDiscoveredGatewayDto,
+		BrewLinkGatewayDto,
 		BrewYouBackupEnvelope,
 		CollaboratorRestoreMode,
 		GravityUnit,
@@ -31,6 +33,7 @@
 		ThemePreference,
 		VolumeUnit
 	} from '$lib/types/api';
+	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import {
 		User,
 		Palette,
@@ -58,7 +61,10 @@
 		Archive,
 		Download,
 		Upload,
-		ShieldCheck
+		ShieldCheck,
+		Loader2,
+		Pencil,
+		Trash2
 	} from '@lucide/svelte';
 
 	import { SvelteURL } from 'svelte/reactivity';
@@ -332,7 +338,11 @@
 		const urlTab = page.url.searchParams.get('tab') as SettingsTab | null;
 		if (urlTab && ['units', 'defaults', 'connectivity', 'backup', 'account'].includes(urlTab)) {
 			activeTab = urlTab;
-		} else if (initialHash === '#connectivity' || initialHash === '#network') {
+		} else if (
+			initialHash === '#connectivity' ||
+			initialHash === '#network' ||
+			initialHash === '#brewlink'
+		) {
 			activeTab = 'connectivity';
 		} else if (initialHash === '#defaults') {
 			activeTab = 'defaults';
@@ -344,7 +354,8 @@
 
 		const handleHashChange = () => {
 			const hash = window.location.hash;
-			if (hash === '#connectivity' || hash === '#network') activeTab = 'connectivity';
+			if (hash === '#connectivity' || hash === '#network' || hash === '#brewlink')
+				activeTab = 'connectivity';
 			else if (hash === '#defaults') activeTab = 'defaults';
 			else if (hash === '#backup') activeTab = 'backup';
 			else if (hash === '#account' || hash === '#profile') activeTab = 'account';
@@ -352,6 +363,10 @@
 		};
 		if (typeof window !== 'undefined') {
 			window.addEventListener('hashchange', handleHashChange);
+		}
+
+		if (auth.isAuthenticated) {
+			void loadBrewLinkGateways();
 		}
 
 		if (settings.hasMqttConfigured) {
@@ -512,6 +527,189 @@
 			setTimeout(() => {
 				testMqttMessage = null;
 			}, 5000);
+		}
+	}
+
+	// BrewLink ESP32 Gateway state & handlers
+	let brewLinkGateways = $state<BrewLinkGatewayDto[]>([]);
+	let isLoadingGateways = $state(false);
+	let discoveredGateways = $state<BrewLinkDiscoveredGatewayDto[]>([]);
+	let isDiscoveringGateways = $state(false);
+	let claimingGatewayId = $state<string | null>(null);
+	let pairingHost = $state('');
+	let pairingPin = $state('');
+	let pairingName = $state('');
+	let isRequestingPin = $state(false);
+	let requestPinSuccess = $state(false);
+	let requestPinError = $state<string | null>(null);
+	let isPairing = $state(false);
+	let pairingError = $state<string | null>(null);
+
+	// Edit gateway state
+	let editingGateway = $state<BrewLinkGatewayDto | null>(null);
+	let editGatewayName = $state('');
+	let editGatewayHost = $state('');
+	let isUpdatingGateway = $state(false);
+	let updateGatewayError = $state<string | null>(null);
+
+	// Delete gateway state
+	let gatewayToDelete = $state<BrewLinkGatewayDto | null>(null);
+	let isDeletingGateway = $state(false);
+	let deleteGatewayError = $state<string | null>(null);
+
+	async function loadBrewLinkGateways() {
+		if (!auth.isAuthenticated) return;
+		isLoadingGateways = true;
+		try {
+			const [paired, discovered] = await Promise.all([
+				api.brewlink.listGateways(),
+				api.brewlink.discoverGateways().catch(() => [])
+			]);
+			brewLinkGateways = paired;
+			discoveredGateways = discovered;
+		} catch (err: unknown) {
+			console.error('Failed to load BrewLink gateways', err);
+		} finally {
+			isLoadingGateways = false;
+		}
+	}
+
+	async function discoverBrewLinkGateways() {
+		if (!auth.isAuthenticated) return;
+		isDiscoveringGateways = true;
+		try {
+			discoveredGateways = await api.brewlink.discoverGateways();
+		} catch (err: unknown) {
+			console.error('Failed to discover BrewLink gateways', err);
+		} finally {
+			isDiscoveringGateways = false;
+		}
+	}
+
+	async function handleClaimDiscoveredGateway(beacon: BrewLinkDiscoveredGatewayDto) {
+		pairingError = null;
+		claimingGatewayId = beacon.gatewayId;
+		try {
+			await api.brewlink.pairGateway({
+				host: beacon.host,
+				name: pairingName.trim() || beacon.name || undefined
+			});
+			await loadBrewLinkGateways();
+		} catch (err: unknown) {
+			pairingError = (err as Error).message || 'Failed to pair gateway';
+		} finally {
+			claimingGatewayId = null;
+		}
+	}
+
+	async function handleRequestPin() {
+		requestPinError = null;
+		requestPinSuccess = false;
+		if (!pairingHost.trim()) {
+			requestPinError = t('settings.brewlink.host_label');
+			return;
+		}
+		isRequestingPin = true;
+		try {
+			await api.brewlink.startPairing(pairingHost.trim());
+			requestPinSuccess = true;
+		} catch (err: unknown) {
+			requestPinError = (err as Error).message || 'Failed to request PIN';
+		} finally {
+			isRequestingPin = false;
+		}
+	}
+
+	async function handlePairGateway(e: SubmitEvent) {
+		e.preventDefault();
+		pairingError = null;
+		const cleanHost = pairingHost.trim();
+		const cleanPin = pairingPin.replace(/[\s-_]/g, '').trim();
+
+		if (!cleanHost) {
+			pairingError = t('settings.brewlink.host_label');
+			return;
+		}
+
+		if (cleanPin && (cleanPin.length !== 6 || !/^[0-9A-Za-z]{6}$/.test(cleanPin))) {
+			pairingError = t('settings.brewlink.pin_invalid');
+			return;
+		}
+
+		isPairing = true;
+		try {
+			await api.brewlink.pairGateway({
+				host: cleanHost,
+				pin: cleanPin || null,
+				name: pairingName.trim() || undefined
+			});
+			pairingHost = '';
+			pairingPin = '';
+			pairingName = '';
+			requestPinSuccess = false;
+			await loadBrewLinkGateways();
+		} catch (err: unknown) {
+			pairingError = (err as Error).message || 'Failed to pair gateway';
+		} finally {
+			isPairing = false;
+		}
+	}
+
+	function startEditGateway(gw: BrewLinkGatewayDto) {
+		editingGateway = gw;
+		editGatewayName = gw.name;
+		editGatewayHost = gw.host;
+		updateGatewayError = null;
+	}
+
+	function cancelEditGateway() {
+		editingGateway = null;
+		editGatewayName = '';
+		editGatewayHost = '';
+		updateGatewayError = null;
+	}
+
+	async function handleUpdateGateway(e: SubmitEvent) {
+		e.preventDefault();
+		if (!editingGateway) return;
+		isUpdatingGateway = true;
+		updateGatewayError = null;
+		try {
+			await api.brewlink.updateGateway(editingGateway.id, {
+				name: editGatewayName.trim(),
+				host: editGatewayHost.trim()
+			});
+			editingGateway = null;
+			await loadBrewLinkGateways();
+		} catch (err: unknown) {
+			updateGatewayError = (err as Error).message || 'Failed to update gateway';
+		} finally {
+			isUpdatingGateway = false;
+		}
+	}
+
+	function confirmDeleteGateway(gw: BrewLinkGatewayDto) {
+		gatewayToDelete = gw;
+		deleteGatewayError = null;
+	}
+
+	function cancelDeleteGateway() {
+		gatewayToDelete = null;
+		deleteGatewayError = null;
+	}
+
+	async function handleDeleteGateway() {
+		if (!gatewayToDelete) return;
+		isDeletingGateway = true;
+		deleteGatewayError = null;
+		try {
+			await api.brewlink.deleteGateway(gatewayToDelete.id);
+			gatewayToDelete = null;
+			await loadBrewLinkGateways();
+		} catch (err: unknown) {
+			deleteGatewayError = (err as Error).message || 'Failed to delete gateway';
+		} finally {
+			isDeletingGateway = false;
 		}
 	}
 
@@ -2384,6 +2582,432 @@
 					</div>
 				</form>
 			</section>
+
+			<!-- BrewLink ESP32 Gateways -->
+			<section
+				id="brewlink"
+				data-testid="brewlink-section"
+				class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+				aria-labelledby="brewlink-gateways-heading"
+			>
+				<div
+					class="flex items-center justify-between border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+				>
+					<div class="flex items-center gap-3">
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400"
+						>
+							<Radio class="h-5 w-5" />
+						</div>
+						<div>
+							<h2
+								id="brewlink-gateways-heading"
+								class="text-base font-bold text-zinc-900 dark:text-white"
+							>
+								{t('settings.brewlink.title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.brewlink.description')}
+							</p>
+						</div>
+					</div>
+				</div>
+
+				<!-- Paired Gateways List -->
+				<div class="mt-5 space-y-4">
+					<h3 class="text-xs font-bold tracking-wider text-zinc-900 uppercase dark:text-white">
+						{t('settings.brewlink.paired_gateways')}
+					</h3>
+
+					{#if isLoadingGateways}
+						<div class="flex items-center justify-center py-6">
+							<Loader2 class="h-5 w-5 animate-spin text-sky-500" />
+						</div>
+					{:else if brewLinkGateways.length === 0}
+						<div
+							class="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+						>
+							{t('settings.brewlink.no_gateways')}
+						</div>
+					{:else}
+						<div class="space-y-3">
+							{#each brewLinkGateways as gw (gw.id)}
+								<div
+									class="flex flex-col justify-between gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-4 sm:flex-row sm:items-center dark:border-white/5 dark:bg-white/[0.02]"
+								>
+									<div class="space-y-1">
+										<div class="flex items-center gap-2">
+											<span class="text-sm font-bold text-zinc-900 dark:text-white">{gw.name}</span>
+											<span
+												class="rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
+											>
+												{t('settings.brewlink.paired_badge')}
+											</span>
+										</div>
+										<div
+											class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400"
+										>
+											<span class="font-mono">{gw.host}</span>
+											<span>•</span>
+											<span
+												>{t('settings.brewlink.hardware_id')}:
+												<code class="font-mono">{gw.gatewayId}</code></span
+											>
+											<span>•</span>
+											<span
+												>{t('settings.brewlink.paired_at', {
+													date: new Date(gw.pairedAt).toLocaleDateString()
+												})}</span
+											>
+										</div>
+									</div>
+									<div class="flex items-center gap-2 self-end sm:self-center">
+										<button
+											type="button"
+											data-testid="edit-gateway-btn-{gw.id}"
+											onclick={() => startEditGateway(gw)}
+											class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+										>
+											<Pencil class="h-3.5 w-3.5" />
+											<span>{t('settings.brewlink.edit_gateway')}</span>
+										</button>
+										<button
+											type="button"
+											data-testid="unpair-gateway-btn-{gw.id}"
+											onclick={() => confirmDeleteGateway(gw)}
+											class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:bg-zinc-800 dark:text-red-400 dark:hover:bg-red-950/40"
+										>
+											<Trash2 class="h-3.5 w-3.5" />
+											<span>{t('settings.brewlink.unpair_gateway')}</span>
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					<!-- Broadcast Discovery (Push-Button Pairing) -->
+					<div
+						class="mt-6 rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 dark:border-sky-400/15 dark:bg-sky-500/[0.04]"
+					>
+						<div class="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+							<div>
+								<div class="flex items-center gap-2">
+									<Wifi class="h-4 w-4 text-sky-500" />
+									<h3
+										class="text-xs font-bold tracking-wider text-zinc-900 uppercase dark:text-white"
+									>
+										{t('settings.brewlink.discovered_gateways')}
+									</h3>
+								</div>
+								<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('settings.brewlink.discover_hint')}
+								</p>
+							</div>
+							<button
+								type="button"
+								data-testid="brewlink-scan-btn"
+								disabled={isDiscoveringGateways}
+								onclick={discoverBrewLinkGateways}
+								class="inline-flex shrink-0 items-center gap-1.5 self-start rounded-xl border border-sky-500/30 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 shadow-xs transition hover:bg-sky-50 disabled:opacity-50 sm:self-center dark:border-sky-500/30 dark:bg-zinc-900 dark:text-sky-300 dark:hover:bg-zinc-800"
+							>
+								{#if isDiscoveringGateways}
+									<Loader2 class="h-3.5 w-3.5 animate-spin" />
+									<span>{t('settings.brewlink.scanning')}</span>
+								{:else}
+									<Radio class="h-3.5 w-3.5" />
+									<span>{t('settings.brewlink.scan_btn')}</span>
+								{/if}
+							</button>
+						</div>
+
+						{#if discoveredGateways.length === 0}
+							<p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.brewlink.no_broadcasts')}
+							</p>
+						{:else}
+							<div class="mt-3 space-y-2">
+								{#each discoveredGateways as beacon (beacon.gatewayId)}
+									<div
+										data-testid="discovered-gateway-{beacon.gatewayId}"
+										class="flex flex-col justify-between gap-3 rounded-xl border border-sky-500/30 bg-white p-3 sm:flex-row sm:items-center dark:border-sky-500/20 dark:bg-zinc-900/80"
+									>
+										<div class="space-y-0.5">
+											<div class="flex items-center gap-2">
+												<span class="text-sm font-bold text-zinc-900 dark:text-white">
+													{beacon.name}
+												</span>
+												<span
+													class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400"
+												>
+													{t('settings.brewlink.remaining_window', {
+														sec: beacon.remainingSec
+													})}
+												</span>
+											</div>
+											<div class="text-xs text-zinc-500 dark:text-zinc-400">
+												<span class="font-mono">{beacon.host}</span>
+												<span class="mx-1.5">•</span>
+												<code class="font-mono text-[11px]">{beacon.gatewayId}</code>
+											</div>
+										</div>
+										<button
+											type="button"
+											data-testid="claim-gateway-btn-{beacon.gatewayId}"
+											disabled={claimingGatewayId === beacon.gatewayId}
+											onclick={() => handleClaimDiscoveredGateway(beacon)}
+											class="inline-flex items-center gap-1.5 self-end rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-sky-500 disabled:opacity-50 sm:self-center"
+										>
+											{#if claimingGatewayId === beacon.gatewayId}
+												<Loader2 class="h-3.5 w-3.5 animate-spin" />
+												<span>{t('settings.brewlink.pairing')}</span>
+											{:else}
+												<Check class="h-3.5 w-3.5" />
+												<span>{t('settings.brewlink.claim_now_btn')}</span>
+											{/if}
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+
+					<!-- Pair New Gateway Form -->
+					<div
+						class="mt-6 rounded-xl border border-zinc-200/60 bg-zinc-50/50 p-4 dark:border-white/5 dark:bg-white/[0.02]"
+					>
+						<div class="flex items-center gap-2">
+							<Radio class="h-4 w-4 text-sky-500" />
+							<h3 class="text-xs font-bold tracking-wider text-zinc-900 uppercase dark:text-white">
+								{t('settings.brewlink.pair_new_gateway')}
+							</h3>
+						</div>
+
+						<form onsubmit={handlePairGateway} novalidate class="mt-4 space-y-4">
+							<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+								<!-- Host / IP -->
+								<div>
+									<label
+										for="brewlink-host-input"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.brewlink.host_label')} *
+									</label>
+									<div class="mt-1.5 flex gap-2">
+										<input
+											id="brewlink-host-input"
+											data-testid="brewlink-host-input"
+											type="text"
+											bind:value={pairingHost}
+											placeholder={t('settings.brewlink.host_placeholder')}
+											required
+											class="w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 font-mono text-sm text-zinc-900 transition focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-sky-400 dark:focus:bg-zinc-900"
+										/>
+										<button
+											type="button"
+											data-testid="brewlink-request-pin-btn"
+											disabled={isRequestingPin || !pairingHost.trim()}
+											onclick={handleRequestPin}
+											class="shrink-0 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-xs transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+										>
+											{#if isRequestingPin}
+												<Loader2 class="h-3.5 w-3.5 animate-spin" />
+											{:else}
+												{t('settings.brewlink.request_pin_btn')}
+											{/if}
+										</button>
+									</div>
+									<span class="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
+										{t('settings.brewlink.host_help')}
+									</span>
+								</div>
+
+								<!-- 6-Digit PIN (Optional for push-button pairing) -->
+								<div>
+									<label
+										for="brewlink-pin-input"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.brewlink.pin_label')}
+									</label>
+									<input
+										id="brewlink-pin-input"
+										data-testid="brewlink-pin-input"
+										type="text"
+										inputmode="numeric"
+										autocomplete="one-time-code"
+										maxlength="12"
+										bind:value={pairingPin}
+										placeholder={t('settings.brewlink.pin_placeholder')}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 font-mono text-sm tracking-widest text-zinc-900 transition focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-sky-400 dark:focus:bg-zinc-900"
+									/>
+									<span class="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
+										{t('settings.brewlink.pin_optional_help')}
+									</span>
+								</div>
+							</div>
+
+							<!-- Optional Gateway Name -->
+							<div>
+								<label
+									for="brewlink-name-input"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('settings.brewlink.gateway_name')}
+								</label>
+								<input
+									id="brewlink-name-input"
+									data-testid="brewlink-name-input"
+									type="text"
+									bind:value={pairingName}
+									placeholder={t('settings.brewlink.gateway_name_placeholder')}
+									class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-sm text-zinc-900 transition focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-sky-400 dark:focus:bg-zinc-900"
+								/>
+							</div>
+
+							{#if requestPinSuccess}
+								<div
+									class="flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-600 dark:text-sky-400"
+								>
+									<Info class="h-4 w-4 shrink-0" />
+									<span>{t('settings.brewlink.pin_requested')}</span>
+								</div>
+							{/if}
+
+							{#if requestPinError}
+								<div
+									class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+								>
+									<AlertCircle class="h-4 w-4 shrink-0" />
+									<span>{requestPinError}</span>
+								</div>
+							{/if}
+
+							{#if pairingError}
+								<div
+									class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+								>
+									<AlertCircle class="h-4 w-4 shrink-0" />
+									<span>{pairingError}</span>
+								</div>
+							{/if}
+
+							<div class="flex justify-end pt-2">
+								<button
+									type="submit"
+									data-testid="brewlink-pair-btn"
+									disabled={isPairing || !pairingHost.trim()}
+									class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-sky-500 active:scale-95 disabled:opacity-50"
+								>
+									{#if isPairing}
+										<Loader2 class="h-3.5 w-3.5 animate-spin" />
+										<span>{t('settings.brewlink.pairing')}</span>
+									{:else}
+										<Radio class="h-4 w-4" />
+										<span>{t('settings.brewlink.pair_btn')}</span>
+									{/if}
+								</button>
+							</div>
+						</form>
+					</div>
+				</div>
+			</section>
+
+			<!-- Edit Gateway Modal -->
+			{#if editingGateway}
+				<div
+					class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+				>
+					<div
+						class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+					>
+						<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+							{t('settings.brewlink.edit_gateway')}
+						</h3>
+						<form onsubmit={handleUpdateGateway} class="mt-4 space-y-4">
+							<div>
+								<label
+									for="edit-brewlink-name-input"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('settings.brewlink.gateway_name')}
+								</label>
+								<input
+									id="edit-brewlink-name-input"
+									type="text"
+									bind:value={editGatewayName}
+									required
+									class="mt-1.5 w-full rounded-xl border border-zinc-300 px-3.5 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+								/>
+							</div>
+							<div>
+								<label
+									for="edit-brewlink-host-input"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('settings.brewlink.host_label')}
+								</label>
+								<input
+									id="edit-brewlink-host-input"
+									type="text"
+									bind:value={editGatewayHost}
+									required
+									class="mt-1.5 w-full rounded-xl border border-zinc-300 px-3.5 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+								/>
+							</div>
+
+							{#if updateGatewayError}
+								<div
+									class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+								>
+									<AlertCircle class="h-4 w-4 shrink-0" />
+									<span>{updateGatewayError}</span>
+								</div>
+							{/if}
+
+							<div class="flex justify-end gap-2 pt-2">
+								<button
+									type="button"
+									onclick={cancelEditGateway}
+									class="rounded-xl border border-zinc-300 px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+								>
+									{t('common.cancel')}
+								</button>
+								<button
+									type="submit"
+									disabled={isUpdatingGateway}
+									class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-500"
+								>
+									{#if isUpdatingGateway}
+										<Loader2 class="h-3.5 w-3.5 animate-spin" />
+										<span>{t('settings.brewlink.updating')}</span>
+									{:else}
+										<span>{t('settings.brewlink.update_gateway')}</span>
+									{/if}
+								</button>
+							</div>
+						</form>
+					</div>
+				</div>
+			{/if}
+
+			<ConfirmModal
+				open={!!gatewayToDelete}
+				title={t('settings.brewlink.unpair_confirm_title')}
+				message={gatewayToDelete
+					? t('settings.brewlink.unpair_confirm_message', {
+							name: gatewayToDelete.name,
+							gatewayId: gatewayToDelete.gatewayId
+						})
+					: ''}
+				confirmText={t('settings.brewlink.unpair_gateway')}
+				cancelText={t('common.cancel')}
+				variant="danger"
+				loading={isDeletingGateway}
+				errorMessage={deleteGatewayError}
+				onConfirm={handleDeleteGateway}
+				onClose={cancelDeleteGateway}
+			/>
 		</div>
 	{/if}
 

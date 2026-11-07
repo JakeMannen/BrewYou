@@ -35,6 +35,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
     public DbSet<BatchFermentationStep> BatchFermentationSteps => Set<BatchFermentationStep>();
     public DbSet<BatchSensorAssignment> BatchSensorAssignments => Set<BatchSensorAssignment>();
     public DbSet<EquipmentReading> EquipmentReadings => Set<EquipmentReading>();
+    public DbSet<BrewLinkGateway> BrewLinkGateways => Set<BrewLinkGateway>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -561,6 +562,24 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
                   .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasIndex(sa => new { sa.BatchId, sa.EquipmentId });
+        });
+
+        builder.Entity<BrewLinkGateway>(entity =>
+        {
+            entity.HasKey(g => g.Id);
+            entity.Property(g => g.Name).HasMaxLength(100).IsRequired();
+            entity.Property(g => g.Host).HasMaxLength(255).IsRequired();
+            entity.Property(g => g.GatewayId).HasMaxLength(64).IsRequired();
+            entity.Property(g => g.ApiToken).HasMaxLength(1000).IsRequired();
+            entity.Property(g => g.MqttTopicKey).HasMaxLength(1000);
+            entity.Property(g => g.ClientName).HasMaxLength(64);
+
+            entity.HasOne(g => g.User)
+                  .WithMany(u => u.BrewLinkGateways)
+                  .HasForeignKey(g => g.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(g => new { g.UserId, g.GatewayId }).IsUnique();
         });
     }
 }

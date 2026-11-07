@@ -73,6 +73,7 @@
 	let selectedFermenterId = $state<string>('');
 	let selectedPackagingVesselId = $state<string>('');
 	let selectedFermentationSensorId = $state<string>('');
+	let sendRecipeToBoiler = $state(true);
 
 	// Targets & Settings
 	let targetOg = $state(1.05);
@@ -582,6 +583,15 @@
 			};
 
 			const created = await api.batches.create(req);
+			if (sendRecipeToBoiler && selectedBoiler && selectedBoiler.connectionType === 'BrewLink') {
+				try {
+					await api.equipment.sendBrewLinkRecipe(selectedBoiler.id, {
+						batchId: created.id
+					});
+				} catch (err: unknown) {
+					console.error('Failed to send recipe to boiler via BrewLink', err);
+				}
+			}
 			goto(`/batches/${created.id}`);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('batches.wizard.err_create_failed');
@@ -1195,7 +1205,40 @@
 									{t('equipment.in_use')}
 								</span>
 							{/if}
+							{#if selectedBoiler.connectionType === 'BrewLink'}
+								<span
+									data-testid="selected-boiler-brewlink-tag"
+									class="inline-flex items-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
+								>
+									<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+									{t('equipment.brewlink_tag')}
+								</span>
+							{/if}
 						</div>
+						{#if selectedBoiler.connectionType === 'BrewLink'}
+							<div
+								class="mt-3 flex items-start gap-3 rounded-xl border border-sky-500/25 bg-sky-500/5 p-3.5 dark:border-sky-500/20 dark:bg-sky-500/10"
+							>
+								<input
+									id="brewlink-send-toggle"
+									data-testid="brewlink-send-toggle"
+									type="checkbox"
+									bind:checked={sendRecipeToBoiler}
+									class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500 dark:border-zinc-700 dark:bg-zinc-800"
+								/>
+								<div class="space-y-0.5">
+									<label
+										for="brewlink-send-toggle"
+										class="cursor-pointer text-xs font-bold text-zinc-900 dark:text-zinc-100"
+									>
+										{t('batches.wizard.brewlink_send_toggle', { name: selectedBoiler.name })}
+									</label>
+									<p class="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+										{t('batches.wizard.brewlink_send_desc')}
+									</p>
+								</div>
+							</div>
+						{/if}
 					{/if}
 					{#if selectedBoiler && isBoilerOverCapacity}
 						<div

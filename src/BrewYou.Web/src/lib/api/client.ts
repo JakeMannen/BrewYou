@@ -75,7 +75,15 @@ import type {
 	TapDisplayLinkDto,
 	TapDisplayManifestDto,
 	AssignTapRequest,
-	AssignKegBatchRequest
+	AssignKegBatchRequest,
+	BrewLinkGatewayDto,
+	BrewLinkDiscoveredGatewayDto,
+	BrewLinkEquipmentDeviceDto,
+	StartBrewLinkPairingRequest,
+	PairBrewLinkRequest,
+	UpdateBrewLinkGatewayRequest,
+	SendBrewLinkRecipeRequest,
+	BrewLinkCommandResultDto
 } from '$lib/types/api';
 
 interface CustomWindow extends Window {
@@ -606,6 +614,66 @@ export const api = {
 
 		async revokeDisplayLink(equipmentId: string): Promise<void> {
 			return request<void>(`/api/v1/inventory/equipment/${equipmentId}/display-link`, {
+				method: 'DELETE'
+			});
+		},
+
+		async sendBrewLinkRecipe(
+			equipmentId: string,
+			req: SendBrewLinkRecipeRequest
+		): Promise<BrewLinkCommandResultDto> {
+			return request<BrewLinkCommandResultDto>(
+				`/api/v1/inventory/equipment/${equipmentId}/brewlink/send-recipe`,
+				{
+					method: 'POST',
+					body: JSON.stringify(req)
+				}
+			);
+		}
+	},
+
+	brewlink: {
+		async listGateways(): Promise<BrewLinkGatewayDto[]> {
+			return request<BrewLinkGatewayDto[]>('/api/v1/brewlink/gateways');
+		},
+
+		async discoverGateways(): Promise<BrewLinkDiscoveredGatewayDto[]> {
+			return request<BrewLinkDiscoveredGatewayDto[]>('/api/v1/brewlink/gateways/discover');
+		},
+
+		async getGatewayEquipment(gatewayId: string): Promise<BrewLinkEquipmentDeviceDto[]> {
+			return request<BrewLinkEquipmentDeviceDto[]>(
+				`/api/v1/brewlink/gateways/${gatewayId}/equipment`
+			);
+		},
+
+		async startPairing(req: StartBrewLinkPairingRequest | string): Promise<void> {
+			const body = typeof req === 'string' ? { host: req } : req;
+			return request<void>('/api/v1/brewlink/gateways/pair-start', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			});
+		},
+
+		async pairGateway(req: PairBrewLinkRequest): Promise<BrewLinkGatewayDto> {
+			return request<BrewLinkGatewayDto>('/api/v1/brewlink/gateways/pair', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async updateGateway(
+			id: string,
+			req: UpdateBrewLinkGatewayRequest
+		): Promise<BrewLinkGatewayDto> {
+			return request<BrewLinkGatewayDto>(`/api/v1/brewlink/gateways/${id}`, {
+				method: 'PUT',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async deleteGateway(id: string): Promise<void> {
+			return request<void>(`/api/v1/brewlink/gateways/${id}`, {
 				method: 'DELETE'
 			});
 		}

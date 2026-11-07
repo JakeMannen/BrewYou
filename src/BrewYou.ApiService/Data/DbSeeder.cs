@@ -81,6 +81,22 @@ public static class DbSeeder
                         END IF;
                     END $$;
                     CREATE UNIQUE INDEX IF NOT EXISTS "IX_Equipment_DisplayTokenHash" ON "Equipment" ("DisplayTokenHash") WHERE "DisplayTokenHash" IS NOT NULL;
+
+                    CREATE TABLE IF NOT EXISTS "BrewLinkGateways" (
+                        "Id" uuid PRIMARY KEY,
+                        "UserId" text NOT NULL,
+                        "Name" character varying(100) NOT NULL,
+                        "Host" character varying(255) NOT NULL,
+                        "GatewayId" character varying(64) NOT NULL,
+                        "ApiToken" character varying(1000) NOT NULL,
+                        "MqttTopicKey" character varying(1000),
+                        "ClientName" character varying(64),
+                        "PairedAt" timestamp with time zone NOT NULL,
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "FK_BrewLinkGateways_AspNetUsers_UserId" FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+                    );
+                    ALTER TABLE "BrewLinkGateways" ADD COLUMN IF NOT EXISTS "ClientName" character varying(64);
+                    CREATE UNIQUE INDEX IF NOT EXISTS "IX_BrewLinkGateways_UserId_GatewayId" ON "BrewLinkGateways" ("UserId", "GatewayId");
                     """);
             }
 

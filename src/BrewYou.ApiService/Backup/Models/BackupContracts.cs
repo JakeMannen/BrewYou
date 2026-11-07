@@ -453,6 +453,18 @@ public record EquipmentReadingBackupDto(
     DateTime CreatedAt = default
 );
 
+public record BrewLinkGatewayBackupDto(
+    Guid Id,
+    string Name,
+    string Host,
+    string GatewayId,
+    string? ApiTokenEncrypted,
+    string? MqttTopicKeyEncrypted,
+    DateTime PairedAt,
+    DateTime UpdatedAt,
+    string? ClientName = null
+);
+
 public class BackupPayload
 {
     public UserSettingsBackupDto? UserSettings { get; set; }
@@ -461,6 +473,7 @@ public class BackupPayload
     public List<BrewerySetupBackupDto> OwnedBrewerySetups { get; set; } = [];
     public List<SharedSetupMembershipBackupDto> SharedSetupMemberships { get; set; } = [];
     public List<EquipmentBackupDto> Equipment { get; set; } = [];
+    public List<BrewLinkGatewayBackupDto> BrewLinkGateways { get; set; } = [];
     public List<RecipeBackupDto> Recipes { get; set; } = [];
     public List<RecipeBackupDto> ReferencedExternalRecipes { get; set; } = [];
     public List<BatchBackupDto> Batches { get; set; } = [];

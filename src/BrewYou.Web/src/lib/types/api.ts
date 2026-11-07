@@ -677,7 +677,7 @@ export interface UpdateBrewerySetupRequest {
 	defaultPackagingLossLiters?: number | null;
 }
 
-export type EquipmentConnectionType = 'None' | 'HttpPush' | 'HttpPoll' | 'Mqtt';
+export type EquipmentConnectionType = 'None' | 'HttpPush' | 'HttpPoll' | 'Mqtt' | 'BrewLink';
 
 export interface EquipmentConnectionConfig {
 	url?: string;
@@ -691,6 +691,102 @@ export interface EquipmentConnectionConfig {
 	certificate?: string;
 	useUserSettings?: boolean;
 	hasCertificate?: boolean;
+	brewLinkGatewayId?: string | null;
+	targetMac?: string | null;
+	targetName?: string | null;
+	slot?: number | null;
+}
+
+export interface BrewLinkGatewayDto {
+	id: string;
+	name: string;
+	host: string;
+	gatewayId: string;
+	pairedAt: string;
+	updatedAt: string;
+}
+
+export interface BrewLinkDiscoveredGatewayDto {
+	gatewayId: string;
+	name: string;
+	ip: string;
+	httpPort: number;
+	host: string;
+	claimUrl: string;
+	wsUrl?: string | null;
+	remainingSec: number;
+	discoveredAtUtc: string;
+	alreadyPaired: boolean;
+}
+
+export interface BrewLinkEquipmentCapabilitiesDto {
+	recipeUpload: boolean;
+	mashProfile: boolean;
+	fermentationProfile: boolean;
+	pumpControl: boolean;
+	heatControl: boolean;
+}
+
+export interface BrewLinkEquipmentStateDto {
+	tempC?: number | null;
+	targetTempC?: number | null;
+	heatPct?: number | null;
+	pumpOn?: boolean | null;
+	stepIndex?: number | null;
+	timerRemainingSec?: number | null;
+}
+
+export interface BrewLinkEquipmentDeviceDto {
+	slot: number;
+	paired: boolean;
+	connected: boolean;
+	name: string;
+	model?: string | null;
+	equipmentType: string;
+	mac: string;
+	rssi?: number | null;
+	capabilities: BrewLinkEquipmentCapabilitiesDto;
+	state?: BrewLinkEquipmentStateDto | null;
+}
+
+export interface StartBrewLinkPairingRequest {
+	host: string;
+}
+
+export interface PairBrewLinkRequest {
+	name?: string | null;
+	host: string;
+	pin?: string | null;
+}
+
+export interface UpdateBrewLinkGatewayRequest {
+	name: string;
+	host: string;
+}
+
+export interface SendBrewLinkRecipeRequest {
+	recipeId?: string | null;
+	batchId?: string | null;
+}
+
+export interface BrewLinkCommandResultDto {
+	status: string;
+	reqId: string;
+	gatewayId: string;
+	targetMac: string;
+	message: string;
+}
+
+export interface BrewLinkGatewayBackupDto {
+	id: string;
+	name: string;
+	host: string;
+	gatewayId: string;
+	apiTokenEncrypted?: string | null;
+	mqttTopicKeyEncrypted?: string | null;
+	pairedAt: string;
+	updatedAt: string;
+	clientName?: string | null;
 }
 
 export interface EquipmentDto {

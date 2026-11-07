@@ -23,7 +23,8 @@
 		type MashStepType,
 		type FermentationStepType,
 		type RecipeDetailDto,
-		type RecipeIngredientOutputDto
+		type RecipeIngredientOutputDto,
+		type EquipmentDto
 	} from '$lib/types/api';
 	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import HopScheduleVisualizer, {
@@ -34,6 +35,7 @@
 	import DeleteRecipeModal from '$lib/components/recipes/DeleteRecipeModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
 	import RecipeLabelCard from '$lib/components/recipes/RecipeLabelCard.svelte';
+	import SendToBoilerModal from '$lib/components/recipes/SendToBoilerModal.svelte';
 	import {
 		ArrowLeft,
 		BookOpen,
@@ -55,17 +57,20 @@
 		Flame,
 		Activity,
 		Clock,
-		Thermometer
+		Thermometer,
+		Cpu
 	} from '@lucide/svelte';
 
 	let recipeId = $derived(page.params.id);
 	let recipe = $state<RecipeDetailDto | null>(null);
 	let catalogIngredients = $state<IngredientDto[]>([]);
+	let brewLinkBoilers = $state<EquipmentDto[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	let isExportModalOpen = $state(false);
 	let isDeleteModalOpen = $state(false);
+	let isSendToBoilerModalOpen = $state(false);
 	let cloning = $state(false);
 
 	function isRecipeOwner(r: RecipeDetailDto): boolean {
@@ -78,12 +83,16 @@
 		error = null;
 		try {
 			await auth.ready();
-			const [loadedRecipe, loadedIngredients] = await Promise.all([
+			const [loadedRecipe, loadedIngredients, loadedEquipment] = await Promise.all([
 				api.recipes.getById(id),
-				api.ingredients.list()
+				api.ingredients.list(),
+				api.equipment.list()
 			]);
 			recipe = loadedRecipe;
 			catalogIngredients = loadedIngredients;
+			brewLinkBoilers = (loadedEquipment ?? []).filter(
+				(e) => e.type === 'Boiler' && e.subtype === 'AllInOne' && e.connectionType === 'BrewLink'
+			);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('formulator.load_error');
 		} finally {
@@ -442,6 +451,18 @@
 					>
 						<Trash2 class="h-4 w-4" />
 						<span>{t('recipes.delete_recipe')}</span>
+					</button>
+				{/if}
+
+				{#if brewLinkBoilers.length > 0}
+					<button
+						type="button"
+						data-testid="send-to-boiler-btn"
+						onclick={() => (isSendToBoilerModalOpen = true)}
+						class="flex min-h-[42px] cursor-pointer items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-50/60 px-3.5 py-2 text-xs font-semibold text-sky-700 shadow-xs transition-all hover:bg-sky-100 hover:text-sky-800 dark:border-sky-500/30 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-900/50"
+					>
+						<Cpu class="h-4 w-4 text-sky-500" />
+						<span>{t('recipes.send_to_boiler')}</span>
 					</button>
 				{/if}
 
@@ -1131,4 +1152,14 @@
 		{recipe}
 		onClose={() => (isExportModalOpen = false)}
 	/>
+
+	{#if recipe && brewLinkBoilers.length > 0}
+		<SendToBoilerModal
+			open={isSendToBoilerModalOpen}
+			recipeId={recipe.id}
+			recipeName={recipe.name}
+			boilers={brewLinkBoilers}
+			onClose={() => (isSendToBoilerModalOpen = false)}
+		/>
+	{/if}
 {/if}

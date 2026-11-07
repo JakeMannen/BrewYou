@@ -541,6 +541,74 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .Must(string.IsNullOrEmpty)
             .When(x => x.Type == EquipmentType.Tap)
             .WithMessage("Tap equipment cannot have connection configuration.");
+
+        RuleFor(x => x)
+            .Must(x => x.Type == EquipmentType.Boiler && (x.Subtype == null || x.Subtype == EquipmentSubtype.AllInOne))
+            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
+            .WithMessage("BrewLink connectivity is only supported on All-in-One Boilers.")
+            .WithName("ConnectionType");
+
+        RuleFor(x => x.ConnectionConfigJson)
+            .Must(CreateEquipmentRequestValidator.HaveValidBrewLinkConfig)
+            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
+            .WithMessage("BrewLink configuration must include a valid brewLinkGatewayId and a target device (targetMac, slot, or targetName).")
+            .WithName("ConnectionConfigJson");
+    }
+
+    internal static bool HaveValidBrewLinkConfig(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson)) return false;
+        try
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(configJson) as System.Text.Json.Nodes.JsonObject;
+            if (node == null) return false;
+
+            var gwId = node["brewLinkGatewayId"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(gwId) || !Guid.TryParse(gwId, out var parsedGuid) || parsedGuid == Guid.Empty)
+            {
+                return false;
+            }
+
+            var mac = node["targetMac"]?.GetValue<string>();
+            var targetName = node["targetName"]?.GetValue<string>();
+            int? slot = null;
+            if (node["slot"] != null)
+            {
+                if (int.TryParse(node["slot"]!.ToString(), out var parsedSlot))
+                {
+                    slot = parsedSlot;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            var hasValidMac = false;
+            if (!string.IsNullOrWhiteSpace(mac))
+            {
+                var cleanMac = System.Text.RegularExpressions.Regex.Replace(mac, "[^0-9A-Fa-f]", "");
+                if (cleanMac.Length != 12)
+                {
+                    return false;
+                }
+                hasValidMac = true;
+            }
+
+            var hasValidSlot = slot.HasValue && slot.Value is >= 1 and <= 3;
+            if (slot.HasValue && !hasValidSlot)
+            {
+                return false;
+            }
+
+            var hasValidName = !string.IsNullOrWhiteSpace(targetName);
+
+            return hasValidMac || hasValidSlot || hasValidName;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static bool HaveValidSubtypeForType(EquipmentType type, EquipmentSubtype? subtype)
@@ -695,6 +763,18 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .Must(string.IsNullOrEmpty)
             .When(x => x.Type == EquipmentType.Tap)
             .WithMessage("Tap equipment cannot have connection configuration.");
+
+        RuleFor(x => x)
+            .Must(x => x.Type == EquipmentType.Boiler && (x.Subtype == null || x.Subtype == EquipmentSubtype.AllInOne))
+            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
+            .WithMessage("BrewLink connectivity is only supported on All-in-One Boilers.")
+            .WithName("ConnectionType");
+
+        RuleFor(x => x.ConnectionConfigJson)
+            .Must(CreateEquipmentRequestValidator.HaveValidBrewLinkConfig)
+            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
+            .WithMessage("BrewLink configuration must include a valid brewLinkGatewayId and a target device (targetMac, slot, or targetName).")
+            .WithName("ConnectionConfigJson");
     }
 }
 

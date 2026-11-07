@@ -224,6 +224,52 @@ public class EquipmentService : IEquipmentService
             connectionToken = GenerateConnectionToken();
         }
 
+        string? connectionConfigJson = request.ConnectionConfigJson;
+        if (connectionType == EquipmentConnectionType.BrewLink)
+        {
+            if (request.Type != EquipmentType.Boiler || subtype != EquipmentSubtype.AllInOne)
+            {
+                return (EquipmentAccessResult.Conflict, null, "BrewLink connectivity is only supported on All-in-One Boilers.");
+            }
+
+            if (string.IsNullOrWhiteSpace(connectionConfigJson))
+            {
+                return (EquipmentAccessResult.Conflict, null, "BrewLink configuration is required.");
+            }
+
+            try
+            {
+                var node = JsonNode.Parse(connectionConfigJson) as JsonObject;
+                var gwIdStr = node?["brewLinkGatewayId"]?.GetValue<string>();
+                var macStr = node?["targetMac"]?.GetValue<string>();
+
+                if (!Guid.TryParse(gwIdStr, out var parsedGwId) || string.IsNullOrWhiteSpace(macStr))
+                {
+                    return (EquipmentAccessResult.Conflict, null, "BrewLink configuration must include a valid brewLinkGatewayId and targetMac.");
+                }
+
+                var gatewayExists = await _db.BrewLinkGateways
+                    .AnyAsync(g => g.Id == parsedGwId && (g.UserId == userId || g.UserId == targetSetup.UserId));
+
+                if (!gatewayExists)
+                {
+                    return (EquipmentAccessResult.Conflict, null, "The specified BrewLink gateway was not found or is not paired.");
+                }
+
+                var normalizedMac = BrewLinkService.NormalizeMac(macStr);
+                node!["targetMac"] = normalizedMac;
+                connectionConfigJson = node.ToJsonString();
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                return (EquipmentAccessResult.Conflict, null, "Invalid BrewLink configuration JSON.");
+            }
+            catch (ArgumentException ex)
+            {
+                return (EquipmentAccessResult.Conflict, null, ex.Message);
+            }
+        }
+
         var equipment = new Equipment
         {
             UserId = userId,
@@ -244,7 +290,7 @@ public class EquipmentService : IEquipmentService
             TemperatureUpdatedAt = isTap ? null : (request.CurrentTemperatureC.HasValue ? DateTime.UtcNow : null),
             ConnectionType = connectionType,
             ConnectionToken = connectionToken,
-            ConnectionConfigJson = isTap ? null : ProtectConfigJson(request.ConnectionConfigJson),
+            ConnectionConfigJson = isTap ? null : ProtectConfigJson(connectionConfigJson),
             DisplayWidthPx = request.DisplayWidthPx,
             DisplayHeightPx = request.DisplayHeightPx,
             DisplayOrientation = request.DisplayOrientation ?? DisplayOrientation.Landscape,
@@ -397,7 +443,53 @@ public class EquipmentService : IEquipmentService
                 }
             }
 
-            if (request.ConnectionConfigJson != null)
+            if (equipment.ConnectionType == EquipmentConnectionType.BrewLink)
+            {
+                if (equipment.Type != EquipmentType.Boiler || equipment.Subtype != EquipmentSubtype.AllInOne)
+                {
+                    return (EquipmentAccessResult.Conflict, null, "BrewLink connectivity is only supported on All-in-One Boilers.");
+                }
+
+                var configToValidate = request.ConnectionConfigJson ?? equipment.ConnectionConfigJson;
+                if (string.IsNullOrWhiteSpace(configToValidate))
+                {
+                    return (EquipmentAccessResult.Conflict, null, "BrewLink configuration is required.");
+                }
+
+                try
+                {
+                    var node = JsonNode.Parse(configToValidate) as JsonObject;
+                    var gwIdStr = node?["brewLinkGatewayId"]?.GetValue<string>();
+                    var macStr = node?["targetMac"]?.GetValue<string>();
+
+                    if (!Guid.TryParse(gwIdStr, out var parsedGwId) || string.IsNullOrWhiteSpace(macStr))
+                    {
+                        return (EquipmentAccessResult.Conflict, null, "BrewLink configuration must include a valid brewLinkGatewayId and targetMac.");
+                    }
+
+                    var setupOwnerId = equipment.BrewerySetup?.UserId ?? equipment.UserId;
+                    var gatewayExists = await _db.BrewLinkGateways
+                        .AnyAsync(g => g.Id == parsedGwId && (g.UserId == userId || g.UserId == setupOwnerId));
+
+                    if (!gatewayExists)
+                    {
+                        return (EquipmentAccessResult.Conflict, null, "The specified BrewLink gateway was not found or is not paired.");
+                    }
+
+                    var normalizedMac = BrewLinkService.NormalizeMac(macStr);
+                    node!["targetMac"] = normalizedMac;
+                    equipment.ConnectionConfigJson = node.ToJsonString();
+                }
+                catch (Exception ex) when (ex is not ArgumentException)
+                {
+                    return (EquipmentAccessResult.Conflict, null, "Invalid BrewLink configuration JSON.");
+                }
+                catch (ArgumentException ex)
+                {
+                    return (EquipmentAccessResult.Conflict, null, ex.Message);
+                }
+            }
+            else if (request.ConnectionConfigJson != null)
             {
                 equipment.ConnectionConfigJson = ProtectConfigJson(request.ConnectionConfigJson, equipment.ConnectionConfigJson);
             }
