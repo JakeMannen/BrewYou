@@ -897,6 +897,15 @@
 													></span>
 													MQTT
 												</span>
+											{:else if item.connectionType === 'BrewLink'}
+												<span
+													data-testid="equipment-brewlink-tag"
+													class="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
+													title={t('equipment.conn_brewlink')}
+												>
+													<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+													{t('equipment.brewlink_tag')}
+												</span>
 											{/if}
 										</div>
 										<span
@@ -984,6 +993,15 @@
 													: 'bg-red-500'}"
 											></span>
 											MQTT
+										</span>
+									{:else if item.connectionType === 'BrewLink'}
+										<span
+											data-testid="equipment-brewlink-tag"
+											class="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
+											title={t('equipment.conn_brewlink')}
+										>
+											<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+											{t('equipment.brewlink_tag')}
 										</span>
 									{:else}
 										<span

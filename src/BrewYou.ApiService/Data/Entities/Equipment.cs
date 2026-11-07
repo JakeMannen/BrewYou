@@ -64,7 +64,8 @@ public enum EquipmentConnectionType
     None,
     HttpPush,
     HttpPoll,
-    Mqtt
+    Mqtt,
+    BrewLink
 }
 
 public class Equipment

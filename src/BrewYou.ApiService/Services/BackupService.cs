@@ -29,6 +29,7 @@ public class BackupService : IBackupService
     private readonly BackupMigrationPipeline _migrationPipeline;
     private readonly IDataProtector? _protector;
     private readonly IDataProtector? _displayProtector;
+    private readonly IDataProtector? _brewLinkProtector;
     private readonly ILabelImageProcessor? _imageProcessor;
     private readonly ILogger<BackupService> _logger;
 
@@ -43,6 +44,7 @@ public class BackupService : IBackupService
         _logger = logger;
         _protector = dataProtectionProvider?.CreateProtector("BrewYou.MqttCredentials");
         _displayProtector = dataProtectionProvider?.CreateProtector("BrewYou.TapDisplay");
+        _brewLinkProtector = dataProtectionProvider?.CreateProtector("BrewYou.BrewLinkCredentials");
         _migrationPipeline = migrationPipeline ?? new BackupMigrationPipeline();
         _imageProcessor = imageProcessor;
     }
@@ -266,6 +268,49 @@ public class BackupService : IBackupService
 
         var ownedEquipmentIds = equipmentEntities.Select(e => e.Id).ToHashSet();
 
+        // 6.5 BrewLink Gateways (User-owned)
+        var gatewayEntities = await _db.BrewLinkGateways
+            .AsNoTracking()
+            .Where(g => g.UserId == userId)
+            .OrderBy(g => g.PairedAt)
+            .ToListAsync();
+
+        var gatewayDtos = gatewayEntities.Select(g =>
+        {
+            string? encApiToken = null;
+            string? encMqttKey = null;
+
+            if (encryptSecrets && encryptionKey != null)
+            {
+                var rawToken = BackupSecretProtector.UnprotectServerSecret(g.ApiToken, _brewLinkProtector);
+                if (!string.IsNullOrWhiteSpace(rawToken))
+                {
+                    encApiToken = BackupSecretProtector.EncryptSecret(rawToken, encryptionKey);
+                }
+
+                if (!string.IsNullOrWhiteSpace(g.MqttTopicKey))
+                {
+                    var rawKey = BackupSecretProtector.UnprotectServerSecret(g.MqttTopicKey, _brewLinkProtector);
+                    if (!string.IsNullOrWhiteSpace(rawKey))
+                    {
+                        encMqttKey = BackupSecretProtector.EncryptSecret(rawKey, encryptionKey);
+                    }
+                }
+            }
+
+            return new BrewLinkGatewayBackupDto(
+                g.Id,
+                g.Name,
+                g.Host,
+                g.GatewayId,
+                encApiToken,
+                encMqttKey,
+                g.PairedAt,
+                g.UpdatedAt,
+                g.ClientName
+            );
+        }).ToList();
+
         // 7. Recipes (User-owned)
         var userRecipeEntities = await _db.Recipes
             .AsNoTracking()
@@ -366,6 +411,7 @@ public class BackupService : IBackupService
             OwnedBrewerySetups = ownedSetups,
             SharedSetupMemberships = sharedMemberships,
             Equipment = equipmentDtos,
+            BrewLinkGateways = gatewayDtos,
             Recipes = recipeDtos,
             ReferencedExternalRecipes = referencedExternalRecipes,
             Batches = batchDtos,
@@ -1002,6 +1048,100 @@ public class BackupService : IBackupService
                     await _db.SaveChangesAsync();
                 }
 
+                // 5.5. Restore BrewLink Gateways
+                var gatewayIdMap = new Dictionary<Guid, Guid>();
+                if (payload.BrewLinkGateways != null && payload.BrewLinkGateways.Count > 0)
+                {
+                    var existingGateways = await _db.BrewLinkGateways
+                        .Where(g => g.UserId == userId)
+                        .ToListAsync();
+
+                    foreach (var gwDto in payload.BrewLinkGateways)
+                    {
+                        var existingGw = existingGateways.FirstOrDefault(g =>
+                            g.Id == gwDto.Id ||
+                            string.Equals(g.GatewayId, gwDto.GatewayId, StringComparison.OrdinalIgnoreCase));
+
+                        string? restoredApiToken = null;
+                        string? restoredTopicKey = null;
+
+                        if (!string.IsNullOrWhiteSpace(gwDto.ApiTokenEncrypted))
+                        {
+                            if (encryptionKey != null &&
+                                BackupSecretProtector.TryDecryptSecret(gwDto.ApiTokenEncrypted, encryptionKey, out var rawToken) &&
+                                !string.IsNullOrWhiteSpace(rawToken))
+                            {
+                                restoredApiToken = _brewLinkProtector != null
+                                    ? _brewLinkProtector.Protect(rawToken)
+                                    : rawToken;
+                            }
+                            else
+                            {
+                                warnings.Add($"Skipped encrypted API token for BrewLink gateway '{gwDto.Name}' because no valid passphrase was provided.");
+                            }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(gwDto.MqttTopicKeyEncrypted))
+                        {
+                            if (encryptionKey != null &&
+                                BackupSecretProtector.TryDecryptSecret(gwDto.MqttTopicKeyEncrypted, encryptionKey, out var rawKey) &&
+                                !string.IsNullOrWhiteSpace(rawKey))
+                            {
+                                restoredTopicKey = _brewLinkProtector != null
+                                    ? _brewLinkProtector.Protect(rawKey)
+                                    : rawKey;
+                            }
+                        }
+
+                        if (existingGw != null)
+                        {
+                            gatewayIdMap[gwDto.Id] = existingGw.Id;
+                            if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                            {
+                                existingGw.Name = gwDto.Name;
+                                existingGw.Host = gwDto.Host;
+                                if (restoredApiToken != null)
+                                {
+                                    existingGw.ApiToken = restoredApiToken;
+                                }
+                                if (restoredTopicKey != null)
+                                {
+                                    existingGw.MqttTopicKey = restoredTopicKey;
+                                }
+                                if (!string.IsNullOrWhiteSpace(gwDto.ClientName))
+                                {
+                                    existingGw.ClientName = gwDto.ClientName;
+                                }
+                                existingGw.UpdatedAt = DateTime.UtcNow;
+                            }
+                        }
+                        else
+                        {
+                            var idTaken = await _db.BrewLinkGateways.AnyAsync(g => g.Id == gwDto.Id);
+                            var targetGwId = idTaken ? Guid.NewGuid() : gwDto.Id;
+                            gatewayIdMap[gwDto.Id] = targetGwId;
+
+                            var newGw = new BrewLinkGateway
+                            {
+                                Id = targetGwId,
+                                UserId = userId,
+                                Name = gwDto.Name,
+                                Host = gwDto.Host,
+                                GatewayId = gwDto.GatewayId,
+                                ApiToken = restoredApiToken ?? string.Empty,
+                                MqttTopicKey = restoredTopicKey,
+                                ClientName = gwDto.ClientName,
+                                PairedAt = gwDto.PairedAt == default ? DateTime.UtcNow : gwDto.PairedAt,
+                                UpdatedAt = DateTime.UtcNow
+                            };
+                            _db.BrewLinkGateways.Add(newGw);
+                            existingGateways.Add(newGw);
+                        }
+                    }
+
+                    await _db.SaveChangesAsync();
+                }
+
                 // 6. Restore Equipment
                 var defaultSetupId = userOwnedSetups.FirstOrDefault(s => s.IsDefault)?.Id
                                      ?? userOwnedSetups.First().Id;
@@ -1028,6 +1168,27 @@ public class BackupService : IBackupService
 
                     var (restoredToken, restoredConfigJson) = await RestoreEquipmentSecretsAsync(
                         eqDto, encryptionKey, existingEq?.Id, warnings);
+
+                    if (eqDto.ConnectionType == EquipmentConnectionType.BrewLink && !string.IsNullOrWhiteSpace(restoredConfigJson))
+                    {
+                        try
+                        {
+                            var node = JsonNode.Parse(restoredConfigJson) as JsonObject;
+                            if (node != null && node["brewLinkGatewayId"] != null)
+                            {
+                                var oldGwStr = node["brewLinkGatewayId"]!.GetValue<string>();
+                                if (Guid.TryParse(oldGwStr, out var oldGwId) && gatewayIdMap.TryGetValue(oldGwId, out var newGwId))
+                                {
+                                    node["brewLinkGatewayId"] = newGwId.ToString();
+                                    restoredConfigJson = node.ToJsonString();
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // ignore json parse error
+                        }
+                    }
 
                     string? restoredDisplayProtected = null;
                     string? restoredDisplayHash = null;
@@ -1943,7 +2104,8 @@ public class BackupService : IBackupService
         }
 
         string? sampleEncryptedSecret = payload.UserSettings?.MqttPasswordEncrypted
-            ?? payload.Equipment.Select(e => e.ConnectionTokenEncrypted).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+            ?? payload.Equipment.Select(e => e.ConnectionTokenEncrypted).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t))
+            ?? payload.BrewLinkGateways.Select(g => g.ApiTokenEncrypted).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
 
         if (sampleEncryptedSecret == null)
         {
@@ -2112,6 +2274,9 @@ public class BackupService : IBackupService
             _db.Equipment.RemoveRange(setup.Equipment);
             _db.BrewerySetups.Remove(setup);
         }
+
+        var userGateways = await _db.BrewLinkGateways.Where(g => g.UserId == userId).ToListAsync();
+        _db.BrewLinkGateways.RemoveRange(userGateways);
 
         await _db.SaveChangesAsync();
     }

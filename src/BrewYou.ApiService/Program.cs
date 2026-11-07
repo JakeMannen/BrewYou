@@ -143,11 +143,17 @@ builder.Services.AddHttpClient("TelemetryPoller", client =>
     ConnectTimeout = TimeSpan.FromSeconds(3)
 });
 builder.Services.AddSingleton<ITelemetryBroadcastService, TelemetryBroadcastService>();
+builder.Services.AddSingleton<IBrewLinkDiscoveryService, BrewLinkDiscoveryService>();
 builder.Services.AddSingleton<IMqttConnectivityChecker, MqttConnectivityChecker>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
 builder.Services.AddScoped<ITelemetryService, TelemetryService>();
+builder.Services.AddHttpClient<IBrewLinkService, BrewLinkService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
 builder.Services.AddHostedService<EquipmentPollingWorker>();
 builder.Services.AddHostedService<MqttWorker>();
+builder.Services.AddHostedService<BrewLinkDiscoveryWorker>();
 
 // FluentValidation
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -305,6 +311,7 @@ app.MapBreweryCollaborationEndpoints();
 app.MapBatchEndpoints();
 app.MapBackupEndpoints().RequireRateLimiting("auth-rate-limit");
 app.MapTelemetryEndpoints().RequireRateLimiting("telemetry-rate-limit");
+app.MapBrewLinkEndpoints();
 
 // Seed initial database catalog
 try

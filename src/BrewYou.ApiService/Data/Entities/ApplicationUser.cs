@@ -70,4 +70,5 @@ public class ApplicationUser : IdentityUser
     public ICollection<Equipment> Equipment { get; set; } = new List<Equipment>();
     public ICollection<BrewerySetup> BrewerySetups { get; set; } = new List<BrewerySetup>();
     public ICollection<BreweryMember> BreweryMemberships { get; set; } = new List<BreweryMember>();
+    public ICollection<BrewLinkGateway> BrewLinkGateways { get; set; } = new List<BrewLinkGateway>();
 }

@@ -1,11 +1,14 @@
 using BrewYou.ApiService.Backup.Models;
 using BrewYou.ApiService.Backup.Versioning;
 using BrewYou.ApiService.Common;
+using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -1212,5 +1215,107 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         restoredTap.AssignedBatch.Should().NotBeNull();
         restoredTap.AssignedBatch!.Name.Should().Be("Porter Batch #1");
         restoredTap.FillLevelPercent.Should().Be(90.0m);
+    }
+
+    [Fact]
+    public async Task BackupAndRestore_RoundTrip_PreservesBrewLinkGatewaysAndRemapsEquipmentGatewayId()
+    {
+        // 1. Create source user
+        var (sourceClient, sourceUserId, _) = await CreateAuthenticatedUserAsync("BrewLink Source Brewer");
+
+        // 2. Fetch default setup ID
+        var setupsRes = await sourceClient.GetAsync("/api/v1/brewery-setups");
+        var setups = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups.First(s => s.IsDefault).Id;
+
+        // 3. Directly seed a BrewLinkGateway in database for source user
+        Guid sourceGatewayId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dataProtectionProvider = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>();
+            var protector = dataProtectionProvider.CreateProtector("BrewYou.BrewLinkCredentials");
+            var gw = new BrewLinkGateway
+            {
+                Id = Guid.NewGuid(),
+                UserId = sourceUserId,
+                Name = "Garage BrewLink",
+                Host = "192.168.1.50",
+                GatewayId = "brewlink-gateway-aabbcc",
+                ApiToken = protector.Protect("test-api-token"),
+                MqttTopicKey = protector.Protect("test-topic-key"),
+                PairedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.BrewLinkGateways.Add(gw);
+            await db.SaveChangesAsync();
+            sourceGatewayId = gw.Id;
+        }
+
+        // 4. Create All-in-One Boiler linked to this gateway
+        var connConfig = JsonSerializer.Serialize(new
+        {
+            brewLinkGatewayId = sourceGatewayId.ToString(),
+            targetMac = "C44F331A8B22"
+        });
+
+        var eqRes = await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Grainfather G30",
+            Type: EquipmentType.Boiler,
+            Capacity: 30m,
+            Subtype: EquipmentSubtype.AllInOne,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: connConfig
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // 5. Export backup with secrets included (passphrase protected)
+        var passphrase = "StrongPassphrase123!";
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest(
+            IncludeSecrets: true,
+            Passphrase: passphrase
+        ));
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        var payload = JsonSerializer.Deserialize<BackupPayload>(envelope.Data.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        payload.BrewLinkGateways.Should().ContainSingle(g => g.Name == "Garage BrewLink");
+        var backupGw = payload.BrewLinkGateways.First(g => g.Name == "Garage BrewLink");
+        backupGw.ApiTokenEncrypted.Should().NotBeNullOrWhiteSpace();
+        backupGw.MqttTopicKeyEncrypted.Should().NotBeNullOrWhiteSpace();
+
+        // 6. Restore onto new user with ReplaceAll
+        var (targetClient, targetUserId, _) = await CreateAuthenticatedUserAsync("BrewLink Target Brewer");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(
+            envelope,
+            new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll, Passphrase: passphrase)
+        ));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 7. Verify restored gateways and equipment remapping for target user
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dataProtectionProvider = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>();
+            var protector = dataProtectionProvider.CreateProtector("BrewYou.BrewLinkCredentials");
+
+            var restoredGws = db.BrewLinkGateways.Where(g => g.UserId == targetUserId).ToList();
+            restoredGws.Should().ContainSingle(g => g.Name == "Garage BrewLink");
+            var targetGateway = restoredGws.First();
+
+            // Verify tokens decrypted from backup and re-encrypted with app data protection
+            protector.Unprotect(targetGateway.ApiToken!).Should().Be("test-api-token");
+            protector.Unprotect(targetGateway.MqttTopicKey!).Should().Be("test-topic-key");
+
+            // Verify equipment in database has brewLinkGatewayId remapped to targetGateway.Id
+            var restoredEq = db.Equipment.FirstOrDefault(e => e.UserId == targetUserId && e.Name == "Grainfather G30");
+            restoredEq.Should().NotBeNull();
+            restoredEq!.ConnectionType.Should().Be(EquipmentConnectionType.BrewLink);
+
+            var parsedConfig = JsonSerializer.Deserialize<JsonElement>(restoredEq.ConnectionConfigJson!);
+            parsedConfig.GetProperty("brewLinkGatewayId").GetString().Should().Be(targetGateway.Id.ToString());
+            parsedConfig.GetProperty("targetMac").GetString().Should().Be("C44F331A8B22");
+        }
     }
 }

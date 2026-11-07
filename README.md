@@ -26,6 +26,7 @@ BrewYou is strictly open-source craft brewing software: **all features are unive
    - [Batch Tracking & Live Brew Day Execution](#batch-tracking--live-brew-day-execution)
    - [Batch QR Code Tracking & Cellar Labels](#batch-qr-code-tracking--cellar-labels)
    - [Equipment & Tap Dispenser Inventory](#equipment--tap-dispenser-inventory)
+   - [BrewLink Integration & Smart Boiler Dispatch](#brewlink-integration--smart-boiler-dispatch)
    - [Ingredient Stock & Inventory](#ingredient-stock--inventory)
    - [IoT Telemetry & Real-Time Monitoring](#iot-telemetry--real-time-monitoring)
    - [Brewing Calculators Suite](#brewing-calculators-suite)
@@ -218,6 +219,27 @@ The Equipment Inventory provides digital twin management for your brewery's hard
 5. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. The modal automatically reflects your configured network hostnames, highlights localhost warnings with inline host customization, and lets you regenerate or revoke tokens with a single click.
 6. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
 7. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
+
+### BrewLink Integration & Smart Boiler Dispatch
+
+BrewLink bridges BrewYou to physical brewing hardware via dedicated ESP32 Wi-Fi & Bluetooth gateways. It enables seamless wireless recipe dispatch to All-in-One electric brewing boilers (such as Grainfather G30 and compatible systems):
+
+- **Broadcast Discovery & Code-Free Push-Button Pairing**: Hold the physical **BOOT** button on your ESP32 BrewLink for 3 seconds to open a 60-second pairing window and broadcast discovery beacons over UDP (`0.0.0.0:53540`) and MQTT (`brewlink/discovery/+`). BrewYou detects broadcasting gateways automatically for one-click code-free pairing (`POST /api/pair/claim` with `{"client_name": "BrewYou"}`), while also supporting manual IP/hostname entry and optional 6-digit PIN verification. Unpairing a gateway revokes the client token on the gateway via `POST /api/pair/delete`.
+- **Paired Equipment Listing & One-Click Matching**: When linking an All-in-One Boiler to a BrewLink gateway, BrewYou queries `GET /api/equipment` (`GET /api/v1/brewlink/gateways/{id}/equipment`) to list all paired Bluetooth devices across BrewLink's 3 BLE Central slots (`slot`, `name`, `model`, `mac`, connection status, and live temperature), allowing one-click matching by MAC, slot, and device name.
+- **Robust Security & Cryptographic Signing**: Gateway hosts are verified with strict anti-SSRF protections against loopback and cloud metadata spoofing. Authentication tokens and MQTT keys are encrypted at rest using ASP.NET Core `IDataProtectionProvider`. Outgoing dispatch payloads are signed with HMAC-SHA256 (`req_id:action:timestamp`) to guarantee command authenticity.
+- **Smart Water Budgeting & Volume Calculations**: Transmitted recipe profiles automatically compute exact strike water and sparge water requirements using the calibrated physical loss profile of the assigned boiler (boil-off, trub loss, grain absorption rate, and mash tun dead space).
+- **Direct & Automated Dispatch Flows**:
+  - **Direct Recipe Dispatch**: On any recipe page (`/recipes/[id]`), click **Send to Boiler** to inspect target temperatures, mash rest durations, and water volumes, then upload directly to the boiler.
+  - **Batch Start Auto-Dispatch**: When scheduling or launching a new batch (`/batches/new`), enable the **Send recipe to boiler on start** toggle to automatically transmit recipe profiles and water targets to the assigned All-in-One Boiler on batch creation.
+- **Fault-Tolerant Error Handling**: Detects gateway connectivity drops and handles equipment Bluetooth disconnections (error code 261) with clear user feedback and recovery suggestions.
+- **Full Backup & Restore Support**: BrewLink gateways and equipment gateway associations are fully preserved, encrypted, and remapped across user backup exports and restores (`.brewyou.json`).
+
+#### How to Use
+
+1. **Pair a BrewLink Gateway**: Go to **Settings ➔ Network** (`/settings#brewlink`), hold the physical **BOOT** button on your ESP32 BrewLink for 3 seconds, click **Scan Network**, and click **Pair Now (Code-Free)** on the discovered gateway—or enter the gateway's IP/hostname manually (with or without a 6-digit PIN).
+2. **Configure & Match Equipment**: Go to **Inventory ➔ Equipment** (`/inventory/equipment`), create or edit an All-in-One Boiler (`EquipmentType.Boiler`, `EquipmentSubtype.AllInOne`), select connection type **BrewLink**, choose your paired gateway, and click a paired Bluetooth boiler from the discovered gateway device list (or enter the BLE MAC address manually).
+3. **Send Recipe Directly**: From any recipe details page (`/recipes/[id]`), click the **Send to Boiler** button, select the boiler, review strike and sparge water volumes, and confirm dispatch.
+4. **Auto-Send on Batch Start**: In the **New Batch** wizard (`/batches/new`), choose an assigned BrewLink boiler and ensure the **Send recipe to boiler on start** switch is active. The recipe schedule will be sent to your boiler when the batch is created.
 
 ### Ingredient Stock & Inventory
 
@@ -517,6 +539,11 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 |                      | `POST /api/v1/invites/accept`                                                              | Accept invitation and join brewery setup                                                           |
 | **Ingredients**      | `GET/POST /api/v1/ingredients`, `PUT/DELETE /api/v1/ingredients/{id}`                      | Calibrated ingredients catalog, stock tracking, and custom items                                   |
 | **Equipment**        | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}`      | Equipment digital twins & hardware calibrations                                                    |
+| **BrewLink**         | `GET/POST /api/v1/brewlink/gateways`, `PUT/DELETE /api/v1/brewlink/gateways/{id}`          | Multi-gateway ESP32 pairing, management, and unpairing                                             |
+|                      | `GET /api/v1/brewlink/gateways/discover`                                                   | Discover BrewLink gateways broadcasting 60s push-button pairing beacons over UDP (`53540`) / MQTT  |
+|                      | `POST /api/v1/brewlink/gateways/pair-start`                                                | Request pairing window & PIN on gateway                                                            |
+|                      | `GET /api/v1/brewlink/gateways/{id}/equipment`                                             | List paired Bluetooth brewing equipment slots, capabilities, and live state from gateway           |
+|                      | `POST /api/v1/inventory/equipment/{id}/brewlink/send-recipe`                               | Dispatch recipe schedule and calculated water volumes to connected All-in-One Boiler via BrewLink  |
 | **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                                       |
 | **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                                                |
 | **Batches**          | `GET/POST /api/v1/batches`, `PATCH /api/v1/batches/{id}/stage`                             | 5-stage brew lifecycle, per-step mash/fermentation execution, multi-vessel occupancy & attenuation |

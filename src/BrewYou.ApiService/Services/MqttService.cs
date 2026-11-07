@@ -15,6 +15,7 @@ public class MqttService : IMqttService, IDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly IMqttConnectivityChecker _connectivityChecker;
     private readonly IDataProtector _protector;
+    private readonly IBrewLinkDiscoveryService? _brewLinkDiscoveryService;
     private readonly ILogger<MqttService> _logger;
     private IMqttClient? _mqttClient;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
@@ -31,11 +32,13 @@ public class MqttService : IMqttService, IDisposable
         IServiceProvider serviceProvider,
         IMqttConnectivityChecker connectivityChecker,
         IDataProtectionProvider dataProtectionProvider,
-        ILogger<MqttService> logger)
+        ILogger<MqttService> logger,
+        IBrewLinkDiscoveryService? brewLinkDiscoveryService = null)
     {
         _serviceProvider = serviceProvider;
         _connectivityChecker = connectivityChecker;
         _protector = dataProtectionProvider.CreateProtector("BrewYou.MqttCredentials");
+        _brewLinkDiscoveryService = brewLinkDiscoveryService;
         _logger = logger;
     }
 
@@ -206,7 +209,10 @@ public class MqttService : IMqttService, IDisposable
                         !string.IsNullOrEmpty(e.ConnectionConfigJson))
             .ToListAsync(cancellationToken);
 
-        var targetTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var targetTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "brewlink/discovery/+"
+        };
 
         foreach (var eq in mqttEquipment)
         {
@@ -269,6 +275,12 @@ public class MqttService : IMqttService, IDisposable
 
         var payload = Encoding.UTF8.GetString(payloadBytes.ToArray());
         _logger.LogDebug("Received MQTT message on topic {Topic}: {Payload}", topic, payload);
+
+        if (topic.StartsWith("brewlink/discovery/", StringComparison.OrdinalIgnoreCase))
+        {
+            _brewLinkDiscoveryService?.IngestBeaconJson(payload);
+            return;
+        }
 
         try
         {

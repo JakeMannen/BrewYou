@@ -2391,7 +2391,7 @@ public class BatchService : IBatchService
         }
     }
 
-    private static bool IsMassUnit(string unit) =>
+    public static bool IsMassUnit(string unit) =>
         !string.IsNullOrWhiteSpace(unit) && TryGetGramsFactor(unit, out _);
 
     public static decimal ConvertUnitAmount(decimal amount, string sourceUnit, string targetUnit)
