@@ -1,9 +1,11 @@
 using BrewYou.ApiService.Common;
+using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -60,6 +62,30 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var kegId = kegEnv!.Data!.Id;
 
         return (client, envelope.Data.User.Id, boilerId, fermenterId, kegId);
+    }
+
+    private async Task<(HttpClient Client, string UserId, Guid SetupId)> CreateUserAsync()
+    {
+        var client = _factory.CreateClient();
+        var email = $"brewer_{Guid.NewGuid():N}@brewyou.test";
+        var password = "StrongPassword123!";
+        var reg = new RegisterRequest(email, password, "Batch Master Brewer", "en", VolumeUnit.Liters);
+
+        var regRes = await client.PostAsJsonAsync("/api/v1/auth/register", reg);
+        regRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var envelope = await regRes.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+        envelope.Should().NotBeNull();
+        envelope!.Success.Should().BeTrue();
+
+        var token = envelope.Data!.AccessToken;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var setupsEnv = await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>();
+        var defaultSetupId = setupsEnv!.Data!.First(s => s.IsDefault).Id;
+
+        return (client, envelope.Data.User.Id, defaultSetupId);
     }
 
     [Fact]
@@ -1735,5 +1761,162 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         calc.HltDeadSpaceLossLiters.Should().Be(0.75m);
         calc.PlumbingLossLiters.Should().Be(0.5m);
         calc.SpargeMethod.Should().Be("Fly");
+    }
+
+    [Fact]
+    public async Task AdvanceStage_WhenMashControlledByBrewLink_RejectsUntilAllMashStepsCompleted()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        // Create BrewLink equipment
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"BrewLink Tun {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 40
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var entity = await db.Equipment.FindAsync(boiler.Id);
+            entity!.ConnectionType = EquipmentConnectionType.BrewLink;
+            await db.SaveChangesAsync();
+        }
+
+        var mashSteps = new List<BatchMashStepInputDto>
+        {
+            new(1, "Mash In", MashStepType.Temperature, 65.0m, 60),
+            new(2, "Mash Out", MashStepType.Temperature, 75.0m, 10)
+        };
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Guarded Mash Batch",
+            BeerStyle: "Pilsner",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20,
+            TargetOg: null,
+            TargetFg: null,
+            TargetAbv: null,
+            TargetIbu: null,
+            TargetColorSrm: null,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: null,
+            BoilerId: boiler.Id,
+            FermenterId: null,
+            CustomMashSteps: mashSteps
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Attempt to advance to Boil while mash steps are incomplete -> 409 Conflict
+        var advanceRes1 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Boil));
+        advanceRes1.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 2. Complete step 1, step 2 is still incomplete -> 409 Conflict
+        var step1Id = batch.MashSteps.First(s => s.StepOrder == 1).Id;
+        var toggle1 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/mash-steps/{step1Id}",
+            new ToggleBatchMashStepRequest(true));
+        toggle1.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var advanceRes2 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Boil));
+        advanceRes2.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 3. Complete step 2 -> All steps completed -> Advancing to Boil succeeds
+        var step2Id = batch.MashSteps.First(s => s.StepOrder == 2).Id;
+        var toggle2 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/mash-steps/{step2Id}",
+            new ToggleBatchMashStepRequest(true));
+        toggle2.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var advanceRes3 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Boil));
+        advanceRes3.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AdvanceStage_WhenBoilControlledByBrewLink_RejectsWhileBoilTimerActive()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        // Create BrewLink equipment
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"BrewLink Boiler {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 40
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // Simulate active timer in LatestMetricsJson
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var entity = await db.Equipment.FindAsync(boiler.Id);
+            entity!.ConnectionType = EquipmentConnectionType.BrewLink;
+            entity.LatestMetricsJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                currentTempC = 99.8,
+                timer = new { active = true, remainingSeconds = 1200, totalSeconds = 3600 }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Guarded Boil Batch",
+            BeerStyle: "IPA",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20,
+            TargetOg: null,
+            TargetFg: null,
+            TargetAbv: null,
+            TargetIbu: null,
+            TargetColorSrm: null,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: null,
+            BoilerId: boiler.Id,
+            FermenterId: null
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // Advance to Boil (complete mash step first)
+        var mashStepId = batch.MashSteps.First().Id;
+        await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/mash-steps/{mashStepId}",
+            new ToggleBatchMashStepRequest(true));
+        var advBoil = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Boil));
+        advBoil.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 1. Attempt to advance to Ferment while boil timer is active on BrewLink -> 409 Conflict
+        var advFerm1 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m));
+        advFerm1.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 2. Set timer to finished (active = false, remainingSeconds = 0)
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var entity = await db.Equipment.FindAsync(boiler.Id);
+            entity!.LatestMetricsJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                currentTempC = 25.0,
+                timer = new { active = false, remainingSeconds = 0, totalSeconds = 3600 }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 3. Advancing to Ferment now succeeds
+        var advFerm2 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m));
+        advFerm2.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

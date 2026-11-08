@@ -2090,4 +2090,109 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         batchReading.MetricsJson.Should().Contain("\"heatActive\":true");
         batchReading.MetricsJson.Should().Contain("\"pumpActive\":true");
     }
+
+    [Fact]
+    public void BrewLinkTelemetry_WhenMashStepAdvances_PersistsImmediatelyWithout30sThrottle()
+    {
+        var throttler = new TelemetryThrottlingService(TimeSpan.FromSeconds(30));
+        var equipmentId = Guid.NewGuid();
+        var batchId = Guid.NewGuid();
+        var step1Id = Guid.NewGuid();
+        var step2Id = Guid.NewGuid();
+        var t0 = new DateTime(2026, 11, 8, 14, 0, 0, DateTimeKind.Utc);
+
+        // Initial reading on step 1 is persisted
+        throttler.ShouldPersist(equipmentId, t0, 50.0m, stage: BrewStage.Mash, batchId: batchId, batchMashStepId: step1Id)
+            .Should().BeTrue();
+
+        // During mash, temperature is logged on every update automatically without 30s throttle
+        throttler.ShouldPersist(equipmentId, t0.AddSeconds(2), 50.1m, stage: BrewStage.Mash, batchId: batchId, batchMashStepId: step1Id)
+            .Should().BeTrue();
+
+        // Mash step advances within the 30s window -> persisted immediately
+        throttler.ShouldPersist(equipmentId, t0.AddSeconds(3), 50.1m, stage: BrewStage.Mash, batchId: batchId, batchMashStepId: step2Id)
+            .Should().BeTrue();
+        throttler.GetLastPersisted(equipmentId)!.BatchMashStepId.Should().Be(step2Id);
+
+        // Subsequent readings during mash are logged on every update
+        throttler.ShouldPersist(equipmentId, t0.AddSeconds(5), 50.2m, stage: BrewStage.Mash, batchId: batchId, batchMashStepId: step2Id)
+            .Should().BeTrue();
+
+        // During non-mash/boil stages (e.g. Ferment), standard 30s throttling applies
+        var fermEquipmentId = Guid.NewGuid();
+        throttler.ShouldPersist(fermEquipmentId, t0, 20.0m, stage: BrewStage.Ferment, batchId: batchId)
+            .Should().BeTrue();
+        throttler.ShouldPersist(fermEquipmentId, t0.AddSeconds(2), 20.1m, stage: BrewStage.Ferment, batchId: batchId)
+            .Should().BeFalse();
+
+        // Readings with no batch context never trigger the batch update rule
+        throttler.ShouldPersist(fermEquipmentId, t0.AddSeconds(4), 20.2m)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task BatchCreation_WhenEquipmentHasTelemetry_LogsBaselineReadingForStep1()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        var boilerRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Baseline Tun {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 40,
+            ConnectionType: EquipmentConnectionType.HttpPush
+        ));
+        var boiler = (await boilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var entity = await db.Equipment.FindAsync(boiler.Id);
+            entity!.ConnectionType = EquipmentConnectionType.BrewLink;
+            entity.CurrentTemperatureC = 42.5m;
+            entity.TemperatureUpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Baseline Batch",
+            BeerStyle: "Pilsner",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20,
+            TargetOg: null,
+            TargetFg: null,
+            TargetAbv: null,
+            TargetIbu: null,
+            TargetColorSrm: null,
+            BoilTimeMinutes: null,
+            EfficiencyPercent: null,
+            BoilerId: boiler.Id,
+            FermenterId: null,
+            CustomMashSteps: new List<BatchMashStepInputDto>
+            {
+                new(1, "Protein Rest", MashStepType.Temperature, 50.0m, 20),
+                new(2, "Sacch Rest", MashStepType.Temperature, 65.0m, 60)
+            }
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        var step1Id = batch.MashSteps.OrderBy(s => s.StepOrder).First().Id;
+
+        var readings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stepId={step1Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+
+        readings.Should().HaveCount(1);
+        readings[0].TemperatureC.Should().Be(42.5m);
+        readings[0].EquipmentId.Should().Be(boiler.Id);
+        readings[0].StepName.Should().Be("Protein Rest");
+        readings[0].Source.Should().Be("BrewLinkInitial");
+
+        // No baseline is created for later steps
+        var step2Id = batch.MashSteps.OrderBy(s => s.StepOrder).Last().Id;
+        var step2Readings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stepId={step2Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        step2Readings.Should().BeEmpty();
+    }
 }

@@ -30,6 +30,7 @@ public partial class BrewLinkService : IBrewLinkService
     private readonly IDataProtector _protector;
     private readonly IBrewLinkDiscoveryService? _discoveryService;
     private readonly ITelemetryBroadcastService? _broadcastService;
+    private readonly IServiceProvider? _serviceProvider;
     private readonly ILogger<BrewLinkService> _logger;
 
     [GeneratedRegex(@"^[0-9A-Za-z]{6}$")]
@@ -44,13 +45,15 @@ public partial class BrewLinkService : IBrewLinkService
         IDataProtectionProvider dataProtectionProvider,
         ILogger<BrewLinkService> logger,
         IBrewLinkDiscoveryService? discoveryService = null,
-        ITelemetryBroadcastService? broadcastService = null)
+        ITelemetryBroadcastService? broadcastService = null,
+        IServiceProvider? serviceProvider = null)
     {
         _db = db;
         _httpClient = httpClient;
         _protector = dataProtectionProvider.CreateProtector("BrewYou.BrewLinkCredentials");
         _discoveryService = discoveryService;
         _broadcastService = broadcastService;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -1375,6 +1378,15 @@ public partial class BrewLinkService : IBrewLinkService
             equipment.TemperatureUpdatedAt = canonical.UpdatedAt;
             equipment.LastTelemetryAt = DateTime.UtcNow;
             equipment.LatestMetricsJson = metricsJson;
+
+            if (_serviceProvider != null)
+            {
+                var telemetryService = _serviceProvider.GetService<ITelemetryService>();
+                if (telemetryService != null)
+                {
+                    await telemetryService.IngestBrewLinkTelemetryAsync(equipment.Id, doc.RootElement, source: "BrewLinkSync");
+                }
+            }
 
             await _db.SaveChangesAsync(ct);
 

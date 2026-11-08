@@ -167,7 +167,9 @@ public class TelemetryService : ITelemetryService
             finalTempC,
             canonicalMetrics,
             recordedGravity ?? gravity,
-            reading.Stage);
+            reading.Stage,
+            reading.BatchId,
+            reading.BatchMashStepId);
 
         if (shouldPersist)
         {
@@ -317,7 +319,9 @@ public class TelemetryService : ITelemetryService
             tempC.Value,
             canonicalMetrics,
             recordedGravity ?? gravity,
-            reading.Stage);
+            reading.Stage,
+            reading.BatchId,
+            reading.BatchMashStepId);
 
         if (shouldPersist)
         {
@@ -436,7 +440,9 @@ public class TelemetryService : ITelemetryService
             finalTempC,
             canonicalMetrics,
             recordedGravity ?? gravity,
-            reading.Stage);
+            reading.Stage,
+            reading.BatchId,
+            reading.BatchMashStepId);
 
         if (shouldPersist)
         {
@@ -655,7 +661,9 @@ public class TelemetryService : ITelemetryService
                     finalTempC,
                     canonicalMetrics,
                     recordedGravity ?? gravity,
-                    reading.Stage);
+                    reading.Stage,
+                    reading.BatchId,
+                    reading.BatchMashStepId);
 
                 if (shouldPersist)
                 {

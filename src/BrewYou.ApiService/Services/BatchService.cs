@@ -2,6 +2,7 @@ using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
 
@@ -604,6 +605,28 @@ public class BatchService : IBatchService
             }
         }
 
+        // 7.5 Baseline telemetry: log the primary vessel's live temperature against mash step 1
+        var primaryVessel = mashTun ?? boiler;
+        if (primaryVessel?.CurrentTemperatureC != null && batch.MashSteps.Count > 0)
+        {
+            var firstStep = batch.MashSteps.OrderBy(s => s.StepOrder).First();
+            var nowUtc = DateTime.UtcNow;
+            firstStep.ActualTemperatureC = primaryVessel.CurrentTemperatureC.Value;
+
+            batch.EquipmentReadings.Add(new EquipmentReading
+            {
+                EquipmentId = primaryVessel.Id,
+                BatchId = batch.Id,
+                Stage = BrewStage.Mash,
+                BatchMashStepId = firstStep.Id,
+                StepName = firstStep.Name,
+                TemperatureC = primaryVessel.CurrentTemperatureC.Value,
+                Source = primaryVessel.ConnectionType == EquipmentConnectionType.BrewLink ? "BrewLinkInitial" : "InitialTelemetry",
+                Timestamp = nowUtc,
+                CreatedAt = nowUtc
+            });
+        }
+
         // 8. Transactional Equipment Occupancy
         if (_db.Database.IsInMemory())
         {
@@ -662,6 +685,35 @@ public class BatchService : IBatchService
             if (newStage < oldStage || (newStage == oldStage && oldStage != BrewStage.Package))
             {
                 return (BatchAccessResult.Conflict, null, "Cannot move batch backward to a previous stage.");
+            }
+
+            if (oldStage == BrewStage.Mash && newStage > BrewStage.Mash)
+            {
+                var mashTun = batch.MashTun;
+                var boiler = batch.Boiler;
+                var isMashControlledByBrewLink = (mashTun != null && mashTun.ConnectionType == EquipmentConnectionType.BrewLink) ||
+                                                 (boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink);
+
+                if (isMashControlledByBrewLink && batch.MashSteps.Count > 0 && batch.MashSteps.Any(s => !s.IsCompleted))
+                {
+                    return (BatchAccessResult.Conflict, null,
+                        "Cannot advance stage: BrewLink mash process is still in progress with incomplete mash steps.");
+                }
+            }
+            else if (oldStage == BrewStage.Boil && newStage > BrewStage.Boil)
+            {
+                var boiler = batch.Boiler;
+                var isBoilControlledByBrewLink = boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink;
+
+                if (isBoilControlledByBrewLink && !string.IsNullOrWhiteSpace(boiler?.LatestMetricsJson))
+                {
+                    var canonical = BrewLinkTelemetryParser.FromMetricsJson(boiler.LatestMetricsJson);
+                    if (canonical?.Timer != null && (canonical.Timer.Active || (canonical.Timer.RemainingSeconds.HasValue && canonical.Timer.RemainingSeconds.Value > 0)))
+                    {
+                        return (BatchAccessResult.Conflict, null,
+                            "Cannot advance stage: BrewLink boil process is still in progress.");
+                    }
+                }
             }
 
             Equipment? selectedPackagingVessel = null;
