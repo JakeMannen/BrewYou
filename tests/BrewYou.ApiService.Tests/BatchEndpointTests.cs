@@ -1898,28 +1898,19 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var batchState = (await getBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
         batchState.CurrentStage.Should().Be(BrewStage.Boil);
 
-        // 1. Attempt to advance to Ferment while boil timer is active on BrewLink -> 409 Conflict
+        // 1. Attempt to advance to Ferment while boil timer is active on BrewLink without Force -> 409 Conflict
         var advFerm1 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
-            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m));
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m, Force: false));
         advFerm1.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
-        // 2. Set timer to finished (active = false, remainingSeconds = 0)
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
-            var entity = await db.Equipment.FindAsync(boiler.Id);
-            entity!.LatestMetricsJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                currentTempC = 25.0,
-                timer = new { active = false, remainingSeconds = 0, totalSeconds = 3600 }
-            });
-            await db.SaveChangesAsync();
-        }
+        // 2. Advancing to Ferment with Force = true succeeds even when BrewLink boil timer is active
+        var advFermWithForce = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m, Force: true));
+        advFermWithForce.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // 3. Advancing to Ferment now succeeds
-        var advFerm2 = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
-            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 19.0m));
-        advFerm2.StatusCode.Should().Be(HttpStatusCode.OK);
+        var getBatchRes2 = await client.GetAsync($"/api/v1/batches/{batch.Id}");
+        var batchState2 = (await getBatchRes2.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        batchState2.CurrentStage.Should().Be(BrewStage.Ferment);
     }
 
     [Fact]

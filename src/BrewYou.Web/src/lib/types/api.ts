@@ -1285,6 +1285,7 @@ export interface AdvanceBatchStageRequest {
 	measuredPreBoilGravity?: number | null;
 	measuredPostBoilVolumeLiters?: number | null;
 	measuredPackagedVolumeLiters?: number | null;
+	force?: boolean | null;
 }
 
 export interface AddBatchReadingRequest {

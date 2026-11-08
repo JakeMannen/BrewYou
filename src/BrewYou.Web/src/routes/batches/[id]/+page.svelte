@@ -104,6 +104,8 @@
 	let showConfirmResetTimerModal = $state(false);
 	let showConfirmAdvanceBoilStepModal = $state(false);
 	let showConfirmAdvanceMashStepModal = $state(false);
+	let showConfirmAdvanceActiveBoilModal = $state(false);
+	let hasConfirmedActiveBoil = $state(false);
 	let showBrewLinkPromptModal = $state(false);
 	let brewLinkPromptSubmitting = $state(false);
 	let dismissedPromptKey = $state<string | null>(null);
@@ -1278,18 +1280,12 @@
 		if (batch.currentStage === 'Mash' && isMashControlledByBrewLink) {
 			return !isMashComplete;
 		}
-		if (batch.currentStage === 'Boil' && isBoilControlledByBrewLink) {
-			return !isBoilComplete;
-		}
 		return false;
 	});
 
 	let advanceStageBlockedReason = $derived.by<string>(() => {
 		if (batch?.currentStage === 'Mash' && isMashControlledByBrewLink && !isMashComplete) {
 			return t('batches.workspace.brewlink_mash_in_progress');
-		}
-		if (batch?.currentStage === 'Boil' && isBoilControlledByBrewLink && !isBoilComplete) {
-			return t('batches.workspace.brewlink_boil_in_progress');
 		}
 		return '';
 	});
@@ -1556,6 +1552,19 @@
 	function openAdvanceModal() {
 		if (!batch || isAdvanceStageBlocked) return;
 		determineNextStage(batch.currentStage);
+
+		const isBoilActive =
+			batch.currentStage === 'Boil' &&
+			nextStage === 'Ferment' &&
+			isBoilControlledByBrewLink &&
+			!isBoilComplete;
+
+		if (isBoilActive && !hasConfirmedActiveBoil) {
+			showConfirmAdvanceActiveBoilModal = true;
+			return;
+		}
+
+		hasConfirmedActiveBoil = false;
 		advanceMeasuredOg = batch.measuredOg ?? batch.targetOg;
 		advanceMeasuredFg = batch.measuredFg ?? batch.targetFg;
 		advanceVolume =
@@ -1582,8 +1591,35 @@
 		showAdvanceModal = true;
 	}
 
+	async function confirmAdvanceActiveBoil() {
+		showConfirmAdvanceActiveBoilModal = false;
+		hasConfirmedActiveBoil = true;
+		if (activeStageBrewLinkEquipment) {
+			try {
+				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+					action: 'cancel_timer'
+				});
+			} catch (err: unknown) {
+				console.error('Failed to cancel BrewLink boil timer', err);
+			}
+		}
+		openAdvanceModal();
+	}
+
 	async function handleAdvanceSubmit() {
 		if (!batch || isAdvanceStageBlocked) return;
+		const isBoilActive =
+			batch.currentStage === 'Boil' &&
+			nextStage === 'Ferment' &&
+			isBoilControlledByBrewLink &&
+			!isBoilComplete;
+
+		if (isBoilActive && !hasConfirmedActiveBoil) {
+			showAdvanceModal = false;
+			showConfirmAdvanceActiveBoilModal = true;
+			return;
+		}
+
 		advancing = true;
 		advanceError = null;
 		try {
@@ -1605,7 +1641,8 @@
 				measuredPreBoilVolumeLiters: nextStage === 'Boil' ? advancePreBoilVolume : null,
 				measuredPreBoilGravity: nextStage === 'Boil' ? advancePreBoilGravity : null,
 				measuredPostBoilVolumeLiters: nextStage === 'Ferment' ? advancePostBoilVolume : null,
-				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null
+				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null,
+				force: hasConfirmedActiveBoil || isBoilActive
 			};
 			const previousStage = batch.currentStage;
 			const [updated, eq] = await Promise.all([
@@ -1618,6 +1655,7 @@
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
+			hasConfirmedActiveBoil = false;
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
@@ -4155,6 +4193,19 @@
 	cancelTestId="cancel-advance-mash-step-btn"
 	onConfirm={confirmAdvanceMashStep}
 	onClose={() => (showConfirmAdvanceMashStepModal = false)}
+/>
+
+<ConfirmModal
+	open={showConfirmAdvanceActiveBoilModal}
+	title={t('batches.workspace.confirm_advance_active_boil_title')}
+	message={t('batches.workspace.confirm_advance_active_boil_message')}
+	confirmText={t('batches.workspace.proceed_to_ferment')}
+	cancelText={t('common.cancel')}
+	variant="warning"
+	confirmTestId="confirm-advance-active-boil-btn"
+	cancelTestId="cancel-advance-active-boil-btn"
+	onConfirm={confirmAdvanceActiveBoil}
+	onClose={() => (showConfirmAdvanceActiveBoilModal = false)}
 />
 
 {#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}

@@ -705,13 +705,13 @@ public class BatchService : IBatchService
                 var boiler = batch.Boiler;
                 var isBoilControlledByBrewLink = boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink;
 
-                if (isBoilControlledByBrewLink && !string.IsNullOrWhiteSpace(boiler?.LatestMetricsJson))
+                if (isBoilControlledByBrewLink && !request.Force && !string.IsNullOrWhiteSpace(boiler?.LatestMetricsJson))
                 {
                     var canonical = BrewLinkTelemetryParser.FromMetricsJson(boiler.LatestMetricsJson);
                     if (canonical?.Timer != null && (canonical.Timer.Active || (canonical.Timer.RemainingSeconds.HasValue && canonical.Timer.RemainingSeconds.Value > 0)))
                     {
                         return (BatchAccessResult.Conflict, null,
-                            "Cannot advance stage: BrewLink boil process is still in progress.");
+                            "Cannot advance stage: BrewLink boil process is still in progress. Confirm to force advance.");
                     }
                 }
             }
