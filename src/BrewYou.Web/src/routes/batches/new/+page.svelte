@@ -17,6 +17,7 @@
 	import type { TargetVolumeBasis } from '$lib/calculators/volume';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
 	import InsufficientStockModal from '$lib/components/batches/InsufficientStockModal.svelte';
+	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import type { IngredientShortageDto } from '$lib/types/api';
 	import {
 		Activity,
@@ -47,6 +48,10 @@
 	// Shortage Modal State
 	let stockModalOpen = $state(false);
 	let shortages = $state<IngredientShortageDto[]>([]);
+
+	// BrewLink Transfer Confirmation Modal State
+	let brewLinkConfirmModalOpen = $state(false);
+	let confirmedBrewLinkDispatch = $state(false);
 
 	// Form State
 	let isAdHoc = $state(false);
@@ -510,7 +515,7 @@
 		}
 	}
 
-	async function handleSubmit(bypassStockCheck = false) {
+	async function handleSubmit(bypassStockCheck = false, bypassBrewLinkConfirm = false) {
 		if (!isStep1Valid || !isStep2Valid) return;
 		submitting = true;
 		error = null;
@@ -535,6 +540,18 @@
 					// If check-stock fails (e.g. offline/network), log and allow creation to proceed
 					console.warn('Stock check failed:', err);
 				}
+			}
+
+			if (
+				!bypassBrewLinkConfirm &&
+				!confirmedBrewLinkDispatch &&
+				sendRecipeToBoiler &&
+				selectedBoiler &&
+				selectedBoiler.connectionType === 'BrewLink'
+			) {
+				brewLinkConfirmModalOpen = true;
+				submitting = false;
+				return;
 			}
 
 			const effectiveMashTunId =
@@ -2371,4 +2388,24 @@
 	{shortages}
 	onCancel={() => (stockModalOpen = false)}
 	onContinue={handleContinueAnyway}
+/>
+
+<ConfirmModal
+	open={brewLinkConfirmModalOpen}
+	title={t('recipes.confirm_transfer_title')}
+	message={`${t('batches.wizard.confirm_transfer_message', { boiler: selectedBoiler?.name ?? '' })}\n\n${t('recipes.confirm_transfer_warning')}`}
+	confirmText={t('common.yes')}
+	cancelText={t('common.no')}
+	confirmTestId="batch-confirm-transfer-yes-btn"
+	cancelTestId="batch-confirm-transfer-no-btn"
+	variant="warning"
+	loading={submitting}
+	onConfirm={async () => {
+		confirmedBrewLinkDispatch = true;
+		brewLinkConfirmModalOpen = false;
+		await handleSubmit(true, true);
+	}}
+	onClose={() => {
+		brewLinkConfirmModalOpen = false;
+	}}
 />

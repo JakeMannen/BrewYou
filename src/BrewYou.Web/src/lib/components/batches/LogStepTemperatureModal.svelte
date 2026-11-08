@@ -2,6 +2,7 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import type {
+		BatchBoilStep,
 		BatchMashStepDto,
 		BrewStage,
 		EquipmentDto,
@@ -17,6 +18,8 @@
 		equipmentName?: string | null;
 		mashSteps?: BatchMashStepDto[];
 		defaultMashStepId?: string | null;
+		boilSteps?: BatchBoilStep[];
+		defaultBoilStepName?: string | null;
 		targetTemperatureC?: number | null;
 		onClose: () => void;
 		onSubmit: (req: LogBatchTemperatureRequest) => Promise<void>;
@@ -30,6 +33,8 @@
 		equipmentName = null,
 		mashSteps = [],
 		defaultMashStepId = null,
+		boilSteps = [],
+		defaultBoilStepName = null,
 		targetTemperatureC = null,
 		onClose,
 		onSubmit
@@ -37,6 +42,7 @@
 
 	let selectedEquipmentId = $state<string>('');
 	let selectedMashStepId = $state<string>('');
+	let selectedBoilStepName = $state<string>('');
 	let tempInputValue = $state<number>(65.0);
 	let notes = $state<string>('');
 	let saving = $state(false);
@@ -63,18 +69,31 @@
 		return null;
 	});
 
+	let resolvedBoilStep = $derived.by(() => {
+		if (stage === 'Boil' && selectedBoilStepName && boilSteps.length > 0) {
+			return boilSteps.find((s) => s.name === selectedBoilStepName) ?? null;
+		}
+		return null;
+	});
+
 	// Sync defaults on open
 	$effect(() => {
 		if (isOpen) {
 			selectedEquipmentId = defaultEquipmentId ?? '';
 			selectedMashStepId = defaultMashStepId ?? (mashSteps.length > 0 ? mashSteps[0].id : '');
+			selectedBoilStepName = defaultBoilStepName ?? (boilSteps.length > 0 ? boilSteps[0].name : '');
 			const matchedStep =
 				stage === 'Mash' && selectedMashStepId
 					? mashSteps.find((s) => s.id === selectedMashStepId)
 					: null;
+			const matchedBoil =
+				stage === 'Boil' && selectedBoilStepName
+					? boilSteps.find((s) => s.name === selectedBoilStepName)
+					: null;
 			const target =
 				targetTemperatureC ??
 				matchedStep?.targetTemperatureC ??
+				matchedBoil?.targetTemperatureC ??
 				(stage === 'Boil' ? 100 : stage === 'Ferment' ? 20 : 65);
 			tempInputValue =
 				settings.temperatureUnit === 'Fahrenheit'
@@ -111,9 +130,16 @@
 			if (stage === 'Mash' && selectedMashStepId) {
 				const s = mashSteps.find((ms) => ms.id === selectedMashStepId);
 				stepName = s?.name;
+			} else if (stage === 'Boil' && selectedBoilStepName) {
+				stepName = selectedBoilStepName;
 			} else {
 				stepName = t(`batches.stages.${stage.toLowerCase()}`);
 			}
+
+			const targetTemp =
+				resolvedBoilStep?.targetTemperatureC ??
+				resolvedStep?.targetTemperatureC ??
+				targetTemperatureC;
 
 			await onSubmit({
 				temperatureC: Number(tempC.toFixed(2)),
@@ -121,7 +147,8 @@
 				stage: stage,
 				batchMashStepId: stage === 'Mash' ? selectedMashStepId || null : null,
 				stepName: stepName,
-				notes: notes.trim() || null
+				notes: notes.trim() || null,
+				targetTemperatureC: targetTemp
 			});
 			onClose();
 		} catch (err: unknown) {
@@ -243,6 +270,31 @@
 									</select>
 								{:else}
 									<span class="mt-0.5 block text-zinc-500">—</span>
+								{/if}
+							</div>
+						{:else if stage === 'Boil' && boilSteps.length > 0}
+							<div>
+								<span
+									class="block text-[10px] font-semibold tracking-wider text-zinc-400 uppercase"
+								>
+									{t('batches.workspace.select_boil_step')}
+								</span>
+								{#if resolvedBoilStep}
+									<span class="mt-0.5 block font-bold text-zinc-800 dark:text-zinc-200">
+										#{resolvedBoilStep.stepOrder}
+										{resolvedBoilStep.name}
+									</span>
+								{:else}
+									<select
+										id="boil-step-select"
+										data-testid="boil-step-select"
+										bind:value={selectedBoilStepName}
+										class="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+									>
+										{#each boilSteps as step (step.id)}
+											<option value={step.name}>#{step.stepOrder} {step.name}</option>
+										{/each}
+									</select>
 								{/if}
 							</div>
 						{/if}

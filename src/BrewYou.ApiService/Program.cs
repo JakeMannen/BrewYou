@@ -143,6 +143,8 @@ builder.Services.AddHttpClient("TelemetryPoller", client =>
     ConnectTimeout = TimeSpan.FromSeconds(3)
 });
 builder.Services.AddSingleton<ITelemetryBroadcastService, TelemetryBroadcastService>();
+builder.Services.AddSingleton<ITelemetryThrottlingService, TelemetryThrottlingService>();
+builder.Services.AddSingleton<IBrewLinkWebSocketManager, BrewLinkWebSocketManager>();
 builder.Services.AddSingleton<IBrewLinkDiscoveryService, BrewLinkDiscoveryService>();
 builder.Services.AddSingleton<IMqttConnectivityChecker, MqttConnectivityChecker>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
@@ -154,6 +156,7 @@ builder.Services.AddHttpClient<IBrewLinkService, BrewLinkService>(client =>
 builder.Services.AddHostedService<EquipmentPollingWorker>();
 builder.Services.AddHostedService<MqttWorker>();
 builder.Services.AddHostedService<BrewLinkDiscoveryWorker>();
+builder.Services.AddHostedService<BrewLinkWebSocketWorker>();
 
 // FluentValidation
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();

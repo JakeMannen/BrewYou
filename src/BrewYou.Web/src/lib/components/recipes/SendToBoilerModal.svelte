@@ -2,7 +2,8 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { api } from '$lib/api/client';
 	import type { EquipmentDto } from '$lib/types/api';
-	import { Cpu, X, Loader2, CheckCircle2, AlertCircle } from '@lucide/svelte';
+	import { Cpu, X, Loader2, CheckCircle2, AlertCircle, AlertTriangle } from '@lucide/svelte';
+	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 
 	interface Props {
 		open: boolean;
@@ -19,11 +20,13 @@
 	let isSending = $state(false);
 	let successMessage = $state<string | null>(null);
 	let errorMessage = $state<string | null>(null);
+	let showConfirmModal = $state(false);
 
 	$effect(() => {
 		if (open) {
 			successMessage = null;
 			errorMessage = null;
+			showConfirmModal = false;
 			if (boilers.length > 0 && !selectedBoilerId) {
 				selectedBoilerId = boilers[0].id;
 			}
@@ -33,9 +36,14 @@
 	let selectedBoiler = $derived(boilers.find((b) => b.id === selectedBoilerId) || null);
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && open && !isSending) {
+		if (e.key === 'Escape' && open && !isSending && !showConfirmModal) {
 			onClose();
 		}
+	}
+
+	function handleOpenConfirm() {
+		if (!selectedBoilerId || !recipeId) return;
+		showConfirmModal = true;
 	}
 
 	async function handleSend() {
@@ -49,6 +57,7 @@
 			await api.equipment.sendBrewLinkRecipe(selectedBoilerId, { recipeId });
 			const boilerName = selectedBoiler?.name || '';
 			successMessage = t('recipes.recipe_sent_success', { boiler: boilerName });
+			showConfirmModal = false;
 			if (onSuccess) {
 				onSuccess(boilerName);
 			}
@@ -57,6 +66,7 @@
 				successMessage = null;
 			}, 1500);
 		} catch (err: unknown) {
+			showConfirmModal = false;
 			const clientErr = err as { status?: number; message?: string } | undefined;
 			if (clientErr?.status === 409 || clientErr?.message?.includes('261')) {
 				errorMessage = t('recipes.err_equipment_disconnected');
@@ -163,6 +173,16 @@
 					{/if}
 				</div>
 
+				<!-- Overwrite Warning Notice -->
+				<div
+					class="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/15 dark:text-amber-300"
+				>
+					<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+					<p class="leading-relaxed">
+						{t('recipes.confirm_transfer_warning')}
+					</p>
+				</div>
+
 				{#if successMessage}
 					<div
 						class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400"
@@ -199,7 +219,7 @@
 				<button
 					type="button"
 					data-testid="send-to-boiler-confirm-btn"
-					onclick={handleSend}
+					onclick={handleOpenConfirm}
 					disabled={isSending || !selectedBoilerId || !!successMessage}
 					class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-sky-500 active:scale-95 disabled:opacity-50"
 				>
@@ -215,3 +235,22 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmModal
+	open={showConfirmModal}
+	title={t('recipes.confirm_transfer_title')}
+	message={t('recipes.confirm_transfer_message', {
+		recipe: recipeName,
+		boiler: selectedBoiler?.name || ''
+	})}
+	confirmText={t('common.yes')}
+	cancelText={t('common.no')}
+	confirmTestId="confirm-transfer-yes-btn"
+	cancelTestId="confirm-transfer-no-btn"
+	variant="warning"
+	loading={isSending}
+	onConfirm={handleSend}
+	onClose={() => {
+		if (!isSending) showConfirmModal = false;
+	}}
+/>

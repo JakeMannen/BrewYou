@@ -40,8 +40,10 @@
 </script>
 
 <script lang="ts">
-	import type { BrewStage } from '$lib/types/api';
+	import type { BrewStage, EquipmentDto } from '$lib/types/api';
+	import { api } from '$lib/api/client';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
+	import BrewLinkControlPanel from '$lib/components/brewery/BrewLinkControlPanel.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
@@ -54,7 +56,12 @@
 		Thermometer,
 		StepForward,
 		Sparkles,
-		Droplets
+		Droplets,
+		Waves,
+		Radio,
+		ChevronDown,
+		ChevronUp,
+		AlertTriangle
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -77,6 +84,8 @@
 		spargeEquipmentName?: string | null;
 		targetPostBoilVolumeLiters?: number | null;
 		boilOffRatePerHour?: number | null;
+		brewLinkEquipment?: EquipmentDto | null;
+		onBrewLinkUpdate?: (updated: EquipmentDto) => void;
 		onToggleTimer: () => void;
 		onResetTimer: () => void;
 		onAdjustTimer?: (seconds: number) => void;
@@ -105,6 +114,8 @@
 		spargeEquipmentName,
 		targetPostBoilVolumeLiters,
 		boilOffRatePerHour,
+		brewLinkEquipment = null,
+		onBrewLinkUpdate,
 		onToggleTimer,
 		onResetTimer,
 		onAdjustTimer,
@@ -112,6 +123,126 @@
 		onToggleIngredient,
 		onClose
 	}: Props = $props();
+
+	let showBrewLinkPanel = $state(false);
+	let isTogglingHeat = $state(false);
+	let isTogglingPump = $state(false);
+
+	let brewLinkMetrics = $derived.by(() => {
+		if (!brewLinkEquipment?.latestMetricsJson) return null;
+		try {
+			const raw = JSON.parse(brewLinkEquipment.latestMetricsJson);
+			if (typeof raw !== 'object' || raw === null) return null;
+			const parseBool = (v: unknown): boolean | undefined => {
+				if (typeof v === 'boolean') return v;
+				if (typeof v === 'string') return v.toLowerCase() === 'true';
+				return undefined;
+			};
+			const parseNum = (v: unknown): number | null => {
+				if (typeof v === 'number' && !isNaN(v)) return v;
+				if (typeof v === 'string' && !isNaN(Number(v))) return Number(v);
+				return null;
+			};
+			const heatActive =
+				parseBool(raw.heatActive) ??
+				parseBool(raw.heat_active) ??
+				parseBool(raw.heating) ??
+				parseBool(raw.heater_on) ??
+				parseBool(raw.heaterOn) ??
+				false;
+			const pumpActive =
+				parseBool(raw.pumpActive) ??
+				parseBool(raw.pump_active) ??
+				parseBool(raw.pumpOn) ??
+				parseBool(raw.pump_on) ??
+				parseBool(raw.pumping) ??
+				false;
+			const heatPowerPct =
+				parseNum(raw.heatPowerPct) ??
+				parseNum(raw.heat_power_pct) ??
+				parseNum(raw.heatPct) ??
+				parseNum(raw.heat_pct) ??
+				parseNum(raw.power_pct) ??
+				parseNum(raw.power) ??
+				(heatActive ? 100 : 0);
+			const interactionRequired =
+				parseBool(raw.interactionRequired) ??
+				parseBool(raw.interaction_required) ??
+				parseBool(raw.interaction?.required) ??
+				false;
+			const interactionMessage = (raw.interactionMessage ??
+				raw.interaction_message ??
+				raw.interaction?.message ??
+				null) as string | null;
+
+			return {
+				heatActive,
+				heatPowerPct,
+				pumpActive,
+				interaction: {
+					required: interactionRequired,
+					message: interactionMessage
+				}
+			};
+		} catch {
+			return null;
+		}
+	});
+
+	async function quickToggleHeater() {
+		if (!brewLinkEquipment) return;
+		isTogglingHeat = true;
+		try {
+			const nextState = !brewLinkMetrics?.heatActive;
+			const powerPct = nextState ? (brewLinkMetrics?.heatPowerPct ?? 100) : 0;
+			const res = await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
+				action: 'set_heat',
+				state: nextState,
+				powerPct,
+				params: {
+					state: nextState,
+					power_pct: powerPct
+				}
+			});
+			if (res.latestMetricsJson) {
+				brewLinkEquipment = {
+					...brewLinkEquipment,
+					latestMetricsJson: res.latestMetricsJson
+				};
+			}
+			onBrewLinkUpdate?.(brewLinkEquipment);
+		} catch (err: unknown) {
+			console.error('Failed to toggle heater from HUD', err);
+		} finally {
+			isTogglingHeat = false;
+		}
+	}
+
+	async function quickTogglePump() {
+		if (!brewLinkEquipment) return;
+		isTogglingPump = true;
+		try {
+			const nextState = !brewLinkMetrics?.pumpActive;
+			const res = await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
+				action: 'set_pump',
+				state: nextState,
+				params: {
+					state: nextState
+				}
+			});
+			if (res.latestMetricsJson) {
+				brewLinkEquipment = {
+					...brewLinkEquipment,
+					latestMetricsJson: res.latestMetricsJson
+				};
+			}
+			onBrewLinkUpdate?.(brewLinkEquipment);
+		} catch (err: unknown) {
+			console.error('Failed to toggle pump from HUD', err);
+		} finally {
+			isTogglingPump = false;
+		}
+	}
 
 	const nextAddition = $derived.by(() => {
 		if (currentStage !== 'Boil' || !stageIngredients || stageIngredients.length === 0) {
@@ -205,6 +336,53 @@
 						{/if}
 						{activeStepName}
 					</span>
+				</div>
+			{/if}
+
+			<!-- BrewLink Equipment Interaction / Alert Prompt Banner in HUD -->
+			{#if brewLinkMetrics?.interaction?.required}
+				<div
+					class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/50 bg-amber-500/20 px-4 py-2 text-amber-200 shadow-lg"
+					data-testid="hud-brewlink-interaction-banner"
+				>
+					<div class="flex items-center gap-2">
+						<AlertTriangle class="h-5 w-5 animate-bounce text-amber-400" />
+						<span class="text-xs font-bold">
+							{brewLinkMetrics.interaction.message || t('equipment.brewlink_interaction_alert')}
+						</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							onclick={async () => {
+								if (!brewLinkEquipment) return;
+								await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
+									action: 'ack_interaction'
+								});
+								const res = await api.equipment.getById(brewLinkEquipment.id);
+								onBrewLinkUpdate?.(res);
+							}}
+							class="rounded-lg bg-amber-500 px-3 py-1 text-xs font-bold text-zinc-950 shadow hover:bg-amber-400 active:scale-95"
+							data-testid="hud-ack-interaction-btn"
+						>
+							{t('common.yes')} — {t('equipment.brewlink_ack_prompt')}
+						</button>
+						<button
+							type="button"
+							onclick={async () => {
+								if (!brewLinkEquipment) return;
+								await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
+									action: 'dismiss_alert'
+								});
+								const res = await api.equipment.getById(brewLinkEquipment.id);
+								onBrewLinkUpdate?.(res);
+							}}
+							class="rounded-lg border border-amber-400/40 bg-zinc-900/60 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-zinc-900 active:scale-95"
+							data-testid="hud-dismiss-alert-btn"
+						>
+							{t('common.no')} — {t('equipment.brewlink_dismiss_alert')}
+						</button>
+					</div>
 				</div>
 			{/if}
 
@@ -320,6 +498,92 @@
 					</button>
 				{/if}
 			</div>
+
+			<!-- BrewLink Tactile Hardware Controls (Steam & Wet Hands Friendly) -->
+			{#if brewLinkEquipment && brewLinkEquipment.connectionType === 'BrewLink'}
+				<div
+					class="mt-4 rounded-2xl border border-sky-500/30 bg-sky-500/10 p-3"
+					data-testid="hud-brewlink-section"
+				>
+					<div class="flex flex-wrap items-center justify-between gap-3">
+						<div class="flex items-center gap-2">
+							<Radio class="h-4 w-4 text-sky-400" />
+							<span class="text-xs font-bold text-sky-300">
+								{brewLinkEquipment.name} ({t('equipment.brewlink_tag')})
+							</span>
+						</div>
+
+						<div class="flex flex-wrap items-center gap-2">
+							<!-- Quick Heater Toggle -->
+							<button
+								type="button"
+								disabled={isTogglingHeat}
+								onclick={quickToggleHeater}
+								class="flex min-h-[48px] items-center gap-2 rounded-xl px-4 text-xs font-bold shadow transition {brewLinkMetrics?.heatActive
+									? 'bg-rose-600 text-white hover:bg-rose-700'
+									: 'border border-white/20 bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}"
+								data-testid="hud-brewlink-heat-btn"
+							>
+								<Flame
+									class="h-4 w-4 {brewLinkMetrics?.heatActive
+										? 'animate-pulse text-amber-300'
+										: ''}"
+								/>
+								<span
+									>{brewLinkMetrics?.heatActive
+										? `${t('equipment.brewlink_heat_on')} (${brewLinkMetrics?.heatPowerPct ?? 100}%)`
+										: t('equipment.brewlink_heat_off')}</span
+								>
+							</button>
+
+							<!-- Quick Pump Toggle -->
+							<button
+								type="button"
+								disabled={isTogglingPump}
+								onclick={quickTogglePump}
+								class="flex min-h-[48px] items-center gap-2 rounded-xl px-4 text-xs font-bold shadow transition {brewLinkMetrics?.pumpActive
+									? 'bg-cyan-600 text-white hover:bg-cyan-700'
+									: 'border border-white/20 bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}"
+								data-testid="hud-brewlink-pump-btn"
+							>
+								<Waves
+									class="h-4 w-4 {brewLinkMetrics?.pumpActive ? 'animate-spin text-white' : ''}"
+								/>
+								<span
+									>{brewLinkMetrics?.pumpActive
+										? t('equipment.brewlink_pump_on')
+										: t('equipment.brewlink_pump_off')}</span
+								>
+							</button>
+
+							<!-- Toggle Full Control Panel Drawer -->
+							<button
+								type="button"
+								onclick={() => (showBrewLinkPanel = !showBrewLinkPanel)}
+								class="flex min-h-[48px] items-center gap-1.5 rounded-xl border border-sky-400/30 bg-sky-950/60 px-3 text-xs font-bold text-sky-300 hover:bg-sky-900/60"
+								data-testid="hud-brewlink-panel-toggle"
+							>
+								<span>{t('equipment.brewlink_controls')}</span>
+								{#if showBrewLinkPanel}
+									<ChevronUp class="h-4 w-4" />
+								{:else}
+									<ChevronDown class="h-4 w-4" />
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					{#if showBrewLinkPanel}
+						<div class="mt-3 border-t border-sky-500/20 pt-3 text-left">
+							<BrewLinkControlPanel
+								equipment={brewLinkEquipment}
+								compact={true}
+								onUpdate={(updated) => onBrewLinkUpdate?.(updated)}
+							/>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</main>
 
 		<!-- Bottom Telemetry Tiles: Targets & Instrumentation -->

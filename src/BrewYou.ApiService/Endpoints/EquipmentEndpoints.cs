@@ -569,6 +569,73 @@ public static class EquipmentEndpoints
         .Produces<ApiResponse>(StatusCodes.Status409Conflict)
         .Produces<ApiResponse>(StatusCodes.Status502BadGateway);
 
+        group.MapPost("/{id:guid}/brewlink/control", async (
+            Guid id,
+            BrewLinkControlRequest request,
+            ClaimsPrincipal principal,
+            IBrewLinkService brewLinkService,
+            CancellationToken ct) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, cmdResult, error) = await brewLinkService.SendControlCommandAsync(userId, id, request, ct);
+            return result switch
+            {
+                BrewLinkSendResult.Success => Results.Ok(ApiResponse<BrewLinkCommandResultDto>.Ok(cmdResult!)),
+                BrewLinkSendResult.EquipmentDisconnected => Results.Conflict(ApiResponse.Fail("EQUIPMENT_DISCONNECTED", error ?? "Equipment is disconnected from BrewLink gateway.")),
+                BrewLinkSendResult.Unauthorized => Results.Json(ApiResponse.Fail("UNAUTHORIZED", error ?? "BrewLink gateway authorization failed."), statusCode: StatusCodes.Status401Unauthorized),
+                BrewLinkSendResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
+                BrewLinkSendResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                BrewLinkSendResult.BadRequest => Results.BadRequest(ApiResponse.Fail("BAD_REQUEST", error ?? "Invalid request.")),
+                _ => Results.Json(ApiResponse.Fail("GATEWAY_ERROR", error ?? "Failed to send command to BrewLink gateway."), statusCode: StatusCodes.Status502BadGateway)
+            };
+        })
+        .WithName("SendBrewLinkControl")
+        .Produces<ApiResponse<BrewLinkCommandResultDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict)
+        .Produces<ApiResponse>(StatusCodes.Status502BadGateway);
+
+        group.MapPost("/{id:guid}/brewlink/sync", async (
+            Guid id,
+            ClaimsPrincipal principal,
+            IBrewLinkService brewLinkService,
+            CancellationToken ct) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, syncResult, error) = await brewLinkService.SyncEquipmentStateAsync(userId, id, ct);
+            return result switch
+            {
+                BrewLinkSendResult.Success => Results.Ok(ApiResponse<BrewLinkSyncResultDto>.Ok(syncResult!)),
+                BrewLinkSendResult.EquipmentDisconnected => Results.Conflict(ApiResponse.Fail("EQUIPMENT_DISCONNECTED", error ?? "Equipment is disconnected from BrewLink gateway.")),
+                BrewLinkSendResult.Unauthorized => Results.Json(ApiResponse.Fail("UNAUTHORIZED", error ?? "BrewLink gateway authorization failed."), statusCode: StatusCodes.Status401Unauthorized),
+                BrewLinkSendResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
+                BrewLinkSendResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                BrewLinkSendResult.BadRequest => Results.BadRequest(ApiResponse.Fail("BAD_REQUEST", error ?? "Invalid request.")),
+                _ => Results.Json(ApiResponse.Fail("GATEWAY_ERROR", error ?? "Failed to sync equipment state from BrewLink gateway."), statusCode: StatusCodes.Status502BadGateway)
+            };
+        })
+        .WithName("SyncBrewLinkEquipment")
+        .Produces<ApiResponse<BrewLinkSyncResultDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict)
+        .Produces<ApiResponse>(StatusCodes.Status502BadGateway);
+
         return group;
     }
 }

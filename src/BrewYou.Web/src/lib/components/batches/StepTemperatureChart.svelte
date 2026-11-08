@@ -2,7 +2,12 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
-	import type { BatchEquipmentReadingDto, BatchMashStepDto, BrewStage } from '$lib/types/api';
+	import type {
+		BatchBoilStep,
+		BatchEquipmentReadingDto,
+		BatchMashStepDto,
+		BrewStage
+	} from '$lib/types/api';
 	import { Thermometer, Plus } from '@lucide/svelte';
 
 	interface Props {
@@ -10,10 +15,13 @@
 		stage: BrewStage;
 		mashSteps?: BatchMashStepDto[];
 		selectedStepId?: string | null;
+		boilSteps?: BatchBoilStep[];
+		selectedBoilStepName?: string | null;
 		targetTemperatureC?: number | null;
 		equipmentName?: string | null;
 		isLive?: boolean;
 		onSelectStep?: (stepId: string | null) => void;
+		onSelectBoilStep?: (stepName: string | null) => void;
 		onOpenLogModal?: () => void;
 		class?: string;
 	}
@@ -23,10 +31,13 @@
 		stage,
 		mashSteps = [],
 		selectedStepId = null,
+		boilSteps = [],
+		selectedBoilStepName = null,
 		targetTemperatureC = null,
 		equipmentName = null,
 		isLive = false,
 		onSelectStep,
+		onSelectBoilStep,
 		onOpenLogModal,
 		class: className = ''
 	}: Props = $props();
@@ -38,19 +49,28 @@
 	const innerWidth = width - padding.left - padding.right;
 	const innerHeight = height - padding.top - padding.bottom;
 
-	// Filter readings for this stage and selectedStepId if present
+	// Filter readings for this stage and selected step if present
 	let stageReadings = $derived.by(() => {
 		return readings.filter((r) => !r.stage || r.stage === stage);
 	});
 
 	let displayedReadings = $derived.by(() => {
-		if (!selectedStepId) return stageReadings;
-		return stageReadings.filter((r) => r.batchMashStepId === selectedStepId);
+		if (stage === 'Mash' && selectedStepId) {
+			return stageReadings.filter((r) => r.batchMashStepId === selectedStepId);
+		}
+		if (stage === 'Boil' && selectedBoilStepName) {
+			return stageReadings.filter((r) => r.stepName === selectedBoilStepName);
+		}
+		return stageReadings;
 	});
 
 	let isCurrentStepCompleted = $derived.by(() => {
-		if (selectedStepId && mashSteps.length > 0) {
+		if (stage === 'Mash' && selectedStepId && mashSteps.length > 0) {
 			const s = mashSteps.find((x) => x.id === selectedStepId);
+			return s ? s.isCompleted : false;
+		}
+		if (stage === 'Boil' && selectedBoilStepName && boilSteps.length > 0) {
+			const s = boilSteps.find((x) => x.name === selectedBoilStepName);
 			return s ? s.isCompleted : false;
 		}
 		return false;
@@ -65,8 +85,12 @@
 
 	// Compute temperature domain
 	let effectiveTargetC = $derived.by<number | null>(() => {
-		if (selectedStepId && mashSteps.length > 0) {
+		if (stage === 'Mash' && selectedStepId && mashSteps.length > 0) {
 			const found = mashSteps.find((s) => s.id === selectedStepId);
+			if (found) return found.targetTemperatureC;
+		}
+		if (stage === 'Boil' && selectedBoilStepName && boilSteps.length > 0) {
+			const found = boilSteps.find((s) => s.name === selectedBoilStepName);
 			if (found) return found.targetTemperatureC;
 		}
 		if (targetTemperatureC !== null && targetTemperatureC !== undefined) return targetTemperatureC;
@@ -74,7 +98,6 @@
 			const active = mashSteps.find((s) => !s.isCompleted) ?? mashSteps[0];
 			return active.targetTemperatureC;
 		}
-		if (stage === 'Mash') return 65.0;
 		if (stage === 'Boil') return 100.0;
 		if (stage === 'Ferment') return 20.0;
 		if (stage === 'Condition') return 2.0;
@@ -240,6 +263,37 @@
 							onclick={() => onSelectStep(step.id)}
 							class="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold transition-all {selectedStepId ===
 							step.id
+								? 'bg-amber-500 text-white shadow-xs'
+								: 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+						>
+							#{step.stepOrder}
+							{step.name}
+						</button>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Boil Step Filter (If in Boil stage with boil steps) -->
+			{#if stage === 'Boil' && boilSteps.length > 0 && onSelectBoilStep}
+				<div
+					class="flex items-center rounded-xl border border-zinc-200 bg-zinc-50/80 p-0.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+				>
+					<button
+						type="button"
+						onclick={() => onSelectBoilStep(null)}
+						class="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold transition-all {selectedBoilStepName ===
+						null
+							? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-800 dark:text-white'
+							: 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+					>
+						{t('batches.workspace.all_boil_steps')}
+					</button>
+					{#each boilSteps as step (step.id)}
+						<button
+							type="button"
+							onclick={() => onSelectBoilStep(step.name)}
+							class="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold transition-all {selectedBoilStepName ===
+							step.name
 								? 'bg-amber-500 text-white shadow-xs'
 								: 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'}"
 						>

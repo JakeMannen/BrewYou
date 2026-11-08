@@ -157,7 +157,24 @@ describe('BrewStationHudModal', () => {
 			'target_post_boil_short',
 			'boil_off_rate_hint',
 			'all_milestones_completed',
-			'due_now_badge'
+			'due_now_badge',
+			'boil_schedule_title',
+			'boil_step_ramp',
+			'boil_step_flameout',
+			'boil_step_whirlpool',
+			'boil_step_addition',
+			'boil_step_general',
+			'log_live_temp',
+			'confirm_pause_timer_title',
+			'confirm_pause_timer_message',
+			'confirm_reset_timer_title',
+			'confirm_reset_timer_message',
+			'confirm_advance_step_title',
+			'confirm_advance_step_message',
+			'brewlink_controlled_timer',
+			'brewlink_alert_title',
+			'select_boil_step',
+			'all_boil_steps'
 		] as const;
 
 		for (const key of requiredHudKeys) {
@@ -166,6 +183,11 @@ describe('BrewStationHudModal', () => {
 			expect(de.batches.workspace[key], `Missing de.batches.workspace.${key}`).toBeDefined();
 			expect(es.batches.workspace[key], `Missing es.batches.workspace.${key}`).toBeDefined();
 			expect(fr.batches.workspace[key], `Missing fr.batches.workspace.${key}`).toBeDefined();
+		}
+
+		for (const loc of [en, sv, de, es, fr]) {
+			expect(loc.common.yes).toBeDefined();
+			expect(loc.common.no).toBeDefined();
 		}
 	});
 });

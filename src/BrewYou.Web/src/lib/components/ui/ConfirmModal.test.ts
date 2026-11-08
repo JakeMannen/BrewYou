@@ -8,6 +8,10 @@ describe('ConfirmModal Component Logic & Invariants', () => {
 		expect(sv.common.confirm).toBe('Bekräfta');
 		expect(en.common.cancel).toBe('Cancel');
 		expect(sv.common.cancel).toBe('Avbryt');
+		expect(en.common.yes).toBe('Yes');
+		expect(sv.common.yes).toBe('Ja');
+		expect(en.common.no).toBe('No');
+		expect(sv.common.no).toBe('Nej');
 	});
 
 	it('computes correct variant styles for all supported modal variants', () => {

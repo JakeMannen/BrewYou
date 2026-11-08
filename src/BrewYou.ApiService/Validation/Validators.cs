@@ -543,9 +543,9 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .WithMessage("Tap equipment cannot have connection configuration.");
 
         RuleFor(x => x)
-            .Must(x => x.Type == EquipmentType.Boiler && (x.Subtype == null || x.Subtype == EquipmentSubtype.AllInOne))
+            .Must(x => x.Type == EquipmentType.Boiler || x.Type == EquipmentType.Fermenter)
             .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
-            .WithMessage("BrewLink connectivity is only supported on All-in-One Boilers.")
+            .WithMessage("BrewLink connectivity is only supported on Boilers and Fermenters.")
             .WithName("ConnectionType");
 
         RuleFor(x => x.ConnectionConfigJson)
@@ -765,9 +765,9 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .WithMessage("Tap equipment cannot have connection configuration.");
 
         RuleFor(x => x)
-            .Must(x => x.Type == EquipmentType.Boiler && (x.Subtype == null || x.Subtype == EquipmentSubtype.AllInOne))
+            .Must(x => x.Type == EquipmentType.Boiler || x.Type == EquipmentType.Fermenter)
             .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
-            .WithMessage("BrewLink connectivity is only supported on All-in-One Boilers.")
+            .WithMessage("BrewLink connectivity is only supported on Boilers and Fermenters.")
             .WithName("ConnectionType");
 
         RuleFor(x => x.ConnectionConfigJson)

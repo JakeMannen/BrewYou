@@ -1958,7 +1958,7 @@ public class BatchService : IBatchService
         else if (stage == BrewStage.Boil)
         {
             stepName ??= "Boil";
-            targetTempC = 100.0m;
+            targetTempC = request.TargetTemperatureC ?? ((stepName != null && stepName.Contains("Whirlpool", StringComparison.OrdinalIgnoreCase)) ? 85.0m : 100.0m);
         }
         else if (stage == BrewStage.Ferment || stage == BrewStage.Condition)
         {

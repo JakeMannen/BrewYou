@@ -83,7 +83,9 @@ import type {
 	PairBrewLinkRequest,
 	UpdateBrewLinkGatewayRequest,
 	SendBrewLinkRecipeRequest,
-	BrewLinkCommandResultDto
+	BrewLinkCommandResultDto,
+	SendBrewLinkControlRequest,
+	BrewLinkSyncResultDto
 } from '$lib/types/api';
 
 interface CustomWindow extends Window {
@@ -627,6 +629,28 @@ export const api = {
 				{
 					method: 'POST',
 					body: JSON.stringify(req)
+				}
+			);
+		},
+
+		async sendBrewLinkControl(
+			equipmentId: string,
+			req: SendBrewLinkControlRequest
+		): Promise<BrewLinkCommandResultDto> {
+			return request<BrewLinkCommandResultDto>(
+				`/api/v1/inventory/equipment/${equipmentId}/brewlink/control`,
+				{
+					method: 'POST',
+					body: JSON.stringify(req)
+				}
+			);
+		},
+
+		async syncBrewLinkState(equipmentId: string): Promise<BrewLinkSyncResultDto> {
+			return request<BrewLinkSyncResultDto>(
+				`/api/v1/inventory/equipment/${equipmentId}/brewlink/sync`,
+				{
+					method: 'POST'
 				}
 			);
 		}

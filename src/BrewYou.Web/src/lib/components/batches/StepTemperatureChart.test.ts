@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { BatchEquipmentReadingDto, BatchMashStepDto } from '$lib/types/api';
+import type { BatchBoilStep, BatchEquipmentReadingDto, BatchMashStepDto } from '$lib/types/api';
 
 export function calculateReadingStats(readings: BatchEquipmentReadingDto[]) {
 	if (readings.length === 0) {
@@ -22,6 +22,29 @@ export function filterReadingsByStep(
 	const stageFiltered = stage ? readings.filter((r) => !r.stage || r.stage === stage) : readings;
 	if (!selectedStepId) return stageFiltered;
 	return stageFiltered.filter((r) => r.batchMashStepId === selectedStepId);
+}
+
+export function filterReadingsByBoilStep(
+	readings: BatchEquipmentReadingDto[],
+	selectedBoilStepName: string | null
+): BatchEquipmentReadingDto[] {
+	const boilReadings = readings.filter((r) => !r.stage || r.stage === 'Boil');
+	if (!selectedBoilStepName) return boilReadings;
+	return boilReadings.filter((r) => r.stepName === selectedBoilStepName);
+}
+
+export function resolveBoilStepTargetTemp(
+	selectedBoilStepName: string | null,
+	boilSteps: BatchBoilStep[] = [],
+	defaultTargetC: number | null = 100.0
+): number | null {
+	if (selectedBoilStepName && boilSteps.length > 0) {
+		const found = boilSteps.find((s) => s.name === selectedBoilStepName);
+		if (found && found.targetTemperatureC !== null && found.targetTemperatureC !== undefined) {
+			return found.targetTemperatureC;
+		}
+	}
+	return defaultTargetC;
 }
 
 export function resolveStepTargetTemp(
@@ -233,5 +256,102 @@ describe('StepTemperatureChart Telemetry & Geometry Logic', () => {
 		expect(updatedStats.latest).toBe(66.5);
 		expect(updatedStats.max).toBe(66.5);
 		expect(liveList).toHaveLength(4);
+	});
+
+	it('filters boil readings accurately by boil step name and supports all-steps view', () => {
+		const boilReadings: BatchEquipmentReadingDto[] = [
+			{
+				id: 'b-ramp-1',
+				equipmentId: 'eq-1',
+				equipmentName: 'Grainfather G40',
+				batchId: 'b-1',
+				stage: 'Boil',
+				stepName: 'Pre-Boil Ramp',
+				temperatureC: 98.2,
+				timestamp: '2026-09-12T11:00:00Z'
+			},
+			{
+				id: 'b-ramp-2',
+				equipmentId: 'eq-1',
+				equipmentName: 'Grainfather G40',
+				batchId: 'b-1',
+				stage: 'Boil',
+				stepName: 'Pre-Boil Ramp',
+				temperatureC: 99.8,
+				timestamp: '2026-09-12T11:10:00Z'
+			},
+			{
+				id: 'b-60m',
+				equipmentId: 'eq-1',
+				equipmentName: 'Grainfather G40',
+				batchId: 'b-1',
+				stage: 'Boil',
+				stepName: 'Boil Addition (60m)',
+				temperatureC: 100.1,
+				timestamp: '2026-09-12T11:15:00Z'
+			},
+			{
+				id: 'b-wp',
+				equipmentId: 'eq-1',
+				equipmentName: 'Grainfather G40',
+				batchId: 'b-1',
+				stage: 'Boil',
+				stepName: 'Whirlpool / Hop Stand',
+				temperatureC: 84.5,
+				timestamp: '2026-09-12T12:15:00Z'
+			}
+		];
+
+		const rampReadings = filterReadingsByBoilStep(boilReadings, 'Pre-Boil Ramp');
+		expect(rampReadings).toHaveLength(2);
+		expect(rampReadings.every((r) => r.stepName === 'Pre-Boil Ramp')).toBe(true);
+
+		const wpReadings = filterReadingsByBoilStep(boilReadings, 'Whirlpool / Hop Stand');
+		expect(wpReadings).toHaveLength(1);
+		expect(wpReadings[0].temperatureC).toBe(84.5);
+
+		const allBoil = filterReadingsByBoilStep(boilReadings, null);
+		expect(allBoil).toHaveLength(4);
+	});
+
+	it('resolves correct target temperature for boil steps (100°C for ramp/boil, 85°C for whirlpool)', () => {
+		const mockBoilSteps: BatchBoilStep[] = [
+			{
+				id: 'boil-step-ramp',
+				stepOrder: 1,
+				name: 'Pre-Boil Ramp',
+				stepType: 'ramp',
+				additionTimeMinutes: null,
+				targetTemperatureC: 100.0,
+				ingredients: [],
+				isCompleted: true
+			},
+			{
+				id: 'boil-step-60',
+				stepOrder: 2,
+				name: 'Boil Addition (60m)',
+				stepType: 'addition',
+				additionTimeMinutes: 60,
+				targetTemperatureC: 100.0,
+				ingredients: [],
+				isCompleted: false
+			},
+			{
+				id: 'boil-step-whirlpool',
+				stepOrder: 3,
+				name: 'Whirlpool / Hop Stand',
+				stepType: 'whirlpool',
+				targetTemperatureC: 85.0,
+				durationMinutes: 15,
+				ingredients: [],
+				isCompleted: false
+			}
+		];
+
+		expect(resolveBoilStepTargetTemp('Pre-Boil Ramp', mockBoilSteps)).toBe(100.0);
+		expect(resolveBoilStepTargetTemp('Boil Addition (60m)', mockBoilSteps)).toBe(100.0);
+		expect(resolveBoilStepTargetTemp('Whirlpool / Hop Stand', mockBoilSteps)).toBe(85.0);
+		expect(resolveBoilStepTargetTemp(null, mockBoilSteps)).toBe(100.0);
+		expect(resolveBoilStepTargetTemp('Unknown Step', mockBoilSteps)).toBe(100.0);
 	});
 });

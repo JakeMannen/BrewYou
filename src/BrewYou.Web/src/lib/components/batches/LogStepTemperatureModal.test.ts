@@ -1,7 +1,8 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import en from '$lib/i18n/locales/en.json';
 import sv from '$lib/i18n/locales/sv.json';
 import type {
+	BatchBoilStep,
 	BatchMashStepDto,
 	BrewStage,
 	EquipmentDto,
@@ -176,6 +177,54 @@ describe('LogStepTemperatureModal & Telemetry Logic', () => {
 			expect(getTargetTemp('Ferment', null, mockMashSteps, 18.5)).toBe(18.5);
 			expect(getTargetTemp('Condition', null, mockMashSteps)).toBe(2.0);
 		});
+
+		it('resolves boil step selection and target temperature for boil stage', () => {
+			const mockBoilSteps: BatchBoilStep[] = [
+				{
+					id: 'boil-step-ramp',
+					stepOrder: 1,
+					name: 'Pre-Boil Ramp',
+					stepType: 'ramp',
+					targetTemperatureC: 100.0,
+					ingredients: [],
+					isCompleted: true
+				},
+				{
+					id: 'boil-step-60',
+					stepOrder: 2,
+					name: 'Boil Addition (60m)',
+					stepType: 'addition',
+					additionTimeMinutes: 60,
+					targetTemperatureC: 100.0,
+					ingredients: [],
+					isCompleted: false
+				},
+				{
+					id: 'boil-step-whirlpool',
+					stepOrder: 3,
+					name: 'Whirlpool / Hop Stand',
+					stepType: 'whirlpool',
+					durationMinutes: 15,
+					targetTemperatureC: 85.0,
+					ingredients: [],
+					isCompleted: false
+				}
+			];
+
+			function resolveBoilStep(steps: BatchBoilStep[], stepName?: string | null) {
+				if (!stepName || steps.length === 0) return null;
+				return steps.find((s) => s.name === stepName) ?? null;
+			}
+
+			const rampStep = resolveBoilStep(mockBoilSteps, 'Pre-Boil Ramp');
+			expect(rampStep?.targetTemperatureC).toBe(100.0);
+
+			const wpStep = resolveBoilStep(mockBoilSteps, 'Whirlpool / Hop Stand');
+			expect(wpStep?.targetTemperatureC).toBe(85.0);
+
+			const fallbackStep = resolveBoilStep(mockBoilSteps, null);
+			expect(fallbackStep).toBeNull();
+		});
 	});
 
 	describe('Temperature Conversions & Input Validation', () => {
@@ -229,6 +278,24 @@ describe('LogStepTemperatureModal & Telemetry Logic', () => {
 			expect(req.batchMashStepId).toBe('step-2');
 			expect(req.stepName).toBe('Saccharification');
 			expect(req.notes).toBe('Stable temp hold');
+		});
+
+		it('builds LogBatchTemperatureRequest for boil step with target temperature and step name', () => {
+			const req: LogBatchTemperatureRequest = {
+				temperatureC: 99.5,
+				targetTemperatureC: 100.0,
+				equipmentId: 'eq-boiler-1',
+				stage: 'Boil',
+				stepName: 'Pre-Boil Ramp',
+				notes: 'Approaching rolling boil'
+			};
+
+			expect(req.temperatureC).toBe(99.5);
+			expect(req.targetTemperatureC).toBe(100.0);
+			expect(req.equipmentId).toBe('eq-boiler-1');
+			expect(req.stage).toBe('Boil');
+			expect(req.stepName).toBe('Pre-Boil Ramp');
+			expect(req.batchMashStepId).toBeUndefined();
 		});
 
 		it('ensures AddBatchReadingRequest does NOT log temperature when logging gravity', () => {
