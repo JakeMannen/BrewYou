@@ -61,6 +61,12 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             return false;
         }
 
+        // Sensors other than BrewLink cannot use BrewLink connection or format for telemetry
+        if (equipment != null && equipment.Type == EquipmentType.Sensor && equipment.Subtype != EquipmentSubtype.BrewLink)
+        {
+            return false;
+        }
+
         if (equipment?.ConnectionType == EquipmentConnectionType.BrewLink)
         {
             return true;

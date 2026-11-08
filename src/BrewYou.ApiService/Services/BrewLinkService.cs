@@ -1056,6 +1056,11 @@ public partial class BrewLinkService : IBrewLinkService
             return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is not connected to a BrewLink gateway.");
         }
 
+        if (equipment.Type == EquipmentType.Sensor && equipment.Subtype != EquipmentSubtype.BrewLink)
+        {
+            return (BrewLinkSendResult.BadRequest, null, "Non-BrewLink sensors cannot use BrewLink connection.");
+        }
+
         var (isValidConfig, configError, gatewayId, targetMac, targetSlot, targetName) =
             ParseEquipmentConnectionConfig(equipment.ConnectionConfigJson);
         if (!isValidConfig)
@@ -1299,6 +1304,11 @@ public partial class BrewLinkService : IBrewLinkService
         if (equipment.ConnectionType != EquipmentConnectionType.BrewLink || string.IsNullOrWhiteSpace(equipment.ConnectionConfigJson))
         {
             return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is not connected to a BrewLink gateway.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor && equipment.Subtype != EquipmentSubtype.BrewLink)
+        {
+            return (BrewLinkSendResult.BadRequest, null, "Non-BrewLink sensors cannot use BrewLink connection.");
         }
 
         var (isValidConfig, configError, gatewayId, targetMac, targetSlot, targetName) =

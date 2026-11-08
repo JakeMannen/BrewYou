@@ -521,6 +521,7 @@ export type EquipmentSubtype =
 	| 'ISpindel'
 	| 'Tilt'
 	| 'GenericSensor'
+	| 'BrewLink'
 	| 'StandardTap'
 	| 'RoundDisplayTap'
 	| 'RectDisplayTap'
@@ -530,7 +531,7 @@ export const EQUIPMENT_SUBTYPES_BY_TYPE: Record<EquipmentType, EquipmentSubtype[
 	Boiler: ['AllInOne', 'Pan', 'Hlt', 'HermsRims', 'MashTun', 'LauterTun'],
 	Fermenter: ['Bucket', 'ConicalFermenter', 'Carboy', 'PressureFermenter', 'StainlessBucket'],
 	Keg: ['Cornelius', 'Minikeg', 'MiniBarrel', 'PetKeg'],
-	Sensor: ['GenericSensor', 'Tilt', 'ISpindel'],
+	Sensor: ['GenericSensor', 'Tilt', 'ISpindel', 'BrewLink'],
 	Tap: ['StandardTap', 'RoundDisplayTap', 'RectDisplayTap'],
 	Other: ['Other']
 };
@@ -563,6 +564,7 @@ export const SUBTYPE_LABELS: Record<EquipmentSubtype, string> = {
 	ISpindel: 'iSpindel',
 	Tilt: 'Tilt Hydrometer',
 	GenericSensor: 'Generic Sensor / Probe',
+	BrewLink: 'BrewLink',
 	StandardTap: 'Standard Tap',
 	RoundDisplayTap: 'Round Screen Tap',
 	RectDisplayTap: 'Rectangular Screen Tap',
@@ -588,6 +590,7 @@ export const SUBTYPE_DESCRIPTIONS: Record<EquipmentSubtype, string> = {
 	ISpindel: 'Wireless floating WiFi hydrometer and temperature capsule',
 	Tilt: 'Wireless Bluetooth floating hydrometer and thermometer',
 	GenericSensor: 'Digital temperature probe or external telemetry sensor',
+	BrewLink: 'ESP32 Bluetooth gateway and telemetry interface',
 	StandardTap: 'Standard draft tap faucet',
 	RoundDisplayTap: 'Draft tap with round digital screen (e.g. 240x240 / 480x480 OLED/LCD)',
 	RectDisplayTap: 'Draft tap with rectangular digital screen (e.g. 320x240 / 800x480 LCD)',

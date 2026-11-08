@@ -110,14 +110,13 @@
 	let gatewayDevices = $state<BrewLinkEquipmentDeviceDto[]>([]);
 	let isLoadingGatewayDevices = $state(false);
 	let gatewayDevicesError = $state<string | null>(null);
-	let showGatewayManager = $state(false);
 
 	function handleGatewaysChanged(newGateways: BrewLinkGatewayDto[]) {
 		gateways = newGateways;
 		if (!newGateways.some((g) => g.id === brewLinkGatewayId)) {
 			brewLinkGatewayId = newGateways.length > 0 ? newGateways[0].id : '';
 		}
-		if (brewLinkGatewayId) {
+		if (brewLinkGatewayId && subtype !== 'BrewLink') {
 			void loadGatewayEquipment(brewLinkGatewayId);
 		} else {
 			gatewayDevices = [];
@@ -127,6 +126,9 @@
 	async function loadBrewLinkGateways() {
 		try {
 			gateways = await api.brewlink.listGateways();
+			if (!brewLinkGatewayId && gateways.length === 1) {
+				brewLinkGatewayId = gateways[0].id;
+			}
 		} catch (err: unknown) {
 			console.error('Failed to load BrewLink gateways', err);
 		}
@@ -158,7 +160,11 @@
 		if (!name.trim() && dev.name) {
 			name = dev.name;
 		}
-		if (dev.state?.tempC != null && (currentTemperature === '' || currentTemperature === null)) {
+		if (
+			subtype !== 'BrewLink' &&
+			dev.state?.tempC != null &&
+			(currentTemperature === '' || currentTemperature === null)
+		) {
 			const tempVal =
 				settings.temperatureUnit === 'Fahrenheit'
 					? celsiusToFahrenheit(dev.state.tempC)
@@ -238,6 +244,7 @@
 		ISpindel: 0,
 		Tilt: 0,
 		GenericSensor: 0,
+		BrewLink: 0,
 		StandardTap: 0,
 		RoundDisplayTap: 0,
 		RectDisplayTap: 0,
@@ -323,15 +330,19 @@
 				displayOrientation = equipment.displayOrientation ?? 'Landscape';
 
 				// Initialize telemetry
-				connectionType = equipment.connectionType ?? 'None';
-				connectionToken = equipment.connectionToken ?? null;
-				if (equipment.currentTemperatureC != null) {
-					currentTemperature =
-						settings.temperatureUnit === 'Fahrenheit'
-							? parseFloat(celsiusToFahrenheit(equipment.currentTemperatureC).toFixed(1))
-							: parseFloat(equipment.currentTemperatureC.toFixed(1));
-				} else {
+				if (equipment.subtype === 'BrewLink') {
+					connectionType = 'BrewLink';
 					currentTemperature = '';
+				} else {
+					connectionType = equipment.connectionType ?? 'None';
+					if (equipment.currentTemperatureC != null) {
+						currentTemperature =
+							settings.temperatureUnit === 'Fahrenheit'
+								? parseFloat(celsiusToFahrenheit(equipment.currentTemperatureC).toFixed(1))
+								: parseFloat(equipment.currentTemperatureC.toFixed(1));
+					} else {
+						currentTemperature = '';
+					}
 				}
 
 				if (equipment.connectionConfigJson) {
@@ -426,8 +437,7 @@
 				displayOrientation = 'Landscape';
 
 				// Reset telemetry
-				connectionType = initialCategory === 'Sensor' ? 'BrewLink' : 'None';
-				showGatewayManager = false;
+				connectionType = initialSubtype === 'BrewLink' ? 'BrewLink' : 'None';
 				connectionToken = null;
 				brewLinkGatewayId = '';
 				brewLinkTargetMac = '';
@@ -463,7 +473,7 @@
 	});
 
 	$effect(() => {
-		if (!open || connectionType !== 'BrewLink' || !brewLinkGatewayId) {
+		if (!open || connectionType !== 'BrewLink' || subtype === 'BrewLink' || !brewLinkGatewayId) {
 			gatewayDevices = [];
 			gatewayDevicesError = null;
 			return;
@@ -486,8 +496,15 @@
 		}
 
 		if (newType === 'Sensor' && !equipment) {
-			connectionType = 'BrewLink';
-		} else if (connectionType === 'BrewLink' && !(newType === 'Boiler' || newType === 'Fermenter' || newType === 'Sensor')) {
+			connectionType = defaultSub === 'BrewLink' ? 'BrewLink' : 'None';
+		} else if (
+			connectionType === 'BrewLink' &&
+			!(
+				newType === 'Boiler' ||
+				newType === 'Fermenter' ||
+				(newType === 'Sensor' && defaultSub === 'BrewLink')
+			)
+		) {
 			connectionType = 'None';
 		}
 
@@ -522,7 +539,13 @@
 	function handleSubtypeSelect(selectedSub: EquipmentSubtype) {
 		subtype = selectedSub;
 		selectedAioPreset = '';
-		if (connectionType === 'BrewLink' && !(type === 'Boiler' || type === 'Fermenter' || type === 'Sensor')) {
+		if (selectedSub === 'BrewLink') {
+			connectionType = 'BrewLink';
+			currentTemperature = '';
+			if (!name.trim() && !equipment) {
+				name = 'BrewLink';
+			}
+		} else if (connectionType === 'BrewLink' && !(type === 'Boiler' || type === 'Fermenter')) {
 			connectionType = 'None';
 		}
 		if (!isVesselFillable(selectedSub)) {
@@ -782,18 +805,30 @@
 					});
 				}
 			} else if (connectionType === 'BrewLink') {
-				configJson = JSON.stringify({
-					brewLinkGatewayId: brewLinkGatewayId ? brewLinkGatewayId : null,
-					targetMac: brewLinkTargetMac.trim().replace(/[:-]/g, '').toUpperCase(),
-					targetName: brewLinkTargetName.trim() || null,
-					slot: brewLinkSlot
-				});
+				if (subtype === 'BrewLink') {
+					configJson = brewLinkGatewayId
+						? JSON.stringify({
+								brewLinkGatewayId
+							})
+						: null;
+				} else {
+					configJson = JSON.stringify({
+						brewLinkGatewayId: brewLinkGatewayId ? brewLinkGatewayId : null,
+						targetMac: brewLinkTargetMac.trim().replace(/[:-]/g, '').toUpperCase(),
+						targetName: brewLinkTargetName.trim() || null,
+						slot: brewLinkSlot
+					});
+				}
 			}
 
 			let numTemperatureC: number | null = null;
-			if (type === 'Tap') {
-				connectionType = 'None';
-				configJson = null;
+			if (type === 'Tap' || subtype === 'BrewLink') {
+				if (type === 'Tap') {
+					connectionType = 'None';
+					configJson = null;
+				} else {
+					connectionType = 'BrewLink';
+				}
 				numTemperatureC = null;
 			} else if (
 				currentTemperature !== '' &&
@@ -1476,81 +1511,85 @@
 				{#if type !== 'Tap'}
 					<!-- External Connectivity & Temperature Section -->
 					<div
-						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+						class={subtype === 'BrewLink'
+							? ''
+							: 'rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40'}
 					>
-						<div class="flex items-center justify-between">
-							<div class="flex items-center gap-1.5">
-								<Thermometer class="h-4 w-4 text-amber-500" />
-								<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-									{t('equipment.telemetry_title')}
+						{#if subtype !== 'BrewLink'}
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-1.5">
+									<Thermometer class="h-4 w-4 text-amber-500" />
+									<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+										{t('equipment.telemetry_title')}
+									</span>
+								</div>
+								<span
+									class="rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+								>
+									{t('equipment.telemetry_badge')}
 								</span>
 							</div>
-							<span
-								class="rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-							>
-								{t('equipment.telemetry_badge')}
-							</span>
-						</div>
-						<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-							{t('equipment.telemetry_desc')}
-						</p>
+							<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('equipment.telemetry_desc')}
+							</p>
 
-						<!-- Current Temperature & Connection Protocol -->
-						<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-							<div>
-								<label
-									for="equipment-current-temp"
-									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-								>
-									{t('equipment.temperature_label')} ({settings.tempShort})
-								</label>
-								<div class="mt-1 flex items-center gap-2">
-									<input
-										id="equipment-current-temp"
-										type="number"
-										step="0.1"
-										min="-20"
-										max="120"
-										bind:value={currentTemperature}
-										placeholder={t('equipment.temperature_placeholder')}
-										class="h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-									/>
-									{#if currentTemperature !== ''}
-										<button
-											type="button"
-											onclick={() => (currentTemperature = '')}
-											class="rounded-lg p-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-											title={t('equipment.clear_temperature')}
-										>
-											<X class="h-4 w-4" />
-										</button>
-									{/if}
+							<!-- Current Temperature & Connection Protocol -->
+							<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+								<div>
+									<label
+										for="equipment-current-temp"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('equipment.temperature_label')} ({settings.tempShort})
+									</label>
+									<div class="mt-1 flex items-center gap-2">
+										<input
+											id="equipment-current-temp"
+											type="number"
+											step="0.1"
+											min="-20"
+											max="120"
+											bind:value={currentTemperature}
+											placeholder={t('equipment.temperature_placeholder')}
+											class="h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+										{#if currentTemperature !== ''}
+											<button
+												type="button"
+												onclick={() => (currentTemperature = '')}
+												class="rounded-lg p-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+												title={t('equipment.clear_temperature')}
+											>
+												<X class="h-4 w-4" />
+											</button>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Connection Protocol Selector -->
+								<div>
+									<label
+										for="equipment-connection-type"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('equipment.connection_type_label')}
+									</label>
+									<select
+										id="equipment-connection-type"
+										bind:value={connectionType}
+										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+									>
+										<option value="None">{t('equipment.conn_none')}</option>
+										{#if type === 'Boiler' || type === 'Fermenter'}
+											<option value="BrewLink">{t('equipment.conn_brewlink')}</option>
+										{/if}
+										<option value="HttpPush">{t('equipment.conn_http_push')}</option>
+										<option value="HttpPoll">{t('equipment.conn_http_poll')}</option>
+										<option value="Mqtt">{t('equipment.conn_mqtt')}</option>
+									</select>
 								</div>
 							</div>
-
-							<!-- Connection Protocol Selector -->
-							<div>
-								<label
-									for="equipment-connection-type"
-									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-								>
-									{t('equipment.connection_type_label')}
-								</label>
-								<select
-									id="equipment-connection-type"
-									bind:value={connectionType}
-									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-								>
-									<option value="None">{t('equipment.conn_none')}</option>
-									{#if type === 'Boiler' || type === 'Fermenter' || type === 'Sensor'}
-										<option value="BrewLink">{t('equipment.conn_brewlink')}</option>
-									{/if}
-									<option value="HttpPush">{t('equipment.conn_http_push')}</option>
-									<option value="HttpPoll">{t('equipment.conn_http_poll')}</option>
-									<option value="Mqtt">{t('equipment.conn_mqtt')}</option>
-								</select>
-							</div>
-						</div>
+						{/if}
 
 						<!-- HttpPush (Inbound Webhook) View -->
 						{#if connectionType === 'HttpPush'}
@@ -2047,200 +2086,203 @@
 											{t('equipment.brewlink_config_title')}
 										</span>
 									</div>
-									{#if type !== 'Sensor' && gateways.length > 0}
-										<button
-											type="button"
-											onclick={() => (showGatewayManager = !showGatewayManager)}
-											class="text-[11px] font-semibold text-sky-600 hover:underline dark:text-sky-400"
-										>
-											{showGatewayManager
-												? t('equipment.brewlink_hide_gateway_setup')
-												: t('equipment.brewlink_manage_gateways')}
-										</button>
-									{/if}
 								</div>
 
-								<!-- Embedded BrewLink Gateway Setup / Manager (Always shown for Sensor, or when no gateways paired, or toggled) -->
-								{#if type === 'Sensor' || gateways.length === 0 || showGatewayManager}
+								{#if subtype === 'BrewLink'}
+									<!-- Sensor: Gateway setup & management only -->
 									<div
 										class="rounded-xl border border-sky-500/20 bg-white/70 p-3 sm:p-4 dark:border-white/5 dark:bg-zinc-900/70"
 									>
 										<BrewLinkGatewayManager onGatewaysChanged={handleGatewaysChanged} />
 									</div>
-								{/if}
 
-								<!-- Gateway Selector -->
-								<div>
-									<label
-										for="equipment-brewlink-gateway"
-										class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.brewlink_gateway_label')} *
-									</label>
-									{#if gateways.length === 0}
-										<div
-											class="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300"
-										>
-											<p>{t('equipment.brewlink_no_gateways')}</p>
-											{#if type !== 'Sensor' && !showGatewayManager}
-												<button
-													type="button"
-													onclick={() => {
-														showGatewayManager = true;
-													}}
-													class="mt-1 font-semibold text-sky-700 underline hover:text-sky-800 dark:text-sky-300"
-												>
-													{t('equipment.brewlink_pair_now_prompt')} →
-												</button>
-											{/if}
+									{#if gateways.length > 0}
+										<div>
+											<label
+												for="equipment-brewlink-gateway"
+												class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+											>
+												{t('equipment.brewlink_gateway_label')} *
+											</label>
+											<select
+												id="equipment-brewlink-gateway"
+												data-testid="equipment-brewlink-gateway"
+												bind:value={brewLinkGatewayId}
+												class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+											>
+												<option value="">{t('equipment.brewlink_select_gateway')}</option>
+												{#each gateways as gw (gw.id)}
+													<option value={gw.id}>{gw.name} ({gw.host})</option>
+												{/each}
+											</select>
 										</div>
-									{:else}
-										<select
-											id="equipment-brewlink-gateway"
-											data-testid="equipment-brewlink-gateway"
-											bind:value={brewLinkGatewayId}
-											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-										>
-											<option value="">{t('equipment.brewlink_select_gateway')}</option>
-											{#each gateways as gw (gw.id)}
-												<option value={gw.id}>{gw.name} ({gw.host})</option>
-											{/each}
-										</select>
 									{/if}
-								</div>
-
-								<!-- Paired Equipment on Selected Gateway -->
-								{#if brewLinkGatewayId}
-									<div class="space-y-2 pt-1">
-										<div class="flex items-center justify-between">
-											<span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
-												{t('equipment.brewlink_devices_label')}
-											</span>
-											<button
-												type="button"
-												data-testid="refresh-brewlink-devices-btn"
-												disabled={isLoadingGatewayDevices}
-												onclick={() => loadGatewayEquipment(brewLinkGatewayId)}
-												class="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:bg-zinc-900 dark:text-sky-300"
-											>
-												<RefreshCw
-													class="h-3 w-3 {isLoadingGatewayDevices ? 'animate-spin' : ''}"
-												/>
-												<span>{t('equipment.brewlink_refresh_devices')}</span>
-											</button>
-										</div>
-
-										{#if isLoadingGatewayDevices}
+								{:else}
+									<!-- Boiler / Fermenter: Use existing gateway only, select equipment match -->
+									<div>
+										<label
+											for="equipment-brewlink-gateway"
+											class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('equipment.brewlink_gateway_label')} *
+										</label>
+										{#if gateways.length === 0}
 											<div
-												class="flex items-center gap-2 rounded-lg border border-zinc-200/80 bg-white/70 p-2.5 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60"
+												class="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300"
 											>
-												<Loader2 class="h-3.5 w-3.5 animate-spin text-sky-500" />
-												<span>{t('equipment.brewlink_loading_devices')}</span>
-											</div>
-										{:else if gatewayDevicesError}
-											<div
-												class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300"
-											>
-												{gatewayDevicesError}
-											</div>
-										{:else if gatewayDevices.filter((d) => d.paired).length === 0}
-											<div
-												class="rounded-lg border border-dashed border-zinc-300 p-2.5 text-[11px] text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
-											>
-												{t('equipment.brewlink_no_devices')}
+												<p class="font-semibold">{t('equipment.brewlink_no_gateways')}</p>
+												<p class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+													{t('equipment.brewlink_pair_in_settings')}
+												</p>
 											</div>
 										{:else}
-											<p class="text-[10px] text-zinc-500 dark:text-zinc-400">
-												{t('equipment.brewlink_select_device')}
-											</p>
-											<div class="space-y-1.5">
-												{#each gatewayDevices.filter((d) => d.paired) as dev (dev.slot)}
-													{@const normalizedDevMac = (dev.mac || '')
-														.replace(/[:-]/g, '')
-														.toUpperCase()}
-													{@const normalizedSelectedMac = brewLinkTargetMac
-														.replace(/[:-]/g, '')
-														.toUpperCase()}
-													{@const isMatched =
-														(normalizedDevMac && normalizedDevMac === normalizedSelectedMac) ||
-														(brewLinkSlot === dev.slot && !normalizedSelectedMac)}
-													<button
-														type="button"
-														data-testid="brewlink-device-slot-{dev.slot}"
-														onclick={() => selectBrewLinkDevice(dev)}
-														class="flex w-full items-center justify-between gap-2 rounded-xl border p-2.5 text-left transition-all {isMatched
-															? 'border-sky-500 bg-sky-500/15 ring-1 ring-sky-500/50 dark:bg-sky-500/20'
-															: 'border-zinc-200 bg-white hover:border-sky-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-sky-500/50'}"
-													>
-														<div class="min-w-0 space-y-0.5">
-															<div class="flex flex-wrap items-center gap-1.5">
-																<span class="text-xs font-bold text-zinc-900 dark:text-white">
-																	{dev.name || dev.model || `Device #${dev.slot}`}
-																</span>
-																<span
-																	class="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-																>
-																	{t('equipment.brewlink_device_slot', { slot: dev.slot })}
-																</span>
-																<span
-																	class="rounded px-1.5 py-0.5 text-[10px] font-semibold {dev.connected
-																		? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-																		: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}"
-																>
-																	{dev.connected
-																		? t('equipment.brewlink_device_connected')
-																		: t('equipment.brewlink_device_offline')}
-																</span>
-															</div>
-															<div
-																class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
-															>
-																{#if dev.mac}
-																	<span>{dev.mac}</span>
-																{/if}
-																{#if dev.model}
-																	<span>• {dev.model}</span>
-																{/if}
-																{#if dev.state?.tempC != null}
-																	<span>• {dev.state.tempC.toFixed(1)} °C</span>
-																{/if}
-															</div>
-														</div>
-														{#if isMatched}
-															<span
-																class="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white"
-															>
-																<Check class="h-3 w-3" />
-																{t('equipment.brewlink_matched_badge')}
-															</span>
-														{/if}
-													</button>
+											<select
+												id="equipment-brewlink-gateway"
+												data-testid="equipment-brewlink-gateway"
+												bind:value={brewLinkGatewayId}
+												class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+											>
+												<option value="">{t('equipment.brewlink_select_gateway')}</option>
+												{#each gateways as gw (gw.id)}
+													<option value={gw.id}>{gw.name} ({gw.host})</option>
 												{/each}
-											</div>
+											</select>
 										{/if}
 									</div>
-								{/if}
 
-								<!-- Target BLE MAC -->
-								<div>
-									<label
-										for="equipment-brewlink-mac"
-										class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.brewlink_target_mac_label')} *
-									</label>
-									<input
-										id="equipment-brewlink-mac"
-										data-testid="equipment-brewlink-mac"
-										type="text"
-										bind:value={brewLinkTargetMac}
-										placeholder={t('equipment.brewlink_target_mac_placeholder')}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-xs text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-									/>
-									<span class="mt-1 block text-[10px] text-zinc-400 dark:text-zinc-500">
-										{t('equipment.brewlink_target_mac_help')}
-									</span>
-								</div>
+									<!-- Paired Equipment on Selected Gateway (Only for Boilers & Fermenters) -->
+									{#if brewLinkGatewayId}
+										<div class="space-y-2 pt-1">
+											<div class="flex items-center justify-between">
+												<span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+													{t('equipment.brewlink_devices_label')}
+												</span>
+												<button
+													type="button"
+													data-testid="refresh-brewlink-devices-btn"
+													disabled={isLoadingGatewayDevices}
+													onclick={() => loadGatewayEquipment(brewLinkGatewayId)}
+													class="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:bg-zinc-900 dark:text-sky-300"
+												>
+													<RefreshCw
+														class="h-3 w-3 {isLoadingGatewayDevices ? 'animate-spin' : ''}"
+													/>
+													<span>{t('equipment.brewlink_refresh_devices')}</span>
+												</button>
+											</div>
+
+											{#if isLoadingGatewayDevices}
+												<div
+													class="flex items-center gap-2 rounded-lg border border-zinc-200/80 bg-white/70 p-2.5 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60"
+												>
+													<Loader2 class="h-3.5 w-3.5 animate-spin text-sky-500" />
+													<span>{t('equipment.brewlink_loading_devices')}</span>
+												</div>
+											{:else if gatewayDevicesError}
+												<div
+													class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300"
+												>
+													{gatewayDevicesError}
+												</div>
+											{:else if gatewayDevices.filter((d) => d.paired).length === 0}
+												<div
+													class="rounded-lg border border-dashed border-zinc-300 p-2.5 text-[11px] text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+												>
+													{t('equipment.brewlink_no_devices')}
+												</div>
+											{:else}
+												<p class="text-[10px] text-zinc-500 dark:text-zinc-400">
+													{t('equipment.brewlink_select_device')}
+												</p>
+												<div class="space-y-1.5">
+													{#each gatewayDevices.filter((d) => d.paired) as dev (dev.slot)}
+														{@const normalizedDevMac = (dev.mac || '')
+															.replace(/[:-]/g, '')
+															.toUpperCase()}
+														{@const normalizedSelectedMac = brewLinkTargetMac
+															.replace(/[:-]/g, '')
+															.toUpperCase()}
+														{@const isMatched =
+															(normalizedDevMac && normalizedDevMac === normalizedSelectedMac) ||
+															(brewLinkSlot === dev.slot && !normalizedSelectedMac)}
+														<button
+															type="button"
+															data-testid="brewlink-device-slot-{dev.slot}"
+															onclick={() => selectBrewLinkDevice(dev)}
+															class="flex w-full items-center justify-between gap-2 rounded-xl border p-2.5 text-left transition-all {isMatched
+																? 'border-sky-500 bg-sky-500/15 ring-1 ring-sky-500/50 dark:bg-sky-500/20'
+																: 'border-zinc-200 bg-white hover:border-sky-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-sky-500/50'}"
+														>
+															<div class="min-w-0 space-y-0.5">
+																<div class="flex flex-wrap items-center gap-1.5">
+																	<span class="text-xs font-bold text-zinc-900 dark:text-white">
+																		{dev.name || dev.model || `Device #${dev.slot}`}
+																	</span>
+																	<span
+																		class="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+																	>
+																		{t('equipment.brewlink_device_slot', { slot: dev.slot })}
+																	</span>
+																	<span
+																		class="rounded px-1.5 py-0.5 text-[10px] font-semibold {dev.connected
+																			? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+																			: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}"
+																	>
+																		{dev.connected
+																			? t('equipment.brewlink_device_connected')
+																			: t('equipment.brewlink_device_offline')}
+																	</span>
+																</div>
+																<div
+																	class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
+																>
+																	{#if dev.mac}
+																		<span>{dev.mac}</span>
+																	{/if}
+																	{#if dev.model}
+																		<span>• {dev.model}</span>
+																	{/if}
+																	{#if dev.state?.tempC != null}
+																		<span>• {dev.state.tempC.toFixed(1)} °C</span>
+																	{/if}
+																</div>
+															</div>
+															{#if isMatched}
+																<span
+																	class="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white"
+																>
+																	<Check class="h-3 w-3" />
+																	{t('equipment.brewlink_matched_badge')}
+																</span>
+															{/if}
+														</button>
+													{/each}
+												</div>
+											{/if}
+										</div>
+
+										<!-- Target BLE MAC (Only for Boilers & Fermenters) -->
+										<div>
+											<label
+												for="equipment-brewlink-mac"
+												class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+											>
+												{t('equipment.brewlink_target_mac_label')} *
+											</label>
+											<input
+												id="equipment-brewlink-mac"
+												data-testid="equipment-brewlink-mac"
+												type="text"
+												bind:value={brewLinkTargetMac}
+												placeholder={t('equipment.brewlink_target_mac_placeholder')}
+												class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-xs text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+											/>
+											<span class="mt-1 block text-[10px] text-zinc-400 dark:text-zinc-500">
+												{t('equipment.brewlink_target_mac_help')}
+											</span>
+										</div>
+									{/if}
+								{/if}
 							</div>
 						{/if}
 					</div>

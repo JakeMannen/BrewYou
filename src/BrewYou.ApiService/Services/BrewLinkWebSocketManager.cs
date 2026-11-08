@@ -262,6 +262,7 @@ public sealed class BrewLinkWebSocketManager : IBrewLinkWebSocketManager, IDispo
 
                 var candidateEquipment = await db.Equipment
                     .Where(e => e.ConnectionType == EquipmentConnectionType.BrewLink &&
+                                !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink) &&
                                 !string.IsNullOrEmpty(e.ConnectionConfigJson))
                     .ToListAsync();
 

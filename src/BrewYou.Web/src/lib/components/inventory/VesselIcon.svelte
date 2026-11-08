@@ -50,6 +50,7 @@
 		'ISpindel',
 		'Tilt',
 		'GenericSensor',
+		'BrewLink',
 		'StandardTap',
 		'RoundDisplayTap',
 		'RectDisplayTap',
@@ -266,6 +267,12 @@
 				<text x="26" y="5" class="bit bit-2">1</text>
 				<text x="22" y="2" class="bit bit-3">0</text>
 				<text x="28" y="7" class="bit bit-4">1</text>
+			{:else if normalizedSubtype === 'BrewLink'}
+				<!-- BrewLink Digital Telemetry Wave -->
+				<text x="21" y="6" class="bit bit-1">1</text>
+				<text x="27" y="4" class="bit bit-2">0</text>
+				<text x="24" y="2" class="bit bit-3">1</text>
+				<text x="29" y="7" class="bit bit-4">0</text>
 			{:else}
 				<!-- GenericSensor -->
 				<text x="31" y="6" class="bit bit-1">1</text>
@@ -619,6 +626,62 @@
 			<line x1="22.5" y1="36" x2="25.5" y2="36" stroke-width="1" />
 			<!-- Sensitive Measurement Probe Tip -->
 			<circle cx="24" cy="43" r="1.3" stroke-width="1" class="fill-current" />
+		{:else if normalizedSubtype === 'BrewLink'}
+			<!-- BrewLink ESP32 Bluetooth Gateway with Link -->
+			<!-- ESP32 Board PCB Outline -->
+			<rect x="13" y="8" width="22" height="32" rx="2" stroke-width="1.8" />
+			<!-- Left Dual-In-Line Header Pins -->
+			<line x1="11" y1="14" x2="13" y2="14" stroke-width="1.4" />
+			<line x1="11" y1="18" x2="13" y2="18" stroke-width="1.4" />
+			<line x1="11" y1="22" x2="13" y2="22" stroke-width="1.4" />
+			<line x1="11" y1="26" x2="13" y2="26" stroke-width="1.4" />
+			<line x1="11" y1="30" x2="13" y2="30" stroke-width="1.4" />
+			<line x1="11" y1="34" x2="13" y2="34" stroke-width="1.4" />
+			<!-- Right Dual-In-Line Header Pins -->
+			<line x1="35" y1="14" x2="37" y2="14" stroke-width="1.4" />
+			<line x1="35" y1="18" x2="37" y2="18" stroke-width="1.4" />
+			<line x1="35" y1="22" x2="37" y2="22" stroke-width="1.4" />
+			<line x1="35" y1="26" x2="37" y2="26" stroke-width="1.4" />
+			<line x1="35" y1="30" x2="37" y2="30" stroke-width="1.4" />
+			<line x1="35" y1="34" x2="37" y2="34" stroke-width="1.4" />
+			<!-- ESP-WROOM-32 Meandered PCB Trace Antenna -->
+			<path
+				d="M17 13.5 V10.5 H20 V13.5 H22.5 V10.5 H25.5 V13.5 H28 V10.5 H31 V13.5"
+				stroke-width="1.2"
+				stroke-linecap="square"
+			/>
+			<!-- Antenna Isolator Separation Trace -->
+			<line x1="15" y1="15" x2="33" y2="15" stroke-width="0.8" opacity="0.5" />
+			<!-- Metal RF Shielding Can -->
+			<rect x="16" y="16.5" width="16" height="14.5" rx="1.5" stroke-width="1.4" />
+			<!-- Link Icon (Embossed Chain Link on the ESP32 Shield Can) -->
+			<!-- Left Loop -->
+			<path
+				d="M22 21.5 H20 A 2.2 2.2 0 0 0 17.8 23.75 A 2.2 2.2 0 0 0 20 26 H22"
+				stroke-width="1.5"
+				stroke-linecap="round"
+			/>
+			<!-- Right Loop -->
+			<path
+				d="M26 21.5 H28 A 2.2 2.2 0 0 1 30.2 23.75 A 2.2 2.2 0 0 1 28 26 H26"
+				stroke-width="1.5"
+				stroke-linecap="round"
+			/>
+			<!-- Center Link Bridge Bar -->
+			<line x1="20.5" y1="23.75" x2="27.5" y2="23.75" stroke-width="1.6" stroke-linecap="round" />
+			<!-- BOOT & EN Tactile Push Buttons -->
+			<rect x="15" y="33.5" width="3" height="3" rx="0.5" stroke-width="1" />
+			<rect x="30" y="33.5" width="3" height="3" rx="0.5" stroke-width="1" />
+			<!-- Micro-USB / USB-C Connector Port at Base -->
+			<rect
+				x="21"
+				y="37.5"
+				width="6"
+				height="3.5"
+				rx="0.8"
+				stroke-width="1.3"
+				class="fill-current"
+			/>
 		{:else if normalizedSubtype === 'Bottle'}
 			<!-- Craft Beer Bottle with Crown Cap -->
 			<!-- Bottle Outer Silhouette -->

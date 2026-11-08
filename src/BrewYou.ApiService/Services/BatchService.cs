@@ -212,7 +212,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Boiler not found.");
             }
 
-            if (boiler.Type is EquipmentType.Sensor or EquipmentType.Tap || boiler.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (boiler.Type is EquipmentType.Sensor or EquipmentType.Tap || boiler.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as boilers.");
             }
@@ -229,7 +229,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Fermenter not found.");
             }
 
-            if (fermenter.Type is EquipmentType.Sensor or EquipmentType.Tap || fermenter.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (fermenter.Type is EquipmentType.Sensor or EquipmentType.Tap || fermenter.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as fermenters.");
             }
@@ -246,7 +246,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Packaging vessel not found.");
             }
 
-            if (packagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap || packagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (packagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap || packagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
             }
@@ -263,7 +263,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "HLT equipment not found.");
             }
 
-            if (hlt.Type is EquipmentType.Sensor or EquipmentType.Tap || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (hlt.Type is EquipmentType.Sensor or EquipmentType.Tap || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as hot liquor tanks.");
             }
@@ -280,7 +280,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Mash tun equipment not found.");
             }
 
-            if (mashTun.Type is EquipmentType.Sensor or EquipmentType.Tap || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (mashTun.Type is EquipmentType.Sensor or EquipmentType.Tap || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as mash tuns.");
             }
@@ -727,7 +727,7 @@ public class BatchService : IBatchService
 
                     if (selectedPackagingVessel != null &&
                         (selectedPackagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap ||
-                         selectedPackagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor))
+                         selectedPackagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink))
                     {
                         return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
                     }
@@ -1359,7 +1359,7 @@ public class BatchService : IBatchService
                 var vessel = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
                 if (vessel != null)
                 {
-                    if (vessel.Type is EquipmentType.Sensor or EquipmentType.Tap || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+                    if (vessel.Type is EquipmentType.Sensor or EquipmentType.Tap || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
                     {
                         return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
                     }

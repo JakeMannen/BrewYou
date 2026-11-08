@@ -331,6 +331,7 @@ public class MqttService : IMqttService, IDisposable
                     var cleanMac = BrewLinkTelemetryParser.CleanMac(mac);
                     var candidates = await db.Equipment.AsNoTracking()
                         .Where(eq => eq.ConnectionType == EquipmentConnectionType.BrewLink &&
+                                     !(eq.Type == EquipmentType.Sensor && eq.Subtype != EquipmentSubtype.BrewLink) &&
                                      !string.IsNullOrEmpty(eq.ConnectionConfigJson))
                         .ToListAsync();
 

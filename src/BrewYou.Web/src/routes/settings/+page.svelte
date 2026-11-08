@@ -520,8 +520,6 @@
 		}
 	}
 
-
-
 	async function updateLanguage(code: LocaleCode) {
 		i18n.setLocale(code);
 		if (auth.isAuthenticated) {

@@ -1,13 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import {
-		Radio,
-		Loader2,
-		Check,
-		AlertCircle,
-		Pencil,
-		Trash2
-	} from 'lucide-svelte';
+	import { Radio, Loader2, Check, AlertCircle, Pencil, Trash2 } from 'lucide-svelte';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import { api } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
@@ -198,7 +191,9 @@
 </script>
 
 <div class="space-y-4 text-xs" data-testid="brewlink-section">
-	<div class="flex items-center justify-between border-b border-zinc-200/80 pb-3 dark:border-white/[0.08]">
+	<div
+		class="flex items-center justify-between border-b border-zinc-200/80 pb-3 dark:border-white/[0.08]"
+	>
 		<div class="flex items-center gap-2.5">
 			<div
 				class="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400"
@@ -238,22 +233,30 @@
 					<div
 						class="flex flex-col justify-between gap-2.5 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 sm:flex-row sm:items-center dark:border-white/5 dark:bg-white/[0.02]"
 					>
-						<div class="space-y-0.5 min-w-0">
-							<div class="flex items-center gap-2 flex-wrap">
-								<span class="text-xs font-bold text-zinc-900 dark:text-white truncate">{gw.name}</span>
+						<div class="min-w-0 space-y-0.5">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="truncate text-xs font-bold text-zinc-900 dark:text-white"
+									>{gw.name}</span
+								>
 								<span
 									class="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-400"
 								>
 									{t('settings.brewlink.paired_badge')}
 								</span>
 							</div>
-							<div class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+							<div
+								class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
+							>
 								<span>{gw.host}</span>
 								<span>•</span>
 								<code>{gw.gatewayId}</code>
 								{#if gw.pairedAt}
 									<span>•</span>
-									<span>{t('settings.brewlink.paired_at', { date: new Date(gw.pairedAt).toLocaleDateString() })}</span>
+									<span
+										>{t('settings.brewlink.paired_at', {
+											date: new Date(gw.pairedAt).toLocaleDateString()
+										})}</span
+									>
 								{/if}
 							</div>
 						</div>
@@ -328,7 +331,7 @@
 						data-testid="discovered-gateway-{beacon.gatewayId}"
 						class="flex flex-col justify-between gap-2 rounded-xl border border-sky-500/30 bg-white p-2.5 sm:flex-row sm:items-center dark:border-sky-500/20 dark:bg-zinc-900/80"
 					>
-						<div class="space-y-0.5 min-w-0">
+						<div class="min-w-0 space-y-0.5">
 							<div class="flex items-center gap-2">
 								<span class="text-xs font-bold text-zinc-900 dark:text-white">
 									{beacon.name}
@@ -341,7 +344,7 @@
 									})}
 								</span>
 							</div>
-							<div class="text-[11px] text-zinc-500 dark:text-zinc-400 font-mono">
+							<div class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
 								<span>{beacon.host}</span>
 								<span class="mx-1">•</span>
 								<code>{beacon.gatewayId}</code>

@@ -184,6 +184,11 @@ public static class EquipmentEndpoints
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Brewery setup not found."));
             }
 
+            if (result == EquipmentAccessResult.Conflict)
+            {
+                return Results.Conflict(ApiResponse.Fail("CONFLICT", errorMessage ?? "Conflict occurred."));
+            }
+
             if (result == EquipmentAccessResult.DuplicateName)
             {
                 return Results.Conflict(ApiResponse.Fail("DUPLICATE_NAME", errorMessage ?? "An equipment item with this name already exists in this brewery setup."));
@@ -234,6 +239,11 @@ public static class EquipmentEndpoints
             if (result == EquipmentAccessResult.NotFound)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Equipment not found."));
+            }
+
+            if (result == EquipmentAccessResult.Conflict)
+            {
+                return Results.Conflict(ApiResponse.Fail("CONFLICT", errorMessage ?? "Conflict occurred."));
             }
 
             if (result == EquipmentAccessResult.DuplicateName)

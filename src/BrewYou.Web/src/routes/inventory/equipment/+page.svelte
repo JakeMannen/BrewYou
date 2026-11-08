@@ -570,6 +570,7 @@
 	}
 
 	function getEquipmentTemperature(e: EquipmentDto): number | null {
+		if (e.subtype === 'BrewLink') return null;
 		if (e.currentTemperatureC != null) return e.currentTemperatureC;
 		if (e.latestMetricsJson) {
 			try {

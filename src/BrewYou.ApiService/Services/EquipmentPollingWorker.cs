@@ -52,7 +52,7 @@ public class EquipmentPollingWorker : BackgroundService
         var pollingEquipment = await db.Equipment
             .AsNoTracking()
             .Where(e => (e.ConnectionType == EquipmentConnectionType.HttpPoll ||
-                         e.ConnectionType == EquipmentConnectionType.BrewLink) &&
+                         (e.ConnectionType == EquipmentConnectionType.BrewLink && !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink))) &&
                         !string.IsNullOrEmpty(e.ConnectionConfigJson))
             .ToListAsync(cancellationToken);
 
