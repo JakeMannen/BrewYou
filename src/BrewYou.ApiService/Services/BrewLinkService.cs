@@ -1112,7 +1112,7 @@ public partial class BrewLinkService : IBrewLinkService
         {
             ["req_id"] = reqId,
             ["action"] = action,
-            ["equipment_type"] = equipment.Type == EquipmentType.Fermenter ? "fermenter" : "boiler",
+            ["equipment_type"] = equipment.Type == EquipmentType.Fermenter ? "fermenter" : equipment.Type == EquipmentType.Sensor ? "sensor" : "boiler",
             ["timestamp"] = timestamp,
             ["sig"] = sig,
             ["params"] = payloadParams

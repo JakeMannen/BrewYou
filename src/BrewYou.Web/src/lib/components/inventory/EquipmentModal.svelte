@@ -28,6 +28,7 @@
 	import { isVesselFillable } from './vessel-geometry';
 	import { ALL_IN_ONE_PRESETS } from './equipment-presets';
 	import { isLocalhostUrl } from '$lib/utils/batchQr';
+	import BrewLinkGatewayManager from './BrewLinkGatewayManager.svelte';
 	import {
 		X,
 		Loader2,
@@ -109,6 +110,19 @@
 	let gatewayDevices = $state<BrewLinkEquipmentDeviceDto[]>([]);
 	let isLoadingGatewayDevices = $state(false);
 	let gatewayDevicesError = $state<string | null>(null);
+	let showGatewayManager = $state(false);
+
+	function handleGatewaysChanged(newGateways: BrewLinkGatewayDto[]) {
+		gateways = newGateways;
+		if (!newGateways.some((g) => g.id === brewLinkGatewayId)) {
+			brewLinkGatewayId = newGateways.length > 0 ? newGateways[0].id : '';
+		}
+		if (brewLinkGatewayId) {
+			void loadGatewayEquipment(brewLinkGatewayId);
+		} else {
+			gatewayDevices = [];
+		}
+	}
 
 	async function loadBrewLinkGateways() {
 		try {
@@ -412,7 +426,8 @@
 				displayOrientation = 'Landscape';
 
 				// Reset telemetry
-				connectionType = 'None';
+				connectionType = initialCategory === 'Sensor' ? 'BrewLink' : 'None';
+				showGatewayManager = false;
 				connectionToken = null;
 				brewLinkGatewayId = '';
 				brewLinkTargetMac = '';
@@ -470,7 +485,9 @@
 			mqttTopic = '';
 		}
 
-		if (connectionType === 'BrewLink' && !(newType === 'Boiler' || newType === 'Fermenter')) {
+		if (newType === 'Sensor' && !equipment) {
+			connectionType = 'BrewLink';
+		} else if (connectionType === 'BrewLink' && !(newType === 'Boiler' || newType === 'Fermenter' || newType === 'Sensor')) {
 			connectionType = 'None';
 		}
 
@@ -505,7 +522,7 @@
 	function handleSubtypeSelect(selectedSub: EquipmentSubtype) {
 		subtype = selectedSub;
 		selectedAioPreset = '';
-		if (connectionType === 'BrewLink' && !(type === 'Boiler' || type === 'Fermenter')) {
+		if (connectionType === 'BrewLink' && !(type === 'Boiler' || type === 'Fermenter' || type === 'Sensor')) {
 			connectionType = 'None';
 		}
 		if (!isVesselFillable(selectedSub)) {
@@ -1525,7 +1542,7 @@
 									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 								>
 									<option value="None">{t('equipment.conn_none')}</option>
-									{#if type === 'Boiler' || type === 'Fermenter'}
+									{#if type === 'Boiler' || type === 'Fermenter' || type === 'Sensor'}
 										<option value="BrewLink">{t('equipment.conn_brewlink')}</option>
 									{/if}
 									<option value="HttpPush">{t('equipment.conn_http_push')}</option>
@@ -2021,14 +2038,36 @@
 						<!-- BrewLink View -->
 						{#if connectionType === 'BrewLink'}
 							<div
-								class="mt-3 space-y-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3.5 dark:border-sky-500/20 dark:bg-sky-500/10"
+								class="mt-3 space-y-4 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3.5 dark:border-sky-500/20 dark:bg-sky-500/10"
 							>
-								<div class="flex items-center gap-2">
-									<Radio class="h-4 w-4 text-sky-500" />
-									<span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-										{t('equipment.brewlink_config_title')}
-									</span>
+								<div class="flex items-center justify-between gap-2">
+									<div class="flex items-center gap-2">
+										<Radio class="h-4 w-4 text-sky-500" />
+										<span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+											{t('equipment.brewlink_config_title')}
+										</span>
+									</div>
+									{#if type !== 'Sensor' && gateways.length > 0}
+										<button
+											type="button"
+											onclick={() => (showGatewayManager = !showGatewayManager)}
+											class="text-[11px] font-semibold text-sky-600 hover:underline dark:text-sky-400"
+										>
+											{showGatewayManager
+												? t('equipment.brewlink_hide_gateway_setup')
+												: t('equipment.brewlink_manage_gateways')}
+										</button>
+									{/if}
 								</div>
+
+								<!-- Embedded BrewLink Gateway Setup / Manager (Always shown for Sensor, or when no gateways paired, or toggled) -->
+								{#if type === 'Sensor' || gateways.length === 0 || showGatewayManager}
+									<div
+										class="rounded-xl border border-sky-500/20 bg-white/70 p-3 sm:p-4 dark:border-white/5 dark:bg-zinc-900/70"
+									>
+										<BrewLinkGatewayManager onGatewaysChanged={handleGatewaysChanged} />
+									</div>
+								{/if}
 
 								<!-- Gateway Selector -->
 								<div>
@@ -2043,13 +2082,17 @@
 											class="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300"
 										>
 											<p>{t('equipment.brewlink_no_gateways')}</p>
-											<a
-												href="/settings#brewlink"
-												target="_blank"
-												class="mt-1 inline-block font-semibold underline hover:text-amber-800 dark:hover:text-amber-200"
-											>
-												{t('equipment.brewlink_pair_in_settings')} →
-											</a>
+											{#if type !== 'Sensor' && !showGatewayManager}
+												<button
+													type="button"
+													onclick={() => {
+														showGatewayManager = true;
+													}}
+													class="mt-1 font-semibold text-sky-700 underline hover:text-sky-800 dark:text-sky-300"
+												>
+													{t('equipment.brewlink_pair_now_prompt')} →
+												</button>
+											{/if}
 										</div>
 									{:else}
 										<select
