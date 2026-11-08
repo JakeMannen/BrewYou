@@ -1553,17 +1553,6 @@
 		if (!batch || isAdvanceStageBlocked) return;
 		determineNextStage(batch.currentStage);
 
-		const isBoilActive =
-			batch.currentStage === 'Boil' &&
-			nextStage === 'Ferment' &&
-			isBoilControlledByBrewLink &&
-			!isBoilComplete;
-
-		if (isBoilActive && !hasConfirmedActiveBoil) {
-			showConfirmAdvanceActiveBoilModal = true;
-			return;
-		}
-
 		hasConfirmedActiveBoil = false;
 		advanceMeasuredOg = batch.measuredOg ?? batch.targetOg;
 		advanceMeasuredFg = batch.measuredFg ?? batch.targetFg;
@@ -1594,16 +1583,13 @@
 	async function confirmAdvanceActiveBoil() {
 		showConfirmAdvanceActiveBoilModal = false;
 		hasConfirmedActiveBoil = true;
-		if (activeStageBrewLinkEquipment) {
-			try {
-				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
-					action: 'cancel_timer'
-				});
-			} catch (err: unknown) {
-				console.error('Failed to cancel BrewLink boil timer', err);
-			}
-		}
-		openAdvanceModal();
+		await executeAdvanceSubmit(true);
+	}
+
+	function cancelAdvanceActiveBoil() {
+		showConfirmAdvanceActiveBoilModal = false;
+		hasConfirmedActiveBoil = false;
+		showAdvanceModal = true;
 	}
 
 	async function handleAdvanceSubmit() {
@@ -1620,8 +1606,24 @@
 			return;
 		}
 
+		await executeAdvanceSubmit(hasConfirmedActiveBoil || isBoilActive);
+	}
+
+	async function executeAdvanceSubmit(force: boolean = false) {
+		if (!batch || isAdvanceStageBlocked) return;
 		advancing = true;
 		advanceError = null;
+
+		if (force && activeStageBrewLinkEquipment) {
+			try {
+				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+					action: 'cancel_timer'
+				});
+			} catch (err: unknown) {
+				console.error('Failed to cancel BrewLink boil timer', err);
+			}
+		}
+
 		try {
 			const req: AdvanceBatchStageRequest = {
 				targetStage: nextStage,
@@ -1642,7 +1644,7 @@
 				measuredPreBoilGravity: nextStage === 'Boil' ? advancePreBoilGravity : null,
 				measuredPostBoilVolumeLiters: nextStage === 'Ferment' ? advancePostBoilVolume : null,
 				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null,
-				force: hasConfirmedActiveBoil || isBoilActive
+				force
 			};
 			const previousStage = batch.currentStage;
 			const [updated, eq] = await Promise.all([
@@ -1655,6 +1657,7 @@
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
+			showConfirmAdvanceActiveBoilModal = false;
 			hasConfirmedActiveBoil = false;
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
@@ -1662,6 +1665,7 @@
 			} else {
 				advanceError = (err as Error).message || t('batches.errors.advance_failed');
 			}
+			showAdvanceModal = true;
 		} finally {
 			advancing = false;
 		}
@@ -3576,7 +3580,10 @@
 				</div>
 				<button
 					type="button"
-					onclick={() => (showAdvanceModal = false)}
+					onclick={() => {
+						showAdvanceModal = false;
+						hasConfirmedActiveBoil = false;
+					}}
 					aria-label={t('common.close_dialog')}
 					class="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
 				>
@@ -3978,7 +3985,10 @@
 			>
 				<button
 					type="button"
-					onclick={() => (showAdvanceModal = false)}
+					onclick={() => {
+						showAdvanceModal = false;
+						hasConfirmedActiveBoil = false;
+					}}
 					class="min-h-[40px] rounded-xl border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400"
 				>
 					{t('brewery.cancel')}
@@ -4205,7 +4215,7 @@
 	confirmTestId="confirm-advance-active-boil-btn"
 	cancelTestId="cancel-advance-active-boil-btn"
 	onConfirm={confirmAdvanceActiveBoil}
-	onClose={() => (showConfirmAdvanceActiveBoilModal = false)}
+	onClose={cancelAdvanceActiveBoil}
 />
 
 {#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}
