@@ -581,6 +581,7 @@
 			"active_step": "Aktiver Schritt",
 			"select_step": "Schritt auswählen",
 			"complete_and_next_step": "Schritt abschließen & weiter",
+			"complete_mash_and_boil": "Maischen abschließen & zum Kochen übergehen",
 			"mash_in_progress": "Maischen läuft",
 			"not_started": "Noch nicht gestartet",
 			"start_timer": "Timer starten",
@@ -662,6 +663,7 @@
 			"live_hardware_temp": "Hardware-Temp.",
 			"brewlink_mash_in_progress": "BrewLink-Maischen läuft: Schließen Sie alle Maischschritte ab, bevor Sie zum Kochen wechseln.",
 			"brewlink_boil_in_progress": "BrewLink-Kochen läuft: Das Kochen muss abgeschlossen sein, bevor Sie zur Gärung wechseln.",
+			"auto_advanced_to_boil": "Maischen abgeschlossen. Automatisch zur Kochphase übergegangen.",
 			"brewlink_alert_title": "Kesselalarm",
 			"select_boil_step": "Kochschritt",
 			"all_boil_steps": "Alle Kochschritte"

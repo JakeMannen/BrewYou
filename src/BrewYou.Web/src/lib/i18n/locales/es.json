@@ -581,6 +581,7 @@
 			"active_step": "Escalón activo",
 			"select_step": "Seleccionar escalón",
 			"complete_and_next_step": "Completar y pasar al siguiente escalón",
+			"complete_mash_and_boil": "Completar maceración y avanzar al hervido",
 			"mash_in_progress": "Maceración en curso",
 			"not_started": "No iniciado",
 			"start_timer": "Iniciar temporizador",
@@ -662,6 +663,7 @@
 			"live_hardware_temp": "Temp. del hardware",
 			"brewlink_mash_in_progress": "Macerado BrewLink en curso: completa todos los pasos de macerado antes de avanzar al hervido.",
 			"brewlink_boil_in_progress": "Hervido BrewLink en curso: el hervido debe finalizar antes de avanzar a la fermentación.",
+			"auto_advanced_to_boil": "Maceración completada. Se avanzó automáticamente a la etapa de hervido.",
 			"brewlink_alert_title": "Alerta del hervidor",
 			"select_boil_step": "Paso de hervido",
 			"all_boil_steps": "Todos los pasos de hervido"

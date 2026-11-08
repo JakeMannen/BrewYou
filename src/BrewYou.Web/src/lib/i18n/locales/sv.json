@@ -822,6 +822,7 @@
 			"active_step": "Aktivt steg",
 			"select_step": "Välj",
 			"complete_and_next_step": "Slutför & gå till nästa steg",
+			"complete_mash_and_boil": "Slutför mäskning & gå till kok",
 			"mash_in_progress": "Mäskning pågår",
 			"not_started": "Inte påbörjad",
 			"start_timer": "Starta timer",
@@ -903,6 +904,7 @@
 			"live_hardware_temp": "Hårdvarutemp",
 			"brewlink_mash_in_progress": "BrewLink-mäskning pågår: slutför alla mäsksteg innan du går vidare till kok.",
 			"brewlink_boil_in_progress": "BrewLink-kok pågår: koket måste vara klart innan du går vidare till jäsning.",
+			"auto_advanced_to_boil": "Mäskning slutförd. Gick automatiskt vidare till koksteget.",
 			"brewlink_alert_title": "Larm från bryggverk",
 			"select_boil_step": "Koksteg",
 			"all_boil_steps": "Alla koksteg"

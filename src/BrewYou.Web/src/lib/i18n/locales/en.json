@@ -577,6 +577,7 @@
 			"active_step": "Active Step",
 			"select_step": "Select",
 			"complete_and_next_step": "Complete & Next Step",
+			"complete_mash_and_boil": "Complete Mash & Advance to Boil",
 			"mash_in_progress": "Mashing in progress",
 			"not_started": "Not started",
 			"start_timer": "Start Timer",
@@ -658,6 +659,7 @@
 			"live_hardware_temp": "Hardware Temp",
 			"brewlink_mash_in_progress": "BrewLink mash in progress: complete all mash steps before moving to Boil.",
 			"brewlink_boil_in_progress": "BrewLink boil in progress: boil must be finished before moving to Ferment.",
+			"auto_advanced_to_boil": "Mash completed. Automatically advanced to Boil stage.",
 			"brewlink_alert_title": "Boiler Alert",
 			"select_boil_step": "Boil Step",
 			"all_boil_steps": "All Boil Steps"

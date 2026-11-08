@@ -1165,6 +1165,12 @@ public class BatchService : IBatchService
         var step = await _db.BatchMashSteps
             .Include(s => s.Batch)
                 .ThenInclude(b => b!.Ingredients)
+            .Include(s => s.Batch)
+                .ThenInclude(b => b!.MashSteps)
+            .Include(s => s.Batch)
+                .ThenInclude(b => b!.MashTun)
+            .Include(s => s.Batch)
+                .ThenInclude(b => b!.Boiler)
             .FirstOrDefaultAsync(s => s.Id == stepId && s.BatchId == batchId && s.Batch!.UserId == userId);
 
         if (step == null)
@@ -1203,6 +1209,29 @@ public class BatchService : IBatchService
 
         step.Batch.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+
+        var isMashControlledByBrewLink =
+            (step.Batch.MashTun != null && step.Batch.MashTun.ConnectionType == EquipmentConnectionType.BrewLink) ||
+            (step.Batch.Boiler != null && step.Batch.Boiler.ConnectionType == EquipmentConnectionType.BrewLink);
+
+        if (request.IsCompleted &&
+            step.Batch.CurrentStage == BrewStage.Mash &&
+            isMashControlledByBrewLink &&
+            step.Batch.MashSteps.All(s => s.IsCompleted))
+        {
+            var primaryVessel = step.Batch.MashTun ?? step.Batch.Boiler;
+            var interactionRequired = false;
+            if (!string.IsNullOrWhiteSpace(primaryVessel?.LatestMetricsJson))
+            {
+                var canonical = BrewLinkTelemetryParser.FromMetricsJson(primaryVessel.LatestMetricsJson);
+                interactionRequired = canonical?.Interaction?.Required == true;
+            }
+
+            if (!interactionRequired)
+            {
+                await AdvanceStageAsync(step.Batch.Id, new AdvanceBatchStageRequest(BrewStage.Boil), userId);
+            }
+        }
 
         var dto = new BatchMashStepDto(
             step.Id,

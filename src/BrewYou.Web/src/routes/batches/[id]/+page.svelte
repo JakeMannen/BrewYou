@@ -107,6 +107,8 @@
 	let showBrewLinkPromptModal = $state(false);
 	let brewLinkPromptSubmitting = $state(false);
 	let dismissedPromptKey = $state<string | null>(null);
+	let isAutoAdvancingToBoil = $state(false);
+	let mashTimerHadRun = $state(false);
 	let brewLinkSyncTimer: ReturnType<typeof setInterval> | null = null;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -1292,6 +1294,36 @@
 		return '';
 	});
 
+	// Auto-advance to Boil when last mash step is completed and ready for boil
+	$effect(() => {
+		if (
+			batch &&
+			!isReadOnlyBatch &&
+			!advancing &&
+			!isAutoAdvancingToBoil &&
+			batch.currentStage === 'Mash' &&
+			isMashControlledByBrewLink &&
+			isMashComplete &&
+			!activeStageBrewLinkMetrics?.interaction?.required
+		) {
+			advanceToBoilAutomatically();
+		}
+	});
+
+	// Auto-complete current mash step when BrewLink hardware timer finishes
+	$effect(() => {
+		if (inspectedStage === 'Mash' && isMashControlledByBrewLink && brewLinkTimer) {
+			if (brewLinkTimer.active && brewLinkTimer.remainingSeconds > 0) {
+				mashTimerHadRun = true;
+			} else if (mashTimerHadRun && !brewLinkTimer.active && brewLinkTimer.remainingSeconds <= 0) {
+				mashTimerHadRun = false;
+				if (currentSelectedMashStep && !currentSelectedMashStep.isCompleted) {
+					handleToggleMashStep(currentSelectedMashStep.id, false);
+				}
+			}
+		}
+	});
+
 	let strikeRatio = $derived.by(() => {
 		const strikeVol = batch?.volumeProfile?.strikeWaterLiters;
 		if (strikeVol && totalMashGrainKg > 0) {
@@ -1363,6 +1395,13 @@
 						ing.isDeducted = true;
 					}
 				}
+				if (
+					isMashControlledByBrewLink &&
+					batch.currentStage === 'Mash' &&
+					batch.mashSteps.every((s) => s.isCompleted)
+				) {
+					await advanceToBoilAutomatically();
+				}
 			}
 		} catch (err: unknown) {
 			console.error('Failed to toggle mash step', err);
@@ -1403,6 +1442,37 @@
 		return 2.0;
 	});
 
+	async function advanceToBoilAutomatically() {
+		if (!batch || isReadOnlyBatch || advancing || isAutoAdvancingToBoil) return;
+		if (batch.currentStage !== 'Mash' || !isMashControlledByBrewLink) return;
+		if (!isMashComplete) return;
+		if (activeStageBrewLinkMetrics?.interaction?.required) return;
+
+		isAutoAdvancingToBoil = true;
+		advancing = true;
+		try {
+			const req: AdvanceBatchStageRequest = {
+				targetStage: 'Boil'
+			};
+			const previousStage = batch.currentStage;
+			const [updated, eq] = await Promise.all([
+				api.batches.advanceStage(batch.id, req),
+				api.equipment.list().catch(() => equipmentList)
+			]);
+			batchTimer.pauseStage(batch.id, previousStage);
+			batch = updated;
+			equipmentList = eq;
+			inspectedStage = updated.currentStage;
+			determineNextStage(updated.currentStage);
+			showAdvanceModal = false;
+		} catch (err: unknown) {
+			console.error('Failed to auto-advance batch to Boil', err);
+		} finally {
+			advancing = false;
+			isAutoAdvancingToBoil = false;
+		}
+	}
+
 	async function handleAdvanceMashStep() {
 		if (!batch?.mashSteps || activeMashStepIndex >= batch.mashSteps.length) return;
 		if (activeStageBrewLinkEquipment && inspectedStage === 'Mash') {
@@ -1423,6 +1493,8 @@
 		}
 		if (activeMashStepIndex + 1 < batch.mashSteps.length) {
 			handleSelectMashStep(activeMashStepIndex + 1);
+		} else if (isMashControlledByBrewLink && batch.currentStage === 'Mash') {
+			await advanceToBoilAutomatically();
 		}
 	}
 
@@ -2466,7 +2538,7 @@
 									</button>
 								</div>
 
-								{#if !isReadOnlyBatch && batch.mashSteps && batch.mashSteps.length > 1}
+								{#if !isReadOnlyBatch && batch.mashSteps && batch.mashSteps.length > 0}
 									<button
 										type="button"
 										data-testid="advance-mash-step-btn"
@@ -2474,7 +2546,12 @@
 										class="flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 py-2 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500/20 active:scale-95 dark:text-amber-300"
 									>
 										<StepForward class="h-4 w-4" />
-										<span>{t('batches.workspace.complete_and_next_step')}</span>
+										<span>
+											{activeMashStepIndex === batch.mashSteps.length - 1 &&
+											isMashControlledByBrewLink
+												? t('batches.workspace.complete_mash_and_boil')
+												: t('batches.workspace.complete_and_next_step')}
+										</span>
 									</button>
 								{/if}
 							</div>

@@ -581,6 +581,7 @@
 			"active_step": "Palier actif",
 			"select_step": "Sélectionner un palier",
 			"complete_and_next_step": "Terminer et passer au palier suivant",
+			"complete_mash_and_boil": "Terminer l'empâtage et passer à l'ébullition",
 			"mash_in_progress": "Empâtage en cours",
 			"not_started": "Non démarré",
 			"start_timer": "Démarrer le minuteur",
@@ -662,6 +663,7 @@
 			"live_hardware_temp": "Temp. du matériel",
 			"brewlink_mash_in_progress": "Empâtage BrewLink en cours : terminez toutes les étapes d'empâtage avant de passer à l'ébullition.",
 			"brewlink_boil_in_progress": "Ébullition BrewLink en cours : l'ébullition doit être terminée avant de passer à la fermentation.",
+			"auto_advanced_to_boil": "Empâtage terminé. Passage automatique à l'étape d'ébullition.",
 			"brewlink_alert_title": "Alerte de la chaudière",
 			"select_boil_step": "Étape d'ébullition",
 			"all_boil_steps": "Toutes les étapes d'ébullition"
