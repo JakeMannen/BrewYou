@@ -144,6 +144,13 @@
 		if (!name.trim() && dev.name) {
 			name = dev.name;
 		}
+		if (dev.state?.tempC != null && (currentTemperature === '' || currentTemperature === null)) {
+			const tempVal =
+				settings.temperatureUnit === 'Fahrenheit'
+					? celsiusToFahrenheit(dev.state.tempC)
+					: dev.state.tempC;
+			currentTemperature = Math.round(tempVal * 10) / 10;
+		}
 	}
 
 	let isRegeneratingToken = $state(false);
@@ -463,7 +470,7 @@
 			mqttTopic = '';
 		}
 
-		if (connectionType === 'BrewLink' && !(newType === 'Boiler' && defaultSub === 'AllInOne')) {
+		if (connectionType === 'BrewLink' && !(newType === 'Boiler' || newType === 'Fermenter')) {
 			connectionType = 'None';
 		}
 
@@ -498,7 +505,7 @@
 	function handleSubtypeSelect(selectedSub: EquipmentSubtype) {
 		subtype = selectedSub;
 		selectedAioPreset = '';
-		if (connectionType === 'BrewLink' && !(type === 'Boiler' && selectedSub === 'AllInOne')) {
+		if (connectionType === 'BrewLink' && !(type === 'Boiler' || type === 'Fermenter')) {
 			connectionType = 'None';
 		}
 		if (!isVesselFillable(selectedSub)) {
@@ -875,6 +882,21 @@
 			}
 
 			onSaved(savedItem);
+			if (savedItem.connectionType === 'BrewLink') {
+				void api.equipment
+					.syncBrewLinkState(savedItem.id)
+					.then((res) => {
+						if (res && (res.temperatureC != null || res.metricsJson)) {
+							onSaved({
+								...savedItem,
+								currentTemperatureC: res.temperatureC ?? savedItem.currentTemperatureC,
+								latestMetricsJson: res.metricsJson ?? savedItem.latestMetricsJson,
+								temperatureUpdatedAt: new Date().toISOString()
+							});
+						}
+					})
+					.catch(() => {});
+			}
 			onClose();
 		} catch (err: unknown) {
 			if (
@@ -1503,7 +1525,7 @@
 									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 								>
 									<option value="None">{t('equipment.conn_none')}</option>
-									{#if type === 'Boiler' && subtype === 'AllInOne'}
+									{#if type === 'Boiler' || type === 'Fermenter'}
 										<option value="BrewLink">{t('equipment.conn_brewlink')}</option>
 									{/if}
 									<option value="HttpPush">{t('equipment.conn_http_push')}</option>

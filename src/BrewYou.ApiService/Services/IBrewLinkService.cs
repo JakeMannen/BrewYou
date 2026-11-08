@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace BrewYou.ApiService.Services;
 
 public record BrewLinkGatewayDto(
@@ -22,7 +24,26 @@ public record BrewLinkCommandResultDto(
     string ReqId,
     string GatewayId,
     string TargetMac,
-    string Message
+    string Message,
+    string? LatestMetricsJson = null
+);
+
+public record BrewLinkControlRequest(
+    string Action,
+    bool? State = null,
+    decimal? PowerPct = null,
+    decimal? TempC = null,
+    int? DurationMin = null,
+    JsonElement? Params = null
+);
+
+public record BrewLinkSyncResultDto(
+    string Status,
+    bool Synced,
+    decimal? TemperatureC,
+    string? MetricsJson,
+    Guid? EquipmentId = null,
+    EquipmentDto? Equipment = null
 );
 
 public record BrewLinkEquipmentCapabilitiesDto(
@@ -102,5 +123,16 @@ public interface IBrewLinkService
         string userId,
         Guid equipmentId,
         SendBrewLinkRecipeRequest request,
+        CancellationToken ct = default);
+
+    Task<(BrewLinkSendResult Result, BrewLinkCommandResultDto? CommandResult, string? ErrorMessage)> SendControlCommandAsync(
+        string userId,
+        Guid equipmentId,
+        BrewLinkControlRequest request,
+        CancellationToken ct = default);
+
+    Task<(BrewLinkSendResult Result, BrewLinkSyncResultDto? SyncResult, string? ErrorMessage)> SyncEquipmentStateAsync(
+        string userId,
+        Guid equipmentId,
         CancellationToken ct = default);
 }

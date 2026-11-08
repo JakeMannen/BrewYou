@@ -36,6 +36,7 @@
 	let isInitialized = false;
 	let telemetryAbortController: AbortController | null = null;
 	let telemetryReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+	let brewLinkSyncInterval: ReturnType<typeof setInterval> | null = null;
 	let isUnmounted = false;
 
 	async function runTelemetryLoop(signal: AbortSignal) {
@@ -46,7 +47,11 @@
 					onReading: (reading: EquipmentTelemetryUpdateDto) => {
 						const bIdx = batches.findIndex(
 							(b) =>
-								b.id === reading.batchId || (b.fermenterId && b.fermenterId === reading.equipmentId)
+								b.id === reading.batchId ||
+								(b.fermenterId && b.fermenterId === reading.equipmentId) ||
+								(b.boilerId && b.boilerId === reading.equipmentId) ||
+								(b.mashTunId && b.mashTunId === reading.equipmentId) ||
+								(b.hltId && b.hltId === reading.equipmentId)
 						);
 						if (bIdx >= 0) {
 							const nextGravity = reading.specificGravity ?? batches[bIdx].currentGravity;
@@ -57,12 +62,14 @@
 									calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2)
 								);
 							}
-							batches[bIdx] = {
-								...batches[bIdx],
-								vesselTempC: reading.temperatureC ?? batches[bIdx].vesselTempC,
+							const nextBatches = [...batches];
+							nextBatches[bIdx] = {
+								...nextBatches[bIdx],
+								vesselTempC: reading.temperatureC ?? nextBatches[bIdx].vesselTempC,
 								currentGravity: nextGravity,
 								alcoholByVolume: nextAbv
 							};
+							batches = nextBatches;
 						}
 					},
 					onError: () => {
@@ -100,6 +107,69 @@
 		}
 	}
 
+	function startBrewLinkAutoSync() {
+		if (brewLinkSyncInterval || isUnmounted || !auth.isAuthenticated) return;
+		brewLinkSyncInterval = setInterval(async () => {
+			if (document.visibilityState === 'hidden' || !auth.isAuthenticated || isUnmounted) return;
+			const activeBatches = batches.filter(
+				(b) =>
+					b.status === 'Brewing' ||
+					b.status === 'Fermenting' ||
+					b.status === 'Conditioning' ||
+					b.currentStage === 'Mash' ||
+					b.currentStage === 'Boil' ||
+					b.currentStage === 'Ferment' ||
+					b.currentStage === 'Condition'
+			);
+			if (activeBatches.length === 0) return;
+
+			const eqIds: string[] = [];
+			for (const b of activeBatches) {
+				if (b.boilerId && !eqIds.includes(b.boilerId)) eqIds.push(b.boilerId);
+				if (b.mashTunId && !eqIds.includes(b.mashTunId)) eqIds.push(b.mashTunId);
+				if (b.hltId && !eqIds.includes(b.hltId)) eqIds.push(b.hltId);
+				if (b.fermenterId && !eqIds.includes(b.fermenterId)) eqIds.push(b.fermenterId);
+			}
+
+			for (const eqId of eqIds) {
+				try {
+					const res = await api.equipment.syncBrewLinkState(eqId);
+					if (res && res.temperatureC != null) {
+						let updatedAny = false;
+						const next = [...batches];
+						for (let i = 0; i < next.length; i++) {
+							const b = next[i];
+							if (
+								b.boilerId === eqId ||
+								b.mashTunId === eqId ||
+								b.hltId === eqId ||
+								b.fermenterId === eqId
+							) {
+								next[i] = {
+									...b,
+									vesselTempC: res.temperatureC
+								};
+								updatedAny = true;
+							}
+						}
+						if (updatedAny) {
+							batches = next;
+						}
+					}
+				} catch {
+					// Equipment not BrewLink or gateway offline
+				}
+			}
+		}, 4000);
+	}
+
+	function stopBrewLinkAutoSync() {
+		if (brewLinkSyncInterval) {
+			clearInterval(brewLinkSyncInterval);
+			brewLinkSyncInterval = null;
+		}
+	}
+
 	async function loadInitialBatches() {
 		const isAuth = await auth.ready();
 		if (!isAuth) {
@@ -124,10 +194,12 @@
 	onMount(() => {
 		void loadInitialBatches();
 		startTelemetryStream();
+		startBrewLinkAutoSync();
 
 		return () => {
 			isUnmounted = true;
 			stopTelemetryStream();
+			stopBrewLinkAutoSync();
 		};
 	});
 
@@ -137,8 +209,10 @@
 				void loadInitialBatches();
 			}
 			startTelemetryStream();
+			startBrewLinkAutoSync();
 		} else {
 			stopTelemetryStream();
+			stopBrewLinkAutoSync();
 		}
 	});
 

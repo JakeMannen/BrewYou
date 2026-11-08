@@ -1,9 +1,13 @@
 using BrewYou.ApiService.Common;
+using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Services;
+using BrewYou.ApiService.Services.Telemetry;
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 using System.Net.Http.Headers;
@@ -42,6 +46,40 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         var defaultSetupId = setupsEnv!.Data!.First(s => s.IsDefault).Id;
 
         return (client, envelope.Data.User.Id, defaultSetupId);
+    }
+
+    private async Task<BrewLinkGateway> CreateTestGatewayAsync(string userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var protector = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("BrewYou.BrewLinkCredentials");
+
+        var gw = new BrewLinkGateway
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Test BrewLink Gateway",
+            Host = "192.168.1.100",
+            GatewayId = "C44F331A8B20",
+            ApiToken = protector.Protect("test-token"),
+            MqttTopicKey = protector.Protect("test-key")
+        };
+
+        db.BrewLinkGateways.Add(gw);
+        await db.SaveChangesAsync();
+        return gw;
+    }
+
+    private async Task<string> AssignEquipmentTokenAsync(Guid equipmentId)
+    {
+        var token = "test-token-" + Guid.NewGuid().ToString("N");
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var entity = await db.Equipment.FindAsync(equipmentId);
+        entity!.ConnectionToken = token;
+        await db.SaveChangesAsync();
+        return token;
     }
 
     [Fact]
@@ -1661,5 +1699,395 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
             .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
         fermEqReadings.Should().HaveCount(3);
         fermEqReadings.All(r => r.TargetTemperatureC == 11.0m && r.StepName == "Lager Primary").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task BrewLinkTelemetry_ImmediateSseBroadcast_And_30sThrottling()
+    {
+        var (client, userId, setupId) = await CreateUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Grainfather G30 {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 30,
+            Subtype: EquipmentSubtype.AllInOne,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"C4:4F:33:1A:8B:22\",\"slot\":1}}"
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var token = await AssignEquipmentTokenAsync(eq.Id);
+
+        var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
+        throttler.Reset(eq.Id);
+
+        // 1. Open SSE stream
+        var streamReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/inventory/equipment/telemetry-stream");
+        streamReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        using var sseRes = await client.SendAsync(streamReq, HttpCompletionOption.ResponseHeadersRead);
+        sseRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var stream = await sseRes.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        var initialLine = await reader.ReadLineAsync();
+        initialLine.Should().Be(": connected");
+        await reader.ReadLineAsync();
+
+        // 2. Ingest Frame 1 (initial reading)
+        var publicClient = _factory.CreateClient();
+        var frame1 = new
+        {
+            current_temp_c = 65.0,
+            target_temp_c = 65.0,
+            heat_active = true,
+            heat_power_pct = 100,
+            pump_active = true
+        };
+        var res1 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", frame1);
+        res1.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Read SSE event 1
+        var event1 = await reader.ReadLineAsync();
+        event1.Should().Be("event: reading");
+        var data1 = await reader.ReadLineAsync();
+        data1.Should().StartWith("data: ");
+        using var sseDoc1 = JsonDocument.Parse(data1!["data: ".Length..]);
+        sseDoc1.RootElement.GetProperty("temperatureC").GetDecimal().Should().Be(65.0m);
+        var metrics1 = BrewLinkTelemetryParser.FromMetricsJson(sseDoc1.RootElement.GetProperty("metricsJson").GetString());
+        metrics1.Should().NotBeNull();
+        metrics1!.CurrentTempC.Should().Be(65.0m);
+        metrics1.HeatActive.Should().BeTrue();
+        metrics1.PumpActive.Should().BeTrue();
+        await reader.ReadLineAsync(); // empty line separator
+
+        // Assert DB count is 1
+        var readings1 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
+        readings1.Should().HaveCount(1);
+
+        // 3. Ingest Frame 2 (rapid frame: |ΔT| = 0.1°C < 0.5°C, no discrete state changes)
+        var frame2 = new
+        {
+            current_temp_c = 65.1,
+            target_temp_c = 65.0,
+            heat_active = true,
+            heat_power_pct = 100,
+            pump_active = true
+        };
+        var res2 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", frame2);
+        res2.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Read SSE event 2 immediately!
+        var event2 = await reader.ReadLineAsync();
+        event2.Should().Be("event: reading");
+        var data2 = await reader.ReadLineAsync();
+        data2.Should().StartWith("data: ");
+        using var sseDoc2 = JsonDocument.Parse(data2!["data: ".Length..]);
+        sseDoc2.RootElement.GetProperty("temperatureC").GetDecimal().Should().Be(65.1m);
+        var metrics2 = BrewLinkTelemetryParser.FromMetricsJson(sseDoc2.RootElement.GetProperty("metricsJson").GetString());
+        metrics2.Should().NotBeNull();
+        metrics2!.CurrentTempC.Should().Be(65.1m);
+        await reader.ReadLineAsync(); // empty line separator
+
+        // Assert DB count is STILL 1 (throttled!)
+        var readings2 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
+        readings2.Should().HaveCount(1);
+
+        // 4. Verify time cadence: at t >= 30s elapsed, throttler permits next persistence
+        var t0 = throttler.GetLastPersisted(eq.Id)!.TimestampUtc;
+        var shouldPersist30s = throttler.ShouldPersist(
+            eq.Id,
+            t0.AddSeconds(31),
+            65.1m,
+            new BrewLinkCanonicalMetrics(
+                CurrentTempC: 65.1m,
+                TargetTempC: 65.0m,
+                BoilTempC: 100.0m,
+                HeatActive: true,
+                HeatPowerPct: 100m,
+                RampActive: false,
+                PumpActive: true,
+                AutoMode: true,
+                Timer: null,
+                Stage: null,
+                Interaction: null,
+                Mac: null,
+                Rssi: null,
+                UpdatedAt: t0.AddSeconds(31)
+            )
+        );
+        shouldPersist30s.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task BrewLinkTelemetry_PersistsImmediately_OnTemperatureDelta()
+    {
+        var (client, userId, setupId) = await CreateUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Delta Boiler {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 30,
+            Subtype: EquipmentSubtype.AllInOne,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"C4:4F:33:1A:8B:22\",\"slot\":1}}"
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var token = await AssignEquipmentTokenAsync(eq.Id);
+
+        var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
+        throttler.Reset(eq.Id);
+
+        var publicClient = _factory.CreateClient();
+
+        // 1. Initial Frame: 60.0°C -> Persisted (count = 1)
+        var res1 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", new
+        {
+            current_temp_c = 60.0,
+            heat_active = true
+        });
+        res1.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var readings1 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
+        readings1.Should().HaveCount(1);
+
+        // 2. Small delta: 60.2°C (|ΔT| = 0.2°C < 0.5°C) -> Throttled (count = 1)
+        var res2 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", new
+        {
+            current_temp_c = 60.2,
+            heat_active = true
+        });
+        res2.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var readings2 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
+        readings2.Should().HaveCount(1);
+
+        // 3. Significant delta: 60.6°C (|ΔT| = 0.6°C >= 0.5°C) -> Persisted immediately! (count = 2)
+        var res3 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", new
+        {
+            current_temp_c = 60.6,
+            heat_active = true
+        });
+        res3.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var readings3 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
+        readings3.Should().HaveCount(2);
+        readings3[0].TemperatureC.Should().Be(60.6m);
+    }
+
+    [Fact]
+    public async Task BrewLinkTelemetry_PersistsImmediately_OnDiscreteStateChanges()
+    {
+        var (client, userId, setupId) = await CreateUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"State Boiler {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 30,
+            Subtype: EquipmentSubtype.AllInOne,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"C4:4F:33:1A:8B:22\",\"slot\":1}}"
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var token = await AssignEquipmentTokenAsync(eq.Id);
+
+        var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
+        throttler.Reset(eq.Id);
+
+        var publicClient = _factory.CreateClient();
+
+        async Task IngestAndAssertCount(object payload, int expectedCount)
+        {
+            var res = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", payload);
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var readings = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
+                .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
+            readings.Should().HaveCount(expectedCount);
+        }
+
+        // 1. Baseline: count = 1
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = false,
+            heat_power_pct = 0,
+            pump_active = false,
+            timer = new { active = false, paused = false, remaining_seconds = 0 }
+        }, 1);
+
+        // 2. Pump toggled ON -> count = 2
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = false,
+            heat_power_pct = 0,
+            pump_active = true,
+            timer = new { active = false, paused = false, remaining_seconds = 0 }
+        }, 2);
+
+        // 3. Heater power changed -> count = 3
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = true,
+            heat_power_pct = 75,
+            pump_active = true,
+            timer = new { active = false, paused = false, remaining_seconds = 0 }
+        }, 3);
+
+        // 4. Timer activated -> count = 4
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = true,
+            heat_power_pct = 75,
+            pump_active = true,
+            timer = new { active = true, paused = false, remaining_seconds = 3600 }
+        }, 4);
+
+        // 5. Normal timer countdown (remaining_seconds: 3599) -> Throttled! Count stays 4
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = true,
+            heat_power_pct = 75,
+            pump_active = true,
+            timer = new { active = true, paused = false, remaining_seconds = 3599 }
+        }, 4);
+
+        // 6. User prompt interaction alert appeared -> count = 5
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = true,
+            heat_power_pct = 75,
+            pump_active = true,
+            timer = new { active = true, paused = false, remaining_seconds = 3598 },
+            interaction = new { required = true, code = 1, message = "Add Sparge Water" }
+        }, 5);
+
+        // 7. Interaction prompt dismissed -> count = 6
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = true,
+            heat_power_pct = 75,
+            pump_active = true,
+            timer = new { active = true, paused = false, remaining_seconds = 3597 },
+            interaction = new { required = false, code = 0, message = "Normal" }
+        }, 6);
+
+        // 8. Stage step advanced -> count = 7
+        await IngestAndAssertCount(new
+        {
+            current_temp_c = 60.0,
+            heat_active = true,
+            heat_power_pct = 75,
+            pump_active = true,
+            timer = new { active = true, paused = false, remaining_seconds = 3596 },
+            stage = new { step_index = 2, step_name = "Mash Out" }
+        }, 7);
+    }
+
+    [Fact]
+    public async Task BrewLinkTelemetry_BatchSseStream_BroadcastsWithFullMetrics()
+    {
+        var (client, userId, setupId) = await CreateUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var boilerRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Batch Boiler {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 50,
+            Subtype: EquipmentSubtype.AllInOne,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"C4:4F:33:1A:8B:22\",\"slot\":1}}"
+        ));
+        boilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await boilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var boilerToken = await AssignEquipmentTokenAsync(boiler.Id);
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "SSE Batch Stream Test",
+            BeerStyle: "Saison",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20,
+            TargetOg: null,
+            TargetFg: null,
+            TargetAbv: null,
+            TargetIbu: null,
+            TargetColorSrm: null,
+            BoilTimeMinutes: null,
+            EfficiencyPercent: null,
+            BoilerId: boiler.Id,
+            FermenterId: null,
+            CustomMashSteps: [new(1, "Saccharification", MashStepType.Infusion, 65.0m, 60)]
+        ));
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // Open batch telemetry stream
+        var streamReq = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/batches/{batch.Id}/telemetry-stream");
+        streamReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        using var sseRes = await client.SendAsync(streamReq, HttpCompletionOption.ResponseHeadersRead);
+        sseRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var stream = await sseRes.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        var initialLine = await reader.ReadLineAsync();
+        initialLine.Should().Be(": connected");
+        await reader.ReadLineAsync();
+
+        // Ingest BrewLink telemetry
+        var publicClient = _factory.CreateClient();
+        var ingestRes = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{boilerToken}", new
+        {
+            @event = "telemetry",
+            state = new
+            {
+                current_temp_c = 65.4,
+                target_temp_c = 65.0,
+                heat_active = true,
+                pump_active = true,
+                stage = new { step_index = 1, step_name = "Saccharification" }
+            }
+        });
+        ingestRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Read batch SSE event
+        var eventLine = await reader.ReadLineAsync();
+        eventLine.Should().Be("event: reading");
+        var dataLine = await reader.ReadLineAsync();
+        dataLine.Should().StartWith("data: ");
+        var json = dataLine!["data: ".Length..];
+
+        var batchReading = JsonSerializer.Deserialize<BatchEquipmentReadingDto>(json, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+
+        batchReading.Should().NotBeNull();
+        batchReading!.EquipmentId.Should().Be(boiler.Id);
+        batchReading.TemperatureC.Should().Be(65.4m);
+        batchReading.MetricsJson.Should().NotBeNull();
+        batchReading.MetricsJson.Should().Contain("\"heatActive\":true");
+        batchReading.MetricsJson.Should().Contain("\"pumpActive\":true");
     }
 }

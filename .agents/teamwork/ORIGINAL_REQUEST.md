@@ -1,34 +1,47 @@
 # Original User Request
 
-## Initial Request — 2026-11-04T07:42:52Z
+## Initial Request — 2026-11-07T18:56:33Z
 
-Investigate the cascading effects through the system of deleting or renaming equipment, recipes, or ingredients, produce an investigation report with proposed solutions, and implement the solutions to resolve any issues found.
+Implement real-time telemetry streaming and hardware control for BrewLink-connected equipment in BrewYou as a production feature.
 
 Integrity mode: development
 
 ## Requirements
 
-### R1. System Cascading Impact Investigation
-Investigate and document the cascading effects through the system when equipment, recipes, or ingredients are deleted or renamed. The investigation must identify all failure modes, broken references, data integrity violations, unhandled UI states, or backup/restore discrepancies across the full stack.
+### R1. Multi-Transport Telemetry Ingestion and State Normalization
+Implement real-time telemetry ingestion from BrewLink gateways across WebSocket streaming (`ws://<gateway-ip>/ws?token=<api_token>`), MQTT broker topics (`brewlink/{topicKey}/{gatewayId}/equipment/+/telemetry`), and HTTP REST polling fallback (`GET /api/equipment`). Parse and normalize incoming device state (temperature, heating, pump, timer, stage, and user interaction alerts) into `Equipment.LatestMetricsJson`, broadcast live updates over SSE immediately, and throttle database persistence of `EquipmentReading` records to avoid database bloat.
 
-### R2. Solution Proposals and Documentation
-Produce a comprehensive report documenting all findings, including failure scenarios, root causes, and proposed solutions (such as cascade rules, soft-delete, restrict deletion, reference updates, UI warnings, and backup/restore mitigations).
+### R2. Direct Hardware Control API and State Synchronization
+Add hardware control support allowing authorized brewery members (Owner and Brewer roles) to issue signed HMAC-SHA256 control commands (`set_pump`, `set_heat`, `set_target_temp`, `set_timer`, `pause_timer`, `resume_timer`, `cancel_timer`, `press_set`, `ack_interaction`, `dismiss_alert`, `dismiss_sparge_alert`, `cancel_session`) to BrewLink equipment via `POST /api/v1/inventory/equipment/{id}/brewlink/control` and pull live state on demand via `POST /api/v1/inventory/equipment/{id}/brewlink/sync`. Command execution must validate gateway hosts, update equipment state optimistically, and broadcast immediate SSE telemetry updates.
 
-### R3. Implementation of Solutions
-Implement the proposed solutions for all identified issues to ensure deleting and renaming operations on equipment, recipes, and ingredients maintain system-wide data integrity and consistent user experience.
+### R3. Equipment Connection Type Expansion
+Update equipment configuration to allow `ConnectionType = BrewLink` on all Boiler and Fermenter subtypes, enabling telemetry and hardware control across all supported vessel types while keeping recipe uploads restricted to equipment with recipe upload capabilities.
+
+### R4. Frontend Telemetry Display and Hardware Control Panel
+Implement a reusable `BrewLinkControlPanel.svelte` component displaying live temperature against target setpoint, heater status/power controls, pump toggle, hardware timer countdown/controls, and interactive prompt acknowledgment banners. Integrate this panel into the Equipment Inventory card view and the Batch Brew Day workspace and HUD so brewers can monitor telemetry and operate equipment directly.
+
+### R5. Security, Compatibility, and Documentation Guardrails
+Enforce host validation via `NetworkSecurityValidator` on all outbound connections, maintain User Backup & Restore backwards compatibility with test verification in `BackupEndpointsTests`, ensure complete localization key parity across English and Swedish locales, and update `README.md` with the new endpoints and capabilities.
 
 ## Acceptance Criteria
 
-### Impact Investigation & Report
-- [ ] A report is produced documenting the behavior and failure modes of deleting equipment, recipes, and ingredients across database models/constraints, backend domain services, frontend UI/client state, and user backup/restore.
-- [ ] The report documents the behavior and failure modes of renaming equipment, recipes, and ingredients across database models/constraints, backend domain services, frontend UI/client state, and user backup/restore.
-- [ ] The report details concrete proposed solutions for every identified failure mode or data inconsistency.
+### Telemetry Ingestion & Parsing
+- [ ] `BrewLinkTelemetryParserTests` verifies normalization of WebSocket frames and REST state payloads into canonical `LatestMetricsJson` and temperature readings.
+- [ ] Telemetry ingestion broadcasts immediate SSE events on state changes and throttles `EquipmentReading` database persistence to 30-second intervals or significant state/temperature deltas.
 
-### Implementation and Data Integrity
-- [ ] Deleting an equipment, recipe, or ingredient does not leave orphaned records, broken foreign keys, unhandled server exceptions, or corrupt backup/restore files.
-- [ ] Renaming an equipment, recipe, or ingredient updates all referencing views, records, and calculations consistently without broken state.
-- [ ] User Backup & Restore maintains backwards compatibility and round-trip consistency with the updated deletion/renaming behaviors.
+### Hardware Control API
+- [ ] `POST /api/v1/inventory/equipment/{id}/brewlink/control` validates actions and arguments, transmits HMAC-SHA256 signed envelopes to the gateway, and returns appropriate status codes (200, 400, 401, 403, 404, 409, 502).
+- [ ] Viewer roles are rejected with 403 Forbidden when attempting hardware control commands.
+- [ ] `POST /api/v1/inventory/equipment/{id}/brewlink/sync` fetches live gateway state and updates equipment records.
 
-### Verification
-- [ ] Automated tests cover deletion and renaming edge cases for equipment, recipes, and ingredients, asserting expected cascade or restriction behaviors and data integrity.
-- [ ] All existing and new automated test suites pass with zero failures.
+### Frontend & UI
+- [ ] `BrewLinkControlPanel.svelte` provides interactive controls for heater, pump, temperature setpoint, hardware timer, and prompt acknowledgment.
+- [ ] Equipment cards in Inventory and Brew Day workspace/HUD display live telemetry badges and control panels for BrewLink-connected equipment.
+- [ ] All new user-facing strings have 100% key parity in `en.json` and `sv.json`.
+
+### Quality & Test Suite Compliance
+- [ ] Backend test suite passes (`dotnet test`).
+- [ ] Backend code formatting and static analysis pass with zero warnings and zero errors (`dotnet format --verify-no-changes`).
+- [ ] Frontend type check and lint pass with zero warnings and zero errors (`npm run check` and `npm run lint`).
+- [ ] `BackupEndpointsTests` passes verifying backup and restore compatibility.
+- [ ] `README.md` documents the new endpoints and BrewLink hardware control capabilities.

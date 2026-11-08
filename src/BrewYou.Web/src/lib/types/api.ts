@@ -730,10 +730,21 @@ export interface BrewLinkEquipmentCapabilitiesDto {
 export interface BrewLinkEquipmentStateDto {
 	tempC?: number | null;
 	targetTempC?: number | null;
+	boilTempC?: number | null;
+	heatActive?: boolean | null;
 	heatPct?: number | null;
 	pumpOn?: boolean | null;
-	stepIndex?: number | null;
+	autoMode?: boolean | null;
+	rampActive?: boolean | null;
+	timerActive?: boolean | null;
+	timerPaused?: boolean | null;
 	timerRemainingSec?: number | null;
+	timerTotalSec?: number | null;
+	stepIndex?: number | null;
+	stepName?: string | null;
+	interactionRequired?: boolean | null;
+	interactionCode?: number | null;
+	interactionMessage?: string | null;
 }
 
 export interface BrewLinkEquipmentDeviceDto {
@@ -769,12 +780,45 @@ export interface SendBrewLinkRecipeRequest {
 	batchId?: string | null;
 }
 
+export type BrewLinkControlAction =
+	| 'set_pump'
+	| 'set_heat'
+	| 'set_target_temp'
+	| 'set_timer'
+	| 'pause_timer'
+	| 'resume_timer'
+	| 'cancel_timer'
+	| 'press_set'
+	| 'ack_interaction'
+	| 'dismiss_alert'
+	| 'dismiss_sparge_alert'
+	| 'cancel_session';
+
+export interface SendBrewLinkControlRequest {
+	action: BrewLinkControlAction | string;
+	state?: boolean | null;
+	powerPct?: number | null;
+	tempC?: number | null;
+	durationMin?: number | null;
+	params?: Record<string, unknown> | null;
+}
+
+export interface BrewLinkSyncResultDto {
+	status: string;
+	synced: boolean;
+	temperatureC?: number | null;
+	metricsJson?: string | null;
+	equipmentId?: string | null;
+	equipment?: EquipmentDto | null;
+}
+
 export interface BrewLinkCommandResultDto {
 	status: string;
 	reqId: string;
 	gatewayId: string;
 	targetMac: string;
 	message: string;
+	latestMetricsJson?: string | null;
 }
 
 export interface BrewLinkGatewayBackupDto {
@@ -1373,6 +1417,20 @@ export interface LogBatchTemperatureRequest {
 	stepName?: string | null;
 	timestamp?: string | null;
 	notes?: string | null;
+	targetTemperatureC?: number | null;
+}
+
+export interface BatchBoilStep {
+	id: string;
+	stepOrder: number;
+	name: string;
+	stepType: 'ramp' | 'addition' | 'flameout' | 'whirlpool';
+	additionTimeMinutes?: number | null;
+	durationMinutes?: number | null;
+	targetTemperatureC: number;
+	ingredients: BatchIngredientDto[];
+	isCompleted: boolean;
+	actualTemperatureC?: number | null;
 }
 
 export interface CheckBatchStockRequest {

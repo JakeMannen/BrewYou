@@ -271,4 +271,147 @@ public class MqttTests : IClassFixture<WebApplicationFactory<Program>>
         var act = () => service.DisconnectAsync(CancellationToken.None);
         await act.Should().NotThrowAsync();
     }
+
+    [Fact]
+    public async Task IngestMqttTelemetryAsync_WhenEquipmentAssignedToActiveBatch_AssociatesReadingsAcrossMashBoilAndFermentStages()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = $"mqtt_batch_{Guid.NewGuid():N}@brewyou.test",
+            Email = $"mqtt_batch_{Guid.NewGuid():N}@brewyou.test"
+        };
+        db.Users.Add(user);
+
+        var setup = new BrewerySetup
+        {
+            UserId = user.Id,
+            Name = "MQTT Batch Setup"
+        };
+        db.BrewerySetups.Add(setup);
+
+        var boiler = new Equipment
+        {
+            UserId = user.Id,
+            BrewerySetupId = setup.Id,
+            Name = "MQTT Smart Boiler",
+            Type = EquipmentType.Boiler,
+            Subtype = EquipmentSubtype.AllInOne,
+            ConnectionType = EquipmentConnectionType.Mqtt,
+            ConnectionConfigJson = "{\"topic\":\"brewery/boiler/telemetry\"}"
+        };
+        db.Equipment.Add(boiler);
+
+        var fermenter = new Equipment
+        {
+            UserId = user.Id,
+            BrewerySetupId = setup.Id,
+            Name = "MQTT Smart Fermenter",
+            Type = EquipmentType.Fermenter,
+            Subtype = EquipmentSubtype.ConicalFermenter,
+            ConnectionType = EquipmentConnectionType.Mqtt,
+            ConnectionConfigJson = "{\"topic\":\"brewery/fermenter/telemetry\"}"
+        };
+        db.Equipment.Add(fermenter);
+
+        var batch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            BrewerySetupId = setup.Id,
+            Name = "MQTT Full Lifecycle Batch",
+            BatchCode = $"B-{Guid.NewGuid():N}"[..12],
+            BeerStyle = "Stout",
+            Status = BatchStatus.Brewing,
+            CurrentStage = BrewStage.Mash,
+            TargetOg = 1.060m,
+            TargetBatchSizeLiters = 25m,
+            BoilerId = boiler.Id,
+            FermenterId = fermenter.Id,
+            MashSteps = new List<BatchMashStep>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Saccharification Rest",
+                    StepOrder = 1,
+                    TargetTemperatureC = 66.0m,
+                    DurationMinutes = 60,
+                    IsCompleted = false
+                }
+            },
+            FermentationSteps = new List<BatchFermentationStep>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Primary Fermentation",
+                    StepOrder = 1,
+                    TargetTemperatureC = 19.0m,
+                    DurationDays = 14,
+                    IsCompleted = false
+                }
+            }
+        };
+        db.Batches.Add(batch);
+        await db.SaveChangesAsync();
+
+        // 1. Ingest MQTT JSON telemetry during Mash
+        var mashPayload = "{\"temperature\": 65.8}";
+        var mashResult = await telemetryService.IngestMqttTelemetryAsync(boiler.Id, mashPayload);
+        mashResult.Status.Should().Be(TelemetryIngestStatus.Success);
+        mashResult.TemperatureC.Should().Be(65.8m);
+
+        var mashReading = await db.EquipmentReadings.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.EquipmentId == boiler.Id && r.Stage == BrewStage.Mash);
+        mashReading.Should().NotBeNull();
+        mashReading!.BatchId.Should().Be(batch.Id);
+        mashReading.StepName.Should().Be("Saccharification Rest");
+        mashReading.BatchMashStepId.Should().Be(batch.MashSteps.First().Id);
+
+        // 2. Advance to Boil stage
+        batch.CurrentStage = BrewStage.Boil;
+        await db.SaveChangesAsync();
+
+        // Ingest MQTT scalar telemetry during Boil
+        var boilPayload = "99.7 C";
+        var boilResult = await telemetryService.IngestMqttTelemetryAsync(boiler.Id, boilPayload);
+        boilResult.Status.Should().Be(TelemetryIngestStatus.Success);
+        boilResult.TemperatureC.Should().Be(99.7m);
+
+        var boilReading = await db.EquipmentReadings.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.EquipmentId == boiler.Id && r.Stage == BrewStage.Boil);
+        boilReading.Should().NotBeNull();
+        boilReading!.BatchId.Should().Be(batch.Id);
+        boilReading.StepName.Should().Be("Boil");
+        boilReading.TemperatureC.Should().Be(99.7m);
+
+        // 3. Advance to Ferment stage
+        batch.CurrentStage = BrewStage.Ferment;
+        batch.Status = BatchStatus.Fermenting;
+        batch.MeasuredOg = 1.060m;
+        await db.SaveChangesAsync();
+
+        // Ingest MQTT JSON telemetry from fermenter with gravity & temp
+        var fermPayload = "{\"temperature\": 19.2, \"gravity\": 1.042}";
+        var fermResult = await telemetryService.IngestMqttTelemetryAsync(fermenter.Id, fermPayload);
+        fermResult.Status.Should().Be(TelemetryIngestStatus.Success);
+        fermResult.TemperatureC.Should().Be(19.2m);
+
+        var fermReading = await db.EquipmentReadings.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.EquipmentId == fermenter.Id && r.Stage == BrewStage.Ferment);
+        fermReading.Should().NotBeNull();
+        fermReading!.BatchId.Should().Be(batch.Id);
+        fermReading.SpecificGravity.Should().Be(1.042m);
+        fermReading.StepName.Should().Be("Primary Fermentation");
+
+        // Verify batch state updated from MQTT telemetry
+        var updatedBatch = await db.Batches.AsNoTracking().FirstAsync(b => b.Id == batch.Id);
+        updatedBatch.CurrentGravity.Should().Be(1.042m);
+        updatedBatch.AlcoholByVolume.Should().BeGreaterThan(0);
+    }
 }

@@ -1,8 +1,11 @@
 using BrewYou.ApiService.Backup.Security;
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services.Telemetry;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -15,10 +18,18 @@ namespace BrewYou.ApiService.Services;
 
 public partial class BrewLinkService : IBrewLinkService
 {
+    private static readonly HashSet<string> SupportedActions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "set_pump", "set_heat", "set_target_temp", "set_timer",
+        "pause_timer", "resume_timer", "cancel_timer", "press_set",
+        "ack_interaction", "dismiss_alert", "dismiss_sparge_alert", "cancel_session"
+    };
+
     private readonly BrewYouDbContext _db;
     private readonly HttpClient _httpClient;
     private readonly IDataProtector _protector;
     private readonly IBrewLinkDiscoveryService? _discoveryService;
+    private readonly ITelemetryBroadcastService? _broadcastService;
     private readonly ILogger<BrewLinkService> _logger;
 
     [GeneratedRegex(@"^[0-9A-Za-z]{6}$")]
@@ -32,12 +43,14 @@ public partial class BrewLinkService : IBrewLinkService
         HttpClient httpClient,
         IDataProtectionProvider dataProtectionProvider,
         ILogger<BrewLinkService> logger,
-        IBrewLinkDiscoveryService? discoveryService = null)
+        IBrewLinkDiscoveryService? discoveryService = null,
+        ITelemetryBroadcastService? broadcastService = null)
     {
         _db = db;
         _httpClient = httpClient;
         _protector = dataProtectionProvider.CreateProtector("BrewYou.BrewLinkCredentials");
         _discoveryService = discoveryService;
+        _broadcastService = broadcastService;
         _logger = logger;
     }
 
@@ -782,7 +795,7 @@ public partial class BrewLinkService : IBrewLinkService
         var hostOnly = uri.Host.Trim().ToLowerInvariant();
 
         // Prohibit local loopback and cloud metadata
-        if (hostOnly is "localhost" or "127.0.0.1" or "::1")
+        if (hostOnly is "localhost" or "127.0.0.1" or "::1" or "[::1]")
         {
             return (false, "Access to local loopback endpoints is prohibited.", null);
         }
@@ -792,6 +805,10 @@ public partial class BrewLinkService : IBrewLinkService
             if (IPAddress.IsLoopback(ip))
             {
                 return (false, "Access to local loopback addresses is prohibited.", null);
+            }
+            if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
+            {
+                return (false, "Access to unspecified network address is prohibited.", null);
             }
         }
 
@@ -1000,5 +1017,893 @@ public partial class BrewLinkService : IBrewLinkService
             ["target_og_sg"] = Math.Round(recipe.OriginalGravity, 3),
             ["target_fg_sg"] = Math.Round(recipe.FinalGravity, 3)
         };
+    }
+
+    public async Task<(BrewLinkSendResult Result, BrewLinkCommandResultDto? CommandResult, string? ErrorMessage)> SendControlCommandAsync(
+        string userId,
+        Guid equipmentId,
+        BrewLinkControlRequest request,
+        CancellationToken ct = default)
+    {
+        var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == equipmentId, ct);
+
+        if (equipment == null)
+        {
+            return (BrewLinkSendResult.NotFound, null, "Equipment not found.");
+        }
+
+        var isOwner = equipment.UserId == userId ||
+                      (equipment.BrewerySetup != null &&
+                       (equipment.BrewerySetup.UserId == userId ||
+                        equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+
+        var isBrewer = equipment.BrewerySetup != null &&
+                       equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+
+        if (!isOwner && !isBrewer)
+        {
+            return (BrewLinkSendResult.Forbidden, null, "You do not have permission to control this equipment.");
+        }
+
+        if (equipment.ConnectionType != EquipmentConnectionType.BrewLink || string.IsNullOrWhiteSpace(equipment.ConnectionConfigJson))
+        {
+            return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is not connected to a BrewLink gateway.");
+        }
+
+        var (isValidConfig, configError, gatewayId, targetMac, targetSlot, targetName) =
+            ParseEquipmentConnectionConfig(equipment.ConnectionConfigJson);
+        if (!isValidConfig)
+        {
+            return (BrewLinkSendResult.BadRequest, null, configError ?? "Invalid BrewLink connection configuration.");
+        }
+
+        var (isValidAction, actionError, payloadParams) = ValidateAndBuildParams(
+            request.Action,
+            request.Params,
+            request.State,
+            request.PowerPct,
+            request.TempC,
+            request.DurationMin);
+        if (!isValidAction)
+        {
+            return (BrewLinkSendResult.BadRequest, null, actionError ?? "Invalid control action.");
+        }
+
+        var gateway = await _db.BrewLinkGateways
+            .FirstOrDefaultAsync(g => g.Id == gatewayId && (g.UserId == userId || g.UserId == equipment.UserId), ct);
+
+        if (gateway == null)
+        {
+            return (BrewLinkSendResult.BadRequest, null, "Configured BrewLink gateway was not found or is no longer paired.");
+        }
+
+        var (isValidHost, hostError, normalizedHost) = await ValidateAndNormalizeHostAsync(gateway.Host, ct);
+        if (!isValidHost || normalizedHost == null)
+        {
+            return (BrewLinkSendResult.BadRequest, null, hostError ?? "Invalid gateway host.");
+        }
+
+        string rawToken;
+        try
+        {
+            rawToken = _protector.Unprotect(gateway.ApiToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to unprotect API token for BrewLink gateway {GatewayId}", gateway.GatewayId);
+            return (BrewLinkSendResult.Unauthorized, null, "Gateway credentials could not be decrypted. Please re-pair the gateway.");
+        }
+
+        var reqId = $"req-{Guid.NewGuid():N}"[..12];
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var action = request.Action.Trim().ToLowerInvariant();
+        var signingInput = $"{reqId}:{action}:{timestamp}";
+        var sig = Convert.ToHexStringLower(HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes(rawToken),
+            Encoding.UTF8.GetBytes(signingInput)));
+
+        var commandEnvelope = new JsonObject
+        {
+            ["req_id"] = reqId,
+            ["action"] = action,
+            ["equipment_type"] = equipment.Type == EquipmentType.Fermenter ? "fermenter" : "boiler",
+            ["timestamp"] = timestamp,
+            ["sig"] = sig,
+            ["params"] = payloadParams
+        };
+
+        if (targetSlot.HasValue)
+        {
+            commandEnvelope["slot"] = targetSlot.Value;
+        }
+        if (!string.IsNullOrWhiteSpace(targetName))
+        {
+            commandEnvelope["target_name"] = targetName;
+        }
+        if (!string.IsNullOrWhiteSpace(targetMac))
+        {
+            commandEnvelope["target_mac"] = targetMac;
+        }
+
+        var primaryUrl = $"{normalizedHost}/api/equipment/control";
+        var fallbackUrl = $"{normalizedHost}/api/equipment/cmd";
+
+        try
+        {
+            var jsonPayload = commandEnvelope.ToJsonString();
+            using var reqMsg = new HttpRequestMessage(HttpMethod.Post, primaryUrl)
+            {
+                Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+            };
+            reqMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
+            reqMsg.Headers.Add("X-BrewLink-Token", rawToken);
+
+            var response = await _httpClient.SendAsync(reqMsg, ct);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _logger.LogInformation("BrewLink endpoint /api/equipment/control returned 404, trying fallback /api/equipment/cmd on {Host}", normalizedHost);
+                response.Dispose();
+
+                using var fallbackReq = new HttpRequestMessage(HttpMethod.Post, fallbackUrl)
+                {
+                    Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+                };
+                fallbackReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
+                fallbackReq.Headers.Add("X-BrewLink-Token", rawToken);
+
+                response = await _httpClient.SendAsync(fallbackReq, ct);
+            }
+
+            using (response)
+            {
+                if (response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync(ct);
+                    var reportedMac = targetMac ?? string.Empty;
+                    var reportedReqId = reqId;
+                    var reportedMessage = $"Action {action} successfully executed.";
+                    var reportedStatus = "ok";
+
+                    try
+                    {
+                        using var respDoc = JsonDocument.Parse(body);
+                        if ((respDoc.RootElement.TryGetProperty("mac", out var macProp) ||
+                             respDoc.RootElement.TryGetProperty("target_mac", out macProp)) &&
+                            !string.IsNullOrWhiteSpace(macProp.GetString()))
+                        {
+                            reportedMac = macProp.GetString()!;
+                        }
+
+                        if (respDoc.RootElement.TryGetProperty("req_id", out var reqIdProp) && !string.IsNullOrWhiteSpace(reqIdProp.GetString()))
+                        {
+                            reportedReqId = reqIdProp.GetString()!;
+                        }
+
+                        if (respDoc.RootElement.TryGetProperty("message", out var msgProp) && !string.IsNullOrWhiteSpace(msgProp.GetString()))
+                        {
+                            reportedMessage = msgProp.GetString()!;
+                        }
+
+                        if (respDoc.RootElement.TryGetProperty("status", out var stProp) && !string.IsNullOrWhiteSpace(stProp.GetString()))
+                        {
+                            reportedStatus = stProp.GetString()!;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore non-JSON or missing properties
+                    }
+
+                    // Optimistic state update
+                    var existingMetrics = BrewLinkTelemetryParser.FromMetricsJson(equipment.LatestMetricsJson)
+                                          ?? new BrewLinkCanonicalMetrics(
+                                              CurrentTempC: equipment.CurrentTemperatureC,
+                                              TargetTempC: equipment.CurrentTemperatureC,
+                                              BoilTempC: 100.0m,
+                                              HeatActive: false,
+                                              HeatPowerPct: 0m,
+                                              RampActive: false,
+                                              PumpActive: false,
+                                              AutoMode: false,
+                                              Timer: new BrewLinkTimerMetrics(false, false, 0, 0),
+                                              Stage: null,
+                                              Interaction: new BrewLinkInteractionMetrics(false, 0, null),
+                                              Mac: reportedMac,
+                                              Rssi: null,
+                                              UpdatedAt: DateTime.UtcNow
+                                          );
+
+                    var mutatedMetrics = MutateCanonicalMetrics(existingMetrics, action, payloadParams);
+                    var newMetricsJson = BrewLinkTelemetryParser.ToMetricsJson(mutatedMetrics);
+
+                    equipment.LatestMetricsJson = newMetricsJson;
+                    equipment.LastTelemetryAt = DateTime.UtcNow;
+                    if (mutatedMetrics.CurrentTempC.HasValue)
+                    {
+                        equipment.CurrentTemperatureC = mutatedMetrics.CurrentTempC.Value;
+                        equipment.TemperatureUpdatedAt = mutatedMetrics.UpdatedAt;
+                    }
+
+                    await _db.SaveChangesAsync(ct);
+
+                    BroadcastEquipmentState(equipment, newMetricsJson, "BrewLinkControl");
+
+                    return (BrewLinkSendResult.Success, new BrewLinkCommandResultDto(
+                        Status: reportedStatus,
+                        ReqId: reportedReqId,
+                        GatewayId: gateway.GatewayId,
+                        TargetMac: reportedMac,
+                        Message: reportedMessage,
+                        LatestMetricsJson: newMetricsJson
+                    ), null);
+                }
+
+                var errBody = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning("BrewLink control command failed with status {StatusCode}: {Body}", response.StatusCode, errBody);
+
+                if (response.StatusCode == HttpStatusCode.Conflict)
+                {
+                    return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
+                }
+
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    return (BrewLinkSendResult.Unauthorized, null, "BrewLink gateway authorization failed. Please re-pair the gateway.");
+                }
+
+                return (BrewLinkSendResult.GatewayError, null, $"BrewLink gateway returned HTTP {(int)response.StatusCode}: {errBody}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "HTTP failure contacting BrewLink gateway at {Url}", primaryUrl);
+            return (BrewLinkSendResult.GatewayError, null, $"Failed to reach BrewLink gateway: {ex.Message}");
+        }
+    }
+
+    public async Task<(BrewLinkSendResult Result, BrewLinkSyncResultDto? SyncResult, string? ErrorMessage)> SyncEquipmentStateAsync(
+        string userId,
+        Guid equipmentId,
+        CancellationToken ct = default)
+    {
+        var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == equipmentId, ct);
+
+        if (equipment == null)
+        {
+            return (BrewLinkSendResult.NotFound, null, "Equipment not found.");
+        }
+
+        var isOwner = equipment.UserId == userId ||
+                      (equipment.BrewerySetup != null &&
+                       (equipment.BrewerySetup.UserId == userId ||
+                        equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+
+        var isBrewer = equipment.BrewerySetup != null &&
+                       equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+
+        if (!isOwner && !isBrewer)
+        {
+            return (BrewLinkSendResult.Forbidden, null, "You do not have permission to control this equipment.");
+        }
+
+        if (equipment.ConnectionType != EquipmentConnectionType.BrewLink || string.IsNullOrWhiteSpace(equipment.ConnectionConfigJson))
+        {
+            return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is not connected to a BrewLink gateway.");
+        }
+
+        var (isValidConfig, configError, gatewayId, targetMac, targetSlot, targetName) =
+            ParseEquipmentConnectionConfig(equipment.ConnectionConfigJson);
+        if (!isValidConfig)
+        {
+            return (BrewLinkSendResult.BadRequest, null, configError ?? "Invalid BrewLink connection configuration.");
+        }
+
+        var gateway = await _db.BrewLinkGateways
+            .FirstOrDefaultAsync(g => g.Id == gatewayId && (g.UserId == userId || g.UserId == equipment.UserId), ct);
+
+        if (gateway == null)
+        {
+            return (BrewLinkSendResult.BadRequest, null, "Configured BrewLink gateway was not found or is no longer paired.");
+        }
+
+        var (isValidHost, hostError, normalizedHost) = await ValidateAndNormalizeHostAsync(gateway.Host, ct);
+        if (!isValidHost || normalizedHost == null)
+        {
+            return (BrewLinkSendResult.BadRequest, null, hostError ?? "Invalid gateway host.");
+        }
+
+        string rawToken;
+        try
+        {
+            rawToken = _protector.Unprotect(gateway.ApiToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to unprotect API token for BrewLink gateway {GatewayId}", gateway.GatewayId);
+            return (BrewLinkSendResult.Unauthorized, null, "Gateway credentials could not be decrypted. Please re-pair the gateway.");
+        }
+
+        var syncUrl = $"{normalizedHost}/api/equipment";
+
+        try
+        {
+            using var reqMsg = new HttpRequestMessage(HttpMethod.Get, syncUrl);
+            reqMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
+            reqMsg.Headers.Add("X-BrewLink-Token", rawToken);
+
+            using var response = await _httpClient.SendAsync(reqMsg, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    return (BrewLinkSendResult.Unauthorized, null, "BrewLink gateway authorization failed.");
+                }
+                return (BrewLinkSendResult.GatewayError, null, $"BrewLink gateway returned HTTP {(int)response.StatusCode}.");
+            }
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+
+            if (TelemetryHelper.TryGetPropertyInsensitive(doc.RootElement, "equipment", out var eqArray) &&
+                eqArray.ValueKind == JsonValueKind.Array)
+            {
+                var targetDevice = FindMatchingDevice(eqArray, targetMac, targetSlot, targetName);
+                if (targetDevice.ValueKind == JsonValueKind.Object &&
+                    TelemetryHelper.TryGetPropertyInsensitive(targetDevice, "connected", out var connProp) &&
+                    connProp.ValueKind == JsonValueKind.False)
+                {
+                    return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
+                }
+            }
+
+            var canonical = BrewLinkTelemetryParser.ParseCanonical(doc.RootElement, equipment);
+            if (canonical == null || !canonical.CurrentTempC.HasValue)
+            {
+                return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
+            }
+
+            var metricsJson = BrewLinkTelemetryParser.ToMetricsJson(canonical);
+            equipment.CurrentTemperatureC = canonical.CurrentTempC.Value;
+            equipment.TemperatureUpdatedAt = canonical.UpdatedAt;
+            equipment.LastTelemetryAt = DateTime.UtcNow;
+            equipment.LatestMetricsJson = metricsJson;
+
+            await _db.SaveChangesAsync(ct);
+
+            BroadcastEquipmentState(equipment, metricsJson, "BrewLinkSync");
+
+            var syncResult = new BrewLinkSyncResultDto(
+                Status: "ok",
+                Synced: true,
+                TemperatureC: canonical.CurrentTempC.Value,
+                MetricsJson: metricsJson,
+                EquipmentId: equipment.Id
+            );
+
+            return (BrewLinkSendResult.Success, syncResult, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync equipment {EquipmentId} from gateway {Host}", equipmentId, normalizedHost);
+            return (BrewLinkSendResult.GatewayError, null, $"Failed to reach BrewLink gateway: {ex.Message}");
+        }
+    }
+
+    private static (bool IsValid, string? ErrorMessage, Guid GatewayId, string? TargetMac, int? TargetSlot, string? TargetName)
+        ParseEquipmentConnectionConfig(string? connectionConfigJson)
+    {
+        if (string.IsNullOrWhiteSpace(connectionConfigJson))
+        {
+            return (false, "Equipment does not have BrewLink configuration configured.", Guid.Empty, null, null, null);
+        }
+
+        try
+        {
+            var configNode = JsonNode.Parse(connectionConfigJson) as JsonObject;
+            var gwIdStr = configNode?["brewLinkGatewayId"]?.GetValue<string>();
+            var macStr = configNode?["targetMac"]?.GetValue<string>();
+            var targetName = configNode?["targetName"]?.GetValue<string>()?.Trim();
+            int? targetSlot = null;
+            if (configNode?["slot"] != null && int.TryParse(configNode["slot"]!.ToString(), out var parsedSlot) && parsedSlot is >= 1 and <= 3)
+            {
+                targetSlot = parsedSlot;
+            }
+
+            if (!Guid.TryParse(gwIdStr, out var gatewayId))
+            {
+                return (false, "Invalid BrewLink connection configuration in equipment.", Guid.Empty, null, null, null);
+            }
+
+            string? targetMac = null;
+            if (!string.IsNullOrWhiteSpace(macStr))
+            {
+                targetMac = NormalizeMac(macStr);
+            }
+
+            if (string.IsNullOrWhiteSpace(targetMac) && !targetSlot.HasValue && string.IsNullOrWhiteSpace(targetName))
+            {
+                return (false, "Invalid BrewLink connection configuration in equipment.", Guid.Empty, null, null, null);
+            }
+
+            return (true, null, gatewayId, targetMac, targetSlot, targetName);
+        }
+        catch
+        {
+            return (false, "Could not parse BrewLink configuration.", Guid.Empty, null, null, null);
+        }
+    }
+
+    private static JsonElement FindMatchingDevice(
+        JsonElement eqArray,
+        string? targetMac,
+        int? targetSlot,
+        string? targetName)
+    {
+        foreach (var item in eqArray.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+
+            if (!string.IsNullOrEmpty(targetMac) &&
+                TelemetryHelper.TryGetPropertyInsensitive(item, "mac", out var mElem) &&
+                mElem.ValueKind == JsonValueKind.String &&
+                string.Equals(BrewLinkTelemetryParser.CleanMac(mElem.GetString()), targetMac, StringComparison.OrdinalIgnoreCase))
+            {
+                return item;
+            }
+
+            if (targetSlot.HasValue &&
+                TelemetryHelper.TryGetPropertyInsensitive(item, "slot", out var slElem) &&
+                slElem.TryGetInt32(out var sVal) && sVal == targetSlot.Value)
+            {
+                return item;
+            }
+
+            if (!string.IsNullOrEmpty(targetName) &&
+                TelemetryHelper.TryGetPropertyInsensitive(item, "name", out var nElem) &&
+                nElem.ValueKind == JsonValueKind.String &&
+                string.Equals(nElem.GetString(), targetName, StringComparison.OrdinalIgnoreCase))
+            {
+                return item;
+            }
+        }
+
+        foreach (var item in eqArray.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object) return item;
+        }
+
+        return default;
+    }
+
+    private void BroadcastEquipmentState(Equipment equipment, string metricsJson, string source)
+    {
+        if (_broadcastService == null) return;
+
+        var fillPercentage = equipment.CapacityLiters > 0
+            ? Math.Round(Math.Clamp((equipment.CurrentVolumeLiters / equipment.CapacityLiters) * 100m, 0m, 100m), 1)
+            : 0m;
+
+        var update = new EquipmentTelemetryUpdateDto(
+            EquipmentId: equipment.Id,
+            EquipmentName: equipment.Name,
+            TemperatureC: equipment.CurrentTemperatureC ?? 0m,
+            Timestamp: DateTime.UtcNow,
+            Source: source,
+            BatchId: equipment.AssignedBatchId,
+            SpecificGravity: equipment.CurrentSpecificGravity,
+            CurrentVolumeLiters: equipment.CurrentVolumeLiters,
+            FillPercentage: fillPercentage,
+            PressureBar: equipment.CurrentPressureBar,
+            BatteryPercent: equipment.CurrentBatteryPercent,
+            BatteryVoltage: equipment.CurrentBatteryVoltage,
+            TiltDegrees: null,
+            Rssi: null,
+            MetricsJson: metricsJson
+        );
+
+        var targetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { equipment.UserId };
+
+        if (equipment.BrewerySetup != null)
+        {
+            if (!string.IsNullOrEmpty(equipment.BrewerySetup.UserId))
+            {
+                targetUserIds.Add(equipment.BrewerySetup.UserId);
+            }
+            if (equipment.BrewerySetup.Members != null)
+            {
+                foreach (var member in equipment.BrewerySetup.Members)
+                {
+                    if (!string.IsNullOrEmpty(member.UserId))
+                    {
+                        targetUserIds.Add(member.UserId);
+                    }
+                }
+            }
+        }
+
+        foreach (var uid in targetUserIds)
+        {
+            _broadcastService.BroadcastEquipmentReading(uid, update);
+        }
+
+        if (equipment.AssignedBatchId.HasValue)
+        {
+            var batchReading = new BatchEquipmentReadingDto(
+                Id: Guid.NewGuid(),
+                EquipmentId: equipment.Id,
+                EquipmentName: equipment.Name,
+                BatchId: equipment.AssignedBatchId.Value,
+                Stage: null,
+                BatchMashStepId: null,
+                StepName: null,
+                TemperatureC: equipment.CurrentTemperatureC ?? 0m,
+                Timestamp: DateTime.UtcNow,
+                Source: source,
+                TargetTemperatureC: null,
+                Notes: null,
+                SpecificGravity: equipment.CurrentSpecificGravity,
+                PressureBar: equipment.CurrentPressureBar,
+                BatteryPercent: equipment.CurrentBatteryPercent,
+                BatteryVoltage: equipment.CurrentBatteryVoltage,
+                TiltDegrees: null,
+                Rssi: null,
+                MetricsJson: metricsJson
+            );
+            _broadcastService.BroadcastReading(batchReading);
+        }
+    }
+
+    private static (bool IsValid, string? ErrorMessage, JsonObject PayloadParams) ValidateAndBuildParams(
+        string action,
+        JsonElement? rawParams,
+        bool? state = null,
+        decimal? powerPct = null,
+        decimal? tempC = null,
+        int? durationMin = null)
+    {
+        var act = action?.Trim() ?? string.Empty;
+        if (!SupportedActions.Contains(act))
+        {
+            return (false, $"Unsupported control action: '{act}'.", new JsonObject());
+        }
+
+        var payload = new JsonObject();
+        var actLower = act.ToLowerInvariant();
+
+        switch (actLower)
+        {
+            case "set_pump":
+                {
+                    var pumpState = state ?? true;
+                    if (rawParams.HasValue && rawParams.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var obj = rawParams.Value;
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "state", out var stElem))
+                        {
+                            if (stElem.ValueKind == JsonValueKind.True || stElem.ValueKind == JsonValueKind.False)
+                                pumpState = stElem.GetBoolean();
+                            else if (bool.TryParse(stElem.ToString(), out var b))
+                                pumpState = b;
+                        }
+                        else if (TelemetryHelper.TryGetPropertyInsensitive(obj, "enabled", out var enElem))
+                        {
+                            if (enElem.ValueKind == JsonValueKind.True || enElem.ValueKind == JsonValueKind.False)
+                                pumpState = enElem.GetBoolean();
+                            else if (bool.TryParse(enElem.ToString(), out var b))
+                                pumpState = b;
+                        }
+                    }
+                    payload["state"] = pumpState;
+                    payload["enabled"] = pumpState;
+                    return (true, null, payload);
+                }
+
+            case "set_heat":
+                {
+                    var heatState = state ?? true;
+                    decimal? effectivePower = powerPct;
+
+                    if (rawParams.HasValue && rawParams.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var obj = rawParams.Value;
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "state", out var stElem))
+                        {
+                            if (stElem.ValueKind == JsonValueKind.True || stElem.ValueKind == JsonValueKind.False)
+                                heatState = stElem.GetBoolean();
+                            else if (bool.TryParse(stElem.ToString(), out var b))
+                                heatState = b;
+                        }
+                        else if (TelemetryHelper.TryGetPropertyInsensitive(obj, "enabled", out var enElem))
+                        {
+                            if (enElem.ValueKind == JsonValueKind.True || enElem.ValueKind == JsonValueKind.False)
+                                heatState = enElem.GetBoolean();
+                            else if (bool.TryParse(enElem.ToString(), out var b))
+                                heatState = b;
+                        }
+
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "power_pct", out var ppElem) ||
+                            TelemetryHelper.TryGetPropertyInsensitive(obj, "power", out ppElem))
+                        {
+                            if (ppElem.TryGetDecimal(out var pVal))
+                                effectivePower = pVal;
+                            else if (decimal.TryParse(ppElem.ToString(), CultureInfo.InvariantCulture, out var pParsed))
+                                effectivePower = pParsed;
+                        }
+                    }
+
+                    if (effectivePower.HasValue)
+                    {
+                        if (effectivePower.Value < 0m || effectivePower.Value > 100m)
+                        {
+                            return (false, "Power percentage must be between 0 and 100.", payload);
+                        }
+                    }
+
+                    var finalPower = heatState ? (effectivePower ?? 100m) : 0m;
+                    payload["state"] = heatState;
+                    payload["enabled"] = heatState;
+                    payload["power_pct"] = finalPower;
+                    payload["power"] = finalPower;
+                    return (true, null, payload);
+                }
+
+            case "set_target_temp":
+                {
+                    decimal targetTemp = tempC ?? 65.0m;
+                    if (rawParams.HasValue && rawParams.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var obj = rawParams.Value;
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "temp_c", out var tElem) ||
+                            TelemetryHelper.TryGetPropertyInsensitive(obj, "temp", out tElem) ||
+                            TelemetryHelper.TryGetPropertyInsensitive(obj, "target_temp", out tElem))
+                        {
+                            if (tElem.TryGetDecimal(out var dVal))
+                                targetTemp = dVal;
+                            else if (decimal.TryParse(tElem.ToString(), CultureInfo.InvariantCulture, out var dParsed))
+                                targetTemp = dParsed;
+                        }
+                    }
+
+                    if (targetTemp < 0.0m || targetTemp > 105.0m)
+                    {
+                        return (false, "Target temperature must be between 0 and 105 degrees Celsius.", payload);
+                    }
+
+                    payload["temp_c"] = targetTemp;
+                    payload["temp"] = targetTemp;
+                    payload["target_temp"] = targetTemp;
+                    return (true, null, payload);
+                }
+
+            case "set_timer":
+                {
+                    var durationMinVal = durationMin ?? 60;
+                    if (rawParams.HasValue && rawParams.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var obj = rawParams.Value;
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "duration_min", out var dElem) ||
+                            TelemetryHelper.TryGetPropertyInsensitive(obj, "duration", out dElem))
+                        {
+                            if (dElem.TryGetInt32(out var dVal))
+                                durationMinVal = dVal;
+                            else if (int.TryParse(dElem.ToString(), out var dParsed))
+                                durationMinVal = dParsed;
+                        }
+                        else if (TelemetryHelper.TryGetPropertyInsensitive(obj, "seconds", out var sElem))
+                        {
+                            if (sElem.TryGetInt32(out var sVal))
+                                durationMinVal = sVal / 60;
+                            else if (int.TryParse(sElem.ToString(), out var sParsed))
+                                durationMinVal = sParsed / 60;
+                        }
+                    }
+
+                    if (durationMinVal < 0 || durationMinVal > 1440)
+                    {
+                        return (false, "Timer duration must be between 0 and 1440 minutes.", payload);
+                    }
+
+                    payload["duration_min"] = durationMinVal;
+                    payload["duration"] = durationMinVal;
+                    payload["seconds"] = durationMinVal * 60;
+                    return (true, null, payload);
+                }
+
+            case "ack_interaction":
+            case "dismiss_alert":
+                {
+                    if (rawParams.HasValue && rawParams.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var obj = rawParams.Value;
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "id", out var idElem) && idElem.ValueKind == JsonValueKind.String)
+                            payload["id"] = idElem.GetString();
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "choice", out var chElem) && chElem.ValueKind == JsonValueKind.String)
+                            payload["choice"] = chElem.GetString();
+                    }
+                    return (true, null, payload);
+                }
+
+            default:
+                // pause_timer, resume_timer, cancel_timer, press_set, dismiss_sparge_alert, cancel_session
+                return (true, null, payload);
+        }
+    }
+
+    private static BrewLinkCanonicalMetrics MutateCanonicalMetrics(
+        BrewLinkCanonicalMetrics existing,
+        string action,
+        JsonObject payloadParams)
+    {
+        var now = DateTime.UtcNow;
+        var act = action.ToLowerInvariant();
+
+        switch (act)
+        {
+            case "set_pump":
+                {
+                    var pumpState = true;
+                    if (payloadParams.TryGetPropertyValue("state", out var st) && st != null)
+                    {
+                        if (bool.TryParse(st.ToString(), out var b)) pumpState = b;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("enabled", out var en) && en != null)
+                    {
+                        if (bool.TryParse(en.ToString(), out var b)) pumpState = b;
+                    }
+                    return existing with { PumpActive = pumpState, UpdatedAt = now };
+                }
+
+            case "set_heat":
+                {
+                    var heatState = true;
+                    if (payloadParams.TryGetPropertyValue("state", out var st) && st != null)
+                    {
+                        if (bool.TryParse(st.ToString(), out var b)) heatState = b;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("enabled", out var en) && en != null)
+                    {
+                        if (bool.TryParse(en.ToString(), out var b)) heatState = b;
+                    }
+
+                    decimal? heatPower = null;
+                    if (payloadParams.TryGetPropertyValue("power_pct", out var pp) && pp != null)
+                    {
+                        if (decimal.TryParse(pp.ToString(), CultureInfo.InvariantCulture, out var p)) heatPower = p;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("power", out var pNode) && pNode != null)
+                    {
+                        if (decimal.TryParse(pNode.ToString(), CultureInfo.InvariantCulture, out var p)) heatPower = p;
+                    }
+
+                    var powerPct = heatState ? (heatPower ?? existing.HeatPowerPct ?? 100m) : 0m;
+                    return existing with
+                    {
+                        HeatActive = heatState,
+                        HeatPowerPct = powerPct,
+                        UpdatedAt = now
+                    };
+                }
+
+            case "set_target_temp":
+                {
+                    decimal? targetTemp = null;
+                    if (payloadParams.TryGetPropertyValue("temp_c", out var tc) && tc != null)
+                    {
+                        if (decimal.TryParse(tc.ToString(), CultureInfo.InvariantCulture, out var t)) targetTemp = t;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("temp", out var tNode) && tNode != null)
+                    {
+                        if (decimal.TryParse(tNode.ToString(), CultureInfo.InvariantCulture, out var t)) targetTemp = t;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("target_temp", out var tt) && tt != null)
+                    {
+                        if (decimal.TryParse(tt.ToString(), CultureInfo.InvariantCulture, out var t)) targetTemp = t;
+                    }
+
+                    return existing with
+                    {
+                        TargetTempC = targetTemp ?? existing.TargetTempC,
+                        UpdatedAt = now
+                    };
+                }
+
+            case "set_timer":
+                {
+                    var durationMin = 60;
+                    if (payloadParams.TryGetPropertyValue("duration_min", out var dm) && dm != null)
+                    {
+                        if (int.TryParse(dm.ToString(), out var d)) durationMin = d;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("duration", out var dur) && dur != null)
+                    {
+                        if (int.TryParse(dur.ToString(), out var d)) durationMin = d;
+                    }
+                    else if (payloadParams.TryGetPropertyValue("seconds", out var sec) && sec != null)
+                    {
+                        if (int.TryParse(sec.ToString(), out var s)) durationMin = s / 60;
+                    }
+
+                    return existing with
+                    {
+                        Timer = new BrewLinkTimerMetrics(
+                            Active: durationMin > 0,
+                            Paused: false,
+                            RemainingSeconds: durationMin * 60,
+                            TotalSeconds: durationMin * 60
+                        ),
+                        UpdatedAt = now
+                    };
+                }
+
+            case "pause_timer":
+                {
+                    var currentTimer = existing.Timer ?? new BrewLinkTimerMetrics(true, false, 0, 0);
+                    return existing with
+                    {
+                        Timer = currentTimer with { Paused = true },
+                        UpdatedAt = now
+                    };
+                }
+
+            case "resume_timer":
+                {
+                    var currentTimer = existing.Timer ?? new BrewLinkTimerMetrics(true, true, 0, 0);
+                    return existing with
+                    {
+                        Timer = currentTimer with { Paused = false },
+                        UpdatedAt = now
+                    };
+                }
+
+            case "cancel_timer":
+                {
+                    return existing with
+                    {
+                        Timer = new BrewLinkTimerMetrics(Active: false, Paused: false, RemainingSeconds: 0, TotalSeconds: 0),
+                        UpdatedAt = now
+                    };
+                }
+
+            case "press_set":
+                {
+                    return existing with { UpdatedAt = now };
+                }
+
+            case "ack_interaction":
+            case "dismiss_alert":
+            case "dismiss_sparge_alert":
+                {
+                    return existing with
+                    {
+                        Interaction = new BrewLinkInteractionMetrics(Required: false, Code: 0, Message: null),
+                        UpdatedAt = now
+                    };
+                }
+
+            case "cancel_session":
+                {
+                    return existing with
+                    {
+                        AutoMode = false,
+                        HeatActive = false,
+                        HeatPowerPct = 0m,
+                        PumpActive = false,
+                        Timer = new BrewLinkTimerMetrics(Active: false, Paused: false, RemainingSeconds: 0, TotalSeconds: 0),
+                        Interaction = new BrewLinkInteractionMetrics(Required: false, Code: 0, Message: null),
+                        UpdatedAt = now
+                    };
+                }
+
+            default:
+                return existing with { UpdatedAt = now };
+        }
     }
 }

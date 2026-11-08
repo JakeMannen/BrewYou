@@ -1,5 +1,6 @@
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Services.Telemetry;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using MQTTnet;
@@ -15,6 +16,7 @@ public class MqttService : IMqttService, IDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly IMqttConnectivityChecker _connectivityChecker;
     private readonly IDataProtector _protector;
+    private readonly IDataProtector _brewLinkProtector;
     private readonly IBrewLinkDiscoveryService? _brewLinkDiscoveryService;
     private readonly ILogger<MqttService> _logger;
     private IMqttClient? _mqttClient;
@@ -38,6 +40,7 @@ public class MqttService : IMqttService, IDisposable
         _serviceProvider = serviceProvider;
         _connectivityChecker = connectivityChecker;
         _protector = dataProtectionProvider.CreateProtector("BrewYou.MqttCredentials");
+        _brewLinkProtector = dataProtectionProvider.CreateProtector("BrewYou.BrewLinkCredentials");
         _brewLinkDiscoveryService = brewLinkDiscoveryService;
         _logger = logger;
     }
@@ -223,6 +226,28 @@ public class MqttService : IMqttService, IDisposable
             }
         }
 
+        var brewLinkGateways = await db.BrewLinkGateways
+            .AsNoTracking()
+            .Where(g => (ConnectedUserId == null || g.UserId == ConnectedUserId) &&
+                        !string.IsNullOrEmpty(g.MqttTopicKey))
+            .ToListAsync(cancellationToken);
+
+        foreach (var gw in brewLinkGateways)
+        {
+            try
+            {
+                var topicKey = _brewLinkProtector.Unprotect(gw.MqttTopicKey!);
+                if (!string.IsNullOrWhiteSpace(topicKey))
+                {
+                    targetTopics.Add($"brewlink/{topicKey}/{gw.GatewayId}/equipment/+/telemetry");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to unprotect MQTT topic key for BrewLink gateway {GatewayId}", gw.GatewayId);
+            }
+        }
+
         foreach (var topic in targetTopics)
         {
             if (!_subscribedTopics.Contains(topic))
@@ -279,6 +304,75 @@ public class MqttService : IMqttService, IDisposable
         if (topic.StartsWith("brewlink/discovery/", StringComparison.OrdinalIgnoreCase))
         {
             _brewLinkDiscoveryService?.IngestBeaconJson(payload);
+            return;
+        }
+
+        var segments = topic.Split('/');
+        // brewlink / {topicKey} / {gatewayId} / equipment / {mac} / telemetry
+        if (segments.Length == 6 &&
+            string.Equals(segments[0], "brewlink", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(segments[3], "equipment", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(segments[5], "telemetry", StringComparison.OrdinalIgnoreCase))
+        {
+            var gatewayHardwareId = segments[2];
+            var mac = segments[4];
+
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+                var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+
+                var gateway = await db.BrewLinkGateways.AsNoTracking()
+                    .FirstOrDefaultAsync(g => g.GatewayId == gatewayHardwareId);
+
+                if (gateway != null)
+                {
+                    var cleanMac = BrewLinkTelemetryParser.CleanMac(mac);
+                    var candidates = await db.Equipment.AsNoTracking()
+                        .Where(eq => eq.ConnectionType == EquipmentConnectionType.BrewLink &&
+                                     !string.IsNullOrEmpty(eq.ConnectionConfigJson))
+                        .ToListAsync();
+
+                    var matchedEquipment = candidates.FirstOrDefault(eq =>
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(eq.ConnectionConfigJson!);
+                            if (doc.RootElement.TryGetProperty("brewLinkGatewayId", out var gwElem))
+                            {
+                                var gwStr = gwElem.GetString();
+                                if (!string.Equals(gwStr, gateway.Id.ToString(), StringComparison.OrdinalIgnoreCase) &&
+                                    !string.Equals(gwStr, gateway.GatewayId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return false;
+                                }
+
+                                if (doc.RootElement.TryGetProperty("targetMac", out var tmElem) ||
+                                    doc.RootElement.TryGetProperty("target_mac", out tmElem))
+                                {
+                                    return string.Equals(BrewLinkTelemetryParser.CleanMac(tmElem.GetString()), cleanMac, StringComparison.OrdinalIgnoreCase);
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // ignore json error
+                        }
+                        return false;
+                    });
+
+                    if (matchedEquipment != null)
+                    {
+                        await telemetryService.IngestMqttTelemetryAsync(matchedEquipment.Id, payload);
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing incoming BrewLink MQTT telemetry on {Topic}", topic);
+            }
             return;
         }
 

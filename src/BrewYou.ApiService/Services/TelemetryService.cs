@@ -17,10 +17,12 @@ public class TelemetryService : ITelemetryService
     private readonly BrewYouDbContext _db;
     private readonly HttpClient _httpClient;
     private readonly ITelemetryBroadcastService _broadcastService;
+    private readonly ITelemetryThrottlingService _throttler;
     private readonly ILogger<TelemetryService> _logger;
 
     private readonly List<ITelemetryParser> _parsers =
     [
+        new BrewLinkTelemetryParser(),
         new UniversalBrewYouTelemetryParser(),
         new ISpindelTelemetryParser(),
         new TiltTelemetryParser(),
@@ -31,11 +33,13 @@ public class TelemetryService : ITelemetryService
         BrewYouDbContext db,
         IHttpClientFactory httpClientFactory,
         ITelemetryBroadcastService broadcastService,
+        ITelemetryThrottlingService throttler,
         ILogger<TelemetryService> logger)
     {
         _db = db;
         _httpClient = httpClientFactory.CreateClient("TelemetryPoller");
         _broadcastService = broadcastService;
+        _throttler = throttler;
         _logger = logger;
     }
 
@@ -150,11 +154,29 @@ public class TelemetryService : ITelemetryService
             rssi,
             metricsJson);
 
-        await _db.SaveChangesAsync();
         BroadcastIfAssociated(reading, equipment, targetTempC, recordedGravity);
 
-        _logger.LogInformation("Updated temperature to {TempC} °C (gravity: {Gravity}, pressure: {Pressure}) for equipment {EquipmentId} ({EquipmentName}) via {Source}",
-            finalTempC, recordedGravity, pressure, equipment.Id, equipment.Name, reading.Source);
+        var canonicalMetrics = !string.IsNullOrEmpty(metricsJson)
+            ? BrewLinkTelemetryParser.FromMetricsJson(metricsJson)
+            : null;
+
+        var isBrewLink = equipment.ConnectionType == EquipmentConnectionType.BrewLink || canonicalMetrics != null;
+        var shouldPersist = !isBrewLink || _throttler.ShouldPersist(
+            equipment.Id,
+            now,
+            finalTempC,
+            canonicalMetrics,
+            recordedGravity ?? gravity,
+            reading.Stage);
+
+        if (shouldPersist)
+        {
+            _db.EquipmentReadings.Add(reading);
+            await _db.SaveChangesAsync();
+        }
+
+        _logger.LogInformation("Updated temperature to {TempC} °C (gravity: {Gravity}, pressure: {Pressure}) for equipment {EquipmentId} ({EquipmentName}) via {Source} (Persisted: {Persisted})",
+            finalTempC, recordedGravity, pressure, equipment.Id, equipment.Name, reading.Source, shouldPersist);
 
         return new TelemetryIngestResult(TelemetryIngestStatus.Success, finalTempC, null, now);
     }
@@ -282,13 +304,150 @@ public class TelemetryService : ITelemetryService
             rssi,
             metricsJson);
 
-        await _db.SaveChangesAsync();
         BroadcastIfAssociated(reading, equipment, targetTempC, recordedGravity);
 
-        _logger.LogInformation("Updated temperature to {TempC} °C via MQTT for equipment {EquipmentId} ({EquipmentName})",
-            tempC.Value, equipment.Id, equipment.Name);
+        var canonicalMetrics = !string.IsNullOrEmpty(metricsJson)
+            ? BrewLinkTelemetryParser.FromMetricsJson(metricsJson)
+            : null;
+
+        var isBrewLink = equipment.ConnectionType == EquipmentConnectionType.BrewLink || canonicalMetrics != null;
+        var shouldPersist = !isBrewLink || _throttler.ShouldPersist(
+            equipment.Id,
+            now,
+            tempC.Value,
+            canonicalMetrics,
+            recordedGravity ?? gravity,
+            reading.Stage);
+
+        if (shouldPersist)
+        {
+            _db.EquipmentReadings.Add(reading);
+            await _db.SaveChangesAsync();
+        }
+
+        _logger.LogInformation("Updated temperature to {TempC} °C via MQTT for equipment {EquipmentId} ({EquipmentName}) (Persisted: {Persisted})",
+            tempC.Value, equipment.Id, equipment.Name, shouldPersist);
 
         return new TelemetryIngestResult(TelemetryIngestStatus.Success, tempC.Value, null, now);
+    }
+
+    public async Task<TelemetryIngestResult> IngestBrewLinkTelemetryAsync(
+        Guid equipmentId, JsonElement payload, string source = "BrewLinkWebSocket")
+    {
+        var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == equipmentId);
+
+        if (equipment == null)
+        {
+            _logger.LogWarning("BrewLink telemetry rejected: No equipment matching ID {EquipmentId}", equipmentId);
+            return new TelemetryIngestResult(TelemetryIngestStatus.NotFound, null, "Equipment not found.");
+        }
+
+        if (equipment.Type == EquipmentType.Tap)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
+        }
+
+        NormalizedTelemetryData? normalized = null;
+        if (payload.ValueKind == JsonValueKind.Object)
+        {
+            normalized = NormalizeJsonPayload(payload, equipment);
+        }
+
+        decimal? tempC = normalized?.TemperatureC;
+        var detectedFormat = normalized?.DetectedFormat;
+
+        if (!tempC.HasValue)
+        {
+            var parseResult = ParseTemperature(payload);
+            if (parseResult.Success && parseResult.TemperatureC.HasValue)
+            {
+                tempC = parseResult.TemperatureC.Value;
+                detectedFormat = parseResult.DetectedFormat ?? source;
+            }
+            else
+            {
+                return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null,
+                    parseResult.ErrorMessage ?? "Could not extract valid temperature from payload.");
+            }
+        }
+
+        var finalTempC = tempC.Value;
+        if (finalTempC < MinTemperatureC || finalTempC > MaxTemperatureC)
+        {
+            _logger.LogWarning("BrewLink temperature {TempC} °C out of plausible range [{Min}, {Max}] for equipment {EquipmentId}",
+                finalTempC, MinTemperatureC, MaxTemperatureC, equipment.Id);
+            return new TelemetryIngestResult(TelemetryIngestStatus.OutOfRange, finalTempC,
+                $"Temperature {finalTempC} °C is outside plausible brewing range ({MinTemperatureC} °C to {MaxTemperatureC} °C).");
+        }
+
+        var now = DateTime.UtcNow;
+        var gravity = normalized?.SpecificGravity ?? ParseGravity(payload);
+        var pressure = normalized?.PressureBar;
+        var batteryPct = normalized?.BatteryPercent;
+        var batteryVolt = normalized?.BatteryVoltage;
+        var tilt = normalized?.TiltDegrees;
+        var rssi = normalized?.Rssi;
+        var metricsJson = normalized?.MetricsJson;
+
+        equipment.CurrentTemperatureC = finalTempC;
+        equipment.TemperatureUpdatedAt = now;
+        equipment.LastTelemetryAt = now;
+        if (gravity.HasValue) equipment.CurrentSpecificGravity = gravity;
+        if (pressure.HasValue) equipment.CurrentPressureBar = pressure;
+        if (batteryPct.HasValue) equipment.CurrentBatteryPercent = batteryPct;
+        if (batteryVolt.HasValue) equipment.CurrentBatteryVoltage = batteryVolt;
+        if (!string.IsNullOrEmpty(metricsJson)) equipment.LatestMetricsJson = metricsJson;
+
+        var rawString = payload.ValueKind != JsonValueKind.Undefined
+            ? payload.ToString()
+            : null;
+        if (rawString != null && rawString.Length > MaxPayloadLogLength)
+        {
+            rawString = rawString[..MaxPayloadLogLength];
+        }
+
+        var (reading, targetTempC, recordedGravity) = await CreateAndAssociateReadingAsync(
+            equipment,
+            finalTempC,
+            gravity,
+            detectedFormat ?? source,
+            rawString,
+            now,
+            pressure,
+            batteryPct,
+            batteryVolt,
+            tilt,
+            rssi,
+            metricsJson);
+
+        BroadcastIfAssociated(reading, equipment, targetTempC, recordedGravity);
+
+        var canonicalMetrics = !string.IsNullOrEmpty(metricsJson)
+            ? BrewLinkTelemetryParser.FromMetricsJson(metricsJson)
+            : null;
+
+        var isBrewLink = equipment.ConnectionType == EquipmentConnectionType.BrewLink || canonicalMetrics != null;
+        var shouldPersist = !isBrewLink || _throttler.ShouldPersist(
+            equipment.Id,
+            now,
+            finalTempC,
+            canonicalMetrics,
+            recordedGravity ?? gravity,
+            reading.Stage);
+
+        if (shouldPersist)
+        {
+            _db.EquipmentReadings.Add(reading);
+            await _db.SaveChangesAsync();
+        }
+
+        _logger.LogInformation("Updated temperature to {TempC} °C for equipment {EquipmentId} ({EquipmentName}) via {Source} (Persisted: {Persisted})",
+            finalTempC, equipment.Id, equipment.Name, reading.Source, shouldPersist);
+
+        return new TelemetryIngestResult(TelemetryIngestStatus.Success, finalTempC, null, now);
     }
 
     public async Task<(bool Found, List<EquipmentReadingDto>? Readings)> GetEquipmentReadingsAsync(
@@ -483,8 +642,26 @@ public class TelemetryService : ITelemetryService
                     rssi,
                     metricsJson);
 
-                await _db.SaveChangesAsync();
                 BroadcastIfAssociated(reading, equipment, targetTempC, recordedGravity);
+
+                var canonicalMetrics = !string.IsNullOrEmpty(metricsJson)
+                    ? BrewLinkTelemetryParser.FromMetricsJson(metricsJson)
+                    : null;
+
+                var isBrewLink = equipment.ConnectionType == EquipmentConnectionType.BrewLink || canonicalMetrics != null;
+                var shouldPersist = !isBrewLink || _throttler.ShouldPersist(
+                    equipment.Id,
+                    now,
+                    finalTempC,
+                    canonicalMetrics,
+                    recordedGravity ?? gravity,
+                    reading.Stage);
+
+                if (shouldPersist)
+                {
+                    _db.EquipmentReadings.Add(reading);
+                    await _db.SaveChangesAsync();
+                }
             }
 
             return new TelemetryPollResult(true, finalTempC, null, snippet);
@@ -742,7 +919,6 @@ public class TelemetryService : ITelemetryService
             }
         }
 
-        _db.EquipmentReadings.Add(reading);
         return (reading, targetTempC, recordedGravity);
     }
 

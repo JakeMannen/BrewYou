@@ -19,8 +19,10 @@
 		BatchMashStepDto,
 		BatchFermentationStepDto,
 		BatchEquipmentReadingDto,
+		BatchBoilStep,
 		LogBatchTemperatureRequest
 	} from '$lib/types/api';
+	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import SrmSwatch from '$lib/components/brewery/SrmSwatch.svelte';
 	import BrewStageTracker, {
 		type BrewStage as UiBrewStage
@@ -32,7 +34,10 @@
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
 	import BatchQrModal from '$lib/components/batches/BatchQrModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
+	import BrewLinkInteractionModal from '$lib/components/brewery/BrewLinkInteractionModal.svelte';
+	import BrewLinkControlPanel from '$lib/components/brewery/BrewLinkControlPanel.svelte';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
+	import { extractInteraction } from '$lib/utils/brewlink';
 	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
@@ -57,7 +62,10 @@
 		Activity,
 		Maximize2,
 		QrCode,
-		Printer
+		Printer,
+		Radio,
+		ChevronDown,
+		ChevronUp
 	} from '@lucide/svelte';
 
 	let batch = $state<BatchDetailDto | null>(null);
@@ -89,23 +97,42 @@
 	let showBrewStationHud = $state(false);
 	let logTempStage = $state<BrewStage>('Mash');
 	let logTempMashStepId = $state<string | null>(null);
+	let logTempBoilStepName = $state<string | null>(null);
 	let selectedMashStepGraphId = $state<string | null>(null);
+	let selectedBoilStepGraphName = $state<string | null>(null);
+	let showConfirmPauseTimerModal = $state(false);
+	let showConfirmResetTimerModal = $state(false);
+	let showConfirmAdvanceBoilStepModal = $state(false);
+	let showBrewLinkPromptModal = $state(false);
+	let brewLinkPromptSubmitting = $state(false);
+	let dismissedPromptKey = $state<string | null>(null);
+	let brewLinkSyncTimer: ReturnType<typeof setInterval> | null = null;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	function openLogTempModal(targetStage: BrewStage, mashStepId?: string | null) {
+	function openLogTempModal(targetStage: BrewStage, stepIdentifier?: string | null) {
 		logTempStage = targetStage;
-		const resolvedStepId =
-			mashStepId ??
-			(targetStage === 'Mash'
-				? (selectedMashStepGraphId ?? currentSelectedMashStep?.id ?? null)
-				: null);
-		logTempMashStepId = resolvedStepId;
-		if (resolvedStepId && batch?.mashSteps) {
-			selectedMashStepGraphId = resolvedStepId;
-			const stepIdx = batch.mashSteps.findIndex((s) => s.id === resolvedStepId);
-			if (stepIdx !== -1) {
-				activeMashStepIndex = stepIdx;
+		if (targetStage === 'Mash') {
+			const resolvedStepId =
+				stepIdentifier ?? selectedMashStepGraphId ?? currentSelectedMashStep?.id ?? null;
+			logTempMashStepId = resolvedStepId;
+			if (resolvedStepId && batch?.mashSteps) {
+				selectedMashStepGraphId = resolvedStepId;
+				const stepIdx = batch.mashSteps.findIndex((s) => s.id === resolvedStepId);
+				if (stepIdx !== -1) {
+					activeMashStepIndex = stepIdx;
+				}
+			}
+		} else if (targetStage === 'Boil') {
+			const resolvedName =
+				stepIdentifier ?? selectedBoilStepGraphName ?? currentSelectedBoilStep?.name ?? null;
+			logTempBoilStepName = resolvedName;
+			if (resolvedName && boilSteps.length > 0) {
+				selectedBoilStepGraphName = resolvedName;
+				const stepIdx = boilSteps.findIndex((s) => s.name === resolvedName);
+				if (stepIdx !== -1) {
+					activeBoilStepIndex = stepIdx;
+				}
 			}
 		}
 		showLogTempModal = true;
@@ -211,6 +238,161 @@
 		return equipmentList.find((e) => e.id === b.hltId) ?? null;
 	});
 
+	let activeStageBrewLinkEquipment = $derived.by<EquipmentDto | null>(() => {
+		if (!batch || equipmentList.length === 0) return null;
+		let targetId: string | null = null;
+		if (inspectedStage === 'Mash') {
+			targetId = batch.mashTunId ?? batch.boilerId ?? null;
+		} else if (inspectedStage === 'Boil') {
+			targetId = batch.boilerId ?? null;
+		} else if (inspectedStage === 'Ferment' || inspectedStage === 'Condition') {
+			targetId = batch.fermenterId ?? null;
+		}
+		if (!targetId) return null;
+		const eq = equipmentList.find((e) => e.id === targetId);
+		return eq?.connectionType === 'BrewLink' ? eq : null;
+	});
+
+	let activeBrewLinkPrompt = $derived.by<{
+		equipment: EquipmentDto;
+		message: string;
+		code?: number;
+	} | null>(() => {
+		if (!batch || equipmentList.length === 0) return null;
+
+		// Prioritize inspected stage equipment if available
+		const priorityEq = activeStageBrewLinkEquipment;
+		if (priorityEq?.latestMetricsJson) {
+			const parsed = extractInteraction(priorityEq.latestMetricsJson);
+			if (parsed.required) {
+				return {
+					equipment: priorityEq,
+					message: parsed.message || t('equipment.brewlink_interaction_alert'),
+					code: parsed.code
+				};
+			}
+		}
+
+		// Also check any other equipment assigned to this batch
+		const candidateIds = [batch.boilerId, batch.mashTunId, batch.hltId, batch.fermenterId].filter(
+			(id): id is string => Boolean(id) && id !== priorityEq?.id
+		);
+
+		for (const id of candidateIds) {
+			const eq = equipmentList.find((e) => e.id === id && e.connectionType === 'BrewLink');
+			if (eq?.latestMetricsJson) {
+				const parsed = extractInteraction(eq.latestMetricsJson);
+				if (parsed.required) {
+					return {
+						equipment: eq,
+						message: parsed.message || t('equipment.brewlink_interaction_alert'),
+						code: parsed.code
+					};
+				}
+			}
+		}
+		return null;
+	});
+
+	$effect(() => {
+		if (activeBrewLinkPrompt) {
+			const promptKey = `${activeBrewLinkPrompt.equipment.id}:${activeBrewLinkPrompt.code ?? activeBrewLinkPrompt.message}`;
+			if (dismissedPromptKey !== promptKey) {
+				showBrewLinkPromptModal = true;
+			}
+		} else {
+			// If confirmed or dismissed from the BrewLink hardware controller,
+			// activeBrewLinkPrompt becomes null; automatically handle and close the dialog!
+			if (showBrewLinkPromptModal) {
+				showBrewLinkPromptModal = false;
+				dismissedPromptKey = null;
+			}
+		}
+	});
+
+	let showBatchBrewLinkControls = $state(false);
+
+	function handleEquipmentUpdate(updated: EquipmentDto) {
+		const idx = equipmentList.findIndex((e) => e.id === updated.id);
+		if (idx !== -1) {
+			const next = [...equipmentList];
+			next[idx] = { ...next[idx], ...updated };
+			equipmentList = next;
+		}
+	}
+
+	async function handleConfirmBrewLinkInteraction() {
+		if (!activeBrewLinkPrompt) {
+			showBrewLinkPromptModal = false;
+			return;
+		}
+		brewLinkPromptSubmitting = true;
+		try {
+			const eq = activeBrewLinkPrompt.equipment;
+			const msg = activeBrewLinkPrompt.message.toLowerCase();
+			await api.equipment.sendBrewLinkControl(eq.id, {
+				action: 'ack_interaction'
+			});
+			const res = await api.equipment.syncBrewLinkState(eq.id);
+			if (res && (res.temperatureC != null || res.metricsJson)) {
+				handleEquipmentUpdate({
+					...eq,
+					currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
+					latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
+					temperatureUpdatedAt: new Date().toISOString()
+				});
+			}
+
+			// If the prompt was "add grain" or mash related and current mash step is pending, mark it
+			if (
+				(msg.includes('grain') || msg.includes('malt') || msg.includes('mash')) &&
+				inspectedStage === 'Mash'
+			) {
+				if (currentSelectedMashStep && !currentSelectedMashStep.isCompleted) {
+					void handleToggleMashStep(currentSelectedMashStep.id, false);
+				}
+			}
+
+			showBrewLinkPromptModal = false;
+		} catch (err: unknown) {
+			console.error('Failed to confirm BrewLink interaction', err);
+			showBrewLinkPromptModal = false;
+		} finally {
+			brewLinkPromptSubmitting = false;
+		}
+	}
+
+	async function handleDismissBrewLinkInteraction() {
+		if (!activeBrewLinkPrompt) {
+			showBrewLinkPromptModal = false;
+			return;
+		}
+		brewLinkPromptSubmitting = true;
+		try {
+			const eq = activeBrewLinkPrompt.equipment;
+			const promptKey = `${eq.id}:${activeBrewLinkPrompt.code ?? activeBrewLinkPrompt.message}`;
+			dismissedPromptKey = promptKey;
+			await api.equipment.sendBrewLinkControl(eq.id, {
+				action: 'dismiss_alert'
+			});
+			const res = await api.equipment.syncBrewLinkState(eq.id);
+			if (res && (res.temperatureC != null || res.metricsJson)) {
+				handleEquipmentUpdate({
+					...eq,
+					currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
+					latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
+					temperatureUpdatedAt: new Date().toISOString()
+				});
+			}
+			showBrewLinkPromptModal = false;
+		} catch (err: unknown) {
+			console.error('Failed to dismiss BrewLink interaction', err);
+			showBrewLinkPromptModal = false;
+		} finally {
+			brewLinkPromptSubmitting = false;
+		}
+	}
+
 	let currentStageEquipment = $derived.by(() => {
 		const currentBatch = batch;
 		if (!currentBatch) return null;
@@ -303,6 +485,20 @@
 	let fallbackPollTimer: ReturnType<typeof setInterval> | null = null;
 
 	function handleNewTelemetryReading(reading: BatchEquipmentReadingDto) {
+		// Update equipment list entry with live temperature and metrics
+		if (reading.equipmentId) {
+			const eqIdx = equipmentList.findIndex((e) => e.id === reading.equipmentId);
+			if (eqIdx !== -1) {
+				const next = [...equipmentList];
+				next[eqIdx] = {
+					...next[eqIdx],
+					currentTemperatureC: reading.temperatureC,
+					latestMetricsJson: reading.metricsJson ?? next[eqIdx].latestMetricsJson
+				};
+				equipmentList = next;
+			}
+		}
+
 		// Deduplicate: only append if reading ID is not already present
 		if (!batchEquipmentReadings.some((r) => r.id === reading.id)) {
 			batchEquipmentReadings.push(reading);
@@ -412,6 +608,37 @@
 		}
 	}
 
+	function startBrewLinkAutoSync() {
+		if (brewLinkSyncTimer || !batch || batch.status === 'Completed' || batch.status === 'Archived')
+			return;
+		brewLinkSyncTimer = setInterval(async () => {
+			if (document.visibilityState === 'hidden' || !batch) return;
+			const targetEq = activeStageBrewLinkEquipment;
+			if (targetEq) {
+				try {
+					const res = await api.equipment.syncBrewLinkState(targetEq.id);
+					if (res && (res.temperatureC != null || res.metricsJson)) {
+						handleEquipmentUpdate({
+							...targetEq,
+							currentTemperatureC: res.temperatureC ?? targetEq.currentTemperatureC,
+							latestMetricsJson: res.metricsJson ?? targetEq.latestMetricsJson,
+							temperatureUpdatedAt: new Date().toISOString()
+						});
+					}
+				} catch {
+					// Gateway offline or transient error
+				}
+			}
+		}, 3000);
+	}
+
+	function stopBrewLinkAutoSync() {
+		if (brewLinkSyncTimer) {
+			clearInterval(brewLinkSyncTimer);
+			brewLinkSyncTimer = null;
+		}
+	}
+
 	async function handleVisibilityChange() {
 		if (document.visibilityState === 'visible') {
 			if (batch && batch.status !== 'Completed' && batch.status !== 'Archived') {
@@ -420,13 +647,28 @@
 					for (const r of latest) {
 						handleNewTelemetryReading(r);
 					}
+					if (activeStageBrewLinkEquipment) {
+						const res = await api.equipment.syncBrewLinkState(activeStageBrewLinkEquipment.id);
+						if (res && (res.temperatureC != null || res.metricsJson)) {
+							handleEquipmentUpdate({
+								...activeStageBrewLinkEquipment,
+								currentTemperatureC:
+									res.temperatureC ?? activeStageBrewLinkEquipment.currentTemperatureC,
+								latestMetricsJson:
+									res.metricsJson ?? activeStageBrewLinkEquipment.latestMetricsJson,
+								temperatureUpdatedAt: new Date().toISOString()
+							});
+						}
+					}
 				} catch {
 					// Transient gap recovery error ignored
 				}
 				startLiveTelemetryStream();
+				startBrewLinkAutoSync();
 			}
 		} else {
 			stopLiveTelemetryStream();
+			stopBrewLinkAutoSync();
 		}
 	}
 
@@ -434,6 +676,7 @@
 		await loadBatch();
 		if (batch && batch.status !== 'Completed' && batch.status !== 'Archived') {
 			startLiveTelemetryStream();
+			startBrewLinkAutoSync();
 		}
 		if (typeof document !== 'undefined') {
 			document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -442,6 +685,7 @@
 
 	onDestroy(() => {
 		stopLiveTelemetryStream();
+		stopBrewLinkAutoSync();
 		if (typeof document !== 'undefined') {
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		}
@@ -787,20 +1031,214 @@
 		inspectedStage === 'Mash' ? (currentSelectedMashStep?.id ?? null) : null
 	);
 
-	let activeTimerView = $derived(
-		batch
+	let activeStageBrewLinkMetrics = $derived.by(() => {
+		if (!activeStageBrewLinkEquipment?.latestMetricsJson) return null;
+		try {
+			return JSON.parse(activeStageBrewLinkEquipment.latestMetricsJson);
+		} catch {
+			return null;
+		}
+	});
+
+	let brewLinkTimer = $derived.by(() => {
+		const m = activeStageBrewLinkMetrics;
+		if (!m) return null;
+		const timerObj = m.timer ?? {};
+		const remaining = timerObj.remainingSeconds ?? m.timerRemainingSec ?? null;
+		const total = timerObj.totalSeconds ?? m.timerTotalSec ?? null;
+		const active = timerObj.active ?? m.timerActive ?? (remaining != null && remaining > 0);
+		const paused = timerObj.paused ?? m.timerPaused ?? false;
+		if (remaining == null && !active) return null;
+		return {
+			active: Boolean(active),
+			paused: Boolean(paused),
+			remainingSeconds: remaining ?? 0,
+			totalSeconds: total ?? boilDurationSeconds
+		};
+	});
+
+	let isBrewLinkTimerActive = $derived(
+		inspectedStage === 'Boil' && Boolean(activeStageBrewLinkEquipment && brewLinkTimer)
+	);
+
+	let activeTimerView = $derived.by(() => {
+		if (isBrewLinkTimerActive && brewLinkTimer) {
+			return {
+				remainingSeconds: brewLinkTimer.remainingSeconds,
+				running: brewLinkTimer.active && !brewLinkTimer.paused,
+				totalSeconds: brewLinkTimer.totalSeconds || boilDurationSeconds
+			};
+		}
+		return batch
 			? batchTimer.getTimer(
 					batch.id,
 					inspectedStage,
 					inspectedStagePlannedDurationSeconds,
 					inspectedTimerStepId
 				)
-			: { remainingSeconds: 3600, running: false, totalSeconds: 3600 }
-	);
+			: { remainingSeconds: 3600, running: false, totalSeconds: 3600 };
+	});
 
 	let timerRemainingSeconds = $derived(activeTimerView.remainingSeconds);
 	let timerRunning = $derived(activeTimerView.running);
 	let currentStageTotalSeconds = $derived(activeTimerView.totalSeconds);
+
+	let activeBoilStepIndex = $state(0);
+
+	let boilSteps = $derived.by<BatchBoilStep[]>(() => {
+		if (!batch) return [];
+		const steps: BatchBoilStep[] = [];
+
+		// 1. Pre-Boil Ramp
+		const firstWortIngredients = batch.ingredients.filter((i) => i.additionStage === 'FirstWort');
+		const rampReading = [...batchEquipmentReadings]
+			.reverse()
+			.find(
+				(r) => r.stage === 'Boil' && r.stepName && /ramp|pre[- ]?boil|uppkok/i.test(r.stepName)
+			);
+
+		steps.push({
+			id: 'boil-step-ramp',
+			stepOrder: steps.length + 1,
+			name: t('batches.workspace.boil_step_ramp'),
+			stepType: 'ramp',
+			additionTimeMinutes: null,
+			targetTemperatureC:
+				(activeStageBrewLinkMetrics?.heating?.target_temp as number | undefined) ?? 100.0,
+			ingredients: firstWortIngredients,
+			isCompleted:
+				firstWortIngredients.length > 0
+					? firstWortIngredients.every((i) => i.isChecked)
+					: timerRunning ||
+						(timerRemainingSeconds < boilDurationSeconds && timerRemainingSeconds > 0),
+			actualTemperatureC: rampReading?.temperatureC ?? null
+		});
+
+		// 2. Timed boil additions
+		const boilIngs = batch.ingredients.filter(
+			(i) =>
+				(i.additionStage === 'Boil' ||
+					(i.type === 'Hop' &&
+						i.additionStage !== 'Whirlpool' &&
+						i.additionStage !== 'DryHop' &&
+						i.additionStage !== 'Mash' &&
+						i.additionStage !== 'Primary' &&
+						i.additionStage !== 'Secondary' &&
+						i.additionStage !== 'Bottling')) &&
+				i.additionTimeMinutes !== null &&
+				i.additionTimeMinutes !== undefined
+		);
+
+		const distinctMinutes = Array.from(new Set(boilIngs.map((i) => i.additionTimeMinutes!))).sort(
+			(a, b) => b - a
+		);
+
+		if (distinctMinutes.length === 0) {
+			const boilTime = batch.boilTimeMinutes ?? 60;
+			const stepName = t('batches.workspace.boil_step_general', { time: boilTime });
+			const matchingReading = [...batchEquipmentReadings]
+				.reverse()
+				.find((r) => r.stage === 'Boil' && r.stepName === stepName);
+			steps.push({
+				id: `boil-step-${boilTime}`,
+				stepOrder: steps.length + 1,
+				name: stepName,
+				stepType: 'addition',
+				additionTimeMinutes: boilTime,
+				targetTemperatureC: 100.0,
+				ingredients: boilStageIngredients.filter((i) => i.additionStage === 'Boil'),
+				isCompleted: false,
+				actualTemperatureC: matchingReading?.temperatureC ?? null
+			});
+		} else {
+			for (const m of distinctMinutes) {
+				const ingsAtMinute = boilIngs.filter((i) => i.additionTimeMinutes === m);
+				const isFlameout = m === 0;
+				const stepName = isFlameout
+					? t('batches.workspace.boil_step_flameout')
+					: t('batches.workspace.boil_step_addition', { time: m });
+				const matchingReading = [...batchEquipmentReadings]
+					.reverse()
+					.find(
+						(r) =>
+							r.stage === 'Boil' &&
+							r.stepName &&
+							(r.stepName === stepName ||
+								(m > 0 && r.stepName.includes(`${m}m`)) ||
+								(isFlameout && /flameout|kokslut/i.test(r.stepName)))
+					);
+				steps.push({
+					id: `boil-step-${m}`,
+					stepOrder: steps.length + 1,
+					name: stepName,
+					stepType: isFlameout ? 'flameout' : 'addition',
+					additionTimeMinutes: m,
+					targetTemperatureC: 100.0,
+					ingredients: ingsAtMinute,
+					isCompleted:
+						ingsAtMinute.length > 0
+							? ingsAtMinute.every((i) => i.isChecked)
+							: timerRemainingSeconds <= m * 60,
+					actualTemperatureC: matchingReading?.temperatureC ?? null
+				});
+			}
+		}
+
+		// 3. Whirlpool / Hop Stand
+		const whirlpoolIngs = batch.ingredients.filter((i) => i.additionStage === 'Whirlpool');
+		const hopStandMin = whirlpoolIngs
+			.map((i) => i.additionTimeMinutes ?? 0)
+			.reduce((max, val) => Math.max(max, val), 0);
+
+		if (whirlpoolIngs.length > 0 || hopStandMin > 0) {
+			const wpName = t('batches.workspace.boil_step_whirlpool');
+			const wpReading = [...batchEquipmentReadings]
+				.reverse()
+				.find((r) => r.stage === 'Boil' && r.stepName && /whirlpool/i.test(r.stepName));
+			steps.push({
+				id: 'boil-step-whirlpool',
+				stepOrder: steps.length + 1,
+				name: wpName,
+				stepType: 'whirlpool',
+				durationMinutes: hopStandMin > 0 ? hopStandMin : 15,
+				targetTemperatureC: 85.0,
+				ingredients: whirlpoolIngs,
+				isCompleted: whirlpoolIngs.length > 0 ? whirlpoolIngs.every((i) => i.isChecked) : false,
+				actualTemperatureC: wpReading?.temperatureC ?? null
+			});
+		}
+
+		return steps;
+	});
+
+	let currentSelectedBoilStep = $derived.by<BatchBoilStep | null>(() => {
+		if (boilSteps.length === 0) return null;
+		return boilSteps[activeBoilStepIndex] ?? boilSteps[0];
+	});
+
+	// Synchronize boil step index with BrewLink stage telemetry if available
+	$effect(() => {
+		if (inspectedStage === 'Boil' && activeStageBrewLinkMetrics && boilSteps.length > 0) {
+			const stg = activeStageBrewLinkMetrics.stage;
+			if (
+				stg?.stepIndex !== undefined &&
+				stg?.stepIndex !== null &&
+				stg.stepIndex >= 0 &&
+				stg.stepIndex < boilSteps.length
+			) {
+				activeBoilStepIndex = stg.stepIndex;
+			} else if (stg?.stepName) {
+				const matchIdx = boilSteps.findIndex((s) =>
+					s.name.toLowerCase().includes(stg.stepName!.toLowerCase())
+				);
+				if (matchIdx !== -1) {
+					activeBoilStepIndex = matchIdx;
+				}
+			} else if (activeStageBrewLinkMetrics.rampActive) {
+				activeBoilStepIndex = 0;
+			}
+		}
+	});
 
 	let strikeRatio = $derived.by(() => {
 		const strikeVol = batch?.volumeProfile?.strikeWaterLiters;
@@ -1036,8 +1474,27 @@
 		}
 	}
 
-	function startTimer() {
+	async function startTimer() {
 		if (!batch) return;
+		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+			try {
+				if (brewLinkTimer?.paused) {
+					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+						action: 'resume_timer'
+					});
+				} else {
+					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+						action: 'set_timer',
+						durationMin: Math.max(1, Math.round(boilDurationSeconds / 60))
+					});
+				}
+				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+				handleEquipmentUpdate(updated);
+			} catch (err: unknown) {
+				console.error('Failed to start BrewLink timer', err);
+			}
+			return;
+		}
 		batchTimer.start(
 			batch.id,
 			inspectedStage,
@@ -1046,9 +1503,61 @@
 		);
 	}
 
+	function handlePauseTimerClick() {
+		if (!batch) return;
+		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+			showConfirmPauseTimerModal = true;
+			return;
+		}
+		pauseTimer();
+	}
+
+	async function confirmPauseTimer() {
+		showConfirmPauseTimerModal = false;
+		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+			try {
+				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+					action: 'pause_timer'
+				});
+				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+				handleEquipmentUpdate(updated);
+			} catch (err: unknown) {
+				console.error('Failed to pause BrewLink timer', err);
+			}
+			return;
+		}
+		pauseTimer();
+	}
+
 	function pauseTimer() {
 		if (!batch) return;
 		batchTimer.pause(batch.id, inspectedStage, inspectedTimerStepId);
+	}
+
+	function handleResetTimerClick() {
+		if (!batch) return;
+		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+			showConfirmResetTimerModal = true;
+			return;
+		}
+		resetTimer();
+	}
+
+	async function confirmResetTimer() {
+		showConfirmResetTimerModal = false;
+		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+			try {
+				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+					action: 'cancel_timer'
+				});
+				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+				handleEquipmentUpdate(updated);
+			} catch (err: unknown) {
+				console.error('Failed to reset BrewLink timer', err);
+			}
+			return;
+		}
+		resetTimer();
 	}
 
 	function resetTimer() {
@@ -1059,6 +1568,109 @@
 			inspectedStagePlannedDurationSeconds,
 			inspectedTimerStepId
 		);
+	}
+
+	async function handleAdvanceBoilStep() {
+		if (activeStageBrewLinkEquipment) {
+			showConfirmAdvanceBoilStepModal = true;
+			return;
+		}
+		await executeAdvanceBoilStep();
+	}
+
+	async function executeAdvanceBoilStep() {
+		if (boilSteps.length === 0 || activeBoilStepIndex >= boilSteps.length) return;
+		const currentStep = boilSteps[activeBoilStepIndex];
+		if (currentStep) {
+			for (const ing of currentStep.ingredients) {
+				if (!ing.isChecked) {
+					await handleToggleIngredient(ing.id, false);
+				}
+			}
+		}
+		if (activeBoilStepIndex + 1 < boilSteps.length) {
+			activeBoilStepIndex = activeBoilStepIndex + 1;
+			selectedBoilStepGraphName = boilSteps[activeBoilStepIndex].name;
+		}
+	}
+
+	async function confirmAdvanceBoilStep() {
+		showConfirmAdvanceBoilStepModal = false;
+		if (activeStageBrewLinkEquipment) {
+			try {
+				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+					action: 'press_set'
+				});
+				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+				handleEquipmentUpdate(updated);
+			} catch (err: unknown) {
+				console.error('Failed to notify BrewLink of step advance', err);
+			}
+		}
+		await executeAdvanceBoilStep();
+	}
+
+	async function handleToggleBoilStep(index: number) {
+		if (!batch || isReadOnlyBatch || index < 0 || index >= boilSteps.length) return;
+		const step = boilSteps[index];
+		const nextCompleted = !step.isCompleted;
+		step.isCompleted = nextCompleted;
+		for (const ing of step.ingredients) {
+			if (ing.isChecked !== nextCompleted) {
+				await handleToggleIngredient(ing.id, ing.isChecked);
+			}
+		}
+	}
+
+	function handleSelectBoilStep(index: number) {
+		if (index < 0 || index >= boilSteps.length) return;
+		activeBoilStepIndex = index;
+		selectedBoilStepGraphName = boilSteps[index].name;
+	}
+
+	async function handleLogLiveBrewLinkTemp(stepName?: string, targetTemp?: number) {
+		if (
+			!batch ||
+			!activeStageBrewLinkEquipment ||
+			activeStageBrewLinkEquipment.currentTemperatureC == null
+		)
+			return;
+		const currentTemp = activeStageBrewLinkEquipment.currentTemperatureC;
+		const sName = stepName ?? currentSelectedBoilStep?.name ?? t('batches.stages.boil');
+		const tTemp = targetTemp ?? currentSelectedBoilStep?.targetTemperatureC ?? 100.0;
+		await handleLogStepTemperature({
+			temperatureC: currentTemp,
+			equipmentId: activeStageBrewLinkEquipment.id,
+			stage: 'Boil',
+			stepName: sName,
+			targetTemperatureC: tTemp
+		});
+	}
+
+	async function handleAcknowledgeInteraction() {
+		if (!activeStageBrewLinkEquipment) return;
+		try {
+			await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+				action: 'ack_interaction'
+			});
+			const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+			handleEquipmentUpdate(updated);
+		} catch (err: unknown) {
+			console.error('Failed to acknowledge BrewLink interaction', err);
+		}
+	}
+
+	async function handleDismissAlert() {
+		if (!activeStageBrewLinkEquipment) return;
+		try {
+			await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+				action: 'dismiss_alert'
+			});
+			const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+			handleEquipmentUpdate(updated);
+		} catch (err: unknown) {
+			console.error('Failed to dismiss BrewLink alert', err);
+		}
 	}
 
 	function formatTime(seconds: number) {
@@ -1354,6 +1966,52 @@
 						</span>
 					</div>
 				{/if}
+			{/if}
+
+			<!-- BrewLink Equipment Hardware Controls in Batch Workspace -->
+			{#if activeStageBrewLinkEquipment}
+				<div
+					class="rounded-3xl border border-sky-500/25 bg-sky-500/5 p-4 dark:border-sky-500/20 dark:bg-sky-500/10"
+				>
+					<div class="flex flex-wrap items-center justify-between gap-3">
+						<div class="flex items-center gap-2">
+							<Radio class="h-5 w-5 text-sky-500" />
+							<div>
+								<h2 class="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+									{activeStageBrewLinkEquipment.name} ({t('equipment.brewlink_tag')})
+								</h2>
+								<span class="text-xs text-zinc-500 dark:text-zinc-400">
+									{t('equipment.brewlink_controls_title')}
+								</span>
+							</div>
+						</div>
+
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								onclick={() => (showBatchBrewLinkControls = !showBatchBrewLinkControls)}
+								class="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-white px-3 py-1.5 text-xs font-bold text-sky-700 shadow-sm transition hover:bg-sky-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-sky-300 dark:hover:bg-zinc-800"
+								data-testid="batch-workspace-toggle-brewlink"
+							>
+								<span>{t('equipment.brewlink_controls')}</span>
+								{#if showBatchBrewLinkControls}
+									<ChevronUp class="h-3.5 w-3.5" />
+								{:else}
+									<ChevronDown class="h-3.5 w-3.5" />
+								{/if}
+							</button>
+						</div>
+					</div>
+
+					{#if showBatchBrewLinkControls}
+						<div class="mt-4 border-t border-sky-500/20 pt-4">
+							<BrewLinkControlPanel
+								equipment={activeStageBrewLinkEquipment}
+								onUpdate={handleEquipmentUpdate}
+							/>
+						</div>
+					{/if}
+				</div>
 			{/if}
 
 			{#if inspectedStage === 'Mash'}
@@ -1833,89 +2491,334 @@
 				</div>
 			{:else if inspectedStage === 'Boil'}
 				<!-- Brew Day Boil Panel -->
-				<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-					<!-- Boil Timer & Controls -->
-					<div
-						data-testid="boil-timer-panel"
-						class="glass-panel flex flex-col justify-between rounded-3xl border border-zinc-200/80 p-6 dark:border-white/10"
-					>
-						<div class="space-y-2">
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-2 text-amber-500">
-									<Flame class="h-5 w-5" />
-									<h2 class="text-base font-bold text-zinc-900 dark:text-white">
-										{t('batches.workspace.boil_timer')}
-									</h2>
+				<div class="space-y-6">
+					<!-- BrewLink Equipment Interaction / Alert Prompt Banner -->
+					{#if activeStageBrewLinkMetrics?.interaction?.required}
+						<div
+							class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/15 p-4 text-amber-900 shadow-md dark:bg-amber-500/20 dark:text-amber-100"
+							data-testid="boil-brewlink-interaction-banner"
+						>
+							<div class="flex items-center gap-3">
+								<AlertTriangle
+									class="h-6 w-6 shrink-0 animate-bounce text-amber-600 dark:text-amber-400"
+								/>
+								<div>
+									<h3 class="text-sm font-bold">{t('batches.workspace.brewlink_alert_title')}</h3>
+									<p class="text-xs">
+										{activeStageBrewLinkMetrics.interaction.message ||
+											t('equipment.brewlink_interaction_alert')}
+									</p>
 								</div>
+							</div>
+							<div class="flex items-center gap-2">
 								<button
 									type="button"
-									onclick={() => (showBrewStationHud = true)}
-									class="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-									title={t('batches.workspace.brew_station_hud')}
-									aria-label={t('batches.workspace.brew_station_hud')}
+									onclick={handleAcknowledgeInteraction}
+									class="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-amber-700 active:scale-95 dark:bg-amber-500 dark:hover:bg-amber-600"
+									data-testid="boil-ack-interaction-btn"
 								>
-									<Maximize2 class="h-4 w-4" />
+									{t('common.yes')} — {t('equipment.brewlink_ack_prompt')}
+								</button>
+								<button
+									type="button"
+									onclick={handleDismissAlert}
+									class="rounded-xl border border-amber-600/30 bg-white/60 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-white/90 active:scale-95 dark:bg-zinc-900/60 dark:text-amber-200"
+									data-testid="boil-dismiss-alert-btn"
+								>
+									{t('common.no')} — {t('equipment.brewlink_dismiss_alert')}
 								</button>
 							</div>
-							<p class="text-xs text-zinc-500 dark:text-zinc-400">
-								{t('batches.workspace.boil_timer_desc')}
-							</p>
-							<div class="py-6 text-center">
-								<span
-									data-testid="boil-timer-display"
-									class="font-mono text-5xl font-extrabold text-zinc-900 dark:text-white"
-								>
-									{formatTime(timerRemainingSeconds)}
+						</div>
+					{/if}
+
+					<!-- Boil Timer & Boil Execution Stepper Grid -->
+					<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+						<!-- Boil Timer & Controls -->
+						<div
+							data-testid="boil-timer-panel"
+							class="glass-panel flex flex-col justify-between rounded-3xl border border-zinc-200/80 p-6 dark:border-white/10"
+						>
+							<div class="space-y-2">
+								<div class="flex items-center justify-between">
+									<div class="flex items-center gap-2 text-amber-500">
+										<Flame class="h-5 w-5" />
+										<h2 class="text-base font-bold text-zinc-900 dark:text-white">
+											{t('batches.workspace.boil_timer')}
+										</h2>
+									</div>
+									<div class="flex items-center gap-2">
+										{#if isBrewLinkTimerActive}
+											<span
+												data-testid="brewlink-timer-badge"
+												class="inline-flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-300"
+											>
+												<Radio class="h-3 w-3 animate-pulse text-sky-500" />
+												<span>{t('batches.workspace.brewlink_controlled_timer')}</span>
+											</span>
+										{/if}
+										<button
+											type="button"
+											onclick={() => (showBrewStationHud = true)}
+											class="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+											title={t('batches.workspace.brew_station_hud')}
+											aria-label={t('batches.workspace.brew_station_hud')}
+										>
+											<Maximize2 class="h-4 w-4" />
+										</button>
+									</div>
+								</div>
+
+								{#if currentSelectedBoilStep}
+									<div
+										class="rounded-xl border border-zinc-200/60 bg-white/50 p-2.5 dark:border-zinc-800/60 dark:bg-zinc-900/40"
+									>
+										<p
+											data-testid="active-boil-step-name"
+											class="font-semibold text-zinc-900 dark:text-white"
+										>
+											{currentSelectedBoilStep.name}
+										</p>
+										<p class="text-xs text-zinc-500 dark:text-zinc-400">
+											{settings.formatTemperature(currentSelectedBoilStep.targetTemperatureC)}
+											{#if currentSelectedBoilStep.additionTimeMinutes !== null && currentSelectedBoilStep.additionTimeMinutes !== undefined}
+												• {currentSelectedBoilStep.additionTimeMinutes} {t('common.minutes')}
+											{:else if currentSelectedBoilStep.durationMinutes}
+												• {currentSelectedBoilStep.durationMinutes} {t('common.minutes')}
+											{/if}
+										</p>
+									</div>
+								{:else}
+									<p class="text-xs text-zinc-500 dark:text-zinc-400">
+										{t('batches.workspace.boil_timer_desc')}
+									</p>
+								{/if}
+
+								<div class="py-4 text-center">
+									<span
+										data-testid="boil-timer-display"
+										class="font-mono text-5xl font-extrabold text-zinc-900 dark:text-white"
+									>
+										{formatTime(timerRemainingSeconds)}
+									</span>
+								</div>
+
+								<StageProgressBar
+									totalSeconds={boilDurationSeconds}
+									remainingSeconds={timerRemainingSeconds}
+									running={timerRunning}
+									stage="Boil"
+									milestones={boilStageIngredients}
+									onToggleMilestone={handleToggleIngredient}
+									variant="default"
+								/>
+							</div>
+
+							<div class="flex flex-col gap-3">
+								<div class="flex items-center justify-center gap-3">
+									{#if !timerRunning}
+										<button
+											type="button"
+											onclick={startTimer}
+											class="flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-bold text-zinc-950 shadow-md transition-all hover:bg-amber-400 active:scale-95"
+										>
+											<Play class="h-4 w-4 fill-current" />
+											<span>{t('batches.workspace.start_timer')}</span>
+										</button>
+									{:else}
+										<button
+											type="button"
+											onclick={handlePauseTimerClick}
+											class="flex min-h-[44px] items-center gap-2 rounded-xl bg-zinc-200 px-5 py-2.5 text-xs font-bold text-zinc-800 transition-all hover:bg-zinc-300 active:scale-95 dark:bg-zinc-800 dark:text-zinc-200"
+										>
+											<Pause class="h-4 w-4 fill-current" />
+											<span>{t('batches.workspace.pause_timer')}</span>
+										</button>
+									{/if}
+
+									<button
+										type="button"
+										onclick={handleResetTimerClick}
+										class="flex min-h-[44px] items-center gap-2 rounded-xl border border-zinc-200 px-4 py-2.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 active:scale-95 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
+									>
+										<RotateCcw class="h-3.5 w-3.5" />
+										<span>{t('batches.workspace.reset_timer')}</span>
+									</button>
+								</div>
+
+								{#if !isReadOnlyBatch && boilSteps.length > 1}
+									<button
+										type="button"
+										data-testid="advance-boil-step-btn"
+										onclick={handleAdvanceBoilStep}
+										class="flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 py-2 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500/20 active:scale-95 dark:text-amber-300"
+									>
+										<StepForward class="h-4 w-4" />
+										<span>{t('batches.workspace.complete_and_next_step')}</span>
+									</button>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Boil Schedule Timeline & Stepper (matching BrewLink equipment) -->
+						<div
+							data-testid="boil-schedule-card"
+							class="glass-panel flex flex-col rounded-3xl border border-zinc-200/80 p-6 lg:col-span-2 dark:border-white/10"
+						>
+							<div
+								class="flex items-center justify-between border-b border-zinc-200/60 pb-3 dark:border-white/5"
+							>
+								<div class="flex items-center gap-2 text-zinc-900 dark:text-white">
+									<Clock class="h-5 w-5 text-amber-500" />
+									<h2 class="text-base font-bold">
+										{t('batches.workspace.boil_schedule_title')}
+									</h2>
+								</div>
+								<span class="font-mono text-xs text-zinc-500">
+									{boilSteps.filter((s) => s.isCompleted).length} / {boilSteps.length}
 								</span>
 							</div>
 
-							<StageProgressBar
-								totalSeconds={boilDurationSeconds}
-								remainingSeconds={timerRemainingSeconds}
-								running={timerRunning}
-								stage="Boil"
-								milestones={boilStageIngredients}
-								onToggleMilestone={handleToggleIngredient}
-								variant="default"
-							/>
-						</div>
+							<div class="mt-4 space-y-3">
+								{#each boilSteps as step, idx (step.id)}
+									<div
+										data-testid="boil-step-row-{step.id}"
+										class="flex items-center justify-between rounded-xl border p-3.5 transition-all {activeBoilStepIndex ===
+										idx
+											? 'border-amber-500 bg-amber-50/50 shadow-xs dark:border-amber-500/50 dark:bg-amber-500/10'
+											: 'border-zinc-200/60 bg-white/60 hover:bg-zinc-50 dark:border-zinc-800/60 dark:bg-zinc-900/30 dark:hover:bg-zinc-900/60'}"
+									>
+										<div class="flex items-center gap-3">
+											<input
+												type="checkbox"
+												data-testid="boil-step-checkbox-{step.id}"
+												checked={step.isCompleted}
+												disabled={isReadOnlyBatch}
+												onchange={() => handleToggleBoilStep(idx)}
+												class="h-4 w-4 rounded-md border-zinc-300 text-amber-500 focus:ring-amber-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+											/>
+											<div>
+												<button
+													type="button"
+													data-testid="boil-step-name-btn-{step.id}"
+													onclick={() => handleSelectBoilStep(idx)}
+													class="cursor-pointer text-left text-sm font-semibold {step.isCompleted
+														? 'text-zinc-400 line-through dark:text-zinc-500'
+														: 'text-zinc-900 dark:text-white'} hover:text-amber-600 dark:hover:text-amber-400"
+												>
+													<span class="mr-1.5 font-mono text-xs text-amber-600 dark:text-amber-400">
+														#{step.stepOrder}
+													</span>
+													{step.name}
+												</button>
+												<p class="text-xs text-zinc-500 dark:text-zinc-400">
+													{settings.formatTemperature(step.targetTemperatureC)}
+													{#if step.additionTimeMinutes !== null && step.additionTimeMinutes !== undefined}
+														• {step.additionTimeMinutes} {t('common.minutes')}
+													{:else if step.durationMinutes}
+														• {step.durationMinutes} {t('common.minutes')}
+													{/if}
+													{#if step.ingredients.length > 0}
+														• {step.ingredients
+															.map((i) => `${i.name} (${i.amount}${i.unit})`)
+															.join(', ')}
+													{/if}
+													{#if step.actualTemperatureC !== null && step.actualTemperatureC !== undefined}
+														• <span class="font-semibold text-amber-600 dark:text-amber-400">
+															{t('batches.telemetry.actual_temp')}: {settings.formatTemperature(
+																step.actualTemperatureC
+															)}
+														</span>
+													{/if}
+												</p>
+											</div>
+										</div>
 
-						<div class="flex items-center justify-center gap-3">
-							{#if !timerRunning}
-								<button
-									type="button"
-									onclick={startTimer}
-									class="flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-bold text-zinc-950 shadow-md transition-all hover:bg-amber-400"
-								>
-									<Play class="h-4 w-4 fill-current" />
-									<span>{t('batches.workspace.start_timer')}</span>
-								</button>
-							{:else}
-								<button
-									type="button"
-									onclick={pauseTimer}
-									class="flex min-h-[44px] items-center gap-2 rounded-xl bg-zinc-200 px-5 py-2.5 text-xs font-bold text-zinc-800 transition-all hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-200"
-								>
-									<Pause class="h-4 w-4 fill-current" />
-									<span>{t('batches.workspace.pause_timer')}</span>
-								</button>
-							{/if}
+										<div class="flex items-center gap-2">
+											{#if canLogInspectedStage}
+												{#if activeStageBrewLinkEquipment?.currentTemperatureC !== null && activeStageBrewLinkEquipment?.currentTemperatureC !== undefined && activeBoilStepIndex === idx}
+													<button
+														type="button"
+														onclick={() =>
+															handleLogLiveBrewLinkTemp(step.name, step.targetTemperatureC)}
+														class="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/20 dark:bg-sky-500/20 dark:text-sky-300"
+														title={t('batches.workspace.log_live_temp', {
+															temp: settings.formatTemperature(
+																activeStageBrewLinkEquipment.currentTemperatureC
+															)
+														})}
+													>
+														<Radio class="h-3 w-3 animate-pulse text-sky-500" />
+														<span class="hidden sm:inline">
+															{t('batches.workspace.log_live_temp', {
+																temp: settings.formatTemperature(
+																	activeStageBrewLinkEquipment.currentTemperatureC
+																)
+															})}
+														</span>
+													</button>
+												{/if}
 
-							<button
-								type="button"
-								onclick={resetTimer}
-								class="flex min-h-[44px] items-center gap-2 rounded-xl border border-zinc-200 px-4 py-2.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
-							>
-								<RotateCcw class="h-3.5 w-3.5" />
-								<span>{t('batches.workspace.reset_timer')}</span>
-							</button>
+												<button
+													type="button"
+													onclick={() => openLogTempModal('Boil', step.name)}
+													class="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/20 dark:bg-amber-500/20 dark:text-amber-300"
+													title={t('batches.telemetry.log_temperature')}
+												>
+													<Thermometer class="h-3 w-3" />
+													<span>{t('batches.telemetry.log_temperature')}</span>
+												</button>
+											{/if}
+
+											{#if activeBoilStepIndex === idx}
+												<span
+													class="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-700 uppercase dark:text-amber-300"
+												>
+													{t('batches.workspace.active_step')}
+												</span>
+											{:else}
+												<button
+													type="button"
+													data-testid="boil-step-select-{step.id}"
+													onclick={() => handleSelectBoilStep(idx)}
+													class="cursor-pointer rounded-lg border border-zinc-200/80 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
+												>
+													{t('batches.workspace.select_step')}
+												</button>
+											{/if}
+										</div>
+									</div>
+								{/each}
+							</div>
 						</div>
 					</div>
 
+					<!-- Boil Stage Temperature Progression Graph -->
+					<StepTemperatureChart
+						stage="Boil"
+						readings={batchEquipmentReadings}
+						{boilSteps}
+						selectedBoilStepName={selectedBoilStepGraphName}
+						targetTemperatureC={currentSelectedBoilStep?.targetTemperatureC ?? 100.0}
+						onSelectBoilStep={(name) => {
+							selectedBoilStepGraphName = name;
+							if (name) {
+								const idx = boilSteps.findIndex((s) => s.name === name);
+								if (idx !== -1) activeBoilStepIndex = idx;
+							}
+						}}
+						isLive={isTelemetryLive && isInspectingActiveStage}
+						onOpenLogModal={canLogInspectedStage
+							? () =>
+									openLogTempModal(
+										'Boil',
+										selectedBoilStepGraphName ?? currentSelectedBoilStep?.name
+									)
+							: undefined}
+						equipmentName={currentStageEquipmentName}
+					/>
+
 					<!-- Boil Checklist -->
-					<div
-						class="glass-panel rounded-3xl border border-zinc-200/80 p-6 lg:col-span-2 dark:border-white/10"
-					>
+					<div class="glass-panel rounded-3xl border border-zinc-200/80 p-6 dark:border-white/10">
 						<div
 							class="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200/60 pb-4 dark:border-white/5"
 						>
@@ -1991,20 +2894,8 @@
 						{/if}
 					</div>
 
-					<!-- Boil Stage Temperature Progression Graph -->
-					<div class="lg:col-span-3">
-						<StepTemperatureChart
-							stage="Boil"
-							readings={batchEquipmentReadings}
-							targetTemperatureC={100.0}
-							isLive={isTelemetryLive && isInspectingActiveStage}
-							onOpenLogModal={canLogInspectedStage ? () => openLogTempModal('Boil') : undefined}
-							equipmentName={currentStageEquipmentName}
-						/>
-					</div>
-
 					<!-- Boil Stage Measurements & Manual Inputs Card -->
-					<div class="lg:col-span-3">
+					<div>
 						<StageMeasurementsCard
 							stage="Boil"
 							{batch}
@@ -2905,10 +3796,14 @@
 	equipmentName={currentStageEquipmentName}
 	mashSteps={batch?.mashSteps ?? []}
 	defaultMashStepId={logTempMashStepId}
+	{boilSteps}
+	defaultBoilStepName={logTempBoilStepName}
 	targetTemperatureC={logTempStage === 'Mash'
 		? (batch?.mashSteps?.find((s) => s.id === logTempMashStepId)?.targetTemperatureC ?? 65)
 		: logTempStage === 'Boil'
-			? 100
+			? (boilSteps.find((s) => s.name === logTempBoilStepName)?.targetTemperatureC ??
+				currentSelectedBoilStep?.targetTemperatureC ??
+				100)
 			: activeFermentationStepTargetTemp}
 	onClose={() => (showLogTempModal = false)}
 	onSubmit={handleLogStepTemperature}
@@ -2923,6 +3818,51 @@
 
 <BatchQrModal open={showQrModal} {batch} onClose={() => (showQrModal = false)} />
 
+<ConfirmModal
+	open={showConfirmPauseTimerModal}
+	title={t('batches.workspace.confirm_pause_timer_title')}
+	message={t('batches.workspace.confirm_pause_timer_message', {
+		equipment: activeStageBrewLinkEquipment?.name ?? ''
+	})}
+	confirmText={t('common.yes')}
+	cancelText={t('common.no')}
+	variant="warning"
+	confirmTestId="confirm-pause-timer-btn"
+	cancelTestId="cancel-pause-timer-btn"
+	onConfirm={confirmPauseTimer}
+	onClose={() => (showConfirmPauseTimerModal = false)}
+/>
+
+<ConfirmModal
+	open={showConfirmResetTimerModal}
+	title={t('batches.workspace.confirm_reset_timer_title')}
+	message={t('batches.workspace.confirm_reset_timer_message', {
+		equipment: activeStageBrewLinkEquipment?.name ?? ''
+	})}
+	confirmText={t('common.yes')}
+	cancelText={t('common.no')}
+	variant="danger"
+	confirmTestId="confirm-reset-timer-btn"
+	cancelTestId="cancel-reset-timer-btn"
+	onConfirm={confirmResetTimer}
+	onClose={() => (showConfirmResetTimerModal = false)}
+/>
+
+<ConfirmModal
+	open={showConfirmAdvanceBoilStepModal}
+	title={t('batches.workspace.confirm_advance_step_title')}
+	message={t('batches.workspace.confirm_advance_step_message', {
+		equipment: activeStageBrewLinkEquipment?.name ?? ''
+	})}
+	confirmText={t('common.yes')}
+	cancelText={t('common.no')}
+	variant="info"
+	confirmTestId="confirm-advance-step-btn"
+	cancelTestId="cancel-advance-step-btn"
+	onConfirm={confirmAdvanceBoilStep}
+	onClose={() => (showConfirmAdvanceBoilStepModal = false)}
+/>
+
 {#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}
 	<BrewStationHudModal
 		open={showBrewStationHud}
@@ -2936,13 +3876,14 @@
 		onToggleIngredient={handleToggleIngredient}
 		targetTemperatureC={inspectedStage === 'Mash'
 			? (currentSelectedMashStep?.targetTemperatureC ?? 65)
-			: 100}
+			: (currentSelectedBoilStep?.targetTemperatureC ?? 100)}
 		currentTemperatureC={batchEquipmentReadings.length > 0
 			? batchEquipmentReadings[batchEquipmentReadings.length - 1].temperatureC
 			: (currentSelectedMashStep?.actualTemperatureC ?? null)}
 		activeStepName={inspectedStage === 'Mash'
 			? currentSelectedMashStep?.name
-			: `${t('batches.stages.boil')} (${batch.boilTimeMinutes ?? 60}m)`}
+			: (currentSelectedBoilStep?.name ??
+				`${t('batches.stages.boil')} (${batch.boilTimeMinutes ?? 60}m)`)}
 		{activeMashStepIndex}
 		totalMashSteps={batch.mashSteps?.length}
 		spargeEnabled={Boolean(
@@ -2951,17 +3892,19 @@
 		spargeWaterTempC={estimatedSpargeTempC}
 		spargeLiveTempC={assignedHlt?.currentTemperatureC ?? null}
 		spargeEquipmentName={batch.hltName ?? assignedHlt?.name ?? null}
+		brewLinkEquipment={activeStageBrewLinkEquipment}
+		onBrewLinkUpdate={handleEquipmentUpdate}
 		targetPostBoilVolumeLiters={batch.volumeProfile?.targetPostBoilVolumeLiters ??
 			batch.targetBatchSizeLiters}
 		boilOffRatePerHour={batch.volumeProfile?.boilOffRatePerHour ?? null}
 		onToggleTimer={() => {
 			if (timerRunning) {
-				pauseTimer();
+				handlePauseTimerClick();
 			} else {
 				startTimer();
 			}
 		}}
-		onResetTimer={resetTimer}
+		onResetTimer={handleResetTimerClick}
 		onAdjustTimer={(seconds) => {
 			if (!batch) return;
 			batchTimer.adjust(
@@ -2972,7 +3915,17 @@
 				inspectedTimerStepId
 			);
 		}}
-		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : undefined}
+		onAdvanceStep={inspectedStage === 'Mash' ? handleAdvanceMashStep : handleAdvanceBoilStep}
 		onClose={() => (showBrewStationHud = false)}
 	/>
 {/if}
+
+<!-- BrewLink Interactive Action Confirmation Modal -->
+<BrewLinkInteractionModal
+	open={showBrewLinkPromptModal}
+	message={activeBrewLinkPrompt?.message ?? ''}
+	equipmentName={activeBrewLinkPrompt?.equipment.name}
+	loading={brewLinkPromptSubmitting}
+	onConfirm={handleConfirmBrewLinkInteraction}
+	onDismiss={handleDismissBrewLinkInteraction}
+/>

@@ -427,7 +427,8 @@ public record LogBatchTemperatureRequest(
     Guid? BatchMashStepId = null,
     string? StepName = null,
     DateTime? Timestamp = null,
-    string? Notes = null
+    string? Notes = null,
+    decimal? TargetTemperatureC = null
 );
 
 public record CheckBatchStockRequest(

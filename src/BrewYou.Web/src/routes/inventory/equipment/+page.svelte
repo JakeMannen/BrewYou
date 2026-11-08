@@ -18,6 +18,7 @@
 	import AssignTapModal from '$lib/components/inventory/AssignTapModal.svelte';
 	import AssignKegModal from '$lib/components/inventory/AssignKegModal.svelte';
 	import TapDisplayLinkModal from '$lib/components/inventory/TapDisplayLinkModal.svelte';
+	import BrewLinkControlModal from '$lib/components/brewery/BrewLinkControlModal.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
 	import { sortEquipmentByName } from '$lib/utils/equipment-order';
@@ -38,7 +39,8 @@
 		ChevronDown,
 		ChevronUp,
 		Beer,
-		Tv
+		Tv,
+		Radio
 	} from '@lucide/svelte';
 
 	let equipmentList = $state<EquipmentDto[]>([]);
@@ -67,6 +69,25 @@
 	let displayLinkModalOpen = $state(false);
 	let tapForDisplayLink = $state<EquipmentDto | null>(null);
 	let expandedAttributes = $state<Record<string, boolean>>({});
+	let brewLinkModalOpen = $state(false);
+	let selectedBrewLinkEquipment = $state<EquipmentDto | null>(null);
+
+	function openBrewLinkControlModal(item: EquipmentDto) {
+		selectedBrewLinkEquipment = item;
+		brewLinkModalOpen = true;
+	}
+
+	function handleEquipmentUpdate(updated: EquipmentDto) {
+		const idx = equipmentList.findIndex((e) => e.id === updated.id);
+		if (idx !== -1) {
+			const next = [...equipmentList];
+			next[idx] = { ...next[idx], ...updated };
+			equipmentList = next;
+		}
+		if (selectedBrewLinkEquipment && selectedBrewLinkEquipment.id === updated.id) {
+			selectedBrewLinkEquipment = { ...selectedBrewLinkEquipment, ...updated };
+		}
+	}
 
 	function openAssignTapModal(item: EquipmentDto) {
 		tapToAssign = item;
@@ -85,6 +106,7 @@
 
 	let telemetryAbortController: AbortController | null = null;
 	let telemetryReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+	let brewLinkSyncInterval: ReturnType<typeof setInterval> | null = null;
 	let isUnmounted = false;
 
 	function toggleAttributes(equipmentId: string) {
@@ -118,10 +140,11 @@
 				await api.equipment.streamTelemetry({
 					signal,
 					onReading: (reading: EquipmentTelemetryUpdateDto) => {
-						const index = equipmentList.findIndex((e) => e.id === reading.equipmentId);
+						const nextList = [...equipmentList];
+						const index = nextList.findIndex((e) => e.id === reading.equipmentId);
 						if (index !== -1) {
-							const existing = equipmentList[index];
-							equipmentList[index] = {
+							const existing = nextList[index];
+							const updatedItem: EquipmentDto = {
 								...existing,
 								currentTemperatureC:
 									reading.temperatureC !== undefined
@@ -158,11 +181,15 @@
 										? reading.fillPercentage
 										: existing.fillPercentage
 							};
+							nextList[index] = updatedItem;
+							if (selectedBrewLinkEquipment && selectedBrewLinkEquipment.id === updatedItem.id) {
+								selectedBrewLinkEquipment = { ...selectedBrewLinkEquipment, ...updatedItem };
+							}
 						}
 
 						// Also update connected Taps if this reading is for their assigned Keg
-						for (let i = 0; i < equipmentList.length; i++) {
-							const item = equipmentList[i];
+						for (let i = 0; i < nextList.length; i++) {
+							const item = nextList[i];
 							if (item.type === 'Tap' && item.assignedKegId === reading.equipmentId) {
 								const updatedFillPct =
 									reading.fillPercentage !== undefined && reading.fillPercentage !== null
@@ -173,7 +200,7 @@
 										? reading.currentVolumeLiters
 										: item.assignedKeg?.currentVolumeLiters;
 
-								equipmentList[i] = {
+								nextList[i] = {
 									...item,
 									currentTemperatureC:
 										reading.temperatureC !== undefined
@@ -198,6 +225,7 @@
 								};
 							}
 						}
+						equipmentList = nextList;
 					},
 					onError: () => {
 						// Stream disconnected or errored; wait and reconnect below
@@ -237,6 +265,36 @@
 		}
 	}
 
+	function startBrewLinkAutoSync() {
+		if (brewLinkSyncInterval || isUnmounted || !auth.isAuthenticated) return;
+		brewLinkSyncInterval = setInterval(async () => {
+			if (document.visibilityState === 'hidden' || !auth.isAuthenticated || isUnmounted) return;
+			const brewLinkItems = equipmentList.filter((e) => e.connectionType === 'BrewLink');
+			for (const eq of brewLinkItems) {
+				try {
+					const res = await api.equipment.syncBrewLinkState(eq.id);
+					if (res && (res.temperatureC != null || res.metricsJson)) {
+						handleEquipmentUpdate({
+							...eq,
+							currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
+							latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
+							temperatureUpdatedAt: new Date().toISOString()
+						});
+					}
+				} catch {
+					// Gateway offline or transient error
+				}
+			}
+		}, 4000);
+	}
+
+	function stopBrewLinkAutoSync() {
+		if (brewLinkSyncInterval) {
+			clearInterval(brewLinkSyncInterval);
+			brewLinkSyncInterval = null;
+		}
+	}
+
 	async function loadEquipment() {
 		if (!auth.isAuthenticated) {
 			loading = false;
@@ -264,6 +322,27 @@
 				undefined,
 				setupIdFilter
 			);
+
+			// Synchronize live sensor state for connected BrewLink equipment
+			for (const eq of equipmentList) {
+				if (eq.connectionType === 'BrewLink') {
+					void api.equipment
+						.syncBrewLinkState(eq.id)
+						.then((res) => {
+							if (res && (res.temperatureC != null || res.metricsJson)) {
+								handleEquipmentUpdate({
+									...eq,
+									currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
+									latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
+									temperatureUpdatedAt: new Date().toISOString()
+								});
+							}
+						})
+						.catch(() => {
+							// Non-blocking sync failure (e.g. gateway offline)
+						});
+				}
+			}
 		} catch (err: unknown) {
 			error = (err as Error).message || t('equipment.loading');
 		} finally {
@@ -274,6 +353,7 @@
 	onMount(() => {
 		loadEquipment();
 		startTelemetryStream();
+		startBrewLinkAutoSync();
 		if (settings.hasMqttConfigured) {
 			void settings.checkMqttStatus();
 		}
@@ -282,6 +362,7 @@
 		return () => {
 			isUnmounted = true;
 			stopTelemetryStream();
+			stopBrewLinkAutoSync();
 		};
 	});
 
@@ -291,8 +372,10 @@
 			void brewery.activeSetupId;
 			loadEquipment();
 			startTelemetryStream();
+			startBrewLinkAutoSync();
 		} else {
 			stopTelemetryStream();
+			stopBrewLinkAutoSync();
 		}
 	});
 
@@ -486,6 +569,22 @@
 		};
 	}
 
+	function getEquipmentTemperature(e: EquipmentDto): number | null {
+		if (e.currentTemperatureC != null) return e.currentTemperatureC;
+		if (e.latestMetricsJson) {
+			try {
+				const m = JSON.parse(e.latestMetricsJson);
+				const val =
+					m.currentTempC ?? m.current_temp_c ?? m.tempC ?? m.temp_c ?? m.temp ?? m.temperature;
+				if (typeof val === 'number' && !isNaN(val)) return val;
+				if (typeof val === 'string' && !isNaN(Number(val))) return Number(val);
+			} catch {
+				return null;
+			}
+		}
+		return null;
+	}
+
 	function formatTemperatureBadge(e: EquipmentDto): {
 		hasTemp: boolean;
 		displayTemp: string;
@@ -493,7 +592,8 @@
 		statusText: string;
 		dotColor: string;
 	} {
-		if (e.currentTemperatureC == null) {
+		const tempC = getEquipmentTemperature(e);
+		if (tempC == null) {
 			if (e.connectionType && e.connectionType !== 'None') {
 				return {
 					hasTemp: false,
@@ -512,7 +612,7 @@
 			};
 		}
 
-		const displayTemp = settings.formatTemp(e.currentTemperatureC, 1);
+		const displayTemp = settings.formatTemp(tempC, 1);
 
 		let status: 'live' | 'recent' | 'stale' = 'stale';
 		let statusText = t('equipment.temp_stale');
@@ -1013,6 +1113,21 @@
 								</div>
 							{/if}
 
+							<!-- BrewLink Hardware Controls Modal Trigger -->
+							{#if item.connectionType === 'BrewLink'}
+								<div class="mt-2.5">
+									<button
+										type="button"
+										onclick={() => openBrewLinkControlModal(item)}
+										class="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs font-bold text-sky-700 transition hover:bg-sky-500/20 dark:text-sky-300"
+										data-testid="toggle-brewlink-controls-btn"
+									>
+										<Radio class="h-3.5 w-3.5 text-sky-500" />
+										<span>{t('equipment.brewlink_controls')}</span>
+									</button>
+								</div>
+							{/if}
+
 							<!-- Custom Telemetry Attributes & Full JSON Inspector -->
 							{#if item.type !== 'Tap' && (extraAttrs.length > 0 || item.latestMetricsJson)}
 								<div
@@ -1396,4 +1511,15 @@
 		tapForDisplayLink = null;
 	}}
 	onUpdated={handleSaved}
+/>
+
+<!-- BrewLink Hardware Control Modal -->
+<BrewLinkControlModal
+	open={brewLinkModalOpen}
+	equipment={selectedBrewLinkEquipment}
+	onClose={() => {
+		brewLinkModalOpen = false;
+		selectedBrewLinkEquipment = null;
+	}}
+	onUpdate={handleEquipmentUpdate}
 />

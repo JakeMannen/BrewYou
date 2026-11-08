@@ -1270,6 +1270,24 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         ));
         eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
 
+        // 4b. Create Fermenter linked to this gateway
+        var fermConnConfig = JsonSerializer.Serialize(new
+        {
+            brewLinkGatewayId = sourceGatewayId.ToString(),
+            targetName = "Rapt Fermenter"
+        });
+
+        var fermRes = await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Rapt Fermenter Tank",
+            Type: EquipmentType.Fermenter,
+            Capacity: 30m,
+            Subtype: EquipmentSubtype.PressureFermenter,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: fermConnConfig
+        ));
+        fermRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
         // 5. Export backup with secrets included (passphrase protected)
         var passphrase = "StrongPassphrase123!";
         var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest(
@@ -1316,6 +1334,16 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             var parsedConfig = JsonSerializer.Deserialize<JsonElement>(restoredEq.ConnectionConfigJson!);
             parsedConfig.GetProperty("brewLinkGatewayId").GetString().Should().Be(targetGateway.Id.ToString());
             parsedConfig.GetProperty("targetMac").GetString().Should().Be("C44F331A8B22");
+
+            // Verify fermenter with BrewLink connectivity was also restored and remapped
+            var restoredFerm = db.Equipment.FirstOrDefault(e => e.UserId == targetUserId && e.Name == "Rapt Fermenter Tank");
+            restoredFerm.Should().NotBeNull();
+            restoredFerm!.ConnectionType.Should().Be(EquipmentConnectionType.BrewLink);
+            restoredFerm.Type.Should().Be(EquipmentType.Fermenter);
+
+            var parsedFermConfig = JsonSerializer.Deserialize<JsonElement>(restoredFerm.ConnectionConfigJson!);
+            parsedFermConfig.GetProperty("brewLinkGatewayId").GetString().Should().Be(targetGateway.Id.ToString());
+            parsedFermConfig.GetProperty("targetName").GetString().Should().Be("Rapt Fermenter");
         }
     }
 }
