@@ -167,7 +167,7 @@
 		try {
 			await api.brewlink.updateGateway(editingGateway.id, {
 				name: editGatewayName.trim(),
-				host: editGatewayHost.trim()
+				host: editGatewayHost.trim() || undefined
 			});
 			editingGateway = null;
 			await loadGateways();
@@ -394,79 +394,77 @@
 		</div>
 
 		<div class="mt-3 space-y-3">
-			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-				<!-- Host / IP -->
-				<div>
+			<!-- Host / IP -->
+			<div>
+				<div class="flex items-center justify-between gap-2">
 					<label
 						for="mgr-brewlink-host-input"
 						class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
 					>
 						{t('settings.brewlink.host_label')} *
 					</label>
-					<div class="mt-1 flex gap-2">
-						<input
-							id="mgr-brewlink-host-input"
-							data-testid="brewlink-host-input"
-							type="text"
-							bind:value={pairingHost}
-							onkeydown={(e) => {
-								if (e.key === 'Enter') {
-									e.preventDefault();
-									void handlePairGateway();
-								}
-							}}
-							placeholder={t('settings.brewlink.host_placeholder')}
-							required
-							class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 font-mono text-xs text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-						/>
-						<button
-							type="button"
-							data-testid="brewlink-request-pin-btn"
-							disabled={isRequestingPin || !pairingHost.trim()}
-							onclick={handleRequestPin}
-							class="shrink-0 rounded-xl border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 shadow-2xs hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-						>
-							{#if isRequestingPin}
-								<Loader2 class="h-3 w-3 animate-spin" />
-							{:else}
-								{t('settings.brewlink.request_pin_btn')}
-							{/if}
-						</button>
-					</div>
-					<span class="mt-0.5 block text-[10px] text-zinc-400 dark:text-zinc-500">
-						{t('settings.brewlink.host_help')}
-					</span>
-				</div>
-
-				<!-- 6-Digit PIN -->
-				<div>
-					<label
-						for="mgr-brewlink-pin-input"
-						class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+					<button
+						type="button"
+						data-testid="brewlink-request-pin-btn"
+						disabled={isRequestingPin || !pairingHost.trim()}
+						onclick={handleRequestPin}
+						class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 shadow-2xs hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
 					>
-						{t('settings.brewlink.pin_label')}
-					</label>
-					<input
-						id="mgr-brewlink-pin-input"
-						data-testid="brewlink-pin-input"
-						type="text"
-						inputmode="numeric"
-						autocomplete="one-time-code"
-						maxlength="12"
-						bind:value={pairingPin}
-						onkeydown={(e) => {
-							if (e.key === 'Enter') {
-								e.preventDefault();
-								void handlePairGateway();
-							}
-						}}
-						placeholder={t('settings.brewlink.pin_placeholder')}
-						class="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 font-mono text-xs tracking-widest text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-					/>
-					<span class="mt-0.5 block text-[10px] text-zinc-400 dark:text-zinc-500">
-						{t('settings.brewlink.pin_optional_help')}
-					</span>
+						{#if isRequestingPin}
+							<Loader2 class="h-3 w-3 animate-spin" />
+						{:else}
+							{t('settings.brewlink.request_pin_btn')}
+						{/if}
+					</button>
 				</div>
+				<input
+					id="mgr-brewlink-host-input"
+					data-testid="brewlink-host-input"
+					type="text"
+					bind:value={pairingHost}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							void handlePairGateway();
+						}
+					}}
+					placeholder={t('settings.brewlink.host_placeholder')}
+					required
+					class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+				/>
+				<span class="mt-1 block text-[10px] text-zinc-400 dark:text-zinc-500">
+					{t('settings.brewlink.host_help')}
+				</span>
+			</div>
+
+			<!-- 6-Digit PIN -->
+			<div>
+				<label
+					for="mgr-brewlink-pin-input"
+					class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+				>
+					{t('settings.brewlink.pin_label')}
+				</label>
+				<input
+					id="mgr-brewlink-pin-input"
+					data-testid="brewlink-pin-input"
+					type="text"
+					inputmode="numeric"
+					autocomplete="one-time-code"
+					maxlength="12"
+					bind:value={pairingPin}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							void handlePairGateway();
+						}
+					}}
+					placeholder={t('settings.brewlink.pin_placeholder')}
+					class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs tracking-widest text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+				/>
+				<span class="mt-1 block text-[10px] text-zinc-400 dark:text-zinc-500">
+					{t('settings.brewlink.pin_optional_help')}
+				</span>
 			</div>
 
 			<!-- Optional Gateway Name -->

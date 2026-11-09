@@ -1287,4 +1287,39 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         env!.Success.Should().BeTrue();
         env.Data.Should().BeEmpty("New user registration must produce a clean digital twin with 0 unowned equipment");
     }
+
+    [Fact]
+    public async Task UpdateEquipment_BrewLinkSensor_RenamesLinkedGateway()
+    {
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        // Fetch the automatically provisioned sensor
+        var listRes = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        listRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var sensors = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        var sensor = sensors.First(s => s.Subtype == EquipmentSubtype.BrewLink);
+
+        // Rename the sensor via Equipment update endpoint
+        var updateReq = new UpdateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Renamed BrewLink Sensor",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: sensor.ConnectionConfigJson
+        );
+
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{sensor.Id}", updateReq);
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Verify gateway in gateways list was updated
+        var gwListRes = await client.GetAsync("/api/v1/brewlink/gateways");
+        gwListRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var gateways = (await gwListRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewLinkGatewayDto>>>())!.Data!;
+        var updatedGw = gateways.First(g => g.Id == gw.Id);
+        updatedGw.Name.Should().Be("Renamed BrewLink Sensor");
+    }
 }

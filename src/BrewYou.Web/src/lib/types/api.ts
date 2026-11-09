@@ -775,7 +775,7 @@ export interface PairBrewLinkRequest {
 
 export interface UpdateBrewLinkGatewayRequest {
 	name: string;
-	host: string;
+	host?: string;
 }
 
 export interface SendBrewLinkRecipeRequest {

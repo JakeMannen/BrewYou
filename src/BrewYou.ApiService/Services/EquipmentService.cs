@@ -418,6 +418,7 @@ public class EquipmentService : IEquipmentService
         equipment.Name = normalizedName;
         equipment.Type = request.Type;
         equipment.Subtype = subtype;
+        var isBrewLinkSensor = equipment.Type == EquipmentType.Sensor && equipment.Subtype == EquipmentSubtype.BrewLink;
 
         if (previousType == EquipmentType.Tap && request.Type != EquipmentType.Tap)
         {
@@ -481,7 +482,7 @@ public class EquipmentService : IEquipmentService
                 }
             }
 
-            var isBrewLinkSensor = equipment.Type == EquipmentType.Sensor && equipment.Subtype == EquipmentSubtype.BrewLink;
+            isBrewLinkSensor = equipment.Type == EquipmentType.Sensor && equipment.Subtype == EquipmentSubtype.BrewLink;
             if (isBrewLinkSensor)
             {
                 equipment.ConnectionType = EquipmentConnectionType.BrewLink;
@@ -577,6 +578,30 @@ public class EquipmentService : IEquipmentService
         equipment.Description = request.Description?.Trim();
         equipment.Notes = request.Notes?.Trim();
         equipment.UpdatedAt = DateTime.UtcNow;
+
+        if (isBrewLinkSensor && !string.IsNullOrWhiteSpace(equipment.ConnectionConfigJson))
+        {
+            try
+            {
+                var node = JsonNode.Parse(equipment.ConnectionConfigJson) as JsonObject;
+                var gwIdStr = node?["brewLinkGatewayId"]?.GetValue<string>();
+                if (Guid.TryParse(gwIdStr, out var parsedGwId))
+                {
+                    var setupOwnerId = equipment.BrewerySetup?.UserId ?? equipment.UserId;
+                    var linkedGateway = await _db.BrewLinkGateways
+                        .FirstOrDefaultAsync(g => g.Id == parsedGwId && (g.UserId == userId || g.UserId == setupOwnerId));
+                    if (linkedGateway != null && linkedGateway.Name != equipment.Name)
+                    {
+                        linkedGateway.Name = equipment.Name;
+                        linkedGateway.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort name sync
+            }
+        }
 
         try
         {

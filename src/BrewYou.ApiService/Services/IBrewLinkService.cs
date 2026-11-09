@@ -15,7 +15,7 @@ public record StartBrewLinkPairingRequest(string Host);
 
 public record PairBrewLinkRequest(string Host, string? Pin = null, string? Name = null);
 
-public record UpdateBrewLinkGatewayRequest(string Name, string Host);
+public record UpdateBrewLinkGatewayRequest(string Name, string? Host = null);
 
 public record SendBrewLinkRecipeRequest(Guid? RecipeId, Guid? BatchId);
 

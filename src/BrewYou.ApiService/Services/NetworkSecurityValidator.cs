@@ -56,12 +56,24 @@ public static class NetworkSecurityValidator
             return (true, null, uri);
         }
 
+        // Local mDNS/LAN domains are accepted as private networks without requiring unicast DNS
+        if (allowPrivateNetworks && (host.EndsWith(".local", StringComparison.OrdinalIgnoreCase) ||
+                                     host.EndsWith(".lan", StringComparison.OrdinalIgnoreCase) ||
+                                     host.EndsWith(".home.arpa", StringComparison.OrdinalIgnoreCase)))
+        {
+            return (true, null, uri);
+        }
+
         // Host is a domain name - resolve DNS to prevent DNS rebinding to internal addresses
         try
         {
             var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
             if (addresses.Length == 0)
             {
+                if (allowPrivateNetworks)
+                {
+                    return (true, null, uri);
+                }
                 return (false, "Host could not be resolved.", null);
             }
 
@@ -75,6 +87,10 @@ public static class NetworkSecurityValidator
         }
         catch (Exception ex)
         {
+            if (allowPrivateNetworks)
+            {
+                return (true, null, uri);
+            }
             return (false, $"DNS resolution failed: {ex.Message}", null);
         }
 

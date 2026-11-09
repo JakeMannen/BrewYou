@@ -270,14 +270,22 @@ public partial class BrewLinkService : IBrewLinkService
             return (false, null, "Gateway name is required.");
         }
 
-        var (isValidHost, hostError, normalizedHost) = await ValidateAndNormalizeHostAsync(request.Host, ct);
-        if (!isValidHost || normalizedHost == null)
+        var cleanRequestHost = request.Host?.Trim() ?? string.Empty;
+        var isHostUnchanged = string.IsNullOrWhiteSpace(cleanRequestHost) ||
+            string.Equals(gateway.Host.Trim(), cleanRequestHost, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(GetCleanHostString(gateway.Host), GetCleanHostString(cleanRequestHost), StringComparison.OrdinalIgnoreCase);
+
+        if (!isHostUnchanged)
         {
-            return (false, null, hostError ?? "Invalid gateway host.");
+            var (isValidHost, hostError, normalizedHost) = await ValidateAndNormalizeHostAsync(cleanRequestHost, ct);
+            if (!isValidHost || normalizedHost == null)
+            {
+                return (false, null, hostError ?? "Invalid gateway host.");
+            }
+            gateway.Host = GetCleanHostString(normalizedHost);
         }
 
         gateway.Name = request.Name.Trim();
-        gateway.Host = GetCleanHostString(normalizedHost);
         gateway.UpdatedAt = DateTime.UtcNow;
 
         var gwIdStr = gateway.Id.ToString();

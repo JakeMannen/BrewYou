@@ -635,6 +635,19 @@ public class BrewLinkEndpointsTests : IClassFixture<BrewLinkTestFactory>, IDispo
         updatedGw.Name.Should().Be("Updated Name");
         updatedGw.Host.Should().Be("192.168.1.106");
 
+        // Rename with unchanged host (and with mDNS domain) succeeds without failing host validation
+        var renameRes = await client.PutAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}",
+            new UpdateBrewLinkGatewayRequest("Renamed Gateway", "192.168.1.106"));
+        renameRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var renamedGw = (await renameRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+        renamedGw.Name.Should().Be("Renamed Gateway");
+
+        var mdnsRes = await client.PutAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}",
+            new UpdateBrewLinkGatewayRequest("Renamed Gateway", "brewlink.local"));
+        mdnsRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var mdnsGw = (await mdnsRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+        mdnsGw.Host.Should().Be("brewlink.local");
+
         // Delete
         var delRes = await client.DeleteAsync($"/api/v1/brewlink/gateways/{gw.Id}");
         delRes.StatusCode.Should().Be(HttpStatusCode.NoContent);
