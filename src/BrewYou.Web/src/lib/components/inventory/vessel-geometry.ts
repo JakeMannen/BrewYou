@@ -27,6 +27,7 @@ export const CHAMBER_BOUNDS: Record<
 	ISpindel: { bottomY: 38, topY: 10 },
 	Tilt: { bottomY: 39, topY: 9 },
 	GenericSensor: { bottomY: 38, topY: 14 },
+	BrewLink: { bottomY: 38, topY: 10 },
 	StandardTap: { bottomY: 38, topY: 14 },
 	RoundDisplayTap: { bottomY: 38, topY: 14 },
 	RectDisplayTap: { bottomY: 38, topY: 14 },
@@ -37,7 +38,12 @@ export const CHAMBER_BOUNDS: Record<
 /**
  * Sensor and probe subtypes that are not liquid-bearing vessels.
  */
-export const SENSOR_SUBTYPES: EquipmentSubtype[] = ['GenericSensor', 'Tilt', 'ISpindel'];
+export const SENSOR_SUBTYPES: EquipmentSubtype[] = [
+	'GenericSensor',
+	'Tilt',
+	'ISpindel',
+	'BrewLink'
+];
 
 /**
  * Subtypes that are not liquid-bearing vessels (sensors, taps).
@@ -46,6 +52,7 @@ export const NON_VESSEL_SUBTYPES: EquipmentSubtype[] = [
 	'GenericSensor',
 	'Tilt',
 	'ISpindel',
+	'BrewLink',
 	'StandardTap',
 	'RoundDisplayTap',
 	'RectDisplayTap'
@@ -94,7 +101,7 @@ export function resolveVesselAnimationType(
 	const animated = options?.animated ?? false;
 	if (!active && !animated) return null;
 
-	if (['ISpindel', 'Tilt', 'GenericSensor'].includes(subtype as string)) {
+	if (['ISpindel', 'Tilt', 'GenericSensor', 'BrewLink'].includes(subtype as string)) {
 		return 'sensor';
 	}
 

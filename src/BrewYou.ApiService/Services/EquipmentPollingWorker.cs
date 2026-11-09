@@ -52,7 +52,7 @@ public class EquipmentPollingWorker : BackgroundService
         var pollingEquipment = await db.Equipment
             .AsNoTracking()
             .Where(e => (e.ConnectionType == EquipmentConnectionType.HttpPoll ||
-                         e.ConnectionType == EquipmentConnectionType.BrewLink) &&
+                         (e.ConnectionType == EquipmentConnectionType.BrewLink && !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink))) &&
                         !string.IsNullOrEmpty(e.ConnectionConfigJson))
             .ToListAsync(cancellationToken);
 
@@ -66,6 +66,12 @@ public class EquipmentPollingWorker : BackgroundService
         foreach (var eq in pollingEquipment)
         {
             if (cancellationToken.IsCancellationRequested) break;
+
+            if (eq.Subtype == EquipmentSubtype.BrewLink)
+            {
+                // BrewLink gateway sensor defines the gateway connection; not a telemetry polled device
+                continue;
+            }
 
             var intervalSeconds = ExtractIntervalSeconds(eq.ConnectionConfigJson);
             var shouldPoll = eq.TemperatureUpdatedAt == null ||

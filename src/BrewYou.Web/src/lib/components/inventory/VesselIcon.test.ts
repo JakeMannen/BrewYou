@@ -29,6 +29,7 @@ describe('VesselIcon Liquid Fill Geometry & Boundary Calculations', () => {
 		'ISpindel',
 		'Tilt',
 		'GenericSensor',
+		'BrewLink',
 		'Other'
 	];
 
@@ -196,10 +197,11 @@ describe('Vessel Brewing Animations & State Resolution', () => {
 		expect(resolveVesselAnimationType('Bottle', { active: true })).toBe('package');
 	});
 
-	it('infers sensor digital telemetry animation for ISpindel, Tilt, and GenericSensor', () => {
+	it('infers sensor digital telemetry animation for ISpindel, Tilt, GenericSensor, and BrewLink', () => {
 		expect(resolveVesselAnimationType('ISpindel', { active: true })).toBe('sensor');
 		expect(resolveVesselAnimationType('Tilt', { active: true })).toBe('sensor');
 		expect(resolveVesselAnimationType('GenericSensor', { active: true })).toBe('sensor');
+		expect(resolveVesselAnimationType('BrewLink', { active: true })).toBe('sensor');
 		expect(resolveVesselAnimationType('Tilt', { animated: true, animationStage: 'ferment' })).toBe(
 			'sensor'
 		);
@@ -207,10 +209,11 @@ describe('Vessel Brewing Animations & State Resolution', () => {
 });
 
 describe('Non-Fillable Auxiliary Sensors & Fill Level Rules', () => {
-	it('identifies ISpindel, Tilt, and GenericSensor as non-fillable sensors', () => {
+	it('identifies ISpindel, Tilt, GenericSensor, and BrewLink as non-fillable sensors', () => {
 		expect(isVesselFillable('ISpindel')).toBe(false);
 		expect(isVesselFillable('Tilt')).toBe(false);
 		expect(isVesselFillable('GenericSensor')).toBe(false);
+		expect(isVesselFillable('BrewLink')).toBe(false);
 	});
 
 	it('identifies all standard liquid vessels as fillable', () => {
@@ -239,8 +242,8 @@ describe('Non-Fillable Auxiliary Sensors & Fill Level Rules', () => {
 		expect(isVesselFillable('Bottle')).toBe(true);
 	});
 
-	it('exports SENSOR_SUBTYPES containing only the 3 dedicated sensor types', () => {
-		expect(SENSOR_SUBTYPES).toEqual(['GenericSensor', 'Tilt', 'ISpindel']);
+	it('exports SENSOR_SUBTYPES containing only the dedicated sensor types', () => {
+		expect(SENSOR_SUBTYPES).toEqual(['GenericSensor', 'Tilt', 'ISpindel', 'BrewLink']);
 	});
 });
 

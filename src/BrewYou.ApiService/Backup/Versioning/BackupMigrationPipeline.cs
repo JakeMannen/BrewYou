@@ -306,6 +306,7 @@ public class TolerantEnumConverter<TEnum>(List<string> warnings) : JsonConverter
                 "unitank" or "conical" => EquipmentSubtype.ConicalFermenter,
                 "corny" or "corneliuskeg" => EquipmentSubtype.Cornelius,
                 "ispindle" => EquipmentSubtype.ISpindel,
+                "brewlink" => EquipmentSubtype.BrewLink,
                 _ => null
             };
             if (mapped.HasValue)

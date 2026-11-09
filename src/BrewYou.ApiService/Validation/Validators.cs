@@ -522,6 +522,11 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .When(x => x.Type == EquipmentType.Tap)
             .WithMessage("Tap equipment cannot have a direct temperature reading. Temperature is taken from a connected keg.");
 
+        RuleFor(x => x.CurrentTemperatureC)
+            .Must(temp => !temp.HasValue)
+            .When(x => x.Subtype == EquipmentSubtype.BrewLink)
+            .WithMessage("BrewLink sensor cannot have a direct temperature reading property.");
+
         RuleFor(x => x.ConnectionType)
             .IsInEnum()
             .When(x => x.ConnectionType.HasValue)
@@ -531,6 +536,12 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .Must(conn => !conn.HasValue || conn.Value == EquipmentConnectionType.None)
             .When(x => x.Type == EquipmentType.Tap)
             .WithMessage("Tap equipment cannot have an IoT sensor connection.");
+
+        RuleFor(x => x.ConnectionType)
+            .Must(conn => !conn.HasValue || conn.Value == EquipmentConnectionType.BrewLink)
+            .When(x => x.Subtype == EquipmentSubtype.BrewLink)
+            .WithMessage("BrewLink sensors must use the BrewLink connection protocol.")
+            .WithName("ConnectionType");
 
         RuleFor(x => x.ConnectionConfigJson)
             .MaximumLength(4000)
@@ -543,15 +554,21 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .WithMessage("Tap equipment cannot have connection configuration.");
 
         RuleFor(x => x)
-            .Must(x => x.Type == EquipmentType.Boiler || x.Type == EquipmentType.Fermenter)
+            .Must(x => x.Type == EquipmentType.Boiler || x.Type == EquipmentType.Fermenter || (x.Type == EquipmentType.Sensor && x.Subtype == EquipmentSubtype.BrewLink))
             .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
-            .WithMessage("BrewLink connectivity is only supported on Boilers and Fermenters.")
+            .WithMessage("BrewLink connectivity is only supported on Boilers, Fermenters, and BrewLink sensors.")
             .WithName("ConnectionType");
 
         RuleFor(x => x.ConnectionConfigJson)
             .Must(CreateEquipmentRequestValidator.HaveValidBrewLinkConfig)
-            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
+            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink && x.Subtype != EquipmentSubtype.BrewLink)
             .WithMessage("BrewLink configuration must include a valid brewLinkGatewayId and a target device (targetMac, slot, or targetName).")
+            .WithName("ConnectionConfigJson");
+
+        RuleFor(x => x.ConnectionConfigJson)
+            .Must(CreateEquipmentRequestValidator.HaveValidBrewLinkSensorConfig)
+            .When(x => x.Subtype == EquipmentSubtype.BrewLink && !string.IsNullOrWhiteSpace(x.ConnectionConfigJson))
+            .WithMessage("BrewLink sensor configuration must include a valid brewLinkGatewayId.")
             .WithName("ConnectionConfigJson");
     }
 
@@ -611,6 +628,29 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
         }
     }
 
+    internal static bool HaveValidBrewLinkSensorConfig(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson)) return true;
+        try
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(configJson) as System.Text.Json.Nodes.JsonObject;
+            if (node == null) return false;
+
+            // BrewLink sensor equipment ONLY defines the gateway connection; connected devices belong to Boilers/Fermenters
+            if (node["targetMac"] != null || node["slot"] != null || node["targetName"] != null)
+            {
+                return false;
+            }
+
+            var gwId = node["brewLinkGatewayId"]?.GetValue<string>();
+            return !string.IsNullOrWhiteSpace(gwId) && Guid.TryParse(gwId, out var parsedGuid) && parsedGuid != Guid.Empty;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     internal static bool HaveValidSubtypeForType(EquipmentType type, EquipmentSubtype? subtype)
     {
         if (!subtype.HasValue)
@@ -621,7 +661,7 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             EquipmentType.Boiler => subtype.Value is EquipmentSubtype.AllInOne or EquipmentSubtype.Pan or EquipmentSubtype.Hlt or EquipmentSubtype.HermsRims or EquipmentSubtype.MashTun or EquipmentSubtype.LauterTun or EquipmentSubtype.Other,
             EquipmentType.Fermenter => subtype.Value is EquipmentSubtype.Bucket or EquipmentSubtype.ConicalFermenter or EquipmentSubtype.Carboy or EquipmentSubtype.PressureFermenter or EquipmentSubtype.StainlessBucket or EquipmentSubtype.Other,
             EquipmentType.Keg => subtype.Value is EquipmentSubtype.Cornelius or EquipmentSubtype.Minikeg or EquipmentSubtype.MiniBarrel or EquipmentSubtype.PetKeg or EquipmentSubtype.Other,
-            EquipmentType.Sensor => subtype.Value is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor,
+            EquipmentType.Sensor => subtype.Value is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink,
             EquipmentType.Tap => subtype.Value is EquipmentSubtype.StandardTap or EquipmentSubtype.RoundDisplayTap or EquipmentSubtype.RectDisplayTap,
             EquipmentType.Other => subtype.Value is EquipmentSubtype.Other,
             _ => true
@@ -744,6 +784,11 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .When(x => x.Type == EquipmentType.Tap)
             .WithMessage("Tap equipment cannot have a direct temperature reading. Temperature is taken from a connected keg.");
 
+        RuleFor(x => x.CurrentTemperatureC)
+            .Must(temp => !temp.HasValue)
+            .When(x => x.Subtype == EquipmentSubtype.BrewLink)
+            .WithMessage("BrewLink sensor cannot have a direct temperature reading property.");
+
         RuleFor(x => x.ConnectionType)
             .IsInEnum()
             .When(x => x.ConnectionType.HasValue)
@@ -753,6 +798,12 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .Must(conn => !conn.HasValue || conn.Value == EquipmentConnectionType.None)
             .When(x => x.Type == EquipmentType.Tap)
             .WithMessage("Tap equipment cannot have an IoT sensor connection.");
+
+        RuleFor(x => x.ConnectionType)
+            .Must(conn => !conn.HasValue || conn.Value == EquipmentConnectionType.BrewLink)
+            .When(x => x.Subtype == EquipmentSubtype.BrewLink)
+            .WithMessage("BrewLink sensors must use the BrewLink connection protocol.")
+            .WithName("ConnectionType");
 
         RuleFor(x => x.ConnectionConfigJson)
             .MaximumLength(4000)
@@ -765,15 +816,21 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .WithMessage("Tap equipment cannot have connection configuration.");
 
         RuleFor(x => x)
-            .Must(x => x.Type == EquipmentType.Boiler || x.Type == EquipmentType.Fermenter)
+            .Must(x => x.Type == EquipmentType.Boiler || x.Type == EquipmentType.Fermenter || (x.Type == EquipmentType.Sensor && x.Subtype == EquipmentSubtype.BrewLink))
             .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
-            .WithMessage("BrewLink connectivity is only supported on Boilers and Fermenters.")
+            .WithMessage("BrewLink connectivity is only supported on Boilers, Fermenters, and BrewLink sensors.")
             .WithName("ConnectionType");
 
         RuleFor(x => x.ConnectionConfigJson)
             .Must(CreateEquipmentRequestValidator.HaveValidBrewLinkConfig)
-            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink)
+            .When(x => x.ConnectionType == EquipmentConnectionType.BrewLink && x.Subtype != EquipmentSubtype.BrewLink)
             .WithMessage("BrewLink configuration must include a valid brewLinkGatewayId and a target device (targetMac, slot, or targetName).")
+            .WithName("ConnectionConfigJson");
+
+        RuleFor(x => x.ConnectionConfigJson)
+            .Must(CreateEquipmentRequestValidator.HaveValidBrewLinkSensorConfig)
+            .When(x => x.Subtype == EquipmentSubtype.BrewLink && !string.IsNullOrWhiteSpace(x.ConnectionConfigJson))
+            .WithMessage("BrewLink sensor configuration must include a valid brewLinkGatewayId.")
             .WithName("ConnectionConfigJson");
     }
 }

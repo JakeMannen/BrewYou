@@ -46,6 +46,7 @@ public enum EquipmentSubtype
     ISpindel,
     Tilt,
     GenericSensor,
+    BrewLink,
 
     // Generic / Fallback
     Other

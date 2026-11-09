@@ -30,6 +30,7 @@ public partial class BrewLinkService : IBrewLinkService
     private readonly IDataProtector _protector;
     private readonly IBrewLinkDiscoveryService? _discoveryService;
     private readonly ITelemetryBroadcastService? _broadcastService;
+    private readonly IServiceProvider? _serviceProvider;
     private readonly ILogger<BrewLinkService> _logger;
 
     [GeneratedRegex(@"^[0-9A-Za-z]{6}$")]
@@ -44,13 +45,15 @@ public partial class BrewLinkService : IBrewLinkService
         IDataProtectionProvider dataProtectionProvider,
         ILogger<BrewLinkService> logger,
         IBrewLinkDiscoveryService? discoveryService = null,
-        ITelemetryBroadcastService? broadcastService = null)
+        ITelemetryBroadcastService? broadcastService = null,
+        IServiceProvider? serviceProvider = null)
     {
         _db = db;
         _httpClient = httpClient;
         _protector = dataProtectionProvider.CreateProtector("BrewYou.BrewLinkCredentials");
         _discoveryService = discoveryService;
         _broadcastService = broadcastService;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -237,6 +240,8 @@ public partial class BrewLinkService : IBrewLinkService
             _discoveryService?.RemoveBeacon(cleanGatewayId);
             _logger.LogInformation("Successfully paired BrewLink gateway {GatewayId} for user {UserId}", cleanGatewayId, userId);
 
+            await EnsureGatewayEquipmentAsync(userId, existing, ct);
+
             return (true, ToDto(existing), null);
         }
         catch (Exception ex)
@@ -265,15 +270,33 @@ public partial class BrewLinkService : IBrewLinkService
             return (false, null, "Gateway name is required.");
         }
 
-        var (isValidHost, hostError, normalizedHost) = await ValidateAndNormalizeHostAsync(request.Host, ct);
-        if (!isValidHost || normalizedHost == null)
+        var cleanRequestHost = request.Host?.Trim() ?? string.Empty;
+        var isHostUnchanged = string.IsNullOrWhiteSpace(cleanRequestHost) ||
+            string.Equals(gateway.Host.Trim(), cleanRequestHost, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(GetCleanHostString(gateway.Host), GetCleanHostString(cleanRequestHost), StringComparison.OrdinalIgnoreCase);
+
+        if (!isHostUnchanged)
         {
-            return (false, null, hostError ?? "Invalid gateway host.");
+            var (isValidHost, hostError, normalizedHost) = await ValidateAndNormalizeHostAsync(cleanRequestHost, ct);
+            if (!isValidHost || normalizedHost == null)
+            {
+                return (false, null, hostError ?? "Invalid gateway host.");
+            }
+            gateway.Host = GetCleanHostString(normalizedHost);
         }
 
         gateway.Name = request.Name.Trim();
-        gateway.Host = GetCleanHostString(normalizedHost);
         gateway.UpdatedAt = DateTime.UtcNow;
+
+        var gwIdStr = gateway.Id.ToString();
+        var existingEquipment = await _db.Equipment
+            .FirstOrDefaultAsync(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink &&
+                e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gwIdStr), ct);
+        if (existingEquipment != null)
+        {
+            existingEquipment.Name = gateway.Name;
+            existingEquipment.UpdatedAt = DateTime.UtcNow;
+        }
 
         await _db.SaveChangesAsync(ct);
         return (true, ToDto(gateway), null);
@@ -321,6 +344,16 @@ public partial class BrewLinkService : IBrewLinkService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Best-effort token revocation on BrewLink gateway {GatewayId} failed (gateway may be offline).", gateway.GatewayId);
+        }
+
+        var gwIdStr = gateway.Id.ToString();
+        var linkedSensors = await _db.Equipment
+            .Where(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink &&
+                e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gwIdStr))
+            .ToListAsync(ct);
+        if (linkedSensors.Count > 0)
+        {
+            _db.Equipment.RemoveRange(linkedSensors);
         }
 
         _db.BrewLinkGateways.Remove(gateway);
@@ -1053,6 +1086,11 @@ public partial class BrewLinkService : IBrewLinkService
             return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is not connected to a BrewLink gateway.");
         }
 
+        if (equipment.Type == EquipmentType.Sensor || equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return (BrewLinkSendResult.BadRequest, null, "BrewLink sensors do not support hardware control sync.");
+        }
+
         var (isValidConfig, configError, gatewayId, targetMac, targetSlot, targetName) =
             ParseEquipmentConnectionConfig(equipment.ConnectionConfigJson);
         if (!isValidConfig)
@@ -1109,7 +1147,7 @@ public partial class BrewLinkService : IBrewLinkService
         {
             ["req_id"] = reqId,
             ["action"] = action,
-            ["equipment_type"] = equipment.Type == EquipmentType.Fermenter ? "fermenter" : "boiler",
+            ["equipment_type"] = equipment.Type == EquipmentType.Fermenter ? "fermenter" : equipment.Type == EquipmentType.Sensor ? "sensor" : "boiler",
             ["timestamp"] = timestamp,
             ["sig"] = sig,
             ["params"] = payloadParams
@@ -1298,6 +1336,11 @@ public partial class BrewLinkService : IBrewLinkService
             return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is not connected to a BrewLink gateway.");
         }
 
+        if (equipment.Type == EquipmentType.Sensor || equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return (BrewLinkSendResult.BadRequest, null, "BrewLink sensors do not support hardware control sync.");
+        }
+
         var (isValidConfig, configError, gatewayId, targetMac, targetSlot, targetName) =
             ParseEquipmentConnectionConfig(equipment.ConnectionConfigJson);
         if (!isValidConfig)
@@ -1375,6 +1418,15 @@ public partial class BrewLinkService : IBrewLinkService
             equipment.TemperatureUpdatedAt = canonical.UpdatedAt;
             equipment.LastTelemetryAt = DateTime.UtcNow;
             equipment.LatestMetricsJson = metricsJson;
+
+            if (_serviceProvider != null)
+            {
+                var telemetryService = _serviceProvider.GetService<ITelemetryService>();
+                if (telemetryService != null)
+                {
+                    await telemetryService.IngestBrewLinkTelemetryAsync(equipment.Id, doc.RootElement, source: "BrewLinkSync");
+                }
+            }
 
             await _db.SaveChangesAsync(ct);
 
@@ -1905,5 +1957,62 @@ public partial class BrewLinkService : IBrewLinkService
             default:
                 return existing with { UpdatedAt = now };
         }
+    }
+
+    private async Task EnsureGatewayEquipmentAsync(string userId, BrewLinkGateway gateway, CancellationToken ct)
+    {
+        var gwIdStr = gateway.Id.ToString();
+        var existingEquipment = await _db.Equipment
+            .FirstOrDefaultAsync(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink &&
+                e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gwIdStr), ct);
+
+        if (existingEquipment != null)
+        {
+            if (!string.IsNullOrWhiteSpace(gateway.Name))
+            {
+                existingEquipment.Name = gateway.Name;
+                existingEquipment.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var defaultSetup = await _db.BrewerySetups
+                .Where(s => s.UserId == userId)
+                .OrderByDescending(s => s.IsDefault)
+                .ThenBy(s => s.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+
+            if (defaultSetup != null)
+            {
+                var eqName = string.IsNullOrWhiteSpace(gateway.Name) ? "BrewLink" : gateway.Name;
+                var baseName = eqName;
+                var counter = 1;
+                while (await _db.Equipment.AnyAsync(e => e.BrewerySetupId == defaultSetup.Id && e.Name.ToLower() == eqName.ToLower(), ct))
+                {
+                    eqName = $"{baseName} ({++counter})";
+                }
+
+                var sensor = new Equipment
+                {
+                    UserId = userId,
+                    BrewerySetupId = defaultSetup.Id,
+                    Name = eqName,
+                    Type = EquipmentType.Sensor,
+                    Subtype = EquipmentSubtype.BrewLink,
+                    ConnectionType = EquipmentConnectionType.BrewLink,
+                    ConnectionConfigJson = $"{{\"brewLinkGatewayId\":\"{gateway.Id}\"}}",
+                    Capacity = 0m,
+                    CapacityLiters = 0m,
+                    CurrentVolume = 0m,
+                    CurrentVolumeLiters = 0m,
+                    Unit = VolumeUnit.Liters,
+                    CreatedAt = gateway.PairedAt,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.Equipment.Add(sensor);
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
     }
 }

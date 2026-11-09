@@ -40,7 +40,8 @@
 		ChevronUp,
 		Beer,
 		Tv,
-		Radio
+		Radio,
+		Cpu
 	} from '@lucide/svelte';
 
 	let equipmentList = $state<EquipmentDto[]>([]);
@@ -49,6 +50,55 @@
 	let error = $state<string | null>(null);
 	let selectedCategory = $state<string>('All');
 	let searchFilter = $state('');
+	let gatewayDevicesCount = $state<Record<string, number>>({});
+
+	function extractGatewayId(item: EquipmentDto): string | null {
+		if (!item.connectionConfigJson) return null;
+		try {
+			const parsed = JSON.parse(item.connectionConfigJson);
+			return (
+				parsed.brewLinkGatewayId ||
+				parsed.brewlinkGatewayId ||
+				parsed.gatewayId ||
+				parsed.gateway_id ||
+				null
+			);
+		} catch {
+			return null;
+		}
+	}
+
+	function getDevicesProvidedCount(item: EquipmentDto): number {
+		const gwId = extractGatewayId(item)?.toLowerCase();
+		if (!gwId) return 0;
+
+		if (gatewayDevicesCount[gwId] !== undefined) {
+			return gatewayDevicesCount[gwId];
+		}
+
+		return equipmentList.filter((e) => {
+			if (e.id === item.id || e.connectionType !== 'BrewLink') return false;
+			return extractGatewayId(e)?.toLowerCase() === gwId;
+		}).length;
+	}
+
+	async function loadBrewLinkGatewayDeviceCounts() {
+		const brewLinkGateways = equipmentList.filter((e) => e.subtype === 'BrewLink');
+		for (const gw of brewLinkGateways) {
+			const gwId = extractGatewayId(gw)?.toLowerCase();
+			if (!gwId) continue;
+			try {
+				const devices = await api.brewlink.getGatewayEquipment(gwId);
+				gatewayDevicesCount[gwId] = Array.isArray(devices) ? devices.length : 0;
+			} catch {
+				const fallbackCount = equipmentList.filter((e) => {
+					if (e.id === gw.id || e.connectionType !== 'BrewLink') return false;
+					return extractGatewayId(e)?.toLowerCase() === gwId;
+				}).length;
+				gatewayDevicesCount[gwId] = fallbackCount;
+			}
+		}
+	}
 
 	let otherSetupWithEquipment = $derived.by(() => {
 		if (equipmentList.length > 0 || brewery.setups.length <= 1) return null;
@@ -114,7 +164,7 @@
 	}
 
 	function getParsedAttributes(item: EquipmentDto): Array<{ key: string; value: string }> {
-		if (!item.latestMetricsJson) return [];
+		if (item.subtype === 'BrewLink' || !item.latestMetricsJson) return [];
 		try {
 			const parsed = JSON.parse(item.latestMetricsJson);
 			if (typeof parsed !== 'object' || parsed === null) return [];
@@ -144,6 +194,9 @@
 						const index = nextList.findIndex((e) => e.id === reading.equipmentId);
 						if (index !== -1) {
 							const existing = nextList[index];
+							if (existing.subtype === 'BrewLink') {
+								return;
+							}
 							const updatedItem: EquipmentDto = {
 								...existing,
 								currentTemperatureC:
@@ -269,7 +322,9 @@
 		if (brewLinkSyncInterval || isUnmounted || !auth.isAuthenticated) return;
 		brewLinkSyncInterval = setInterval(async () => {
 			if (document.visibilityState === 'hidden' || !auth.isAuthenticated || isUnmounted) return;
-			const brewLinkItems = equipmentList.filter((e) => e.connectionType === 'BrewLink');
+			const brewLinkItems = equipmentList.filter(
+				(e) => e.connectionType === 'BrewLink' && e.subtype !== 'BrewLink'
+			);
 			for (const eq of brewLinkItems) {
 				try {
 					const res = await api.equipment.syncBrewLinkState(eq.id);
@@ -323,9 +378,11 @@
 				setupIdFilter
 			);
 
+			void loadBrewLinkGatewayDeviceCounts();
+
 			// Synchronize live sensor state for connected BrewLink equipment
 			for (const eq of equipmentList) {
-				if (eq.connectionType === 'BrewLink') {
+				if (eq.connectionType === 'BrewLink' && eq.subtype !== 'BrewLink') {
 					void api.equipment
 						.syncBrewLinkState(eq.id)
 						.then((res) => {
@@ -450,6 +507,8 @@
 				return item;
 			});
 		}
+
+		void loadBrewLinkGatewayDeviceCounts();
 	}
 
 	function requestDelete(item: EquipmentDto) {
@@ -470,6 +529,8 @@
 				}
 				return e;
 			});
+
+		void loadBrewLinkGatewayDeviceCounts();
 	}
 
 	function getCategoryName(cat: string): string {
@@ -570,6 +631,7 @@
 	}
 
 	function getEquipmentTemperature(e: EquipmentDto): number | null {
+		if (e.subtype === 'BrewLink') return null;
 		if (e.currentTemperatureC != null) return e.currentTemperatureC;
 		if (e.latestMetricsJson) {
 			try {
@@ -592,6 +654,16 @@
 		statusText: string;
 		dotColor: string;
 	} {
+		if (e.subtype === 'BrewLink') {
+			return {
+				hasTemp: false,
+				displayTemp: '',
+				status: 'none',
+				statusText: '',
+				dotColor: ''
+			};
+		}
+
 		const tempC = getEquipmentTemperature(e);
 		if (tempC == null) {
 			if (e.connectionType && e.connectionType !== 'None') {
@@ -956,7 +1028,38 @@
 							{/if}
 
 							<!-- Live Temperature & Telemetry Status -->
-							{#if tempInfo.hasTemp}
+							{#if item.subtype === 'BrewLink'}
+								{@const deviceCount = getDevicesProvidedCount(item)}
+								<div
+									class="mt-3 flex flex-col gap-2 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 dark:border-sky-500/20 dark:bg-sky-500/10"
+									data-testid="equipment-brewlink-gateway-badge"
+								>
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-2">
+											<Radio class="h-3.5 w-3.5 text-sky-500" />
+											<span class="text-xs font-semibold text-sky-800 dark:text-sky-200">
+												{t('equipment.brewlink_gateway_status_active')}
+											</span>
+										</div>
+										<span
+											class="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
+										>
+											<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+											{t('equipment.brewlink_tag')}
+										</span>
+									</div>
+									<div
+										class="flex items-center gap-1.5 border-t border-sky-500/15 pt-2 text-xs font-medium text-sky-700 dark:text-sky-300"
+									>
+										<Cpu class="h-3.5 w-3.5 flex-shrink-0 text-sky-500" />
+										<span data-testid="equipment-brewlink-device-count">
+											{deviceCount === 1
+												? t('equipment.brewlink_devices_provided_one')
+												: t('equipment.brewlink_devices_provided_other', { count: deviceCount })}
+										</span>
+									</div>
+								</div>
+							{:else if tempInfo.hasTemp}
 								<div
 									class="mt-3 flex flex-col gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 dark:border-amber-500/20 dark:bg-amber-500/10"
 									data-testid="equipment-temp-badge"
@@ -1114,7 +1217,7 @@
 							{/if}
 
 							<!-- BrewLink Hardware Controls Modal Trigger -->
-							{#if item.connectionType === 'BrewLink'}
+							{#if item.connectionType === 'BrewLink' && item.subtype !== 'BrewLink'}
 								<div class="mt-2.5">
 									<button
 										type="button"
@@ -1129,7 +1232,7 @@
 							{/if}
 
 							<!-- Custom Telemetry Attributes & Full JSON Inspector -->
-							{#if item.type !== 'Tap' && (extraAttrs.length > 0 || item.latestMetricsJson)}
+							{#if item.type !== 'Tap' && item.subtype !== 'BrewLink' && (extraAttrs.length > 0 || item.latestMetricsJson)}
 								<div
 									class="mt-2.5 rounded-xl border border-zinc-200/60 bg-zinc-50/50 p-2.5 dark:border-zinc-800/60 dark:bg-zinc-900/40"
 								>

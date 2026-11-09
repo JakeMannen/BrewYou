@@ -29,6 +29,7 @@ const DEFAULT_CAPACITIES_LITERS: Record<EquipmentSubtype, number> = {
 	ISpindel: 0,
 	Tilt: 0,
 	GenericSensor: 0,
+	BrewLink: 0,
 	StandardTap: 0,
 	RoundDisplayTap: 0,
 	RectDisplayTap: 0

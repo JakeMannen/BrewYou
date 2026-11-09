@@ -16,7 +16,9 @@ public sealed record EquipmentThrottleSnapshot(
     int? StepIndex,
     string? StepName,
     BrewStage? Stage,
-    decimal? SpecificGravity
+    decimal? SpecificGravity,
+    Guid? BatchId = null,
+    Guid? BatchMashStepId = null
 );
 
 public interface ITelemetryThrottlingService
@@ -27,7 +29,9 @@ public interface ITelemetryThrottlingService
         decimal temperatureC,
         BrewLinkCanonicalMetrics? metrics = null,
         decimal? specificGravity = null,
-        BrewStage? stage = null);
+        BrewStage? stage = null,
+        Guid? batchId = null,
+        Guid? batchMashStepId = null);
 
     void Reset(Guid equipmentId);
 

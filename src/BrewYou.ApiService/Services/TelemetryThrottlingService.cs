@@ -27,7 +27,9 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
         decimal temperatureC,
         BrewLinkCanonicalMetrics? metrics = null,
         decimal? specificGravity = null,
-        BrewStage? stage = null)
+        BrewStage? stage = null,
+        Guid? batchId = null,
+        Guid? batchMashStepId = null)
     {
         var syncLock = _syncLocks.GetOrAdd(equipmentId, _ => new object());
 
@@ -40,7 +42,7 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
             if (!_snapshots.TryGetValue(equipmentId, out var last) || isIdleTimeout)
             {
                 // Condition 1: Initial reading for this equipment session
-                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                 return true;
             }
 
@@ -52,7 +54,7 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
                     return false;
                 }
 
-                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                 return true;
             }
 
@@ -61,14 +63,14 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
             {
                 if (Math.Abs(temperatureC - last.TemperatureC) >= SignificantTempDelta)
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
             }
             catch (OverflowException)
             {
                 // Extreme temperature delta -> persist immediately
-                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                 return true;
             }
 
@@ -78,21 +80,21 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
                 // 4a. Heating state or power percentage change
                 if (metrics.HeatActive != last.HeatActive || metrics.HeatPowerPct != last.HeatPowerPct)
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
 
                 // 4b. Pump state change
                 if (metrics.PumpActive != last.PumpActive)
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
 
                 // 4c. Timer active or paused state change (ignoring 1Hz remainingSeconds countdown)
                 if (metrics.Timer?.Active != last.TimerActive || metrics.Timer?.Paused != last.TimerPaused)
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
 
@@ -100,7 +102,7 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
                 if (metrics.Interaction?.Required != last.InteractionRequired ||
                     metrics.Interaction?.Code != last.InteractionCode)
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
 
@@ -108,7 +110,7 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
                 if (metrics.Stage?.StepIndex != last.StepIndex ||
                     !string.Equals(metrics.Stage?.StepName, last.StepName, StringComparison.Ordinal))
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
             }
@@ -116,7 +118,21 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
             // 4f. Active brew stage transition
             if (stage.HasValue && stage != last.Stage)
             {
-                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
+                return true;
+            }
+
+            // 4h. Batch or mash step transition (guarantees immediate persistence for a new mash step or new batch)
+            if (batchId.HasValue && (batchId != last.BatchId || batchMashStepId != last.BatchMashStepId))
+            {
+                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
+                return true;
+            }
+
+            // 4i. Active mash or boil stage for an in-progress batch: persist on every temperature update
+            if (batchId.HasValue && stage is BrewStage.Mash or BrewStage.Boil)
+            {
+                _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                 return true;
             }
 
@@ -127,13 +143,13 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
                 {
                     if (Math.Abs(specificGravity.Value - last.SpecificGravity.Value) >= SignificantGravityDelta)
                     {
-                        _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                        _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                         return true;
                     }
                 }
                 catch (OverflowException)
                 {
-                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage);
+                    _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                     return true;
                 }
             }
@@ -159,7 +175,9 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
         decimal temperatureC,
         BrewLinkCanonicalMetrics? metrics,
         decimal? specificGravity,
-        BrewStage? stage)
+        BrewStage? stage,
+        Guid? batchId,
+        Guid? batchMashStepId)
     {
         return new EquipmentThrottleSnapshot(
             TimestampUtc: timestampUtc,
@@ -174,7 +192,9 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
             StepIndex: metrics?.Stage?.StepIndex,
             StepName: metrics?.Stage?.StepName,
             Stage: stage,
-            SpecificGravity: specificGravity
+            SpecificGravity: specificGravity,
+            BatchId: batchId,
+            BatchMashStepId: batchMashStepId
         );
     }
 }

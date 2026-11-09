@@ -103,9 +103,14 @@
 	let showConfirmPauseTimerModal = $state(false);
 	let showConfirmResetTimerModal = $state(false);
 	let showConfirmAdvanceBoilStepModal = $state(false);
+	let showConfirmAdvanceMashStepModal = $state(false);
+	let showConfirmAdvanceActiveBoilModal = $state(false);
+	let hasConfirmedActiveBoil = $state(false);
 	let showBrewLinkPromptModal = $state(false);
 	let brewLinkPromptSubmitting = $state(false);
 	let dismissedPromptKey = $state<string | null>(null);
+	let isAutoAdvancingToBoil = $state(false);
+	let mashTimerHadRun = $state(false);
 	let brewLinkSyncTimer: ReturnType<typeof setInterval> | null = null;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -1053,12 +1058,15 @@
 			active: Boolean(active),
 			paused: Boolean(paused),
 			remainingSeconds: remaining ?? 0,
-			totalSeconds: total ?? boilDurationSeconds
+			totalSeconds: total ?? inspectedStagePlannedDurationSeconds
 		};
 	});
 
+	// BrewLink hardware timers are synchronised for both the Mash and Boil stages
+	let isBrewLinkTimerStage = $derived(inspectedStage === 'Boil' || inspectedStage === 'Mash');
+
 	let isBrewLinkTimerActive = $derived(
-		inspectedStage === 'Boil' && Boolean(activeStageBrewLinkEquipment && brewLinkTimer)
+		isBrewLinkTimerStage && Boolean(activeStageBrewLinkEquipment && brewLinkTimer)
 	);
 
 	let activeTimerView = $derived.by(() => {
@@ -1066,7 +1074,7 @@
 			return {
 				remainingSeconds: brewLinkTimer.remainingSeconds,
 				running: brewLinkTimer.active && !brewLinkTimer.paused,
-				totalSeconds: brewLinkTimer.totalSeconds || boilDurationSeconds
+				totalSeconds: brewLinkTimer.totalSeconds || inspectedStagePlannedDurationSeconds
 			};
 		}
 		return batch
@@ -1240,6 +1248,78 @@
 		}
 	});
 
+	let isMashControlledByBrewLink = $derived.by<boolean>(() => {
+		const b = batch;
+		if (!b || equipmentList.length === 0) return false;
+		const mashTun = equipmentList.find((e) => e.id === b.mashTunId);
+		const boiler = equipmentList.find((e) => e.id === b.boilerId);
+		return mashTun?.connectionType === 'BrewLink' || boiler?.connectionType === 'BrewLink';
+	});
+
+	let isBoilControlledByBrewLink = $derived.by<boolean>(() => {
+		const b = batch;
+		if (!b || equipmentList.length === 0) return false;
+		const boiler = equipmentList.find((e) => e.id === b.boilerId);
+		return boiler?.connectionType === 'BrewLink';
+	});
+
+	let isMashComplete = $derived.by<boolean>(() => {
+		if (!batch?.mashSteps || batch.mashSteps.length === 0) return true;
+		return batch.mashSteps.every((s) => s.isCompleted);
+	});
+
+	let isBoilComplete = $derived.by<boolean>(() => {
+		const stepsDone = boilSteps.length === 0 || boilSteps.every((s) => s.isCompleted);
+		const timerDone =
+			!brewLinkTimer || (!brewLinkTimer.active && brewLinkTimer.remainingSeconds <= 0);
+		return stepsDone && timerDone;
+	});
+
+	let isAdvanceStageBlocked = $derived.by<boolean>(() => {
+		if (!batch || isReadOnlyBatch) return false;
+		if (batch.currentStage === 'Mash' && isMashControlledByBrewLink) {
+			return !isMashComplete;
+		}
+		return false;
+	});
+
+	let advanceStageBlockedReason = $derived.by<string>(() => {
+		if (batch?.currentStage === 'Mash' && isMashControlledByBrewLink && !isMashComplete) {
+			return t('batches.workspace.brewlink_mash_in_progress');
+		}
+		return '';
+	});
+
+	// Auto-advance to Boil when last mash step is completed and ready for boil
+	$effect(() => {
+		if (
+			batch &&
+			!isReadOnlyBatch &&
+			!advancing &&
+			!isAutoAdvancingToBoil &&
+			batch.currentStage === 'Mash' &&
+			isMashControlledByBrewLink &&
+			isMashComplete &&
+			!activeStageBrewLinkMetrics?.interaction?.required
+		) {
+			advanceToBoilAutomatically();
+		}
+	});
+
+	// Auto-complete current mash step when BrewLink hardware timer finishes
+	$effect(() => {
+		if (inspectedStage === 'Mash' && isMashControlledByBrewLink && brewLinkTimer) {
+			if (brewLinkTimer.active && brewLinkTimer.remainingSeconds > 0) {
+				mashTimerHadRun = true;
+			} else if (mashTimerHadRun && !brewLinkTimer.active && brewLinkTimer.remainingSeconds <= 0) {
+				mashTimerHadRun = false;
+				if (currentSelectedMashStep && !currentSelectedMashStep.isCompleted) {
+					handleToggleMashStep(currentSelectedMashStep.id, false);
+				}
+			}
+		}
+	});
+
 	let strikeRatio = $derived.by(() => {
 		const strikeVol = batch?.volumeProfile?.strikeWaterLiters;
 		if (strikeVol && totalMashGrainKg > 0) {
@@ -1311,6 +1391,13 @@
 						ing.isDeducted = true;
 					}
 				}
+				if (
+					isMashControlledByBrewLink &&
+					batch.currentStage === 'Mash' &&
+					batch.mashSteps.every((s) => s.isCompleted)
+				) {
+					await advanceToBoilAutomatically();
+				}
 			}
 		} catch (err: unknown) {
 			console.error('Failed to toggle mash step', err);
@@ -1351,7 +1438,47 @@
 		return 2.0;
 	});
 
+	async function advanceToBoilAutomatically() {
+		if (!batch || isReadOnlyBatch || advancing || isAutoAdvancingToBoil) return;
+		if (batch.currentStage !== 'Mash' || !isMashControlledByBrewLink) return;
+		if (!isMashComplete) return;
+		if (activeStageBrewLinkMetrics?.interaction?.required) return;
+
+		isAutoAdvancingToBoil = true;
+		advancing = true;
+		try {
+			const req: AdvanceBatchStageRequest = {
+				targetStage: 'Boil'
+			};
+			const previousStage = batch.currentStage;
+			const [updated, eq] = await Promise.all([
+				api.batches.advanceStage(batch.id, req),
+				api.equipment.list().catch(() => equipmentList)
+			]);
+			batchTimer.pauseStage(batch.id, previousStage);
+			batch = updated;
+			equipmentList = eq;
+			inspectedStage = updated.currentStage;
+			determineNextStage(updated.currentStage);
+			showAdvanceModal = false;
+		} catch (err: unknown) {
+			console.error('Failed to auto-advance batch to Boil', err);
+		} finally {
+			advancing = false;
+			isAutoAdvancingToBoil = false;
+		}
+	}
+
 	async function handleAdvanceMashStep() {
+		if (!batch?.mashSteps || activeMashStepIndex >= batch.mashSteps.length) return;
+		if (activeStageBrewLinkEquipment && inspectedStage === 'Mash') {
+			showConfirmAdvanceMashStepModal = true;
+			return;
+		}
+		await executeAdvanceMashStep();
+	}
+
+	async function executeAdvanceMashStep() {
 		if (!batch?.mashSteps || activeMashStepIndex >= batch.mashSteps.length) return;
 		const currentStep = batch.mashSteps[activeMashStepIndex];
 		if (currentStep) {
@@ -1362,12 +1489,71 @@
 		}
 		if (activeMashStepIndex + 1 < batch.mashSteps.length) {
 			handleSelectMashStep(activeMashStepIndex + 1);
+		} else if (isMashControlledByBrewLink && batch.currentStage === 'Mash') {
+			await advanceToBoilAutomatically();
+		}
+	}
+
+	async function confirmAdvanceMashStep() {
+		showConfirmAdvanceMashStepModal = false;
+		const equipment = activeStageBrewLinkEquipment;
+		if (!batch?.mashSteps || !equipment) {
+			await executeAdvanceMashStep();
+			return;
+		}
+		const nextStep = batch.mashSteps[activeMashStepIndex + 1] ?? null;
+		const timerWasRunning = timerRunning;
+		try {
+			await api.equipment.sendBrewLinkControl(equipment.id, { action: 'press_set' });
+			if (nextStep) {
+				await api.equipment.sendBrewLinkControl(equipment.id, {
+					action: 'set_target_temp',
+					tempC: nextStep.targetTemperatureC
+				});
+				if (timerWasRunning) {
+					await api.equipment.sendBrewLinkControl(equipment.id, {
+						action: 'set_timer',
+						durationMin: Math.max(1, Math.round(nextStep.durationMinutes))
+					});
+				}
+			}
+			const updated = await api.equipment.getById(equipment.id);
+			handleEquipmentUpdate(updated);
+		} catch (err: unknown) {
+			console.error('Failed to notify BrewLink of mash step advance', err);
+		}
+		await executeAdvanceMashStep();
+
+		// Capture a baseline hardware reading for the newly selected step
+		if (nextStep && !batchEquipmentReadings.some((r) => r.batchMashStepId === nextStep.id)) {
+			await handleLogLiveBrewLinkTemp(
+				'Mash',
+				nextStep.id,
+				nextStep.name,
+				nextStep.targetTemperatureC
+			);
+		}
+	}
+
+	async function handleSyncMashStepTargetTemp(step: BatchMashStepDto | null) {
+		if (!step || !activeStageBrewLinkEquipment) return;
+		try {
+			await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+				action: 'set_target_temp',
+				tempC: step.targetTemperatureC
+			});
+			const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
+			handleEquipmentUpdate(updated);
+		} catch (err: unknown) {
+			console.error('Failed to sync mash step setpoint to BrewLink', err);
 		}
 	}
 
 	function openAdvanceModal() {
-		if (!batch) return;
+		if (!batch || isAdvanceStageBlocked) return;
 		determineNextStage(batch.currentStage);
+
+		hasConfirmedActiveBoil = false;
 		advanceMeasuredOg = batch.measuredOg ?? batch.targetOg;
 		advanceMeasuredFg = batch.measuredFg ?? batch.targetFg;
 		advanceVolume =
@@ -1394,10 +1580,50 @@
 		showAdvanceModal = true;
 	}
 
+	async function confirmAdvanceActiveBoil() {
+		showConfirmAdvanceActiveBoilModal = false;
+		hasConfirmedActiveBoil = true;
+		await executeAdvanceSubmit(true);
+	}
+
+	function cancelAdvanceActiveBoil() {
+		showConfirmAdvanceActiveBoilModal = false;
+		hasConfirmedActiveBoil = false;
+		showAdvanceModal = true;
+	}
+
 	async function handleAdvanceSubmit() {
-		if (!batch) return;
+		if (!batch || isAdvanceStageBlocked) return;
+		const isBoilActive =
+			batch.currentStage === 'Boil' &&
+			nextStage === 'Ferment' &&
+			isBoilControlledByBrewLink &&
+			!isBoilComplete;
+
+		if (isBoilActive && !hasConfirmedActiveBoil) {
+			showAdvanceModal = false;
+			showConfirmAdvanceActiveBoilModal = true;
+			return;
+		}
+
+		await executeAdvanceSubmit(hasConfirmedActiveBoil || isBoilActive);
+	}
+
+	async function executeAdvanceSubmit(force: boolean = false) {
+		if (!batch || isAdvanceStageBlocked) return;
 		advancing = true;
 		advanceError = null;
+
+		if (force && activeStageBrewLinkEquipment) {
+			try {
+				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+					action: 'cancel_timer'
+				});
+			} catch (err: unknown) {
+				console.error('Failed to cancel BrewLink boil timer', err);
+			}
+		}
+
 		try {
 			const req: AdvanceBatchStageRequest = {
 				targetStage: nextStage,
@@ -1417,7 +1643,8 @@
 				measuredPreBoilVolumeLiters: nextStage === 'Boil' ? advancePreBoilVolume : null,
 				measuredPreBoilGravity: nextStage === 'Boil' ? advancePreBoilGravity : null,
 				measuredPostBoilVolumeLiters: nextStage === 'Ferment' ? advancePostBoilVolume : null,
-				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null
+				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null,
+				force
 			};
 			const previousStage = batch.currentStage;
 			const [updated, eq] = await Promise.all([
@@ -1430,12 +1657,15 @@
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
 			showAdvanceModal = false;
+			showConfirmAdvanceActiveBoilModal = false;
+			hasConfirmedActiveBoil = false;
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
 			} else {
 				advanceError = (err as Error).message || t('batches.errors.advance_failed');
 			}
+			showAdvanceModal = true;
 		} finally {
 			advancing = false;
 		}
@@ -1476,11 +1706,25 @@
 
 	async function startTimer() {
 		if (!batch) return;
-		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
 			try {
 				if (brewLinkTimer?.paused) {
 					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 						action: 'resume_timer'
+					});
+				} else if (inspectedStage === 'Mash') {
+					const step = currentSelectedMashStep;
+					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+						action: 'set_timer',
+						durationMin: Math.max(1, Math.round(currentMashStepDurationSeconds / 60))
+					});
+					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+						action: 'set_target_temp',
+						tempC: step?.targetTemperatureC ?? 65.0
+					});
+					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
+						action: 'set_heat',
+						state: true
 					});
 				} else {
 					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
@@ -1490,6 +1734,21 @@
 				}
 				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
 				handleEquipmentUpdate(updated);
+
+				// Capture a baseline hardware reading for this mash step if none exists yet
+				const mashStep = currentSelectedMashStep;
+				if (
+					inspectedStage === 'Mash' &&
+					mashStep &&
+					!batchEquipmentReadings.some((r) => r.batchMashStepId === mashStep.id)
+				) {
+					await handleLogLiveBrewLinkTemp(
+						'Mash',
+						mashStep.id,
+						mashStep.name,
+						mashStep.targetTemperatureC
+					);
+				}
 			} catch (err: unknown) {
 				console.error('Failed to start BrewLink timer', err);
 			}
@@ -1505,7 +1764,7 @@
 
 	function handlePauseTimerClick() {
 		if (!batch) return;
-		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
 			showConfirmPauseTimerModal = true;
 			return;
 		}
@@ -1514,7 +1773,7 @@
 
 	async function confirmPauseTimer() {
 		showConfirmPauseTimerModal = false;
-		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
 			try {
 				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 					action: 'pause_timer'
@@ -1536,7 +1795,7 @@
 
 	function handleResetTimerClick() {
 		if (!batch) return;
-		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
 			showConfirmResetTimerModal = true;
 			return;
 		}
@@ -1545,7 +1804,7 @@
 
 	async function confirmResetTimer() {
 		showConfirmResetTimerModal = false;
-		if (activeStageBrewLinkEquipment && inspectedStage === 'Boil') {
+		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
 			try {
 				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 					action: 'cancel_timer'
@@ -1628,7 +1887,12 @@
 		selectedBoilStepGraphName = boilSteps[index].name;
 	}
 
-	async function handleLogLiveBrewLinkTemp(stepName?: string, targetTemp?: number) {
+	async function handleLogLiveBrewLinkTemp(
+		stage: BrewStage,
+		stepId?: string | null,
+		stepName?: string,
+		targetTemp?: number
+	) {
 		if (
 			!batch ||
 			!activeStageBrewLinkEquipment ||
@@ -1636,12 +1900,22 @@
 		)
 			return;
 		const currentTemp = activeStageBrewLinkEquipment.currentTemperatureC;
-		const sName = stepName ?? currentSelectedBoilStep?.name ?? t('batches.stages.boil');
-		const tTemp = targetTemp ?? currentSelectedBoilStep?.targetTemperatureC ?? 100.0;
+		const isMash = stage === 'Mash';
+		const sName =
+			stepName ??
+			(isMash
+				? (currentSelectedMashStep?.name ?? t('batches.stages.mash'))
+				: (currentSelectedBoilStep?.name ?? t('batches.stages.boil')));
+		const tTemp =
+			targetTemp ??
+			(isMash
+				? (currentSelectedMashStep?.targetTemperatureC ?? 65.0)
+				: (currentSelectedBoilStep?.targetTemperatureC ?? 100.0));
 		await handleLogStepTemperature({
 			temperatureC: currentTemp,
 			equipmentId: activeStageBrewLinkEquipment.id,
-			stage: 'Boil',
+			stage,
+			batchMashStepId: isMash ? (stepId ?? currentSelectedMashStep?.id ?? null) : null,
 			stepName: sName,
 			targetTemperatureC: tTemp
 		});
@@ -1753,8 +2027,14 @@
 					<button
 						type="button"
 						data-testid="advance-stage-btn"
+						disabled={isAdvanceStageBlocked}
 						onclick={openAdvanceModal}
-						class="flex min-h-[44px] items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-sm font-bold text-zinc-950 shadow-md transition-all hover:from-amber-400 hover:to-amber-500 active:scale-[0.98]"
+						class="flex min-h-[44px] items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold shadow-md transition-all active:scale-[0.98] {isAdvanceStageBlocked
+							? 'cursor-not-allowed bg-zinc-300 text-zinc-500 opacity-60 dark:bg-zinc-800 dark:text-zinc-500'
+							: 'bg-gradient-to-r from-amber-500 to-amber-600 text-zinc-950 hover:from-amber-400 hover:to-amber-500'}"
+						title={isAdvanceStageBlocked
+							? advanceStageBlockedReason
+							: t('batches.workspace.advance_stage')}
 					>
 						<ArrowRight class="h-4 w-4 stroke-[2.5]" />
 						<span>{t('batches.workspace.advance_stage')}</span>
@@ -1792,6 +2072,16 @@
 				</button>
 			</div>
 		</div>
+
+		{#if isAdvanceStageBlocked}
+			<div
+				data-testid="advance-stage-blocked-banner"
+				class="flex items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-200"
+			>
+				<AlertTriangle class="h-4 w-4 shrink-0 text-amber-500" />
+				<span>{advanceStageBlockedReason}</span>
+			</div>
+		{/if}
 
 		<!-- Stage Tracker Navigation Banner -->
 		<div class="glass-panel rounded-2xl border border-zinc-200/80 p-2 sm:p-3 dark:border-white/10">
@@ -2166,6 +2456,15 @@
 										</h2>
 									</div>
 									<div class="flex items-center gap-2">
+										{#if isBrewLinkTimerActive}
+											<span
+												data-testid="brewlink-timer-badge"
+												class="inline-flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-300"
+											>
+												<Radio class="h-3 w-3 animate-pulse text-sky-500" />
+												<span>{t('batches.workspace.brewlink_controlled_timer')}</span>
+											</span>
+										{/if}
 										{#if currentSelectedMashStep}
 											<span
 												data-testid="active-step-order-badge"
@@ -2202,6 +2501,32 @@
 											{settings.formatTemperature(currentSelectedMashStep.targetTemperatureC)} • {currentSelectedMashStep.durationMinutes}
 											{t('common.minutes')}
 										</p>
+										{#if activeStageBrewLinkEquipment && activeStageBrewLinkEquipment.currentTemperatureC != null}
+											<div
+												data-testid="mash-hardware-temp-banner"
+												class="mt-2 flex flex-wrap items-center justify-between gap-2"
+											>
+												<span
+													class="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 dark:text-sky-300"
+												>
+													<Radio class="h-3 w-3 animate-pulse text-sky-500" />
+													{t('batches.workspace.live_hardware_temp')}: {settings.formatTemperature(
+														activeStageBrewLinkEquipment.currentTemperatureC
+													)}
+												</span>
+												{#if canLogInspectedStage}
+													<button
+														type="button"
+														data-testid="sync-mash-setpoint-btn"
+														onclick={() => handleSyncMashStepTargetTemp(currentSelectedMashStep)}
+														class="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/20 dark:bg-sky-500/20 dark:text-sky-300"
+													>
+														<Thermometer class="h-3 w-3" />
+														<span>{t('batches.workspace.sync_hardware_temp')}</span>
+													</button>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{/if}
 
@@ -2237,7 +2562,7 @@
 									{:else}
 										<button
 											type="button"
-											onclick={pauseTimer}
+											onclick={handlePauseTimerClick}
 											class="flex min-h-[44px] items-center gap-2 rounded-xl bg-zinc-200 px-5 py-2.5 text-xs font-bold text-zinc-800 transition-all hover:bg-zinc-300 active:scale-95 dark:bg-zinc-800 dark:text-zinc-200"
 										>
 											<Pause class="h-4 w-4 fill-current" />
@@ -2247,7 +2572,7 @@
 
 									<button
 										type="button"
-										onclick={resetTimer}
+										onclick={handleResetTimerClick}
 										class="flex min-h-[44px] items-center gap-2 rounded-xl border border-zinc-200 px-4 py-2.5 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 active:scale-95 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
 									>
 										<RotateCcw class="h-3.5 w-3.5" />
@@ -2255,7 +2580,7 @@
 									</button>
 								</div>
 
-								{#if !isReadOnlyBatch && batch.mashSteps && batch.mashSteps.length > 1}
+								{#if !isReadOnlyBatch && batch.mashSteps && batch.mashSteps.length > 0}
 									<button
 										type="button"
 										data-testid="advance-mash-step-btn"
@@ -2263,7 +2588,12 @@
 										class="flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 py-2 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-500/20 active:scale-95 dark:text-amber-300"
 									>
 										<StepForward class="h-4 w-4" />
-										<span>{t('batches.workspace.complete_and_next_step')}</span>
+										<span>
+											{activeMashStepIndex === batch.mashSteps.length - 1 &&
+											isMashControlledByBrewLink
+												? t('batches.workspace.complete_mash_and_boil')
+												: t('batches.workspace.complete_and_next_step')}
+										</span>
 									</button>
 								{/if}
 							</div>
@@ -2347,6 +2677,20 @@
 
 											<div class="flex items-center gap-2">
 												{#if canLogInspectedStage}
+													{#if activeStageBrewLinkEquipment && activeStageBrewLinkEquipment.currentTemperatureC != null && activeMashStepIndex === idx}
+														<button
+															type="button"
+															data-testid="mash-step-sync-setpoint-{step.id}"
+															onclick={() => handleSyncMashStepTargetTemp(step)}
+															class="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/20 dark:bg-sky-500/20 dark:text-sky-300"
+															title={t('batches.workspace.sync_hardware_temp')}
+														>
+															<Thermometer class="h-3 w-3" />
+															<span class="hidden sm:inline">
+																{t('batches.workspace.sync_hardware_temp')}
+															</span>
+														</button>
+													{/if}
 													<button
 														type="button"
 														onclick={() => openLogTempModal('Mash', step.id)}
@@ -2735,29 +3079,6 @@
 
 										<div class="flex items-center gap-2">
 											{#if canLogInspectedStage}
-												{#if activeStageBrewLinkEquipment?.currentTemperatureC !== null && activeStageBrewLinkEquipment?.currentTemperatureC !== undefined && activeBoilStepIndex === idx}
-													<button
-														type="button"
-														onclick={() =>
-															handleLogLiveBrewLinkTemp(step.name, step.targetTemperatureC)}
-														class="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/20 dark:bg-sky-500/20 dark:text-sky-300"
-														title={t('batches.workspace.log_live_temp', {
-															temp: settings.formatTemperature(
-																activeStageBrewLinkEquipment.currentTemperatureC
-															)
-														})}
-													>
-														<Radio class="h-3 w-3 animate-pulse text-sky-500" />
-														<span class="hidden sm:inline">
-															{t('batches.workspace.log_live_temp', {
-																temp: settings.formatTemperature(
-																	activeStageBrewLinkEquipment.currentTemperatureC
-																)
-															})}
-														</span>
-													</button>
-												{/if}
-
 												<button
 													type="button"
 													onclick={() => openLogTempModal('Boil', step.name)}
@@ -3259,7 +3580,10 @@
 				</div>
 				<button
 					type="button"
-					onclick={() => (showAdvanceModal = false)}
+					onclick={() => {
+						showAdvanceModal = false;
+						hasConfirmedActiveBoil = false;
+					}}
 					aria-label={t('common.close_dialog')}
 					class="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
 				>
@@ -3661,7 +3985,10 @@
 			>
 				<button
 					type="button"
-					onclick={() => (showAdvanceModal = false)}
+					onclick={() => {
+						showAdvanceModal = false;
+						hasConfirmedActiveBoil = false;
+					}}
 					class="min-h-[40px] rounded-xl border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400"
 				>
 					{t('brewery.cancel')}
@@ -3861,6 +4188,34 @@
 	cancelTestId="cancel-advance-step-btn"
 	onConfirm={confirmAdvanceBoilStep}
 	onClose={() => (showConfirmAdvanceBoilStepModal = false)}
+/>
+
+<ConfirmModal
+	open={showConfirmAdvanceMashStepModal}
+	title={t('batches.workspace.confirm_advance_mash_step_title')}
+	message={t('batches.workspace.confirm_advance_mash_step_message', {
+		equipment: activeStageBrewLinkEquipment?.name ?? ''
+	})}
+	confirmText={t('common.yes')}
+	cancelText={t('common.no')}
+	variant="info"
+	confirmTestId="confirm-advance-mash-step-btn"
+	cancelTestId="cancel-advance-mash-step-btn"
+	onConfirm={confirmAdvanceMashStep}
+	onClose={() => (showConfirmAdvanceMashStepModal = false)}
+/>
+
+<ConfirmModal
+	open={showConfirmAdvanceActiveBoilModal}
+	title={t('batches.workspace.confirm_advance_active_boil_title')}
+	message={t('batches.workspace.confirm_advance_active_boil_message')}
+	confirmText={t('batches.workspace.proceed_to_ferment')}
+	cancelText={t('common.cancel')}
+	variant="warning"
+	confirmTestId="confirm-advance-active-boil-btn"
+	cancelTestId="cancel-advance-active-boil-btn"
+	onConfirm={confirmAdvanceActiveBoil}
+	onClose={cancelAdvanceActiveBoil}
 />
 
 {#if batch && (inspectedStage === 'Mash' || inspectedStage === 'Boil')}

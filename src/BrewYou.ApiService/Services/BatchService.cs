@@ -2,6 +2,7 @@ using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
+using BrewYou.ApiService.Services.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
 
@@ -211,7 +212,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Boiler not found.");
             }
 
-            if (boiler.Type is EquipmentType.Sensor or EquipmentType.Tap || boiler.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (boiler.Type is EquipmentType.Sensor or EquipmentType.Tap || boiler.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as boilers.");
             }
@@ -228,7 +229,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Fermenter not found.");
             }
 
-            if (fermenter.Type is EquipmentType.Sensor or EquipmentType.Tap || fermenter.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (fermenter.Type is EquipmentType.Sensor or EquipmentType.Tap || fermenter.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as fermenters.");
             }
@@ -245,7 +246,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Packaging vessel not found.");
             }
 
-            if (packagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap || packagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (packagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap || packagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
             }
@@ -262,7 +263,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "HLT equipment not found.");
             }
 
-            if (hlt.Type is EquipmentType.Sensor or EquipmentType.Tap || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (hlt.Type is EquipmentType.Sensor or EquipmentType.Tap || hlt.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as hot liquor tanks.");
             }
@@ -279,7 +280,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.NotFound, null, "Mash tun equipment not found.");
             }
 
-            if (mashTun.Type is EquipmentType.Sensor or EquipmentType.Tap || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+            if (mashTun.Type is EquipmentType.Sensor or EquipmentType.Tap || mashTun.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
             {
                 return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as mash tuns.");
             }
@@ -604,6 +605,28 @@ public class BatchService : IBatchService
             }
         }
 
+        // 7.5 Baseline telemetry: log the primary vessel's live temperature against mash step 1
+        var primaryVessel = mashTun ?? boiler;
+        if (primaryVessel?.CurrentTemperatureC != null && batch.MashSteps.Count > 0)
+        {
+            var firstStep = batch.MashSteps.OrderBy(s => s.StepOrder).First();
+            var nowUtc = DateTime.UtcNow;
+            firstStep.ActualTemperatureC = primaryVessel.CurrentTemperatureC.Value;
+
+            batch.EquipmentReadings.Add(new EquipmentReading
+            {
+                EquipmentId = primaryVessel.Id,
+                BatchId = batch.Id,
+                Stage = BrewStage.Mash,
+                BatchMashStepId = firstStep.Id,
+                StepName = firstStep.Name,
+                TemperatureC = primaryVessel.CurrentTemperatureC.Value,
+                Source = primaryVessel.ConnectionType == EquipmentConnectionType.BrewLink ? "BrewLinkInitial" : "InitialTelemetry",
+                Timestamp = nowUtc,
+                CreatedAt = nowUtc
+            });
+        }
+
         // 8. Transactional Equipment Occupancy
         if (_db.Database.IsInMemory())
         {
@@ -664,6 +687,35 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.Conflict, null, "Cannot move batch backward to a previous stage.");
             }
 
+            if (oldStage == BrewStage.Mash && newStage > BrewStage.Mash)
+            {
+                var mashTun = batch.MashTun;
+                var boiler = batch.Boiler;
+                var isMashControlledByBrewLink = (mashTun != null && mashTun.ConnectionType == EquipmentConnectionType.BrewLink) ||
+                                                 (boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink);
+
+                if (isMashControlledByBrewLink && batch.MashSteps.Count > 0 && batch.MashSteps.Any(s => !s.IsCompleted))
+                {
+                    return (BatchAccessResult.Conflict, null,
+                        "Cannot advance stage: BrewLink mash process is still in progress with incomplete mash steps.");
+                }
+            }
+            else if (oldStage == BrewStage.Boil && newStage > BrewStage.Boil)
+            {
+                var boiler = batch.Boiler;
+                var isBoilControlledByBrewLink = boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink;
+
+                if (isBoilControlledByBrewLink && !request.Force && !string.IsNullOrWhiteSpace(boiler?.LatestMetricsJson))
+                {
+                    var canonical = BrewLinkTelemetryParser.FromMetricsJson(boiler.LatestMetricsJson);
+                    if (canonical?.Timer != null && (canonical.Timer.Active || (canonical.Timer.RemainingSeconds.HasValue && canonical.Timer.RemainingSeconds.Value > 0)))
+                    {
+                        return (BatchAccessResult.Conflict, null,
+                            "Cannot advance stage: BrewLink boil process is still in progress. Confirm to force advance.");
+                    }
+                }
+            }
+
             Equipment? selectedPackagingVessel = null;
             var packagingVesselSpecified = request.PackagingVesselId.HasValue;
             if (newStage == BrewStage.Package && packagingVesselSpecified)
@@ -675,7 +727,7 @@ public class BatchService : IBatchService
 
                     if (selectedPackagingVessel != null &&
                         (selectedPackagingVessel.Type is EquipmentType.Sensor or EquipmentType.Tap ||
-                         selectedPackagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor))
+                         selectedPackagingVessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink))
                     {
                         return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
                     }
@@ -1113,6 +1165,12 @@ public class BatchService : IBatchService
         var step = await _db.BatchMashSteps
             .Include(s => s.Batch)
                 .ThenInclude(b => b!.Ingredients)
+            .Include(s => s.Batch)
+                .ThenInclude(b => b!.MashSteps)
+            .Include(s => s.Batch)
+                .ThenInclude(b => b!.MashTun)
+            .Include(s => s.Batch)
+                .ThenInclude(b => b!.Boiler)
             .FirstOrDefaultAsync(s => s.Id == stepId && s.BatchId == batchId && s.Batch!.UserId == userId);
 
         if (step == null)
@@ -1151,6 +1209,29 @@ public class BatchService : IBatchService
 
         step.Batch.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+
+        var isMashControlledByBrewLink =
+            (step.Batch.MashTun != null && step.Batch.MashTun.ConnectionType == EquipmentConnectionType.BrewLink) ||
+            (step.Batch.Boiler != null && step.Batch.Boiler.ConnectionType == EquipmentConnectionType.BrewLink);
+
+        if (request.IsCompleted &&
+            step.Batch.CurrentStage == BrewStage.Mash &&
+            isMashControlledByBrewLink &&
+            step.Batch.MashSteps.All(s => s.IsCompleted))
+        {
+            var primaryVessel = step.Batch.MashTun ?? step.Batch.Boiler;
+            var interactionRequired = false;
+            if (!string.IsNullOrWhiteSpace(primaryVessel?.LatestMetricsJson))
+            {
+                var canonical = BrewLinkTelemetryParser.FromMetricsJson(primaryVessel.LatestMetricsJson);
+                interactionRequired = canonical?.Interaction?.Required == true;
+            }
+
+            if (!interactionRequired)
+            {
+                await AdvanceStageAsync(step.Batch.Id, new AdvanceBatchStageRequest(BrewStage.Boil), userId);
+            }
+        }
 
         var dto = new BatchMashStepDto(
             step.Id,
@@ -1278,7 +1359,7 @@ public class BatchService : IBatchService
                 var vessel = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == request.PackagingVesselId.Value);
                 if (vessel != null)
                 {
-                    if (vessel.Type is EquipmentType.Sensor or EquipmentType.Tap || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor)
+                    if (vessel.Type is EquipmentType.Sensor or EquipmentType.Tap || vessel.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
                     {
                         return (BatchAccessResult.ValidationFailed, null, "Sensors and taps cannot be used as packaging vessels.");
                     }

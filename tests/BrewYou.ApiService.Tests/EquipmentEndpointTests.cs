@@ -1,9 +1,12 @@
 using BrewYou.ApiService.Common;
+using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -46,6 +49,29 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         var defaultSetupId = setupsEnv!.Data!.First(s => s.IsDefault).Id;
 
         return (client, envelope.Data.User.Id, email, defaultSetupId);
+    }
+
+    private async Task<BrewLinkGateway> CreateTestGatewayAsync(string userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var protector = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("BrewYou.BrewLinkCredentials");
+
+        var gw = new BrewLinkGateway
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Test BrewLink Gateway",
+            Host = "192.168.1.100",
+            GatewayId = $"GW-{Guid.NewGuid():N}"[..12].ToUpper(),
+            ApiToken = protector.Protect("test-token"),
+            MqttTopicKey = protector.Protect("test-key")
+        };
+
+        db.BrewLinkGateways.Add(gw);
+        await db.SaveChangesAsync();
+        return gw;
     }
 
     [Fact]
@@ -462,6 +488,7 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
     [InlineData(EquipmentType.Keg, EquipmentSubtype.AllInOne)]
     [InlineData(EquipmentType.Keg, EquipmentSubtype.ConicalFermenter)]
     [InlineData(EquipmentType.Sensor, EquipmentSubtype.AllInOne)]
+    [InlineData(EquipmentType.Boiler, EquipmentSubtype.BrewLink)]
     [InlineData(EquipmentType.Other, EquipmentSubtype.ISpindel)]
     public async Task CreateEquipment_WithMismatchedSubtype_ReturnsBadRequestValidation(
         EquipmentType type, EquipmentSubtype subtype)
@@ -888,6 +915,268 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         created.PackagingLossLiters.Should().BeNull();
     }
 
+    [Fact]
+    public async Task CreateEquipment_BrewLinkSensor_Succeeds()
+    {
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync();
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewLink",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            Unit: VolumeUnit.Liters
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var created = (await response.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        created.Type.Should().Be(EquipmentType.Sensor);
+        created.Subtype.Should().Be(EquipmentSubtype.BrewLink);
+        created.ConnectionType.Should().Be(EquipmentConnectionType.BrewLink);
+        created.CurrentTemperatureC.Should().BeNull();
+        created.Capacity.Should().Be(0m);
+        created.CapacityLiters.Should().Be(0m);
+        created.CurrentVolume.Should().Be(0m);
+        created.BoilOffRatePerHour.Should().BeNull();
+        created.TrubLossLiters.Should().BeNull();
+        created.MashTunDeadSpaceLiters.Should().BeNull();
+        created.PackagingLossLiters.Should().BeNull();
+
+        // Verify that GET /api/v1/inventory/equipment?type=Sensor returns the created BrewLink sensor
+        var getResponse = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listEnvelope = await getResponse.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        listEnvelope!.Data.Should().Contain(e => e.Id == created.Id && e.Subtype == EquipmentSubtype.BrewLink);
+    }
+
+    [Fact]
+    public async Task ExistingGateway_WithoutEquipment_AutomaticallyAppearsInEquipmentSensorsList()
+    {
+        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        env!.Success.Should().BeTrue();
+        env.Data.Should().Contain(e => e.Type == EquipmentType.Sensor && e.Subtype == EquipmentSubtype.BrewLink &&
+            e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gw.Id.ToString()));
+    }
+
+    [Fact]
+    public async Task SyncBrewLinkState_OnBrewLinkSensor_ReturnsBadRequest()
+    {
+        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        var sensor = env!.Data!.First(e => e.Subtype == EquipmentSubtype.BrewLink);
+
+        var syncResponse = await client.PostAsync($"/api/v1/inventory/equipment/{sensor.Id}/brewlink/sync", null);
+        syncResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task BrewLinkSensor_NeverReturnsTemperatureOrTelemetryMetricsInDto()
+    {
+        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        // Auto-provision sensor via equipment endpoint
+        await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var sensor = db.Equipment.First(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink);
+            sensor.CurrentTemperatureC = 68.5m;
+            sensor.CurrentSpecificGravity = 1.050m;
+            sensor.CurrentPressureBar = 1.2m;
+            sensor.CurrentBatteryPercent = 95m;
+            sensor.CurrentBatteryVoltage = 4.1m;
+            sensor.LatestMetricsJson = "{\"heatPower\":100,\"pump\":true}";
+            await db.SaveChangesAsync();
+        }
+
+        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        var sensorDto = env!.Data!.First(e => e.Subtype == EquipmentSubtype.BrewLink);
+
+        sensorDto.CurrentTemperatureC.Should().BeNull();
+        sensorDto.TemperatureUpdatedAt.Should().BeNull();
+        sensorDto.CurrentSpecificGravity.Should().BeNull();
+        sensorDto.CurrentPressureBar.Should().BeNull();
+        sensorDto.CurrentBatteryPercent.Should().BeNull();
+        sensorDto.CurrentBatteryVoltage.Should().BeNull();
+        sensorDto.LatestMetricsJson.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(EquipmentSubtype.GenericSensor)]
+    [InlineData(EquipmentSubtype.Tilt)]
+    [InlineData(EquipmentSubtype.ISpindel)]
+    public async Task CreateEquipment_NonBrewLinkSensor_WithBrewLinkConnection_ReturnsBadRequestValidation(
+        EquipmentSubtype subtype)
+    {
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync();
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Sensor With BrewLink",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: subtype,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: "{\"brewLinkGatewayId\":\"gw-1\",\"targetMac\":\"AA:BB:CC:DD:EE:FF\"}"
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error!.Code.Should().Be("VALIDATION_ERROR");
+        env.Error.Details.Should().Contain(d => d.Field == "ConnectionType");
+    }
+
+    [Fact]
+    public async Task CreateEquipment_BrewLinkSensor_WithTemperatureReading_ReturnsBadRequestValidation()
+    {
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync();
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewLink With Temp",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            Unit: VolumeUnit.Liters,
+            CurrentTemperatureC: 22.5m
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error!.Code.Should().Be("VALIDATION_ERROR");
+        env.Error.Details.Should().Contain(d => d.Field == "CurrentTemperatureC");
+    }
+
+    [Theory]
+    [InlineData(EquipmentConnectionType.Mqtt)]
+    [InlineData(EquipmentConnectionType.HttpPush)]
+    [InlineData(EquipmentConnectionType.HttpPoll)]
+    [InlineData(EquipmentConnectionType.None)]
+    public async Task CreateEquipment_BrewLinkSensor_WithNonBrewLinkConnection_ReturnsBadRequestValidation(
+        EquipmentConnectionType connectionType)
+    {
+        var (client, _, _, setupId) = await CreateAuthenticatedUserAsync();
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewLink With Other Protocol",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: connectionType
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error!.Code.Should().Be("VALIDATION_ERROR");
+        env.Error.Details.Should().Contain(d => d.Field == "ConnectionType");
+    }
+
+    [Fact]
+    public async Task CreateEquipment_BrewLinkSensor_WithTargetDevice_ReturnsBadRequestValidation()
+    {
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewLink With Target",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"AA:BB:CC:DD:EE:FF\"}}"
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error!.Code.Should().Be("VALIDATION_ERROR");
+        env.Error.Details.Should().Contain(d => d.Field == "ConnectionConfigJson");
+    }
+
+    [Fact]
+    public async Task CreateEquipment_BoilerWithBrewLink_WithoutTargetDevice_ReturnsBadRequestValidation()
+    {
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Boiler Without Target",
+            Type: EquipmentType.Boiler,
+            Capacity: 35m,
+            Subtype: EquipmentSubtype.AllInOne,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}"
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        env!.Success.Should().BeFalse();
+        env.Error!.Code.Should().Be("VALIDATION_ERROR");
+        env.Error.Details.Should().Contain(d => d.Field == "ConnectionConfigJson");
+    }
+
+    [Fact]
+    public async Task CreateEquipment_BoilerWithBrewLink_WithTargetDeviceAndGateway_Succeeds()
+    {
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var request = new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Boiler With BrewLink",
+            Type: EquipmentType.Boiler,
+            Capacity: 35m,
+            Subtype: EquipmentSubtype.AllInOne,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"C44F331A8B22\"}}"
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/inventory/equipment", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>();
+        env!.Success.Should().BeTrue();
+        env.Data!.ConnectionType.Should().Be(EquipmentConnectionType.BrewLink);
+        env.Data.ConnectionConfigJson.Should().Contain("C44F331A8B22");
+    }
+
     [Theory]
     [InlineData("BoilOffRatePerHour")]
     [InlineData("TrubLossLiters")]
@@ -997,5 +1286,40 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         env.Should().NotBeNull();
         env!.Success.Should().BeTrue();
         env.Data.Should().BeEmpty("New user registration must produce a clean digital twin with 0 unowned equipment");
+    }
+
+    [Fact]
+    public async Task UpdateEquipment_BrewLinkSensor_RenamesLinkedGateway()
+    {
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        // Fetch the automatically provisioned sensor
+        var listRes = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        listRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var sensors = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        var sensor = sensors.First(s => s.Subtype == EquipmentSubtype.BrewLink);
+
+        // Rename the sensor via Equipment update endpoint
+        var updateReq = new UpdateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "Renamed BrewLink Sensor",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            Unit: VolumeUnit.Liters,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: sensor.ConnectionConfigJson
+        );
+
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{sensor.Id}", updateReq);
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Verify gateway in gateways list was updated
+        var gwListRes = await client.GetAsync("/api/v1/brewlink/gateways");
+        gwListRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var gateways = (await gwListRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewLinkGatewayDto>>>())!.Data!;
+        var updatedGw = gateways.First(g => g.Id == gw.Id);
+        updatedGw.Name.Should().Be("Renamed BrewLink Sensor");
     }
 }

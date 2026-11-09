@@ -81,6 +81,17 @@ public class TelemetryService : ITelemetryService
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
         }
 
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "BrewLink gateway sensors do not receive direct telemetry.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor &&
+            equipment.ConnectionType == EquipmentConnectionType.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");
+        }
+
         NormalizedTelemetryData? normalized = null;
         if (payload.ValueKind == JsonValueKind.Object)
         {
@@ -123,8 +134,16 @@ public class TelemetryService : ITelemetryService
         var rssi = normalized?.Rssi;
         var metricsJson = normalized?.MetricsJson;
 
-        equipment.CurrentTemperatureC = finalTempC;
-        equipment.TemperatureUpdatedAt = now;
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            equipment.CurrentTemperatureC = null;
+            equipment.TemperatureUpdatedAt = null;
+        }
+        else
+        {
+            equipment.CurrentTemperatureC = finalTempC;
+            equipment.TemperatureUpdatedAt = now;
+        }
         equipment.LastTelemetryAt = now;
         if (gravity.HasValue) equipment.CurrentSpecificGravity = gravity;
         if (pressure.HasValue) equipment.CurrentPressureBar = pressure;
@@ -167,7 +186,9 @@ public class TelemetryService : ITelemetryService
             finalTempC,
             canonicalMetrics,
             recordedGravity ?? gravity,
-            reading.Stage);
+            reading.Stage,
+            reading.BatchId,
+            reading.BatchMashStepId);
 
         if (shouldPersist)
         {
@@ -207,6 +228,17 @@ public class TelemetryService : ITelemetryService
         if (equipment.Type == EquipmentType.Tap)
         {
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
+        }
+
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "BrewLink gateway sensors do not receive direct telemetry.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor &&
+            equipment.ConnectionType == EquipmentConnectionType.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");
         }
 
         decimal? tempC = null;
@@ -317,7 +349,9 @@ public class TelemetryService : ITelemetryService
             tempC.Value,
             canonicalMetrics,
             recordedGravity ?? gravity,
-            reading.Stage);
+            reading.Stage,
+            reading.BatchId,
+            reading.BatchMashStepId);
 
         if (shouldPersist)
         {
@@ -348,6 +382,17 @@ public class TelemetryService : ITelemetryService
         if (equipment.Type == EquipmentType.Tap)
         {
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
+        }
+
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "BrewLink gateway sensors do not receive direct telemetry.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor &&
+            equipment.ConnectionType == EquipmentConnectionType.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");
         }
 
         NormalizedTelemetryData? normalized = null;
@@ -392,8 +437,16 @@ public class TelemetryService : ITelemetryService
         var rssi = normalized?.Rssi;
         var metricsJson = normalized?.MetricsJson;
 
-        equipment.CurrentTemperatureC = finalTempC;
-        equipment.TemperatureUpdatedAt = now;
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            equipment.CurrentTemperatureC = null;
+            equipment.TemperatureUpdatedAt = null;
+        }
+        else
+        {
+            equipment.CurrentTemperatureC = finalTempC;
+            equipment.TemperatureUpdatedAt = now;
+        }
         equipment.LastTelemetryAt = now;
         if (gravity.HasValue) equipment.CurrentSpecificGravity = gravity;
         if (pressure.HasValue) equipment.CurrentPressureBar = pressure;
@@ -436,7 +489,9 @@ public class TelemetryService : ITelemetryService
             finalTempC,
             canonicalMetrics,
             recordedGravity ?? gravity,
-            reading.Stage);
+            reading.Stage,
+            reading.BatchId,
+            reading.BatchMashStepId);
 
         if (shouldPersist)
         {
@@ -619,8 +674,16 @@ public class TelemetryService : ITelemetryService
                 var rssi = normalized?.Rssi;
                 var metricsJson = normalized?.MetricsJson;
 
-                equipment.CurrentTemperatureC = finalTempC;
-                equipment.TemperatureUpdatedAt = now;
+                if (equipment.Subtype == EquipmentSubtype.BrewLink)
+                {
+                    equipment.CurrentTemperatureC = null;
+                    equipment.TemperatureUpdatedAt = null;
+                }
+                else
+                {
+                    equipment.CurrentTemperatureC = finalTempC;
+                    equipment.TemperatureUpdatedAt = now;
+                }
                 equipment.LastTelemetryAt = now;
                 if (gravity.HasValue) equipment.CurrentSpecificGravity = gravity;
                 if (pressure.HasValue) equipment.CurrentPressureBar = pressure;
@@ -655,7 +718,9 @@ public class TelemetryService : ITelemetryService
                     finalTempC,
                     canonicalMetrics,
                     recordedGravity ?? gravity,
-                    reading.Stage);
+                    reading.Stage,
+                    reading.BatchId,
+                    reading.BatchMashStepId);
 
                 if (shouldPersist)
                 {

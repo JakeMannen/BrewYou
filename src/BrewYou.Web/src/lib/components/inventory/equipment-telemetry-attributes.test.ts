@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { EquipmentDto, EquipmentType, EquipmentSubtype, VolumeUnit } from '$lib/types/api';
 
 function getParsedAttributes(item: EquipmentDto): Array<{ key: string; value: string }> {
-	if (!item.latestMetricsJson) return [];
+	if (item.subtype === 'BrewLink' || !item.latestMetricsJson) return [];
 	try {
 		const parsed = JSON.parse(item.latestMetricsJson);
 		if (typeof parsed !== 'object' || parsed === null) return [];
@@ -113,5 +113,23 @@ describe('Equipment Telemetry Attributes Parsing', () => {
 			{ key: 'tilt', value: '42.5' },
 			{ key: 'rssi', value: '-65' }
 		]);
+	});
+
+	it('returns empty attributes array for BrewLink gateway sensor', () => {
+		const brewLinkSensor: EquipmentDto = {
+			...baseEquipment,
+			type: 'Sensor' as EquipmentType,
+			subtype: 'BrewLink' as EquipmentSubtype,
+			connectionType: 'BrewLink',
+			connectionConfigJson: JSON.stringify({ brewLinkGatewayId: 'gw-123' }),
+			latestMetricsJson: JSON.stringify({
+				heatPower: 100,
+				pump: true,
+				targetTemp: 68
+			})
+		};
+
+		const parsed = getParsedAttributes(brewLinkSensor);
+		expect(parsed).toEqual([]);
 	});
 });
