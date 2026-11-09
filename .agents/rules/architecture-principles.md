@@ -5,7 +5,7 @@ Core design standards for fullstack development in the BrewYou project, curated 
 ---
 
 ## 1. Subagent Consultation on New Features
- 
+
 - **Targeted Delegation Policy**: Involve specialized subagents when tasks require deep focus in their respective domain:
   - **Software Architect**: System design, tier boundaries, domain models.
   - **Frontend Developer**: UI components, state management, accessibility, client routing.
@@ -65,3 +65,18 @@ Core design standards for fullstack development in the BrewYou project, curated 
   - Additive fields on backup DTOs must be optional/nullable and fall back to safe domain defaults when absent in older backup payloads.
   - Structural, renamed, or split fields require incrementing `BackupSchemaConstants.CurrentSchemaVersion` and registering a deterministic `IBackupSchemaMigration` step (`vN -> vN+1`) in `BackupMigrationPipeline.cs`.
 - **Zero-Plaintext Secret Invariant**: Any newly introduced secret or credential must be protected with `BackupSecretProtector` (PBKDF2-SHA256 + AES-256-GCM) when `includeSecrets` is enabled and redacted otherwise.
+
+---
+
+## 7. Cascading Relational Integrity & Ancestral Ripple Effect Management
+
+- **Strict Mandate**: All system designs, schema modifications, entity relationships, and database-affecting fixes must explicitly model and handle cascading and ripple effects across the entire entity hierarchy, with particular vigilance for **ancestral (parent/owner)** objects.
+- **Upstream and Downstream Ripple Mapping**:
+  - Whenever an entity (e.g. an equipment instance, vessel, tap, keg, recipe, or ingredient) undergoes lifecycle mutation—such as deletion, renaming, moving, or reassigning—the architecture must define deterministic behavior for:
+    - **Ancestral / Parent Entities**: Higher-order objects that contain, reference, or orchestrate the entity (e.g. multi-vessel brewery systems, equipment setups, tap-keg associations, and active batches). Ancestral structures must be cleanly decoupled, re-linked, or updated without leaving orphaned records, invalid states, or foreign key violations.
+    - **Sibling & Child Entities**: Dependent joins, sensors, or secondary assignments (e.g. `BatchSensorAssignment`) that must be pre-cleaned or safely detached before mutations complete.
+- **Decoupling Over Reliance on DB Cascades**:
+  - Do not assume database foreign key cascade rules alone guarantee system health; EF Core in-memory test environments and live PostgreSQL engines handle cascading differently. Crucial lifecycle operations must be orchestrated through explicit application service transactions that maintain aggregate invariants and keep memory/cache state synchronized.
+- **Preservation of Identity vs. Guarding Destructive Actions**:
+  - Renaming and moving operations must preserve association semantics without severing ancestral linkages.
+  - Deletions of entities in active operational use (e.g. active batches using an equipment instance or recipe) must be intercepted with domain guards (`409 Conflict`), offering either decoupled snapshotting (e.g. snapshotting `RecipeName` onto batches) or requiring explicit override flags.

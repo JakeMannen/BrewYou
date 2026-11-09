@@ -44,3 +44,12 @@ Testing policies and verification standards across frontend and backend tiers in
 
 - For any bug fix, author a test that reproduces the failure prior to fixing the bug.
 - Confirm that the test fails before applying the patch, and passes cleanly after the patch.
+
+---
+
+## 5. Cascading Relational Integrity & Ancestral Ripple Testing
+
+- **Mandatory Verification on Database Changes**: Any feature, schema migration, or bug fix affecting entity relationships must include automated tests verifying cascading and ripple effects across the entire entity hierarchy.
+- **Ancestral & Dependent Scenarios**:
+  - Test entity deletions, renames, reassignments, and moves against ancestral/parent objects (e.g., verifying that deleting, renaming, or moving an equipment instance properly updates parent brewery setups, vessel slots, tap-keg linkages, and sensor assignments without throwing unhandled foreign key violations).
+  - Verify that active dependent entities (e.g., active batches using an equipment instance or recipe) trigger expected domain conflict guards (`409 Conflict`) or execute decoupled fallback behaviors (such as recipe name snapshotting).

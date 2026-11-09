@@ -61,6 +61,10 @@ Guidelines for writing clean, maintainable frontend and backend code in the Brew
 - **Asynchronous & Error Handling**:
   - Always handle asynchronous rejections/exceptions; never leave unhandled promise rejections or unobserved tasks.
   - Use centralized error handling middleware to catch uncaught exceptions and format consistent responses.
+- **Cascading & Ancestral Relational Integrity**:
+  - Every database-affecting feature, mutation, or bug fix must explicitly handle the cascading ripple effect on ancestral and dependent entities.
+  - Lifecycle mutations (such as removing, renaming, moving, or reordering an equipment instance, vessel, tap, keg, recipe, or ingredient) must cleanly reconcile parent/ancestral objects (e.g., multi-vessel brewery systems, vessel role assignments, tap-keg linkages, and batch sensor assignments) without leaving orphaned records or triggering foreign key exceptions.
+  - Decouple relational graphs explicitly within service transactions rather than relying solely on database cascade triggers.
 
 ---
 

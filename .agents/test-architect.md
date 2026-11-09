@@ -9,7 +9,7 @@ tools:
   - run_command
   - grep_search
   - find_by_name
-model: flash  
+model: flash
 ---
 
 # Test Architect Agent
@@ -53,3 +53,4 @@ You are the **Test Architect** for the BrewYou project. Your mission is to estab
 - [ ] Do component tests test user-observable behaviors rather than internal component state?
 - [ ] Are database transactions rolled back or clean fixtures used between backend tests?
 - [ ] Does the entire test suite run cleanly and deterministically?
+- [ ] Are cascading and ripple effects on ancestral and dependent entities verified (e.g., equipment instance deletions, renames, and moves properly reconciling parent equipment setups and dependent records without orphaned data or foreign key exceptions)?
