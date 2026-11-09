@@ -24,7 +24,7 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 | **New or modified API endpoints, DTO changes, schema updates** | `api-contract-sync` | [api-contract-reviewer.md](.agents/api-contract-reviewer.md) | **MUST** verify synchronization between backend C# DTOs and frontend TypeScript types. |
 | **Cross-cutting system design, database modeling, tier boundaries** | `architecture-review` | [software-architect.md](.agents/software-architect.md) | **MUST** conduct architectural review and produce an implementation plan before making modifications. |
 | **Aspire AppHost, container orchestration, service discovery** | `aspire` / `aspire-orchestration` | [software-architect.md](.agents/software-architect.md) | **MUST** check Aspire configuration parity with `docker-compose.yml`. |
-| **Database schema migrations, seed data changes, user-scoped domain models** | `db-migrate` | [backend-developer.md](.agents/backend-developer.md) | **MUST** follow migration safe-practices, rollback verification, and update User Backup & Restore (`BackupContracts`, `BackupMigrationPipeline`, `BackupService`) to preserve backwards compatibility. |
+| **Database schema migrations, seed data changes, user-scoped domain models, relational mutations** | `db-migrate` | [backend-developer.md](.agents/backend-developer.md) | **MUST** follow migration safe-practices, verify cascading and ripple effects on ancestral and dependent entities (deletions, renames, moves), and update User Backup & Restore (`BackupContracts`, `BackupMigrationPipeline`, `BackupService`) to preserve backwards compatibility. |
 | **Designing test suites, integration tests, mock harnesses** | `build-and-test` | [test-architect.md](.agents/test-architect.md) | **MUST** ensure test coverage meets project quality standards. |
 | **Authentication, authorization, tokens, secrets, security headers** | — | [cybersecurity-expert.md](.agents/cybersecurity-expert.md) | **MUST** perform OWASP threat-check on new inputs/endpoints. |
 
@@ -106,6 +106,24 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 - **Zero-Plaintext Secret Protection**: Any new credentials, tokens, or passwords added to user settings or equipment **must** be encrypted via [BackupSecretProtector.cs](src/BrewYou.ApiService/Backup/Security/BackupSecretProtector.cs) and never exported in plaintext.
 - **Mandatory Regression Testing**: Extend [BackupEndpointsTests.cs](tests/BrewYou.ApiService.Tests/BackupEndpointsTests.cs) to verify both round-trip export/restore of the new feature data and backwards-compatible restoration of legacy schema versions (`v0`, `v1`, `v2`, etc.) onto the current version.
 
+### K. Mandatory Cascading & Relational Integrity (Ancestral Ripple Effects)
+
+- **Strict Invariant**: All new database-affecting features, schema changes, entity relationships, and bug fixes **MUST** comprehensively analyze and handle cascading and ripple effects across the entire entity hierarchy, with particular rigor applied to **ancestral (parent/owner)** objects.
+- **Scope of Entity Mutations**: Whenever any entity (e.g., equipment instance, vessel, tap, keg, ingredient, recipe, or equipment profile) is deleted, renamed, reordered, or moved:
+  - **Ancestral & Parent Object Reconciliation**:
+    - The ripple effect on ancestral or parent objects referencing or embedding that entity must be handled explicitly and gracefully.
+    - *Example*: Removal of an equipment instance must cleanly reconcile other equipment and parent setups (such as multi-vessel brewery systems, assigned HLT, Mash Tun, Boiler, Fermenter, or Packaging Vessel roles, tap-keg linkages, and sensor assignments) without leaving broken configurations, orphaned records, or dangling foreign keys.
+  - **Relational Integrity & Constraint Violation Defense**:
+    - Never rely solely on database-level triggers or implicit cascade rules, as EF Core in-memory test harnesses and relational database engines differ. Explicitly clean up or decouple join entities (e.g. `BatchSensorAssignment`), set foreign keys safely, or enforce domain guards.
+    - When an entity is actively in use by upstream or downstream processes (e.g., equipment or recipe in an active batch), guard against destructive deletion with a `409 Conflict` unless an explicit force flag or decoupled snapshotting mechanism (e.g., snapshotting `RecipeName` onto batches) is provided.
+  - **Renaming, Moving & Reassignment Integrity**:
+    - Renaming an entity must preserve historical references and parent associations across all related entities, APIs, and UI views.
+    - Moving or reassigning an entity within a hierarchy (e.g., moving a vessel to a different slot, reordering equipment profiles, or moving taps between locations) must update all ancestral references atomically and consistently.
+  - **User Backup & Restore Parity**:
+    - The User Backup & Restore pipeline (`BackupService`, `BackupContracts`) must sanitize or remap ancestral and foreign references upon restore so that missing, renamed, or moved entities do not produce dangling GUIDs or relational inconsistencies.
+  - **Mandatory Regression & Adversarial Testing**:
+    - Automated unit and integration tests must explicitly test lifecycle transitions (deletions, renamings, and moves) against ancestral and dependent objects to guarantee no orphaned records or unhandled foreign key exceptions occur.
+
 ---
 
 ## 4. References
@@ -121,7 +139,8 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 2. Run relevant unit and integration test suites.
 3. Confirm contract alignment across frontend and backend.
 4. Verify User Backup & Restore coverage and backwards compatibility (`BackupEndpointsTests`) when user-scoped models or settings are touched.
-5. Verify full i18n key parity across `en.json` and `sv.json` (and all supported locales).
-6. Verify container configuration parity (`docker compose config`).
-7. Confirm that [README.md](README.md) reflects any new capabilities, endpoints, or setup instructions introduced.
-8. Present a concise summary of changes and verification results.
+5. Verify cascading and relational integrity on ancestral and dependent objects (test deletions, renames, reassignments, and moves for zero orphaned data or foreign key violations).
+6. Verify full i18n key parity across `en.json` and `sv.json` (and all supported locales).
+7. Verify container configuration parity (`docker compose config`).
+8. Confirm that [README.md](README.md) reflects any new capabilities, endpoints, or setup instructions introduced.
+9. Present a concise summary of changes and verification results.

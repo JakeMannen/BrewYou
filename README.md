@@ -683,7 +683,8 @@ This repository adheres to strict architectural and engineering standards detail
 4. **Mandatory Test Coverage**: All new features and endpoints must include automated tests.
 5. **Full i18n Key Parity**: User-visible strings must be localized using `t(...)` with identical keys across all dictionaries (`en.json`, `sv.json`, `de.json`, `fr.json`, `es.json`).
 6. **Backup & Restore Backwards Compatibility**: Any new feature that introduces or modifies user-scoped entities, child collections, preferences, or collaboration settings must update User Backup & Restore (`BackupContracts.cs`, `BackupMigrationPipeline.cs`, `BackupService.cs`) and maintain full backwards compatibility with backups created on older versions.
-7. **Documentation Synchronization**: This [README.md](README.md) must be updated whenever new features, endpoints, or setup instructions are introduced.
+7. **Cascading Relational & Ancestral Ripple Integrity**: All new database-affecting features, schema changes, or bug fixes must explicitly handle cascading ripple effects across the entire entity hierarchy. Lifecycle mutations (such as deleting, renaming, moving, or reassigning an equipment instance) must cleanly reconcile parent/ancestral objects (e.g. multi-vessel setups, vessel role slots, tap-keg linkages, and sensor assignments) without leaving orphaned records or triggering foreign key constraint violations.
+8. **Documentation Synchronization**: This [README.md](README.md) must be updated whenever new features, endpoints, or setup instructions are introduced.
 
 ---
 
