@@ -944,6 +944,41 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         created.TrubLossLiters.Should().BeNull();
         created.MashTunDeadSpaceLiters.Should().BeNull();
         created.PackagingLossLiters.Should().BeNull();
+
+        // Verify that GET /api/v1/inventory/equipment?type=Sensor returns the created BrewLink sensor
+        var getResponse = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listEnvelope = await getResponse.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        listEnvelope!.Data.Should().Contain(e => e.Id == created.Id && e.Subtype == EquipmentSubtype.BrewLink);
+    }
+
+    [Fact]
+    public async Task ExistingGateway_WithoutEquipment_AutomaticallyAppearsInEquipmentSensorsList()
+    {
+        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        env!.Success.Should().BeTrue();
+        env.Data.Should().Contain(e => e.Type == EquipmentType.Sensor && e.Subtype == EquipmentSubtype.BrewLink &&
+            e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gw.Id.ToString()));
+    }
+
+    [Fact]
+    public async Task SyncBrewLinkState_OnBrewLinkSensor_ReturnsBadRequest()
+    {
+        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        var sensor = env!.Data!.First(e => e.Subtype == EquipmentSubtype.BrewLink);
+
+        var syncResponse = await client.PostAsync($"/api/v1/inventory/equipment/{sensor.Id}/brewlink/sync", null);
+        syncResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Theory]

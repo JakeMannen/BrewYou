@@ -51,6 +51,8 @@ public class EquipmentService : IEquipmentService
     {
         var userUnit = await GetUserPreferredUnitAsync(userId);
 
+        await EnsureBrewLinkGatewaySensorsAsync(userId);
+
         var query = _db.Equipment.AsNoTracking()
             .Include(e => e.AssignedBatch)
             .Include(e => e.AssignedKeg)
@@ -279,6 +281,21 @@ public class EquipmentService : IEquipmentService
                         node!["targetMac"] = normalizedMac;
                     }
                     connectionConfigJson = node!.ToJsonString();
+
+                    if (isBrewLinkSensor && parsedGwId != Guid.Empty)
+                    {
+                        var existingSensor = await _db.Equipment
+                            .FirstOrDefaultAsync(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink &&
+                                e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(parsedGwId.ToString()));
+                        if (existingSensor != null)
+                        {
+                            existingSensor.Name = normalizedName;
+                            existingSensor.BrewerySetupId = targetSetupId;
+                            existingSensor.UpdatedAt = DateTime.UtcNow;
+                            await _db.SaveChangesAsync();
+                            return (EquipmentAccessResult.Success, ToDto(existingSensor, true), null);
+                        }
+                    }
                 }
                 catch (Exception ex) when (ex is not ArgumentException)
                 {
@@ -670,6 +687,27 @@ public class EquipmentService : IEquipmentService
         {
             equipment.AssignedKegId = null;
             equipment.AssignedKeg = null;
+        }
+
+        if (equipment.Subtype == EquipmentSubtype.BrewLink && !string.IsNullOrWhiteSpace(equipment.ConnectionConfigJson))
+        {
+            try
+            {
+                var node = JsonNode.Parse(equipment.ConnectionConfigJson) as JsonObject;
+                var gwIdStr = node?["brewLinkGatewayId"]?.GetValue<string>();
+                if (Guid.TryParse(gwIdStr, out var parsedGwId))
+                {
+                    var gw = await _db.BrewLinkGateways.FirstOrDefaultAsync(g => g.Id == parsedGwId && g.UserId == userId);
+                    if (gw != null)
+                    {
+                        _db.BrewLinkGateways.Remove(gw);
+                    }
+                }
+            }
+            catch
+            {
+                // Non-blocking cleanup
+            }
         }
 
         _db.Equipment.Remove(equipment);
@@ -1694,5 +1732,68 @@ public class EquipmentService : IEquipmentService
         }
 
         return MultipleWhitespaceRegex.Replace(name.Trim(), " ");
+    }
+
+    private async Task EnsureBrewLinkGatewaySensorsAsync(string userId)
+    {
+        var userGateways = await _db.BrewLinkGateways.AsNoTracking()
+            .Where(g => g.UserId == userId)
+            .ToListAsync();
+
+        if (userGateways.Count == 0) return;
+
+        var defaultSetup = await _db.BrewerySetups
+            .Where(s => s.UserId == userId)
+            .OrderByDescending(s => s.IsDefault)
+            .ThenBy(s => s.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (defaultSetup == null) return;
+
+        var existingSensors = await _db.Equipment
+            .Where(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink && e.ConnectionConfigJson != null)
+            .ToListAsync();
+
+        bool changesMade = false;
+        foreach (var gw in userGateways)
+        {
+            var gwIdStr = gw.Id.ToString();
+            var matched = existingSensors.Any(e => e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gwIdStr));
+            if (!matched)
+            {
+                var eqName = string.IsNullOrWhiteSpace(gw.Name) ? "BrewLink" : gw.Name;
+                var baseName = eqName;
+                var counter = 1;
+                while (await _db.Equipment.AnyAsync(e => e.BrewerySetupId == defaultSetup.Id && e.Name.ToLower() == eqName.ToLower()))
+                {
+                    eqName = $"{baseName} ({++counter})";
+                }
+
+                var sensor = new Equipment
+                {
+                    UserId = userId,
+                    BrewerySetupId = defaultSetup.Id,
+                    Name = eqName,
+                    Type = EquipmentType.Sensor,
+                    Subtype = EquipmentSubtype.BrewLink,
+                    ConnectionType = EquipmentConnectionType.BrewLink,
+                    ConnectionConfigJson = $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}",
+                    Capacity = 0m,
+                    CapacityLiters = 0m,
+                    CurrentVolume = 0m,
+                    CurrentVolumeLiters = 0m,
+                    Unit = VolumeUnit.Liters,
+                    CreatedAt = gw.PairedAt,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.Equipment.Add(sensor);
+                changesMade = true;
+            }
+        }
+
+        if (changesMade)
+        {
+            await _db.SaveChangesAsync();
+        }
     }
 }

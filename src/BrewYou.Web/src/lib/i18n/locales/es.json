@@ -1116,6 +1116,7 @@
 		"brewlink_target_mac_placeholder": "C44F331A8B22 o C4:4F:33:1A:8B:22",
 		"brewlink_target_mac_help": "Dirección MAC Bluetooth de 12 caracteres de tu sistema todo en uno (p. ej. Grainfather G30).",
 		"brewlink_tag": "BrewLink",
+		"brewlink_gateway_status_active": "Pasarela Bluetooth ESP32",
 		"brewlink_controls": "Controles de hardware",
 		"brewlink_controls_title": "Controles de hardware BrewLink",
 		"brewlink_modal_title": "Controlador de hardware — {name}",

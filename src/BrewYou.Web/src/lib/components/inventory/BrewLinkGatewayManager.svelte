@@ -8,9 +8,10 @@
 
 	interface Props {
 		onGatewaysChanged?: (gateways: BrewLinkGatewayDto[]) => void;
+		onGatewayPaired?: (gateway: BrewLinkGatewayDto) => void;
 	}
 
-	let { onGatewaysChanged }: Props = $props();
+	let { onGatewaysChanged, onGatewayPaired }: Props = $props();
 
 	let brewLinkGateways = $state<BrewLinkGatewayDto[]>([]);
 	let isLoadingGateways = $state(false);
@@ -69,11 +70,14 @@
 		pairingError = null;
 		claimingGatewayId = beacon.gatewayId;
 		try {
-			await api.brewlink.pairGateway({
+			const paired = await api.brewlink.pairGateway({
 				host: beacon.host,
 				name: pairingName.trim() || beacon.name || undefined
 			});
 			await loadGateways();
+			if (paired) {
+				onGatewayPaired?.(paired);
+			}
 		} catch (err: unknown) {
 			pairingError = (err as Error).message || 'Failed to pair gateway';
 		} finally {
@@ -99,8 +103,10 @@
 		}
 	}
 
-	async function handlePairGateway(e: SubmitEvent) {
-		e.preventDefault();
+	async function handlePairGateway(e?: SubmitEvent | MouseEvent | KeyboardEvent) {
+		if (e && 'preventDefault' in e) {
+			e.preventDefault();
+		}
 		pairingError = null;
 		const cleanHost = pairingHost.trim();
 		const cleanPin = pairingPin.replace(/[\s-_]/g, '').trim();
@@ -117,7 +123,7 @@
 
 		isPairing = true;
 		try {
-			await api.brewlink.pairGateway({
+			const paired = await api.brewlink.pairGateway({
 				host: cleanHost,
 				pin: cleanPin || null,
 				name: pairingName.trim() || undefined
@@ -127,6 +133,9 @@
 			pairingName = '';
 			requestPinSuccess = false;
 			await loadGateways();
+			if (paired) {
+				onGatewayPaired?.(paired);
+			}
 		} catch (err: unknown) {
 			pairingError = (err as Error).message || 'Failed to pair gateway';
 		} finally {
@@ -148,8 +157,10 @@
 		updateGatewayError = null;
 	}
 
-	async function handleUpdateGateway(e: SubmitEvent) {
-		e.preventDefault();
+	async function handleUpdateGateway(e?: SubmitEvent | MouseEvent | KeyboardEvent) {
+		if (e && 'preventDefault' in e) {
+			e.preventDefault();
+		}
 		if (!editingGateway) return;
 		isUpdatingGateway = true;
 		updateGatewayError = null;
@@ -382,7 +393,7 @@
 			</h4>
 		</div>
 
-		<form onsubmit={handlePairGateway} novalidate class="mt-3 space-y-3">
+		<div class="mt-3 space-y-3">
 			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<!-- Host / IP -->
 				<div>
@@ -398,6 +409,12 @@
 							data-testid="brewlink-host-input"
 							type="text"
 							bind:value={pairingHost}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									void handlePairGateway();
+								}
+							}}
 							placeholder={t('settings.brewlink.host_placeholder')}
 							required
 							class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 font-mono text-xs text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
@@ -437,6 +454,12 @@
 						autocomplete="one-time-code"
 						maxlength="12"
 						bind:value={pairingPin}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								void handlePairGateway();
+							}
+						}}
 						placeholder={t('settings.brewlink.pin_placeholder')}
 						class="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 font-mono text-xs tracking-widest text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
 					/>
@@ -459,6 +482,12 @@
 					data-testid="brewlink-name-input"
 					type="text"
 					bind:value={pairingName}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							void handlePairGateway();
+						}
+					}}
 					placeholder={t('settings.brewlink.gateway_name_placeholder')}
 					class="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
 				/>
@@ -493,7 +522,8 @@
 
 			<div class="flex justify-end pt-1">
 				<button
-					type="submit"
+					type="button"
+					onclick={handlePairGateway}
 					data-testid="brewlink-pair-btn"
 					disabled={isPairing || !pairingHost.trim()}
 					class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white shadow-2xs transition hover:bg-sky-500 disabled:opacity-50"
@@ -507,7 +537,7 @@
 					{/if}
 				</button>
 			</div>
-		</form>
+		</div>
 	</div>
 
 	<!-- Edit Gateway Modal -->
@@ -523,7 +553,7 @@
 				<h3 class="text-base font-bold text-zinc-900 dark:text-white">
 					{t('settings.brewlink.edit_gateway')}
 				</h3>
-				<form onsubmit={handleUpdateGateway} class="mt-4 space-y-4">
+				<div class="mt-4 space-y-4">
 					<div>
 						<label
 							for="edit-brewlink-name-input"
@@ -535,6 +565,12 @@
 							id="edit-brewlink-name-input"
 							type="text"
 							bind:value={editGatewayName}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									void handleUpdateGateway();
+								}
+							}}
 							required
 							class="mt-1.5 w-full rounded-xl border border-zinc-300 px-3.5 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
 						/>
@@ -550,6 +586,12 @@
 							id="edit-brewlink-host-input"
 							type="text"
 							bind:value={editGatewayHost}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									void handleUpdateGateway();
+								}
+							}}
 							required
 							class="mt-1.5 w-full rounded-xl border border-zinc-300 px-3.5 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
 						/>
@@ -573,7 +615,8 @@
 							{t('common.cancel')}
 						</button>
 						<button
-							type="submit"
+							type="button"
+							onclick={handleUpdateGateway}
 							disabled={isUpdatingGateway}
 							class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-500"
 						>
@@ -585,7 +628,7 @@
 							{/if}
 						</button>
 					</div>
-				</form>
+				</div>
 			</div>
 		</div>
 	{/if}

@@ -123,6 +123,28 @@
 		}
 	}
 
+	async function handleGatewayPaired(gateway: BrewLinkGatewayDto) {
+		brewLinkGatewayId = gateway.id;
+		if (!name.trim()) {
+			name = gateway.name || 'BrewLink';
+		}
+		try {
+			const list = await api.equipment.list('Sensor');
+			const match = list.find(
+				(e) =>
+					e.subtype === 'BrewLink' &&
+					e.connectionConfigJson &&
+					e.connectionConfigJson.includes(gateway.id)
+			);
+			if (match) {
+				onSaved(match);
+				onClose();
+			}
+		} catch {
+			// User can also click Create button if needed
+		}
+	}
+
 	async function loadBrewLinkGateways() {
 		try {
 			gateways = await api.brewlink.listGateways();
@@ -934,7 +956,7 @@
 			}
 
 			onSaved(savedItem);
-			if (savedItem.connectionType === 'BrewLink') {
+			if (savedItem.connectionType === 'BrewLink' && savedItem.subtype !== 'BrewLink') {
 				void api.equipment
 					.syncBrewLinkState(savedItem.id)
 					.then((res) => {
@@ -2093,7 +2115,10 @@
 									<div
 										class="rounded-xl border border-sky-500/20 bg-white/70 p-3 sm:p-4 dark:border-white/5 dark:bg-zinc-900/70"
 									>
-										<BrewLinkGatewayManager onGatewaysChanged={handleGatewaysChanged} />
+										<BrewLinkGatewayManager
+											onGatewaysChanged={handleGatewaysChanged}
+											onGatewayPaired={handleGatewayPaired}
+										/>
 									</div>
 
 									{#if gateways.length > 0}
