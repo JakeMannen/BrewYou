@@ -1438,6 +1438,8 @@
 		"brewlink_target_mac_help": "12 tecken lång Bluetooth MAC-adress för ditt allt-i-ett-bryggverk (t.ex. Grainfather G30).",
 		"brewlink_tag": "BrewLink",
 		"brewlink_gateway_status_active": "ESP32 Bluetooth-gateway",
+		"brewlink_devices_provided_one": "1 enhet tillhandahålls",
+		"brewlink_devices_provided_other": "{count} enheter tillhandahålls",
 		"brewlink_controls": "Hårdvarukontroller",
 		"brewlink_controls_title": "BrewLink-hårdvarukontroller",
 		"brewlink_modal_title": "Hårdvarukontroller — {name}",

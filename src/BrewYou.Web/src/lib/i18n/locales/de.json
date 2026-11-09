@@ -1117,6 +1117,8 @@
 		"brewlink_target_mac_help": "12-stellige Bluetooth-MAC-Adresse Ihres All-in-One-Braukessels (z. B. Grainfather G30).",
 		"brewlink_tag": "BrewLink",
 		"brewlink_gateway_status_active": "ESP32 Bluetooth-Gateway",
+		"brewlink_devices_provided_one": "1 Gerät bereitgestellt",
+		"brewlink_devices_provided_other": "{count} Geräte bereitgestellt",
 		"brewlink_controls": "Hardware-Steuerung",
 		"brewlink_controls_title": "BrewLink Hardware-Steuerung",
 		"brewlink_modal_title": "Hardware-Steuerung — {name}",

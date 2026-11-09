@@ -268,6 +268,11 @@ public sealed class BrewLinkWebSocketManager : IBrewLinkWebSocketManager, IDispo
 
                 var matchedEquipment = candidateEquipment.FirstOrDefault(eq =>
                 {
+                    if (eq.Subtype == EquipmentSubtype.BrewLink)
+                    {
+                        return false;
+                    }
+
                     try
                     {
                         using var configDoc = JsonDocument.Parse(eq.ConnectionConfigJson!);

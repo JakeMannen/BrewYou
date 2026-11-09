@@ -67,6 +67,12 @@ public class EquipmentPollingWorker : BackgroundService
         {
             if (cancellationToken.IsCancellationRequested) break;
 
+            if (eq.Subtype == EquipmentSubtype.BrewLink)
+            {
+                // BrewLink gateway sensor defines the gateway connection; not a telemetry polled device
+                continue;
+            }
+
             var intervalSeconds = ExtractIntervalSeconds(eq.ConnectionConfigJson);
             var shouldPoll = eq.TemperatureUpdatedAt == null ||
                              (now - eq.TemperatureUpdatedAt.Value) >= TimeSpan.FromSeconds(intervalSeconds);

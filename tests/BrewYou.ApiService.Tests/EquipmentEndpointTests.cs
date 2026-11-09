@@ -981,6 +981,42 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         syncResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task BrewLinkSensor_NeverReturnsTemperatureOrTelemetryMetricsInDto()
+    {
+        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var gw = await CreateTestGatewayAsync(userId);
+
+        // Auto-provision sensor via equipment endpoint
+        await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var sensor = db.Equipment.First(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink);
+            sensor.CurrentTemperatureC = 68.5m;
+            sensor.CurrentSpecificGravity = 1.050m;
+            sensor.CurrentPressureBar = 1.2m;
+            sensor.CurrentBatteryPercent = 95m;
+            sensor.CurrentBatteryVoltage = 4.1m;
+            sensor.LatestMetricsJson = "{\"heatPower\":100,\"pump\":true}";
+            await db.SaveChangesAsync();
+        }
+
+        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
+        var sensorDto = env!.Data!.First(e => e.Subtype == EquipmentSubtype.BrewLink);
+
+        sensorDto.CurrentTemperatureC.Should().BeNull();
+        sensorDto.TemperatureUpdatedAt.Should().BeNull();
+        sensorDto.CurrentSpecificGravity.Should().BeNull();
+        sensorDto.CurrentPressureBar.Should().BeNull();
+        sensorDto.CurrentBatteryPercent.Should().BeNull();
+        sensorDto.CurrentBatteryVoltage.Should().BeNull();
+        sensorDto.LatestMetricsJson.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(EquipmentSubtype.GenericSensor)]
     [InlineData(EquipmentSubtype.Tilt)]

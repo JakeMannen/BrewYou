@@ -560,6 +560,12 @@ public class EquipmentService : IEquipmentService
             {
                 equipment.CurrentTemperatureC = null;
                 equipment.TemperatureUpdatedAt = null;
+                equipment.CurrentSpecificGravity = null;
+                equipment.CurrentPressureBar = null;
+                equipment.CurrentBatteryPercent = null;
+                equipment.CurrentBatteryVoltage = null;
+                equipment.LatestMetricsJson = null;
+                equipment.LastTelemetryAt = null;
             }
             else if (request.CurrentTemperatureC.HasValue)
             {
@@ -901,16 +907,18 @@ public class EquipmentService : IEquipmentService
             _ => fillPercentage
         };
 
+        var isBrewLinkSensor = e.Type == EquipmentType.Sensor && e.Subtype == EquipmentSubtype.BrewLink;
+
         var effectiveFillPercentage = e.Type == EquipmentType.Tap
             ? (assignedKegSummary?.FillPercentage ?? 0m)
             : fillPercentage;
 
-        var effectiveTemperatureC = e.Type == EquipmentType.Tap
-            ? assignedKeg?.CurrentTemperatureC
+        var effectiveTemperatureC = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
+            ? (e.Type == EquipmentType.Tap ? assignedKeg?.CurrentTemperatureC : null)
             : e.CurrentTemperatureC;
 
-        var effectiveTemperatureUpdatedAt = e.Type == EquipmentType.Tap
-            ? assignedKeg?.TemperatureUpdatedAt
+        var effectiveTemperatureUpdatedAt = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
+            ? (e.Type == EquipmentType.Tap ? assignedKeg?.TemperatureUpdatedAt : null)
             : e.TemperatureUpdatedAt;
 
         var effectiveConnectionType = e.Type == EquipmentType.Tap
@@ -925,27 +933,27 @@ public class EquipmentService : IEquipmentService
             ? null
             : SanitizeConfigJson(e.ConnectionConfigJson);
 
-        var effectiveSpecificGravity = e.Type == EquipmentType.Tap
+        var effectiveSpecificGravity = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
             ? null
             : e.CurrentSpecificGravity;
 
-        var effectivePressureBar = e.Type == EquipmentType.Tap
+        var effectivePressureBar = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
             ? null
             : e.CurrentPressureBar;
 
-        var effectiveBatteryPercent = e.Type == EquipmentType.Tap
+        var effectiveBatteryPercent = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
             ? null
             : e.CurrentBatteryPercent;
 
-        var effectiveBatteryVoltage = e.Type == EquipmentType.Tap
+        var effectiveBatteryVoltage = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
             ? null
             : e.CurrentBatteryVoltage;
 
-        var effectiveLastTelemetryAt = e.Type == EquipmentType.Tap
-            ? assignedKeg?.LastTelemetryAt
+        var effectiveLastTelemetryAt = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
+            ? (e.Type == EquipmentType.Tap ? assignedKeg?.LastTelemetryAt : null)
             : e.LastTelemetryAt;
 
-        var effectiveLatestMetricsJson = e.Type == EquipmentType.Tap
+        var effectiveLatestMetricsJson = (e.Type == EquipmentType.Tap || isBrewLinkSensor)
             ? null
             : e.LatestMetricsJson;
 

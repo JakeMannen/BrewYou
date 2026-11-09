@@ -81,7 +81,12 @@ public class TelemetryService : ITelemetryService
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
         }
 
-        if (equipment.Type == EquipmentType.Sensor && equipment.Subtype != EquipmentSubtype.BrewLink &&
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "BrewLink gateway sensors do not receive direct telemetry.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor &&
             equipment.ConnectionType == EquipmentConnectionType.BrewLink)
         {
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");
@@ -225,7 +230,12 @@ public class TelemetryService : ITelemetryService
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
         }
 
-        if (equipment.Type == EquipmentType.Sensor && equipment.Subtype != EquipmentSubtype.BrewLink &&
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "BrewLink gateway sensors do not receive direct telemetry.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor &&
             equipment.ConnectionType == EquipmentConnectionType.BrewLink)
         {
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");
@@ -374,7 +384,12 @@ public class TelemetryService : ITelemetryService
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Tap equipment does not support IoT sensor telemetry.");
         }
 
-        if (equipment.Type == EquipmentType.Sensor && equipment.Subtype != EquipmentSubtype.BrewLink &&
+        if (equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "BrewLink gateway sensors do not receive direct telemetry.");
+        }
+
+        if (equipment.Type == EquipmentType.Sensor &&
             equipment.ConnectionType == EquipmentConnectionType.BrewLink)
         {
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");

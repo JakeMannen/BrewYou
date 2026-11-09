@@ -1117,6 +1117,8 @@
 		"brewlink_target_mac_help": "12-digit Bluetooth MAC address of your All-in-One boiler (e.g. Grainfather G30 controller).",
 		"brewlink_tag": "BrewLink",
 		"brewlink_gateway_status_active": "ESP32 Bluetooth Gateway",
+		"brewlink_devices_provided_one": "1 device provided",
+		"brewlink_devices_provided_other": "{count} devices provided",
 		"brewlink_controls": "Hardware Controls",
 		"brewlink_controls_title": "BrewLink Hardware Controls",
 		"brewlink_modal_title": "Hardware Controller — {name}",
