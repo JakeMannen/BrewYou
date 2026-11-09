@@ -124,11 +124,19 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
   - **Mandatory Regression & Adversarial Testing**:
     - Automated unit and integration tests must explicitly test lifecycle transitions (deletions, renamings, and moves) against ancestral and dependent objects to guarantee no orphaned records or unhandled foreign key exceptions occur.
 
+### L. Mandatory Token & Quota Efficiency
+
+- **Strict Invariant**: Conserve context window capacity and Antigravity quota across all operations.
+- Execute commands and tests with quiet verbosity and narrow filters (`--filter`, `--verbosity quiet`, `--silent`).
+- Use windowed file reads (`StartLine`, `EndLine`) on large files rather than dumping entire files into context.
+- Default subagents to `flash` or `flash_lite` for exploratory tasks, avoiding multi-agent sprawl for standard sequential tasks.
+- Adhere strictly to [.agents/rules/token-and-quota-efficiency.md](.agents/rules/token-and-quota-efficiency.md).
+
 ---
 
 ## 4. References
 
-- Detailed rules: [`.agents/rules/`](.agents/rules/) (`architecture-principles.md`, `code-standards.md`, `api-guidelines.md`, `security-guidelines.md`, `testing-and-qa.md`, `git-workflow.md`).
+- Detailed rules: [`.agents/rules/`](.agents/rules/) (`architecture-principles.md`, `code-standards.md`, `api-guidelines.md`, `security-guidelines.md`, `testing-and-qa.md`, `git-workflow.md`, `token-and-quota-efficiency.md`).
 - Workspace skills: [`.agents/skills/`](.agents/skills/).
 
 ---
