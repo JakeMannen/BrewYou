@@ -12,7 +12,6 @@ tools:
   - grep_search
   - find_by_name
 mcpServers: [microsoftdocs]
-model: flash
 ---
 
 # Backend Developer Agent

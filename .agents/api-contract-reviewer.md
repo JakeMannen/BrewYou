@@ -11,8 +11,7 @@ tools:
   - run_command
   - grep_search
   - find_by_name
-mcpServers: [microsoftdocs]  
-model: flash
+mcpServers: [microsoftdocs]
 ---
 
 # API Contract Reviewer Agent

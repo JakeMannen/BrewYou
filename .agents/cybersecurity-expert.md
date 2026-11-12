@@ -9,8 +9,7 @@ tools:
   - search_web
   - grep_search
   - find_by_name
-  - run_command
-model: pro  
+  - run_command 
 ---
 
 # Cybersecurity Expert Agent
