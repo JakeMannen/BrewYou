@@ -9,7 +9,6 @@ tools:
   - search_web
   - grep_search
   - find_by_name
-model: flash  
 ---
 
 # Master Beer Brewer Agent

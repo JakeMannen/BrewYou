@@ -10,8 +10,7 @@ tools:
   - replace_file_content
   - run_command
   - grep_search
-  - find_by_name
-model: flash  
+  - find_by_name 
 ---
 
 # Frontend Developer Agent
