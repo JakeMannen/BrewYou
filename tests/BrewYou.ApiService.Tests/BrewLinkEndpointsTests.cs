@@ -1383,4 +1383,73 @@ public class BrewLinkEndpointsTests : IClassFixture<BrewLinkTestFactory>, IDispo
             reloadedBatch!.BoilerId.Should().BeNull();
         }
     }
+
+    [Fact]
+    public async Task ProvisionGatewayEquipment_OfflineG30WithZeroedState_LeavesTemperatureNullAndMarksDisconnected()
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+
+        var pairRes = await client.PostAsJsonAsync("/api/v1/brewlink/gateways/pair",
+            new PairBrewLinkRequest("192.168.1.209", null, "Offline G30 Gateway"));
+        var gw = (await pairRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+
+        _factory.HttpHandler.Handler = req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/equipment"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                    {
+                      "equipment": [
+                        {
+                          "slot": 1,
+                          "paired": true,
+                          "connected": false,
+                          "name": "G30-OFF1",
+                          "model": "Grainfather G30 Connect",
+                          "equipment_type": "boiler",
+                          "mac": "C4:4F:33:1A:8B:99",
+                          "state": {
+                            "current_temp_c": 0.0,
+                            "target_temp_c": 0.0,
+                            "boil_temp_c": 100.0,
+                            "heat_active": false,
+                            "pump_active": false
+                          }
+                        }
+                      ]
+                    }
+                    """)
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+
+        var eqListRes = await client.GetAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment?setupId={defaultSetupId}");
+        eqListRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var listEnv = await eqListRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewLinkEquipmentDeviceDto>>>();
+        listEnv!.Data.Should().ContainSingle();
+        listEnv.Data![0].Connected.Should().BeFalse();
+        listEnv.Data[0].State.Should().BeNull("offline equipment zeroed firmware state must not be exposed as live telemetry");
+
+        var provisionReq = new ProvisionBrewLinkEquipmentRequest(
+            BrewerySetupId: defaultSetupId,
+            Devices:
+            [
+                new ProvisionBrewLinkDeviceItem(1, "C4:4F:33:1A:8B:99", "G30-OFF1", "Grainfather G30 Connect", "boiler")
+            ]
+        );
+
+        var provRes = await client.PostAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment/provision", provisionReq);
+        provRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var provData = (await provRes.Content.ReadFromJsonAsync<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>())!.Data!;
+        provData.CreatedEquipment.Should().ContainSingle();
+
+        var created = provData.CreatedEquipment[0];
+        created.CurrentTemperatureC.Should().BeNull();
+        created.TemperatureUpdatedAt.Should().BeNull();
+        created.LatestMetricsJson.Should().BeNull();
+    }
 }

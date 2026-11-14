@@ -580,13 +580,15 @@ class DashboardStore {
 		let eqName = 'Equipment';
 		if (eqIdx >= 0) {
 			eqName = this.equipment[eqIdx].name;
+			const hasNewTemp = reading.temperatureC !== undefined && reading.temperatureC !== null;
 			this.equipment[eqIdx] = {
 				...this.equipment[eqIdx],
-				currentTemperatureC:
-					reading.temperatureC !== undefined
-						? reading.temperatureC
-						: this.equipment[eqIdx].currentTemperatureC,
-				temperatureUpdatedAt: reading.timestamp,
+				currentTemperatureC: hasNewTemp
+					? reading.temperatureC
+					: this.equipment[eqIdx].currentTemperatureC,
+				temperatureUpdatedAt: hasNewTemp
+					? reading.timestamp
+					: this.equipment[eqIdx].temperatureUpdatedAt,
 				currentVolumeLiters:
 					reading.currentVolumeLiters !== undefined && reading.currentVolumeLiters !== null
 						? reading.currentVolumeLiters
@@ -610,11 +612,13 @@ class DashboardStore {
 					reading.currentVolumeLiters !== undefined && reading.currentVolumeLiters !== null
 						? reading.currentVolumeLiters
 						: (item.assignedKeg?.currentVolumeLiters ?? 0);
-				const updatedTemp =
-					reading.temperatureC !== undefined
-						? reading.temperatureC
-						: (item.assignedKeg?.currentTemperatureC ?? null);
-				const updatedTempAt = reading.timestamp ?? item.assignedKeg?.temperatureUpdatedAt;
+				const hasNewTemp = reading.temperatureC !== undefined && reading.temperatureC !== null;
+				const updatedTemp = hasNewTemp
+					? reading.temperatureC
+					: (item.assignedKeg?.currentTemperatureC ?? null);
+				const updatedTempAt = hasNewTemp
+					? reading.timestamp
+					: item.assignedKeg?.temperatureUpdatedAt;
 
 				this.equipment[i] = {
 					...item,

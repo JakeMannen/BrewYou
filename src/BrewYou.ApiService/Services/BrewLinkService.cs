@@ -590,7 +590,7 @@ public partial class BrewLinkService : IBrewLinkService
 
             if (liveMatch.Device?.Connected == true && liveMatch.Canonical != null)
             {
-                var canonical = liveMatch.Canonical;
+                var canonical = liveMatch.Canonical with { Connected = true };
                 entity.CurrentTemperatureC = canonical.CurrentTempC;
                 entity.TemperatureUpdatedAt = canonical.CurrentTempC.HasValue ? now : null;
                 entity.LastTelemetryAt = now;
@@ -760,7 +760,7 @@ public partial class BrewLinkService : IBrewLinkService
 
                     BrewLinkEquipmentStateDto? state = null;
                     BrewLinkCanonicalMetrics? canonical = null;
-                    if (item.TryGetProperty("state", out var stateProp) && stateProp.ValueKind == JsonValueKind.Object)
+                    if (connected && item.TryGetProperty("state", out var stateProp) && stateProp.ValueKind == JsonValueKind.Object)
                     {
                         canonical = BrewLinkTelemetryParser.ParseCanonical(item);
                         if (canonical != null)
@@ -1567,7 +1567,7 @@ public partial class BrewLinkService : IBrewLinkService
                                               UpdatedAt: DateTime.UtcNow
                                           );
 
-                    var mutatedMetrics = MutateCanonicalMetrics(existingMetrics, action, payloadParams);
+                    var mutatedMetrics = MutateCanonicalMetrics(existingMetrics, action, payloadParams) with { Connected = true };
                     var newMetricsJson = BrewLinkTelemetryParser.ToMetricsJson(mutatedMetrics);
 
                     equipment.LatestMetricsJson = newMetricsJson;
@@ -1597,6 +1597,14 @@ public partial class BrewLinkService : IBrewLinkService
 
                 if (response.StatusCode == HttpStatusCode.Conflict)
                 {
+                    if (_serviceProvider != null)
+                    {
+                        var telemetryService = _serviceProvider.GetService<ITelemetryService>();
+                        if (telemetryService != null)
+                        {
+                            await telemetryService.SetBrewLinkConnectionStateAsync(equipment.Id, isConnected: false, source: "BrewLinkControl", ct);
+                        }
+                    }
                     return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
                 }
 
@@ -1715,16 +1723,25 @@ public partial class BrewLinkService : IBrewLinkService
                     TelemetryHelper.TryGetPropertyInsensitive(targetDevice, "connected", out var connProp) &&
                     connProp.ValueKind == JsonValueKind.False)
                 {
+                    if (_serviceProvider != null)
+                    {
+                        var telemetryService = _serviceProvider.GetService<ITelemetryService>();
+                        if (telemetryService != null)
+                        {
+                            await telemetryService.SetBrewLinkConnectionStateAsync(equipment.Id, isConnected: false, source: "BrewLinkSync", ct);
+                        }
+                    }
                     return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
                 }
             }
 
             var canonical = BrewLinkTelemetryParser.ParseCanonical(doc.RootElement, equipment);
-            if (canonical == null || !canonical.CurrentTempC.HasValue)
+            if (canonical == null || canonical.Connected == false || !canonical.CurrentTempC.HasValue)
             {
                 return (BrewLinkSendResult.EquipmentDisconnected, null, "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
             }
 
+            canonical = canonical with { Connected = true };
             var metricsJson = BrewLinkTelemetryParser.ToMetricsJson(canonical);
             equipment.CurrentTemperatureC = canonical.CurrentTempC.Value;
             equipment.TemperatureUpdatedAt = canonical.UpdatedAt;
@@ -1811,6 +1828,30 @@ public partial class BrewLinkService : IBrewLinkService
         int? targetSlot,
         string? targetName)
     {
+        var anyValidMac = false;
+
+        if (!string.IsNullOrEmpty(targetMac))
+        {
+            foreach (var item in eqArray.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+
+                if (TelemetryHelper.TryGetPropertyInsensitive(item, "mac", out var mElem) &&
+                    mElem.ValueKind == JsonValueKind.String)
+                {
+                    var cleaned = BrewLinkTelemetryParser.CleanMac(mElem.GetString());
+                    if (!string.IsNullOrEmpty(cleaned))
+                    {
+                        anyValidMac = true;
+                        if (string.Equals(cleaned, targetMac, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return item;
+                        }
+                    }
+                }
+            }
+        }
+
         foreach (var item in eqArray.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.Object) continue;
@@ -1818,9 +1859,9 @@ public partial class BrewLinkService : IBrewLinkService
             if (!string.IsNullOrEmpty(targetMac) &&
                 TelemetryHelper.TryGetPropertyInsensitive(item, "mac", out var mElem) &&
                 mElem.ValueKind == JsonValueKind.String &&
-                string.Equals(BrewLinkTelemetryParser.CleanMac(mElem.GetString()), targetMac, StringComparison.OrdinalIgnoreCase))
+                !string.IsNullOrEmpty(BrewLinkTelemetryParser.CleanMac(mElem.GetString())))
             {
-                return item;
+                continue;
             }
 
             if (targetSlot.HasValue &&
@@ -1839,6 +1880,11 @@ public partial class BrewLinkService : IBrewLinkService
             }
         }
 
+        if (!string.IsNullOrEmpty(targetMac) && anyValidMac)
+        {
+            return default;
+        }
+
         foreach (var item in eqArray.EnumerateArray())
         {
             if (item.ValueKind == JsonValueKind.Object) return item;
@@ -1855,10 +1901,12 @@ public partial class BrewLinkService : IBrewLinkService
             ? Math.Round(Math.Clamp((equipment.CurrentVolumeLiters / equipment.CapacityLiters) * 100m, 0m, 100m), 1)
             : 0m;
 
+        var canonical = BrewLinkTelemetryParser.FromMetricsJson(metricsJson);
+
         var update = new EquipmentTelemetryUpdateDto(
             EquipmentId: equipment.Id,
             EquipmentName: equipment.Name,
-            TemperatureC: equipment.CurrentTemperatureC ?? 0m,
+            TemperatureC: equipment.CurrentTemperatureC,
             Timestamp: DateTime.UtcNow,
             Source: source,
             BatchId: equipment.AssignedBatchId,
@@ -1869,8 +1917,9 @@ public partial class BrewLinkService : IBrewLinkService
             BatteryPercent: equipment.CurrentBatteryPercent,
             BatteryVoltage: equipment.CurrentBatteryVoltage,
             TiltDegrees: null,
-            Rssi: null,
-            MetricsJson: metricsJson
+            Rssi: canonical?.Rssi,
+            MetricsJson: metricsJson,
+            Connected: canonical?.Connected
         );
 
         var targetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { equipment.UserId };

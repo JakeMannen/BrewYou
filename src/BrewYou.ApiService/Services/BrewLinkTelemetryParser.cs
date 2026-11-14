@@ -44,7 +44,8 @@ public sealed record BrewLinkCanonicalMetrics(
     [property: JsonPropertyName("interrupted")] bool? Interrupted = null,
     [property: JsonPropertyName("manualPower")] bool? ManualPower = null,
     [property: JsonPropertyName("spargeAlert")] bool? SpargeAlert = null,
-    [property: JsonPropertyName("errorCode")] int? ErrorCode = null
+    [property: JsonPropertyName("errorCode")] int? ErrorCode = null,
+    [property: JsonPropertyName("connected")] bool? Connected = null
 );
 
 public class BrewLinkTelemetryParser : ITelemetryParser
@@ -114,9 +115,15 @@ public class BrewLinkTelemetryParser : ITelemetryParser
     public NormalizedTelemetryData? Parse(JsonElement root, Equipment equipment, string? preferredPath = null)
     {
         var canonical = ParseCanonical(root, equipment);
-        if (canonical == null || !canonical.CurrentTempC.HasValue)
+        if (canonical == null || canonical.Connected == false || !canonical.CurrentTempC.HasValue)
         {
             return null;
+        }
+
+        // Active telemetry from a BrewLink device implies the device is connected.
+        if (canonical.Connected != true)
+        {
+            canonical = canonical with { Connected = true };
         }
 
         var metricsJson = ToMetricsJson(canonical);
@@ -154,6 +161,48 @@ public class BrewLinkTelemetryParser : ITelemetryParser
         }
     }
 
+    public static bool TryResolveDeviceConnectionState(JsonElement root, Equipment? equipment, out bool isConnected)
+    {
+        isConnected = false;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var deviceElem = root;
+        if (TelemetryHelper.TryGetPropertyInsensitive(root, "equipment", out var eqArray) &&
+            eqArray.ValueKind == JsonValueKind.Array)
+        {
+            deviceElem = ResolveTargetDevice(eqArray, equipment);
+            if (deviceElem.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+        }
+
+        return TryExtractConnectedFlag(deviceElem, root, out isConnected);
+    }
+
+    private static bool TryExtractConnectedFlag(JsonElement deviceElem, JsonElement root, out bool isConnected)
+    {
+        if (TelemetryHelper.TryGetPropertyInsensitive(deviceElem, "connected", out var connElem) &&
+            connElem.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            isConnected = connElem.GetBoolean();
+            return true;
+        }
+
+        if (TelemetryHelper.TryGetPropertyInsensitive(root, "connected", out var rootConnElem) &&
+            rootConnElem.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            isConnected = rootConnElem.GetBoolean();
+            return true;
+        }
+
+        isConnected = false;
+        return false;
+    }
+
     public static BrewLinkCanonicalMetrics? ParseCanonical(JsonElement root, Equipment? equipment = null)
     {
         if (root.ValueKind != JsonValueKind.Object)
@@ -176,6 +225,10 @@ public class BrewLinkTelemetryParser : ITelemetryParser
                 return null;
             }
         }
+
+        bool? extractedConnected = TryExtractConnectedFlag(deviceElem, root, out var connVal)
+            ? connVal
+            : null;
 
         // 2. Resolve nested state object
         var hasNestedState = false;
@@ -214,6 +267,28 @@ public class BrewLinkTelemetryParser : ITelemetryParser
 
         // 5. Extract Timestamp safely
         var extractedUpdatedAt = ExtractTimestamp(deviceElem, stateElem);
+
+        // If the device is explicitly disconnected, ignore zero-initialized state/temperature fields
+        if (extractedConnected == false)
+        {
+            return new BrewLinkCanonicalMetrics(
+                CurrentTempC: null,
+                TargetTempC: null,
+                BoilTempC: null,
+                HeatActive: null,
+                HeatPowerPct: null,
+                RampActive: null,
+                PumpActive: null,
+                AutoMode: null,
+                Timer: null,
+                Stage: null,
+                Interaction: null,
+                Mac: extractedMac,
+                Rssi: extractedRssi,
+                UpdatedAt: extractedUpdatedAt,
+                Connected: false
+            );
+        }
 
         // 6. Extract Temperatures
         ExtractTemperatures(stateElem, out var currentTempC, out var targetTempC, out var boilTempC);
@@ -259,7 +334,8 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             Interrupted: interrupted,
             ManualPower: manualPower,
             SpargeAlert: spargeAlert,
-            ErrorCode: errorCode
+            ErrorCode: errorCode,
+            Connected: extractedConnected
         );
     }
 
@@ -304,6 +380,35 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             }
         }
 
+        var anyValidMac = false;
+
+        // 1. Prefer exact MAC match across all devices
+        if (!string.IsNullOrEmpty(targetMac))
+        {
+            foreach (var item in eqArray.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (TelemetryHelper.TryGetPropertyInsensitive(item, "mac", out var mElem) &&
+                    mElem.ValueKind == JsonValueKind.String)
+                {
+                    var cleaned = CleanMac(mElem.GetString());
+                    if (!string.IsNullOrEmpty(cleaned))
+                    {
+                        anyValidMac = true;
+                        if (string.Equals(cleaned, targetMac, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return item;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Match by slot or name (only if item does not carry a conflicting valid MAC)
         foreach (var item in eqArray.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.Object)
@@ -314,9 +419,9 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             if (!string.IsNullOrEmpty(targetMac) &&
                 TelemetryHelper.TryGetPropertyInsensitive(item, "mac", out var mElem) &&
                 mElem.ValueKind == JsonValueKind.String &&
-                string.Equals(CleanMac(mElem.GetString()), targetMac, StringComparison.OrdinalIgnoreCase))
+                !string.IsNullOrEmpty(CleanMac(mElem.GetString())))
             {
-                return item;
+                continue;
             }
 
             if (targetSlot.HasValue &&
@@ -333,6 +438,12 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             {
                 return item;
             }
+        }
+
+        // If targetMac was configured and valid MACs were present in the array without matching, do not steal another device
+        if (!string.IsNullOrEmpty(targetMac) && anyValidMac)
+        {
+            return default;
         }
 
         // Fallback: return the first valid JSON object in eqArray

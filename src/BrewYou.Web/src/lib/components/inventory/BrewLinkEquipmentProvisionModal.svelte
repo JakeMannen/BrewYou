@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -45,6 +46,7 @@
 	let resolvedGatewayName = $state<string | null>(null);
 	let resolvedGatewayHost = $state<string | null>(null);
 	let resolvedHardwareId = $state<string | null>(null);
+	let activeLoadId = 0;
 
 	function deviceKey(dev: BrewLinkEquipmentDeviceDto): string {
 		return `${dev.slot}-${dev.mac || ''}`;
@@ -78,33 +80,51 @@
 
 	$effect(() => {
 		if (open && gatewayId) {
-			resolvedGatewayName = gatewayName;
-			resolvedGatewayHost = gatewayHost;
-			resolvedHardwareId = hardwareGatewayId;
-			void loadDevices();
+			const targetGatewayId = gatewayId;
+			const targetSetupId = brewerySetupId;
+			const initialName = gatewayName;
+			const initialHost = gatewayHost;
+			const initialHardwareId = hardwareGatewayId;
+
+			untrack(() => {
+				resolvedGatewayName = initialName;
+				resolvedGatewayHost = initialHost;
+				resolvedHardwareId = initialHardwareId;
+				void loadDevices(targetGatewayId, targetSetupId);
+			});
 		} else if (!open) {
-			devices = [];
-			selectedMap = {};
-			errorMessage = null;
-			isLoading = false;
-			isProvisioning = false;
+			untrack(() => {
+				activeLoadId += 1;
+				devices = [];
+				selectedMap = {};
+				errorMessage = null;
+				isLoading = false;
+				isProvisioning = false;
+			});
 		}
 	});
 
-	async function loadDevices() {
-		if (!gatewayId) return;
+	async function loadDevices(targetGatewayId = gatewayId, targetSetupId = brewerySetupId) {
+		if (!targetGatewayId) return;
+		const requestId = ++activeLoadId;
+		const needsGatewayMeta = !resolvedGatewayHost || !resolvedHardwareId;
 		isLoading = true;
 		errorMessage = null;
 		try {
 			const [devicesRes, gatewaysRes] = await Promise.allSettled([
-				api.brewlink.getGatewayEquipment(gatewayId, brewerySetupId),
-				!resolvedGatewayHost || !resolvedHardwareId
-					? api.brewlink.listGateways()
-					: Promise.resolve([])
+				api.brewlink.getGatewayEquipment(targetGatewayId, targetSetupId),
+				needsGatewayMeta ? api.brewlink.listGateways() : Promise.resolve([])
 			]);
 
+			if (requestId !== activeLoadId || !open) {
+				return;
+			}
+
 			if (gatewaysRes.status === 'fulfilled' && Array.isArray(gatewaysRes.value)) {
-				const gw = gatewaysRes.value.find((g) => g.id === gatewayId);
+				const gw = gatewaysRes.value.find(
+					(g) =>
+						g.id === targetGatewayId || g.gatewayId.toLowerCase() === targetGatewayId.toLowerCase()
+				);
 				if (gw) {
 					resolvedGatewayName = resolvedGatewayName || gw.name;
 					resolvedGatewayHost = resolvedGatewayHost || gw.host;
@@ -133,7 +153,9 @@
 			}
 			selectedMap = nextSelection;
 		} finally {
-			isLoading = false;
+			if (requestId === activeLoadId) {
+				isLoading = false;
+			}
 		}
 	}
 
@@ -224,7 +246,7 @@
 				<div class="flex items-center gap-2">
 					<button
 						type="button"
-						onclick={loadDevices}
+						onclick={() => void loadDevices()}
 						disabled={isLoading || isProvisioning}
 						data-testid="brewlink-recheck-btn"
 						class="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"

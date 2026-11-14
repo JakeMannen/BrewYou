@@ -763,5 +763,131 @@ public class BrewLinkTelemetryAdversarialTests : IClassFixture<WebApplicationFac
         response.StatusCode.Should().Be(HttpStatusCode.OK, "non-string event property must not cause 500 Internal Server Error");
     }
 
+    [Fact]
+    public void ParseCanonical_And_Parse_OfflineDeviceWithZeroedState_ShouldReturnDisconnectedWithNoTemperature()
+    {
+        var parser = new BrewLinkTelemetryParser();
+        const string offlinePayload = """
+        {
+          "gateway_id": "C44F331A8B20",
+          "equipment": [
+            {
+              "slot": 1,
+              "paired": true,
+              "connected": false,
+              "name": "G30-8B22",
+              "mac": "C4:4F:33:1A:8B:22",
+              "state": {
+                "current_temp_c": 0.0,
+                "target_temp_c": 0.0,
+                "boil_temp_c": 100.0,
+                "heat_active": false,
+                "pump_active": false
+              }
+            }
+          ]
+        }
+        """;
+
+        using var doc = JsonDocument.Parse(offlinePayload);
+        var canonical = BrewLinkTelemetryParser.ParseCanonical(doc.RootElement, TestBrewLinkEquipment);
+        canonical.Should().NotBeNull();
+        canonical!.Connected.Should().BeFalse();
+        canonical.CurrentTempC.Should().BeNull();
+
+        var normalized = parser.Parse(doc.RootElement, TestBrewLinkEquipment);
+        normalized.Should().BeNull("offline equipment telemetry with zero-initialized firmware state must not emit a 0°C reading");
+    }
+
+    [Fact]
+    public void ParseCanonical_WhenOnlyOtherValidMacDevicesExist_DoesNotStealUnrelatedDeviceTemp()
+    {
+        const string mismatchPayload = """
+        {
+          "gateway_id": "C44F331A8B20",
+          "equipment": [
+            {
+              "slot": 1,
+              "paired": true,
+              "connected": true,
+              "name": "Other-Kettle",
+              "mac": "AA:BB:CC:DD:EE:FF",
+              "state": {
+                "current_temp_c": 68.5,
+                "target_temp_c": 68.0
+              }
+            }
+          ]
+        }
+        """;
+
+        using var doc = JsonDocument.Parse(mismatchPayload);
+        var canonical = BrewLinkTelemetryParser.ParseCanonical(doc.RootElement, TestBrewLinkEquipment);
+        canonical.Should().BeNull("equipment entry with a different valid MAC must not be attributed to target equipment even if slot matches");
+    }
+
+    [Fact]
+    public async Task TelemetryService_IngestBrewLinkTelemetryAsync_OfflineZeroTemp_NeverSetsZeroTempAndTracksDisconnected()
+    {
+        var (_, _, _, eq, _) = await CreateUserAndEquipmentAsync(EquipmentConnectionType.BrewLink);
+
+        const string offlinePayload = """
+        {
+          "gateway_id": "C44F331A8B20",
+          "equipment": [
+            {
+              "slot": 1,
+              "paired": true,
+              "connected": false,
+              "mac": "C4:4F:33:1A:8B:22",
+              "state": {
+                "current_temp_c": 0.0,
+                "target_temp_c": 0.0
+              }
+            }
+          ]
+        }
+        """;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+
+            // 1. Freshly provisioned offline equipment has null temperature and must remain null
+            using var offlineDoc = JsonDocument.Parse(offlinePayload);
+            var res = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, offlineDoc.RootElement);
+            res.Status.Should().Be(TelemetryIngestStatus.InvalidPayload);
+            res.ErrorMessage.Should().Contain("EQUIPMENT_OFFLINE");
+
+            var updatedEq = db.Equipment.First(e => e.Id == eq.Id);
+            updatedEq.CurrentTemperatureC.Should().BeNull();
+            updatedEq.TemperatureUpdatedAt.Should().BeNull();
+            var metrics = BrewLinkTelemetryParser.FromMetricsJson(updatedEq.LatestMetricsJson);
+            metrics.Should().NotBeNull();
+            metrics!.Connected.Should().BeFalse();
+
+            // 2. After an online telemetry update, going offline must preserve last valid temperature and mark Connected = false
+            using var onlineDoc = JsonDocument.Parse("""{"current_temp_c": 65.5, "target_temp_c": 67.0, "connected": true}""");
+            var onlineRes = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, onlineDoc.RootElement);
+            onlineRes.Status.Should().Be(TelemetryIngestStatus.Success);
+
+            var onlineEq = db.Equipment.First(e => e.Id == eq.Id);
+            await db.Entry(onlineEq).ReloadAsync();
+            onlineEq.CurrentTemperatureC.Should().Be(65.5m);
+
+            using var offlineAgainDoc = JsonDocument.Parse(offlinePayload);
+            var offRes = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, offlineAgainDoc.RootElement);
+            offRes.Status.Should().Be(TelemetryIngestStatus.InvalidPayload);
+            offRes.ErrorMessage.Should().Contain("EQUIPMENT_OFFLINE");
+
+            await db.Entry(onlineEq).ReloadAsync();
+            onlineEq.CurrentTemperatureC.Should().Be(65.5m, "going offline must not overwrite last valid temperature with 0.0");
+            var offMetrics = BrewLinkTelemetryParser.FromMetricsJson(onlineEq.LatestMetricsJson);
+            offMetrics.Should().NotBeNull();
+            offMetrics!.Connected.Should().BeFalse();
+        }
+    }
+
     #endregion
 }

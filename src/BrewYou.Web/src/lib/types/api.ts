@@ -945,7 +945,7 @@ export interface EquipmentReadingDto {
 export interface EquipmentTelemetryUpdateDto {
 	equipmentId: string;
 	equipmentName: string;
-	temperatureC: number;
+	temperatureC?: number | null;
 	timestamp: string;
 	source?: string | null;
 	batchId?: string | null;
@@ -958,6 +958,7 @@ export interface EquipmentTelemetryUpdateDto {
 	tiltDegrees?: number | null;
 	rssi?: number | null;
 	metricsJson?: string | null;
+	connected?: boolean | null;
 }
 
 export interface TelemetryPollResult {

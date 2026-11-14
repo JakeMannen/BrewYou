@@ -48,4 +48,5 @@ public interface ITelemetryService
     Task<TelemetryPollResult> PollEquipmentAsync(Guid equipmentId);
     Task<TelemetryIngestResult> IngestMqttTelemetryAsync(Guid equipmentId, string payload);
     Task<TelemetryIngestResult> IngestBrewLinkTelemetryAsync(Guid equipmentId, JsonElement payload, string source = "BrewLinkWebSocket");
+    Task SetBrewLinkConnectionStateAsync(Guid equipmentId, bool isConnected, string source = "BrewLinkStatus", CancellationToken ct = default);
 }

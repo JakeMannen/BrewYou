@@ -54,7 +54,7 @@ public sealed class EquipmentTelemetrySubscription : IDisposable
 public record EquipmentTelemetryUpdateDto(
     Guid EquipmentId,
     string EquipmentName,
-    decimal TemperatureC,
+    decimal? TemperatureC,
     DateTime Timestamp,
     string? Source = null,
     Guid? BatchId = null,
@@ -66,7 +66,8 @@ public record EquipmentTelemetryUpdateDto(
     decimal? BatteryVoltage = null,
     decimal? TiltDegrees = null,
     short? Rssi = null,
-    string? MetricsJson = null
+    string? MetricsJson = null,
+    bool? Connected = null
 );
 
 public interface ITelemetryBroadcastService

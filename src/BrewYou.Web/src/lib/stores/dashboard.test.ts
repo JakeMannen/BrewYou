@@ -373,4 +373,70 @@ describe('Dashboard Store (dashboard.svelte.ts)', () => {
 
 		expect(removeEventListenerMock).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
 	});
+
+	it('does not overwrite temperature or inject 0C on offline BrewLink SSE updates without temperatureC', async () => {
+		auth.user = {
+			id: 'u1',
+			email: 'test@brewyou.local',
+			displayName: 'Brewer',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters'
+		};
+
+		const testEquipment: EquipmentDto[] = [
+			{
+				...mockEquipment[1],
+				id: 'eq-offline',
+				currentTemperatureC: undefined,
+				temperatureUpdatedAt: undefined,
+				connectionType: 'BrewLink'
+			},
+			{
+				...mockEquipment[1],
+				id: 'eq-prev-online',
+				currentTemperatureC: 65.4,
+				temperatureUpdatedAt: '2026-11-14T18:00:00Z',
+				connectionType: 'BrewLink'
+			}
+		];
+
+		vi.mocked(api.batches.list).mockResolvedValue([]);
+		vi.mocked(api.equipment.list).mockResolvedValue(testEquipment);
+		vi.mocked(api.equipment.streamTelemetry).mockImplementationOnce(async (opts) => {
+			opts?.onReading?.({
+				equipmentId: 'eq-offline',
+				equipmentName: 'G30-OFF',
+				temperatureC: null,
+				timestamp: '2026-11-14T18:05:00Z',
+				source: 'BrewLinkPoll',
+				connected: false
+			});
+			opts?.onReading?.({
+				equipmentId: 'eq-prev-online',
+				equipmentName: 'G30-ON',
+				temperatureC: null,
+				timestamp: '2026-11-14T18:05:00Z',
+				source: 'BrewLinkWs',
+				connected: false
+			});
+		});
+
+		vi.stubGlobal('document', {
+			visibilityState: 'visible',
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn()
+		});
+
+		dashboard.init();
+		await dashboard.refreshData();
+		await Promise.resolve();
+		dashboard.destroy();
+
+		const offItem = dashboard.equipment.find((e) => e.id === 'eq-offline');
+		const prevItem = dashboard.equipment.find((e) => e.id === 'eq-prev-online');
+		expect(offItem?.currentTemperatureC).toBeUndefined();
+		expect(offItem?.temperatureUpdatedAt).toBeUndefined();
+		expect(prevItem?.currentTemperatureC).toBe(65.4);
+		expect(prevItem?.temperatureUpdatedAt).toBe('2026-11-14T18:00:00Z');
+	});
 });

@@ -248,65 +248,65 @@ public sealed class BrewLinkWebSocketManager : IBrewLinkWebSocketManager, IDispo
             }
 
             var eventName = eventElem.GetString();
-            if (string.Equals(eventName, "telemetry", StringComparison.OrdinalIgnoreCase))
+            var isTelemetry = string.Equals(eventName, "telemetry", StringComparison.OrdinalIgnoreCase);
+            var isConnectedEvent = string.Equals(eventName, "connected", StringComparison.OrdinalIgnoreCase);
+            var isDisconnectedEvent = string.Equals(eventName, "disconnected", StringComparison.OrdinalIgnoreCase);
+            var isEquipmentListEvent = string.Equals(eventName, "equipment_list", StringComparison.OrdinalIgnoreCase);
+
+            if (!isTelemetry && !isConnectedEvent && !isDisconnectedEvent && !isEquipmentListEvent)
             {
-                string? frameMac = null;
-                if (TelemetryHelper.TryGetPropertyInsensitive(root, "mac", out var macElem))
+                return;
+            }
+
+            string? frameMac = null;
+            if (TelemetryHelper.TryGetPropertyInsensitive(root, "mac", out var macElem))
+            {
+                frameMac = BrewLinkTelemetryParser.CleanMac(macElem.GetString());
+            }
+
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+
+            var candidateEquipment = await db.Equipment
+                .Where(e => e.ConnectionType == EquipmentConnectionType.BrewLink &&
+                            !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink) &&
+                            !string.IsNullOrEmpty(e.ConnectionConfigJson))
+                .ToListAsync();
+
+            if (isEquipmentListEvent)
+            {
+                foreach (var eq in candidateEquipment)
                 {
-                    frameMac = BrewLinkTelemetryParser.CleanMac(macElem.GetString());
+                    if (!MatchesGateway(eq, gateway, matchMac: false, frameMac: null))
+                    {
+                        continue;
+                    }
+
+                    if (BrewLinkTelemetryParser.TryResolveDeviceConnectionState(root, eq, out var eqConnected))
+                    {
+                        await telemetryService.SetBrewLinkConnectionStateAsync(eq.Id, eqConnected, source: "BrewLinkWebSocket");
+                    }
                 }
+                return;
+            }
 
-                using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
-                var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            var matchedEquipment = candidateEquipment.FirstOrDefault(eq => MatchesGateway(eq, gateway, matchMac: true, frameMac: frameMac));
+            if (matchedEquipment == null)
+            {
+                return;
+            }
 
-                var candidateEquipment = await db.Equipment
-                    .Where(e => e.ConnectionType == EquipmentConnectionType.BrewLink &&
-                                !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink) &&
-                                !string.IsNullOrEmpty(e.ConnectionConfigJson))
-                    .ToListAsync();
-
-                var matchedEquipment = candidateEquipment.FirstOrDefault(eq =>
-                {
-                    if (eq.Subtype == EquipmentSubtype.BrewLink)
-                    {
-                        return false;
-                    }
-
-                    try
-                    {
-                        using var configDoc = JsonDocument.Parse(eq.ConnectionConfigJson!);
-                        var configRoot = configDoc.RootElement;
-
-                        if (configRoot.TryGetProperty("brewLinkGatewayId", out var gwElem))
-                        {
-                            var gwStr = gwElem.GetString();
-                            if (!string.Equals(gwStr, gateway.Id.ToString(), StringComparison.OrdinalIgnoreCase) &&
-                                !string.Equals(gwStr, gateway.GatewayId, StringComparison.OrdinalIgnoreCase))
-                            {
-                                return false;
-                            }
-
-                            if (!string.IsNullOrEmpty(frameMac) &&
-                                (configRoot.TryGetProperty("targetMac", out var tmElem) ||
-                                 configRoot.TryGetProperty("target_mac", out tmElem)))
-                            {
-                                return string.Equals(BrewLinkTelemetryParser.CleanMac(tmElem.GetString()), frameMac, StringComparison.OrdinalIgnoreCase);
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // Ignore malformed JSON in connection config
-                    }
-
-                    return false;
-                });
-
-                if (matchedEquipment != null)
-                {
-                    await telemetryService.IngestBrewLinkTelemetryAsync(matchedEquipment.Id, root, source: "BrewLinkWebSocket");
-                }
+            if (isTelemetry)
+            {
+                await telemetryService.IngestBrewLinkTelemetryAsync(matchedEquipment.Id, root, source: "BrewLinkWebSocket");
+            }
+            else
+            {
+                await telemetryService.SetBrewLinkConnectionStateAsync(
+                    matchedEquipment.Id,
+                    isConnected: isConnectedEvent,
+                    source: "BrewLinkWebSocket");
             }
         }
         catch (JsonException ex)
@@ -317,6 +317,50 @@ public sealed class BrewLinkWebSocketManager : IBrewLinkWebSocketManager, IDispo
         {
             _logger.LogError(ex, "Error processing WebSocket frame from gateway {GatewayId}", gateway.Id);
         }
+    }
+
+    private static bool MatchesGateway(Equipment eq, BrewLinkGateway gateway, bool matchMac, string? frameMac)
+    {
+        if (eq.Subtype == EquipmentSubtype.BrewLink || string.IsNullOrWhiteSpace(eq.ConnectionConfigJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var configDoc = JsonDocument.Parse(eq.ConnectionConfigJson);
+            var configRoot = configDoc.RootElement;
+
+            if (!configRoot.TryGetProperty("brewLinkGatewayId", out var gwElem))
+            {
+                return false;
+            }
+
+            var gwStr = gwElem.GetString();
+            if (!string.Equals(gwStr, gateway.Id.ToString(), StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(gwStr, gateway.GatewayId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!matchMac)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(frameMac) &&
+                (configRoot.TryGetProperty("targetMac", out var tmElem) ||
+                 configRoot.TryGetProperty("target_mac", out tmElem)))
+            {
+                return string.Equals(BrewLinkTelemetryParser.CleanMac(tmElem.GetString()), frameMac, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch
+        {
+            // Ignore malformed JSON in connection config
+        }
+
+        return false;
     }
 
     private static async Task DelayBackoffAsync(GatewaySession session, CancellationToken ct)

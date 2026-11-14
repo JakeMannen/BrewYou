@@ -1,5 +1,6 @@
 using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Services.Telemetry;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -108,7 +109,19 @@ public class EquipmentPollingWorker : BackgroundService
                                 {
                                     var content = await res.Content.ReadAsStringAsync(cancellationToken);
                                     using var doc = JsonDocument.Parse(content);
-                                    await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, doc.RootElement, source: "BrewLinkPoll");
+                                    if (BrewLinkTelemetryParser.TryResolveDeviceConnectionState(doc.RootElement, eq, out var isDeviceConnected) &&
+                                        !isDeviceConnected)
+                                    {
+                                        await telemetryService.SetBrewLinkConnectionStateAsync(eq.Id, isConnected: false, source: "BrewLinkPoll", cancellationToken);
+                                    }
+                                    else
+                                    {
+                                        await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, doc.RootElement, source: "BrewLinkPoll");
+                                    }
+                                }
+                                else
+                                {
+                                    await telemetryService.SetBrewLinkConnectionStateAsync(eq.Id, isConnected: false, source: "BrewLinkPoll", cancellationToken);
                                 }
                             }
                         }
@@ -116,6 +129,7 @@ public class EquipmentPollingWorker : BackgroundService
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Failed to poll BrewLink fallback equipment {EquipmentId}", eq.Id);
+                        await telemetryService.SetBrewLinkConnectionStateAsync(eq.Id, isConnected: false, source: "BrewLinkPoll", cancellationToken);
                     }
                 }
                 continue;
