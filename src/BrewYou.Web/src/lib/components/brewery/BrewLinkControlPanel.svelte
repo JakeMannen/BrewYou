@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { api } from '$lib/api/client';
+	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings, celsiusToFahrenheit, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
 	import type { EquipmentDto, SendBrewLinkControlRequest } from '$lib/types/api';
@@ -171,6 +171,11 @@
 		return baseMetrics;
 	});
 	let isAutoMode = $derived(localMetrics.autoMode === true);
+	let isDeviceConnected = $derived.by(() => {
+		if (localMetrics.connected === false) return false;
+		if (localMetrics.connected === true) return true;
+		return equipment.currentTemperatureC != null || !!equipment.latestMetricsJson;
+	});
 	let interactionPlan = $derived(getInteractionActions(localMetrics.interactionCode));
 
 	let isOperating = $state(false);
@@ -216,7 +221,13 @@
 				operationSuccess = null;
 			}, 3000);
 		} catch (err: unknown) {
-			overrideMetrics = null;
+			const isOfflineError =
+				err instanceof ApiClientError &&
+				(err.status === 409 ||
+					err.status === 502 ||
+					err.code === 'EQUIPMENT_DISCONNECTED' ||
+					err.code === 'GATEWAY_ERROR');
+			overrideMetrics = isOfflineError ? { connected: false } : null;
 			operationError =
 				(err as Error).message || t('equipment.brewlink_cmd_failed', { error: 'Unknown error' });
 		} finally {
@@ -367,7 +378,7 @@
 		operationError = null;
 		try {
 			const res = await api.equipment.syncBrewLinkState(equipment.id);
-			overrideMetrics = null;
+			overrideMetrics = { connected: true };
 			if (res.temperatureC != null || res.metricsJson) {
 				equipment = {
 					...equipment,
@@ -377,6 +388,7 @@
 			}
 			onUpdate?.(equipment);
 		} catch (err: unknown) {
+			overrideMetrics = { connected: false };
 			operationError =
 				(err as Error).message || t('equipment.brewlink_cmd_failed', { error: 'Sync failed' });
 		} finally {
@@ -406,11 +418,11 @@
 				{t('equipment.brewlink_controls_title')}
 			</span>
 			<span
-				class="rounded-full px-2 py-0.5 text-[10px] font-semibold {localMetrics.connected !== false
+				class="rounded-full px-2 py-0.5 text-[10px] font-semibold {isDeviceConnected
 					? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
 					: 'bg-rose-500/15 text-rose-700 dark:text-rose-300'}"
 			>
-				{localMetrics.connected !== false
+				{isDeviceConnected
 					? t('equipment.brewlink_device_connected')
 					: t('equipment.brewlink_device_offline')}
 			</span>

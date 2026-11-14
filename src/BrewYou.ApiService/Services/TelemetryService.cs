@@ -395,6 +395,15 @@ public class TelemetryService : ITelemetryService
             return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null, "Non-BrewLink sensors cannot use BrewLink connection for telemetry.");
         }
 
+        if (payload.ValueKind == JsonValueKind.Object &&
+            BrewLinkTelemetryParser.TryResolveDeviceConnectionState(payload, equipment, out var deviceConnected) &&
+            !deviceConnected)
+        {
+            await ApplyBrewLinkConnectionStateAsync(equipment, isConnected: false, source);
+            return new TelemetryIngestResult(TelemetryIngestStatus.InvalidPayload, null,
+                "Equipment is disconnected from BrewLink gateway (EQUIPMENT_OFFLINE).");
+        }
+
         NormalizedTelemetryData? normalized = null;
         if (payload.ValueKind == JsonValueKind.Object)
         {
@@ -503,6 +512,92 @@ public class TelemetryService : ITelemetryService
             finalTempC, equipment.Id, equipment.Name, reading.Source, shouldPersist);
 
         return new TelemetryIngestResult(TelemetryIngestStatus.Success, finalTempC, null, now);
+    }
+
+    public async Task SetBrewLinkConnectionStateAsync(
+        Guid equipmentId,
+        bool isConnected,
+        string source = "BrewLinkStatus",
+        CancellationToken ct = default)
+    {
+        var equipment = await _db.Equipment
+            .Include(e => e.BrewerySetup)
+                .ThenInclude(s => s!.Members)
+            .FirstOrDefaultAsync(e => e.Id == equipmentId, ct);
+
+        if (equipment == null ||
+            equipment.ConnectionType != EquipmentConnectionType.BrewLink ||
+            equipment.Subtype == EquipmentSubtype.BrewLink)
+        {
+            return;
+        }
+
+        await ApplyBrewLinkConnectionStateAsync(equipment, isConnected, source, ct);
+    }
+
+    private async Task ApplyBrewLinkConnectionStateAsync(
+        Equipment equipment,
+        bool isConnected,
+        string source,
+        CancellationToken ct = default)
+    {
+        var existingCanonical = BrewLinkTelemetryParser.FromMetricsJson(equipment.LatestMetricsJson);
+        var stateChanged = existingCanonical?.Connected != isConnected;
+
+        if (stateChanged)
+        {
+            var updatedCanonical = existingCanonical != null
+                ? existingCanonical with { Connected = isConnected }
+                : new BrewLinkCanonicalMetrics(
+                    CurrentTempC: null,
+                    TargetTempC: null,
+                    BoilTempC: null,
+                    HeatActive: null,
+                    HeatPowerPct: null,
+                    RampActive: null,
+                    PumpActive: null,
+                    AutoMode: null,
+                    Timer: null,
+                    Stage: null,
+                    Interaction: null,
+                    Mac: null,
+                    Rssi: null,
+                    UpdatedAt: DateTime.UtcNow,
+                    Connected: isConnected
+                );
+            equipment.LatestMetricsJson = BrewLinkTelemetryParser.ToMetricsJson(updatedCanonical);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        if (!stateChanged)
+        {
+            return;
+        }
+
+        var fillPercentage = equipment.CapacityLiters > 0
+            ? Math.Round(Math.Clamp((equipment.CurrentVolumeLiters / equipment.CapacityLiters) * 100m, 0m, 100m), 1)
+            : 0m;
+
+        var update = new EquipmentTelemetryUpdateDto(
+            EquipmentId: equipment.Id,
+            EquipmentName: equipment.Name,
+            TemperatureC: equipment.CurrentTemperatureC,
+            Timestamp: DateTime.UtcNow,
+            Source: source,
+            BatchId: equipment.AssignedBatchId,
+            SpecificGravity: equipment.CurrentSpecificGravity,
+            CurrentVolumeLiters: equipment.CurrentVolumeLiters,
+            FillPercentage: fillPercentage,
+            PressureBar: equipment.CurrentPressureBar,
+            BatteryPercent: equipment.CurrentBatteryPercent,
+            BatteryVoltage: equipment.CurrentBatteryVoltage,
+            TiltDegrees: null,
+            Rssi: existingCanonical?.Rssi,
+            MetricsJson: equipment.LatestMetricsJson,
+            Connected: isConnected
+        );
+
+        BroadcastEquipmentUpdateToSetup(equipment, update);
     }
 
     public async Task<(bool Found, List<EquipmentReadingDto>? Readings)> GetEquipmentReadingsAsync(
@@ -989,12 +1084,40 @@ public class TelemetryService : ITelemetryService
         return (reading, targetTempC, recordedGravity);
     }
 
+    private void BroadcastEquipmentUpdateToSetup(Equipment equipment, EquipmentTelemetryUpdateDto update)
+    {
+        _broadcastService.BroadcastEquipmentReading(equipment.UserId, update);
+
+        if (equipment.BrewerySetup != null)
+        {
+            if (equipment.BrewerySetup.UserId != equipment.UserId)
+            {
+                _broadcastService.BroadcastEquipmentReading(equipment.BrewerySetup.UserId, update);
+            }
+
+            foreach (var member in equipment.BrewerySetup.Members)
+            {
+                if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
+                {
+                    _broadcastService.BroadcastEquipmentReading(member.UserId, update);
+                }
+            }
+        }
+    }
+
     private void BroadcastIfAssociated(EquipmentReading reading, Equipment equipment, decimal? targetTempC, decimal? gravity = null)
     {
         // 1. Broadcast to Equipment Telemetry stream for the equipment owner
         var fillPercentage = equipment.CapacityLiters > 0
             ? Math.Round(Math.Clamp((equipment.CurrentVolumeLiters / equipment.CapacityLiters) * 100m, 0m, 100m), 1)
             : 0m;
+
+        var canonical = !string.IsNullOrEmpty(reading.MetricsJson)
+            ? BrewLinkTelemetryParser.FromMetricsJson(reading.MetricsJson)
+            : null;
+        bool? connected = equipment.ConnectionType == EquipmentConnectionType.BrewLink
+            ? (canonical?.Connected ?? true)
+            : null;
 
         var equipmentUpdate = new EquipmentTelemetryUpdateDto(
             equipment.Id,
@@ -1011,25 +1134,10 @@ public class TelemetryService : ITelemetryService
             reading.BatteryVoltage,
             reading.TiltDegrees,
             reading.Rssi,
-            reading.MetricsJson
+            reading.MetricsJson,
+            connected
         );
-        _broadcastService.BroadcastEquipmentReading(equipment.UserId, equipmentUpdate);
-
-        if (equipment.BrewerySetup != null)
-        {
-            if (equipment.BrewerySetup.UserId != equipment.UserId)
-            {
-                _broadcastService.BroadcastEquipmentReading(equipment.BrewerySetup.UserId, equipmentUpdate);
-            }
-
-            foreach (var member in equipment.BrewerySetup.Members)
-            {
-                if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
-                {
-                    _broadcastService.BroadcastEquipmentReading(member.UserId, equipmentUpdate);
-                }
-            }
-        }
+        BroadcastEquipmentUpdateToSetup(equipment, equipmentUpdate);
 
         // 1b. If this equipment is a Keg, broadcast updated temperature to any connected Taps
         if (equipment.Type == EquipmentType.Keg)

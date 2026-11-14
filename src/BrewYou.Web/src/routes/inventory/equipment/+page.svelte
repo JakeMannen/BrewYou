@@ -35,6 +35,7 @@
 		Building2,
 		Thermometer,
 		Wifi,
+		WifiOff,
 		Gauge,
 		Droplets,
 		Battery,
@@ -53,6 +54,7 @@
 	let selectedCategory = $state<string>('All');
 	let searchFilter = $state('');
 	let gatewayDevicesCount = $state<Record<string, number>>({});
+	let brewLinkOnlineMap = $state<Record<string, boolean>>({});
 
 	function extractGatewayId(item: EquipmentDto): string | null {
 		if (!item.connectionConfigJson) return null;
@@ -179,6 +181,53 @@
 		provisionModalOpen = true;
 	}
 
+	function updateLatestMetricsConnected(
+		metricsJson: string | null | undefined,
+		connected: boolean
+	): string | null | undefined {
+		if (!metricsJson) return metricsJson;
+		try {
+			const parsed = JSON.parse(metricsJson);
+			if (typeof parsed === 'object' && parsed !== null) {
+				return JSON.stringify({ ...parsed, connected });
+			}
+		} catch {
+			// Ignore malformed metrics JSON
+		}
+		return metricsJson;
+	}
+
+	function setBrewLinkConnectionStatus(eq: EquipmentDto, connected: boolean) {
+		brewLinkOnlineMap = { ...brewLinkOnlineMap, [eq.id]: connected };
+		const nextMetrics = updateLatestMetricsConnected(eq.latestMetricsJson, connected);
+		if (nextMetrics !== eq.latestMetricsJson) {
+			handleEquipmentUpdate({
+				...eq,
+				latestMetricsJson: nextMetrics
+			});
+		}
+	}
+
+	async function syncBrewLinkEquipmentItem(eq: EquipmentDto) {
+		try {
+			const res = await api.equipment.syncBrewLinkState(eq.id);
+			if (res && res.synced) {
+				brewLinkOnlineMap = { ...brewLinkOnlineMap, [eq.id]: true };
+				if (res.temperatureC != null || res.metricsJson) {
+					handleEquipmentUpdate({
+						...eq,
+						currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
+						latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
+						temperatureUpdatedAt:
+							res.temperatureC != null ? new Date().toISOString() : eq.temperatureUpdatedAt
+					});
+				}
+			}
+		} catch {
+			setBrewLinkConnectionStatus(eq, false);
+		}
+	}
+
 	function handleBrewLinkProvisioned(created: EquipmentDto[]) {
 		if (created.length === 0) return;
 
@@ -193,25 +242,10 @@
 		}
 
 		for (const eq of created) {
-			void api.equipment
-				.syncBrewLinkState(eq.id)
-				.then((res) => {
-					if (res && (res.temperatureC != null || res.metricsJson)) {
-						equipmentList = equipmentList.map((item) =>
-							item.id === eq.id
-								? {
-										...item,
-										currentTemperatureC: res.temperatureC ?? item.currentTemperatureC,
-										latestMetricsJson: res.metricsJson ?? item.latestMetricsJson,
-										temperatureUpdatedAt: new Date().toISOString()
-									}
-								: item
-						);
-					}
-				})
-				.catch(() => {
-					// Background sync failure is non-fatal
-				});
+			if (eq.currentTemperatureC == null && !eq.latestMetricsJson) {
+				brewLinkOnlineMap = { ...brewLinkOnlineMap, [eq.id]: false };
+			}
+			void syncBrewLinkEquipmentItem(eq);
 		}
 
 		void loadBrewLinkGatewayDeviceCounts();
@@ -292,13 +326,16 @@
 							if (existing.subtype === 'BrewLink') {
 								return;
 							}
+							const hasNewTemp =
+								reading.temperatureC !== undefined && reading.temperatureC !== null;
 							const updatedItem: EquipmentDto = {
 								...existing,
-								currentTemperatureC:
-									reading.temperatureC !== undefined
-										? reading.temperatureC
-										: existing.currentTemperatureC,
-								temperatureUpdatedAt: reading.timestamp,
+								currentTemperatureC: hasNewTemp
+									? reading.temperatureC
+									: existing.currentTemperatureC,
+								temperatureUpdatedAt: hasNewTemp
+									? reading.timestamp
+									: existing.temperatureUpdatedAt,
 								lastTelemetryAt: reading.timestamp,
 								currentSpecificGravity:
 									reading.specificGravity !== undefined && reading.specificGravity !== null
@@ -330,6 +367,13 @@
 										: existing.fillPercentage
 							};
 							nextList[index] = updatedItem;
+							if (existing.connectionType === 'BrewLink') {
+								if (reading.connected === false) {
+									brewLinkOnlineMap = { ...brewLinkOnlineMap, [existing.id]: false };
+								} else if (reading.connected === true || hasNewTemp) {
+									brewLinkOnlineMap = { ...brewLinkOnlineMap, [existing.id]: true };
+								}
+							}
 							if (selectedBrewLinkEquipment && selectedBrewLinkEquipment.id === updatedItem.id) {
 								selectedBrewLinkEquipment = { ...selectedBrewLinkEquipment, ...updatedItem };
 							}
@@ -421,19 +465,7 @@
 				(e) => e.connectionType === 'BrewLink' && e.subtype !== 'BrewLink'
 			);
 			for (const eq of brewLinkItems) {
-				try {
-					const res = await api.equipment.syncBrewLinkState(eq.id);
-					if (res && (res.temperatureC != null || res.metricsJson)) {
-						handleEquipmentUpdate({
-							...eq,
-							currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
-							latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
-							temperatureUpdatedAt: new Date().toISOString()
-						});
-					}
-				} catch {
-					// Gateway offline or transient error
-				}
+				await syncBrewLinkEquipmentItem(eq);
 			}
 		}, 4000);
 	}
@@ -478,21 +510,7 @@
 			// Synchronize live sensor state for connected BrewLink equipment
 			for (const eq of equipmentList) {
 				if (eq.connectionType === 'BrewLink' && eq.subtype !== 'BrewLink') {
-					void api.equipment
-						.syncBrewLinkState(eq.id)
-						.then((res) => {
-							if (res && (res.temperatureC != null || res.metricsJson)) {
-								handleEquipmentUpdate({
-									...eq,
-									currentTemperatureC: res.temperatureC ?? eq.currentTemperatureC,
-									latestMetricsJson: res.metricsJson ?? eq.latestMetricsJson,
-									temperatureUpdatedAt: new Date().toISOString()
-								});
-							}
-						})
-						.catch(() => {
-							// Non-blocking sync failure (e.g. gateway offline)
-						});
+					void syncBrewLinkEquipmentItem(eq);
 				}
 			}
 		} catch (err: unknown) {
@@ -799,7 +817,11 @@
 		let statusText = t('equipment.temp_stale');
 		let dotColor = 'bg-zinc-400';
 
-		if (e.temperatureUpdatedAt) {
+		if (e.connectionType === 'BrewLink' && !isBrewLinkConnected(e)) {
+			status = 'stale';
+			statusText = t('equipment.brewlink_device_offline');
+			dotColor = 'bg-red-500';
+		} else if (e.temperatureUpdatedAt) {
 			const diffMinutes = Math.floor(
 				(Date.now() - new Date(e.temperatureUpdatedAt).getTime()) / (1000 * 60)
 			);
@@ -824,6 +846,28 @@
 			statusText,
 			dotColor
 		};
+	}
+
+	function isBrewLinkConnected(item: EquipmentDto): boolean {
+		if (item.connectionType !== 'BrewLink' || item.subtype === 'BrewLink') return false;
+		if (item.id in brewLinkOnlineMap) {
+			return brewLinkOnlineMap[item.id];
+		}
+		if (item.latestMetricsJson) {
+			try {
+				const parsed = JSON.parse(item.latestMetricsJson);
+				if (
+					typeof parsed === 'object' &&
+					parsed !== null &&
+					typeof parsed.connected === 'boolean'
+				) {
+					return parsed.connected;
+				}
+			} catch {
+				// Ignore malformed JSON
+			}
+		}
+		return item.currentTemperatureC != null && item.temperatureUpdatedAt != null;
 	}
 
 	function isMqttConnected(item: EquipmentDto): boolean {
@@ -1229,12 +1273,21 @@
 													MQTT
 												</span>
 											{:else if item.connectionType === 'BrewLink'}
+												{@const brewLinkConnected = isBrewLinkConnected(item)}
 												<span
 													data-testid="equipment-brewlink-tag"
-													class="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
-													title={t('equipment.conn_brewlink')}
+													class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold {brewLinkConnected
+														? 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400'
+														: 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400'}"
+													title={brewLinkConnected
+														? t('equipment.brewlink_device_connected')
+														: t('equipment.brewlink_device_offline')}
 												>
-													<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+													<span
+														class="h-1.5 w-1.5 rounded-full {brewLinkConnected
+															? 'bg-sky-500'
+															: 'bg-red-500'}"
+													></span>
 													{t('equipment.brewlink_tag')}
 												</span>
 											{/if}
@@ -1297,14 +1350,23 @@
 									{/if}
 								</div>
 							{:else if item.connectionType && item.connectionType !== 'None'}
+								{@const brewLinkOffline =
+									item.connectionType === 'BrewLink' && !isBrewLinkConnected(item)}
 								<div
 									class="mt-3 flex items-center justify-between rounded-xl border border-dashed border-zinc-200 bg-zinc-50/50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/30"
 								>
 									<div class="flex items-center gap-2">
-										<Wifi class="h-3.5 w-3.5 text-zinc-400" />
-										<span class="text-[11px] text-zinc-500 dark:text-zinc-400">
-											{t('equipment.awaiting_telemetry')}
-										</span>
+										{#if brewLinkOffline}
+											<WifiOff class="h-3.5 w-3.5 text-red-500" />
+											<span class="text-[11px] font-medium text-red-600 dark:text-red-400">
+												{t('equipment.brewlink_device_offline')}
+											</span>
+										{:else}
+											<Wifi class="h-3.5 w-3.5 text-zinc-400" />
+											<span class="text-[11px] text-zinc-500 dark:text-zinc-400">
+												{t('equipment.awaiting_telemetry')}
+											</span>
+										{/if}
 									</div>
 									{#if item.connectionType === 'Mqtt'}
 										<span
@@ -1326,12 +1388,21 @@
 											MQTT
 										</span>
 									{:else if item.connectionType === 'BrewLink'}
+										{@const brewLinkConnected = isBrewLinkConnected(item)}
 										<span
 											data-testid="equipment-brewlink-tag"
-											class="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400"
-											title={t('equipment.conn_brewlink')}
+											class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold {brewLinkConnected
+												? 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400'
+												: 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400'}"
+											title={brewLinkConnected
+												? t('equipment.brewlink_device_connected')
+												: t('equipment.brewlink_device_offline')}
 										>
-											<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
+											<span
+												class="h-1.5 w-1.5 rounded-full {brewLinkConnected
+													? 'bg-sky-500'
+													: 'bg-red-500'}"
+											></span>
 											{t('equipment.brewlink_tag')}
 										</span>
 									{:else}
