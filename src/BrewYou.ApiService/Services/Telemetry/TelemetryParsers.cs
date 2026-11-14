@@ -10,6 +10,11 @@ public static class TelemetryHelper
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
+            if (element.TryGetProperty(propertyName, out value))
+            {
+                return true;
+            }
+
             foreach (var prop in element.EnumerateObject())
             {
                 if (string.Equals(prop.Name, propertyName, StringComparison.OrdinalIgnoreCase))
