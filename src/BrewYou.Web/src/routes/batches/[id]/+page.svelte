@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
+	import { settings, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import type {
 		BatchDetailDto,
@@ -145,6 +145,21 @@
 
 	async function handleLogStepTemperature(req: LogBatchTemperatureRequest) {
 		if (!batch) return;
+
+		// Updating an already-completed mash step uses toggleMashStep to preserve the 409 guard on equipment readings
+		if (req.stage === 'Mash' && req.batchMashStepId && batch.mashSteps) {
+			const idx = batch.mashSteps.findIndex((s) => s.id === req.batchMashStepId);
+			if (idx !== -1 && batch.mashSteps[idx].isCompleted) {
+				const updatedStep = await api.batches.toggleMashStep(batch.id, req.batchMashStepId, {
+					isCompleted: true,
+					actualTemperatureC: req.temperatureC,
+					notes: req.notes ?? null
+				});
+				batch.mashSteps[idx] = updatedStep;
+				return;
+			}
+		}
+
 		const saved = await api.batches.logEquipmentReading(batch.id, req);
 		if (!batchEquipmentReadings.some((r) => r.id === saved.id)) {
 			batchEquipmentReadings = [...batchEquipmentReadings, saved];
@@ -223,6 +238,8 @@
 	let savingReading = $state(false);
 	let readingError = $state<string | null>(null);
 	let newReadingSg = $state(1.02);
+	let newReadingTemp = $state<number | '' | null>('');
+	let newReadingTimestamp = $state('');
 	let newReadingNotes = $state('');
 
 	let activeFermentorSensor = $derived.by(() => {
@@ -241,6 +258,14 @@
 		const b = batch;
 		if (!b?.hltId) return null;
 		return equipmentList.find((e) => e.id === b.hltId) ?? null;
+	});
+
+	let isPastBatch = $derived.by<boolean>(() => {
+		if (!batch?.brewDate) return false;
+		const datePart = batch.brewDate.slice(0, 10);
+		const now = new Date();
+		const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+		return datePart < todayStr;
 	});
 
 	let activeStageBrewLinkEquipment = $derived.by<EquipmentDto | null>(() => {
@@ -274,7 +299,7 @@
 		message: string;
 		code?: number;
 	} | null>(() => {
-		if (!batch || equipmentList.length === 0) return null;
+		if (!batch || !isBrewLinkOnline || equipmentList.length === 0) return null;
 
 		// Prioritize inspected stage equipment if available
 		const priorityEq = activeStageBrewLinkEquipment;
@@ -627,10 +652,16 @@
 	}
 
 	function startBrewLinkAutoSync() {
-		if (brewLinkSyncTimer || !batch || batch.status === 'Completed' || batch.status === 'Archived')
+		if (
+			brewLinkSyncTimer ||
+			!batch ||
+			isPastBatch ||
+			batch.status === 'Completed' ||
+			batch.status === 'Archived'
+		)
 			return;
 		brewLinkSyncTimer = setInterval(async () => {
-			if (document.visibilityState === 'hidden' || !batch) return;
+			if (document.visibilityState === 'hidden' || !batch || isPastBatch) return;
 			const targetEq = activeStageBrewLinkEquipment;
 			if (targetEq) {
 				try {
@@ -665,7 +696,7 @@
 					for (const r of latest) {
 						handleNewTelemetryReading(r);
 					}
-					if (activeStageBrewLinkEquipment) {
+					if (!isPastBatch && activeStageBrewLinkEquipment) {
 						const res = await api.equipment.syncBrewLinkState(activeStageBrewLinkEquipment.id);
 						if (res && (res.temperatureC != null || res.metricsJson)) {
 							handleEquipmentUpdate({
@@ -682,7 +713,9 @@
 					// Transient gap recovery error ignored
 				}
 				startLiveTelemetryStream();
-				startBrewLinkAutoSync();
+				if (!isPastBatch) {
+					startBrewLinkAutoSync();
+				}
 			}
 		} else {
 			stopLiveTelemetryStream();
@@ -694,7 +727,9 @@
 		await loadBatch();
 		if (batch && batch.status !== 'Completed' && batch.status !== 'Archived') {
 			startLiveTelemetryStream();
-			startBrewLinkAutoSync();
+			if (!isPastBatch) {
+				startBrewLinkAutoSync();
+			}
 		}
 		if (typeof document !== 'undefined') {
 			document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1058,6 +1093,15 @@
 		}
 	});
 
+	let isBrewLinkOnline = $derived(
+		Boolean(
+			!isPastBatch &&
+			activeStageBrewLinkEquipment &&
+			activeStageBrewLinkMetrics !== null &&
+			activeStageBrewLinkMetrics.connected !== false
+		)
+	);
+
 	let brewLinkTimer = $derived.by(() => {
 		const m = activeStageBrewLinkMetrics;
 		if (!m) return null;
@@ -1079,7 +1123,7 @@
 	let isBrewLinkTimerStage = $derived(inspectedStage === 'Boil' || inspectedStage === 'Mash');
 
 	let isBrewLinkTimerActive = $derived(
-		isBrewLinkTimerStage && Boolean(activeStageBrewLinkEquipment && brewLinkTimer)
+		isBrewLinkTimerStage && isBrewLinkOnline && Boolean(brewLinkTimer)
 	);
 
 	let activeTimerView = $derived.by(() => {
@@ -1239,7 +1283,12 @@
 
 	// Synchronize boil step index with BrewLink stage telemetry if available
 	$effect(() => {
-		if (inspectedStage === 'Boil' && activeStageBrewLinkMetrics && boilSteps.length > 0) {
+		if (
+			inspectedStage === 'Boil' &&
+			isBrewLinkOnline &&
+			activeStageBrewLinkMetrics &&
+			boilSteps.length > 0
+		) {
 			const stg = activeStageBrewLinkMetrics.stage;
 			if (
 				stg?.stepIndex !== undefined &&
@@ -1284,20 +1333,27 @@
 	let isBoilComplete = $derived.by<boolean>(() => {
 		const stepsDone = boilSteps.length === 0 || boilSteps.every((s) => s.isCompleted);
 		const timerDone =
-			!brewLinkTimer || (!brewLinkTimer.active && brewLinkTimer.remainingSeconds <= 0);
+			!isBrewLinkOnline ||
+			!brewLinkTimer ||
+			(!brewLinkTimer.active && brewLinkTimer.remainingSeconds <= 0);
 		return stepsDone && timerDone;
 	});
 
 	let isAdvanceStageBlocked = $derived.by<boolean>(() => {
 		if (!batch || isReadOnlyBatch) return false;
-		if (batch.currentStage === 'Mash' && isMashControlledByBrewLink) {
+		if (batch.currentStage === 'Mash' && isMashControlledByBrewLink && isBrewLinkOnline) {
 			return !isMashComplete;
 		}
 		return false;
 	});
 
 	let advanceStageBlockedReason = $derived.by<string>(() => {
-		if (batch?.currentStage === 'Mash' && isMashControlledByBrewLink && !isMashComplete) {
+		if (
+			batch?.currentStage === 'Mash' &&
+			isMashControlledByBrewLink &&
+			isBrewLinkOnline &&
+			!isMashComplete
+		) {
 			return t('batches.workspace.brewlink_mash_in_progress');
 		}
 		return '';
@@ -1313,7 +1369,7 @@
 			batch.currentStage === 'Mash' &&
 			isMashControlledByBrewLink &&
 			isMashComplete &&
-			!activeStageBrewLinkMetrics?.interaction?.required
+			!(isBrewLinkOnline && activeStageBrewLinkMetrics?.interaction?.required)
 		) {
 			advanceToBoilAutomatically();
 		}
@@ -1321,7 +1377,12 @@
 
 	// Auto-complete current mash step when BrewLink hardware timer finishes
 	$effect(() => {
-		if (inspectedStage === 'Mash' && isMashControlledByBrewLink && brewLinkTimer) {
+		if (
+			inspectedStage === 'Mash' &&
+			isMashControlledByBrewLink &&
+			isBrewLinkOnline &&
+			brewLinkTimer
+		) {
 			if (brewLinkTimer.active && brewLinkTimer.remainingSeconds > 0) {
 				mashTimerHadRun = true;
 			} else if (mashTimerHadRun && !brewLinkTimer.active && brewLinkTimer.remainingSeconds <= 0) {
@@ -1455,19 +1516,31 @@
 		if (!batch || isReadOnlyBatch || advancing || isAutoAdvancingToBoil) return;
 		if (batch.currentStage !== 'Mash' || !isMashControlledByBrewLink) return;
 		if (!isMashComplete) return;
-		if (activeStageBrewLinkMetrics?.interaction?.required) return;
+		if (isBrewLinkOnline && activeStageBrewLinkMetrics?.interaction?.required) return;
 
 		isAutoAdvancingToBoil = true;
 		advancing = true;
 		try {
-			const req: AdvanceBatchStageRequest = {
-				targetStage: 'Boil'
-			};
 			const previousStage = batch.currentStage;
-			const [updated, eq] = await Promise.all([
-				api.batches.advanceStage(batch.id, req),
+			const [latestBatch, eq] = await Promise.all([
+				api.batches.getById(batch.id),
 				api.equipment.list().catch(() => equipmentList)
 			]);
+			if (latestBatch.currentStage !== 'Mash') {
+				batchTimer.pauseStage(batch.id, previousStage);
+				batch = latestBatch;
+				equipmentList = eq;
+				inspectedStage = latestBatch.currentStage;
+				determineNextStage(latestBatch.currentStage);
+				showAdvanceModal = false;
+				return;
+			}
+
+			const req: AdvanceBatchStageRequest = {
+				targetStage: 'Boil',
+				force: !isBrewLinkOnline
+			};
+			const updated = await api.batches.advanceStage(batch.id, req);
 			batchTimer.pauseStage(batch.id, previousStage);
 			batch = updated;
 			equipmentList = eq;
@@ -1484,7 +1557,7 @@
 
 	async function handleAdvanceMashStep() {
 		if (!batch?.mashSteps || activeMashStepIndex >= batch.mashSteps.length) return;
-		if (activeStageBrewLinkEquipment && inspectedStage === 'Mash') {
+		if (isBrewLinkOnline && inspectedStage === 'Mash') {
 			showConfirmAdvanceMashStepModal = true;
 			return;
 		}
@@ -1611,6 +1684,7 @@
 			batch.currentStage === 'Boil' &&
 			nextStage === 'Ferment' &&
 			isBoilControlledByBrewLink &&
+			isBrewLinkOnline &&
 			!isBoilComplete;
 
 		if (isBoilActive && !hasConfirmedActiveBoil) {
@@ -1626,8 +1700,12 @@
 		if (!batch || isAdvanceStageBlocked) return;
 		advancing = true;
 		advanceError = null;
+		const effectiveForce =
+			force ||
+			!isBrewLinkOnline ||
+			(batch.currentStage === 'Mash' && isMashControlledByBrewLink && !isMashComplete);
 
-		if (force && activeStageBrewLinkEquipment) {
+		if (effectiveForce && isBrewLinkOnline && activeStageBrewLinkEquipment) {
 			try {
 				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 					action: 'cancel_timer'
@@ -1657,7 +1735,7 @@
 				measuredPreBoilGravity: nextStage === 'Boil' ? advancePreBoilGravity : null,
 				measuredPostBoilVolumeLiters: nextStage === 'Ferment' ? advancePostBoilVolume : null,
 				measuredPackagedVolumeLiters: nextStage === 'Package' ? advancePackagedVolume : null,
-				force
+				force: effectiveForce
 			};
 			const previousStage = batch.currentStage;
 			const [updated, eq] = await Promise.all([
@@ -1673,6 +1751,17 @@
 			showConfirmAdvanceActiveBoilModal = false;
 			hasConfirmedActiveBoil = false;
 		} catch (err: unknown) {
+			const refreshed = await api.batches.getById(batch.id).catch(() => null);
+			if (refreshed && refreshed.currentStage !== batch.currentStage) {
+				batchTimer.pauseStage(batch.id, batch.currentStage);
+				batch = refreshed;
+				inspectedStage = refreshed.currentStage;
+				determineNextStage(refreshed.currentStage);
+				showAdvanceModal = false;
+				showConfirmAdvanceActiveBoilModal = false;
+				hasConfirmedActiveBoil = false;
+				return;
+			}
 			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
 				advanceError = err.details.map((d) => `${d.field}: ${d.issue}`).join(', ');
 			} else {
@@ -1686,6 +1775,8 @@
 
 	function openReadingModal() {
 		newReadingSg = batch?.currentGravity ?? batch?.targetFg ?? 1.015;
+		newReadingTemp = '';
+		newReadingTimestamp = '';
 		newReadingNotes = '';
 		readingError = null;
 		showReadingModal = true;
@@ -1696,10 +1787,24 @@
 		savingReading = true;
 		readingError = null;
 		try {
+			const parsedTemp =
+				newReadingTemp !== null && newReadingTemp !== '' && !Number.isNaN(Number(newReadingTemp))
+					? Number(newReadingTemp)
+					: null;
+			const temperatureC =
+				parsedTemp !== null
+					? Number(
+							(settings.temperatureUnit === 'Fahrenheit'
+								? fahrenheitToCelsius(parsedTemp)
+								: parsedTemp
+							).toFixed(2)
+						)
+					: null;
 			const req: AddBatchReadingRequest = {
 				specificGravity: newReadingSg,
-				temperatureC: null,
-				notes: newReadingNotes.trim() || null
+				temperatureC,
+				notes: newReadingNotes.trim() || null,
+				timestamp: newReadingTimestamp ? new Date(newReadingTimestamp).toISOString() : null
 			};
 			const newReading = await api.batches.addReading(batch.id, req);
 			batch.readings = [...batch.readings, newReading];
@@ -1719,7 +1824,7 @@
 
 	async function startTimer() {
 		if (!batch) return;
-		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
+		if (isBrewLinkOnline && activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
 			try {
 				if (brewLinkTimer?.paused) {
 					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
@@ -1762,10 +1867,10 @@
 						mashStep.targetTemperatureC
 					);
 				}
+				return;
 			} catch (err: unknown) {
 				console.error('Failed to start BrewLink timer', err);
 			}
-			return;
 		}
 		batchTimer.start(
 			batch.id,
@@ -1777,7 +1882,7 @@
 
 	function handlePauseTimerClick() {
 		if (!batch) return;
-		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
+		if (isBrewLinkOnline && isBrewLinkTimerActive) {
 			showConfirmPauseTimerModal = true;
 			return;
 		}
@@ -1786,17 +1891,17 @@
 
 	async function confirmPauseTimer() {
 		showConfirmPauseTimerModal = false;
-		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
+		if (isBrewLinkOnline && isBrewLinkTimerActive && activeStageBrewLinkEquipment) {
 			try {
 				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 					action: 'pause_timer'
 				});
 				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
 				handleEquipmentUpdate(updated);
+				return;
 			} catch (err: unknown) {
 				console.error('Failed to pause BrewLink timer', err);
 			}
-			return;
 		}
 		pauseTimer();
 	}
@@ -1808,7 +1913,7 @@
 
 	function handleResetTimerClick() {
 		if (!batch) return;
-		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
+		if (isBrewLinkOnline && isBrewLinkTimerActive) {
 			showConfirmResetTimerModal = true;
 			return;
 		}
@@ -1817,17 +1922,17 @@
 
 	async function confirmResetTimer() {
 		showConfirmResetTimerModal = false;
-		if (activeStageBrewLinkEquipment && isBrewLinkTimerStage) {
+		if (isBrewLinkOnline && isBrewLinkTimerActive && activeStageBrewLinkEquipment) {
 			try {
 				await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 					action: 'cancel_timer'
 				});
 				const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
 				handleEquipmentUpdate(updated);
+				return;
 			} catch (err: unknown) {
 				console.error('Failed to reset BrewLink timer', err);
 			}
-			return;
 		}
 		resetTimer();
 	}
@@ -1843,7 +1948,7 @@
 	}
 
 	async function handleAdvanceBoilStep() {
-		if (activeStageBrewLinkEquipment) {
+		if (isBrewLinkOnline) {
 			showConfirmAdvanceBoilStepModal = true;
 			return;
 		}
@@ -2307,6 +2412,15 @@
 							</button>
 						</div>
 					</div>
+
+					{#if !isBrewLinkOnline}
+						<div
+							data-testid="offline-equipment-notice"
+							class="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/15 dark:text-amber-300"
+						>
+							{t('batches.workspace.offline_equipment_notice')}
+						</div>
+					{/if}
 
 					{#if showBatchBrewLinkControls}
 						<div class="mt-4 border-t border-sky-500/20 pt-4">
@@ -2852,7 +2966,7 @@
 				<!-- Brew Day Boil Panel -->
 				<div class="space-y-6">
 					<!-- BrewLink Equipment Interaction / Alert Prompt Banner -->
-					{#if activeStageBrewLinkMetrics?.interaction?.required}
+					{#if isBrewLinkOnline && activeStageBrewLinkMetrics?.interaction?.required}
 						<div
 							class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/15 p-4 text-amber-900 shadow-md dark:bg-amber-500/20 dark:text-amber-100"
 							data-testid="boil-brewlink-interaction-banner"
@@ -4079,6 +4193,39 @@
 						step="0.001"
 						bind:value={newReadingSg}
 						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+					/>
+				</div>
+
+				<div>
+					<label
+						for="reading-temp-input"
+						class="block font-semibold text-zinc-700 dark:text-zinc-300"
+					>
+						{t('batches.workspace.reading_temp_unit_label', { unit: settings.tempShort })}
+					</label>
+					<input
+						id="reading-temp-input"
+						data-testid="reading-temp-input"
+						type="number"
+						step="0.1"
+						bind:value={newReadingTemp}
+						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+					/>
+				</div>
+
+				<div>
+					<label
+						for="reading-timestamp-input"
+						class="block font-semibold text-zinc-700 dark:text-zinc-300"
+					>
+						{t('batches.workspace.reading_timestamp_label')}
+					</label>
+					<input
+						id="reading-timestamp-input"
+						data-testid="reading-timestamp-input"
+						type="datetime-local"
+						bind:value={newReadingTimestamp}
+						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 					/>
 				</div>
 

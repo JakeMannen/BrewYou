@@ -780,6 +780,8 @@ public class TelemetryService : ITelemetryService
         decimal? targetTempC = null;
         decimal? recordedGravity = gravity;
 
+        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
+
         // Check if this equipment is currently in use for the active stage of an in-progress batch
         var activeBatch = await _db.Batches
             .Include(b => b.MashSteps)
@@ -790,8 +792,8 @@ public class TelemetryService : ITelemetryService
                 (b.UserId == equipment.UserId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
                 (b.Status == BatchStatus.Brewing || b.Status == BatchStatus.Fermenting || b.Status == BatchStatus.Conditioning) &&
                 (
-                    ((equipment.Id == b.MashTunId || equipment.Id == b.BoilerId || equipment.Id == b.HltId) && b.CurrentStage == BrewStage.Mash) ||
-                    (equipment.Id == b.BoilerId && b.CurrentStage == BrewStage.Boil) ||
+                    ((equipment.Id == b.MashTunId || equipment.Id == b.BoilerId || equipment.Id == b.HltId) && b.CurrentStage == BrewStage.Mash && b.BrewDate >= todayUtc) ||
+                    (equipment.Id == b.BoilerId && b.CurrentStage == BrewStage.Boil && b.BrewDate >= todayUtc) ||
                     (equipment.Id == b.FermenterId && (b.CurrentStage == BrewStage.Ferment || b.CurrentStage == BrewStage.Condition)) ||
                     (equipment.Id == b.PackagingVesselId && b.CurrentStage == BrewStage.Package) ||
                     ((equipment.Type == EquipmentType.Sensor || equipment.Type == EquipmentType.Other) && b.SensorAssignments.Any(sa =>

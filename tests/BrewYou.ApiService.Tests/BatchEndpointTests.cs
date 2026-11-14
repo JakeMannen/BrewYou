@@ -2017,4 +2017,344 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var manualBatchState = (await getManualBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
         manualBatchState.CurrentStage.Should().Be(BrewStage.Mash);
     }
+
+    [Fact]
+    public async Task StartBatchFromPastDate_AndProgressStepsOffline_Succeeds()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+        var pastDate = new DateOnly(2025, 5, 10);
+
+        // 1. Verify next batch code endpoint respects historical brew date
+        var codeRes = await client.GetAsync("/api/v1/batches/next-code?date=2025-05-10");
+        codeRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var codeEnv = await codeRes.Content.ReadFromJsonAsync<ApiResponse<NextBatchCodeResponse>>();
+        codeEnv!.Data!.BatchCode.Should().Be("B-2025-05-10-01");
+
+        // 2. Create a BrewLink boiler with cached metrics from an earlier live brew day
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Offline BrewLink Boiler {Guid.NewGuid():N}",
+            Type: EquipmentType.Boiler,
+            Capacity: 40
+        ));
+        eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var entity = await db.Equipment.FindAsync(boiler.Id);
+            entity!.ConnectionType = EquipmentConnectionType.BrewLink;
+            entity.CurrentTemperatureC = 44.0m;
+            entity.TemperatureUpdatedAt = DateTime.UtcNow;
+            entity.LatestMetricsJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                connected = true,
+                timer = new { active = true, remainingSeconds = 1200, totalSeconds = 3600 },
+                interaction = new { required = true, message = "Add grain" }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 3. Create a batch with BrewDate in the past and incomplete mash steps
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Historical Paper Sheet Batch",
+            BeerStyle: "Czech Pilsner",
+            BrewDate: pastDate,
+            TargetBatchSizeLiters: 20,
+            TargetOg: 1.048m,
+            TargetFg: 1.011m,
+            TargetAbv: 4.8m,
+            TargetIbu: 35,
+            TargetColorSrm: 4,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75,
+            BoilerId: boiler.Id,
+            FermenterId: null,
+            CustomMashSteps:
+            [
+                new(1, "Protein Rest", MashStepType.Temperature, 52.0m, 15),
+                new(2, "Saccharification", MashStepType.Temperature, 66.0m, 60)
+            ]
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        batch.BrewDate.Should().Be(pastDate);
+        batch.BatchCode.Should().Be("B-2025-05-10-01");
+        batch.CurrentStage.Should().Be(BrewStage.Mash);
+
+        // Creating a past-date batch must NOT seed a current-time BrewLinkInitial baseline reading on step 1
+        var initialReadingsRes = await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings");
+        initialReadingsRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var initialReadings = (await initialReadingsRes.Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        initialReadings.Should().BeEmpty();
+
+        // 4. Unforced advance from Mash -> Boil succeeds on past-date batches even with incomplete mash steps and cached connected=true metrics
+        var unforcedBoilRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Boil, Force: false));
+        unforcedBoilRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var advanced = (await unforcedBoilRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        advanced.CurrentStage.Should().Be(BrewStage.Boil);
+
+        // 5. Log step temperature without explicit EquipmentId and with historical UTC timestamp
+        var historicalBoilTime = new DateTime(2025, 5, 10, 14, 30, 0, DateTimeKind.Utc);
+        var eqReadingRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+            new LogBatchTemperatureRequest(
+                TemperatureC: 99.6m,
+                EquipmentId: null,
+                Stage: BrewStage.Boil,
+                BatchMashStepId: null,
+                StepName: "Kettle Boil",
+                Timestamp: historicalBoilTime,
+                Notes: "Entered from paper brew sheet",
+                TargetTemperatureC: 100.0m
+            ));
+        eqReadingRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var eqReading = (await eqReadingRes.Content.ReadFromJsonAsync<ApiResponse<BatchEquipmentReadingDto>>())!.Data!;
+        eqReading.TemperatureC.Should().Be(99.6m);
+        eqReading.Timestamp.ToUniversalTime().Should().Be(historicalBoilTime);
+
+        // Unforced advance from Boil -> Ferment also succeeds on past-date batches despite cached active boil timer in LatestMetricsJson
+        var unforcedFermentRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.049m, Force: false));
+        unforcedFermentRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fermentBatch = (await unforcedFermentRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        fermentBatch.CurrentStage.Should().Be(BrewStage.Ferment);
+
+        // Completing the final mash step on a past-date batch auto-advances to Boil even with cached interaction.required = true
+        var autoBatchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Historical Mash Toggle Batch",
+            BeerStyle: "Czech Pilsner",
+            BrewDate: pastDate,
+            TargetBatchSizeLiters: 20,
+            TargetOg: null,
+            TargetFg: null,
+            TargetAbv: null,
+            TargetIbu: null,
+            TargetColorSrm: null,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: null,
+            BoilerId: boiler.Id,
+            FermenterId: null,
+            CustomMashSteps: [new(1, "Single Infusion", MashStepType.Temperature, 66.0m, 60)]
+        ));
+        autoBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var autoBatch = (await autoBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        var autoToggleRes = await client.PatchAsJsonAsync($"/api/v1/batches/{autoBatch.Id}/mash-steps/{autoBatch.MashSteps.First().Id}",
+            new ToggleBatchMashStepRequest(true));
+        autoToggleRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var refreshedAutoBatch = (await (await client.GetAsync($"/api/v1/batches/{autoBatch.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        refreshedAutoBatch.CurrentStage.Should().Be(BrewStage.Boil);
+
+        // 7. Log gravity reading with TemperatureC and historical UTC timestamp
+        var historicalGravityTime = new DateTime(2025, 5, 10, 17, 15, 0, DateTimeKind.Utc);
+        var gravityRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/readings",
+            new AddBatchReadingRequest(
+                Timestamp: historicalGravityTime,
+                SpecificGravity: 1.049m,
+                TemperatureC: 20.4m,
+                Notes: "OG sample into fermenter"
+            ));
+        gravityRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var gravityDto = (await gravityRes.Content.ReadFromJsonAsync<ApiResponse<BatchReadingDto>>())!.Data!;
+        gravityDto.SpecificGravity.Should().Be(1.049m);
+        gravityDto.TemperatureC.Should().Be(20.4m);
+        gravityDto.Timestamp.ToUniversalTime().Should().Be(historicalGravityTime);
+
+        // 8. User with zero equipment can still log batch step temperature via auto-created fallback kettle
+        var (noEqClient, _, _) = await CreateUserAsync();
+        var noEqBatchRes = await noEqClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "No Equipment Paper Batch",
+            BeerStyle: "Amber Ale",
+            BrewDate: pastDate,
+            TargetBatchSizeLiters: 20,
+            TargetOg: null,
+            TargetFg: null,
+            TargetAbv: null,
+            TargetIbu: null,
+            TargetColorSrm: null,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: null,
+            BoilerId: null,
+            FermenterId: null,
+            CustomMashSteps: [new(1, "Single Infusion", MashStepType.Temperature, 67.0m, 60)]
+        ));
+        noEqBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var noEqBatch = (await noEqBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var fallbackReadingRes = await noEqClient.PostAsJsonAsync($"/api/v1/batches/{noEqBatch.Id}/equipment-readings",
+            new LogBatchTemperatureRequest(
+                TemperatureC: 66.8m,
+                EquipmentId: null,
+                Stage: BrewStage.Mash,
+                BatchMashStepId: noEqBatch.MashSteps.First().Id,
+                StepName: "Single Infusion",
+                Timestamp: historicalBoilTime,
+                Notes: "Thermometer manual reading"
+            ));
+        fallbackReadingRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fallbackReading = (await fallbackReadingRes.Content.ReadFromJsonAsync<ApiResponse<BatchEquipmentReadingDto>>())!.Data!;
+        fallbackReading.TemperatureC.Should().Be(66.8m);
+        fallbackReading.Timestamp.ToUniversalTime().Should().Be(historicalBoilTime);
+    }
+
+    [Fact]
+    public async Task PastDateBatch_WithOccupiedEquipmentFromOngoingBatch_DoesNotClobberLiveEquipmentVolumesOrAssignment()
+    {
+        var (client, _, boilerId, fermenterId, kegId) = await CreateAuthenticatedUserWithEquipmentAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var pastDate = new DateOnly(2025, 4, 15);
+
+        // 1. Live Batch A occupies the Keg in Package stage (18.5L)
+        var liveKegBatchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Live Packaged Pilsner",
+            BeerStyle: "Czech Pilsner",
+            BrewDate: today,
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.050m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.2m,
+            TargetIbu: 35m,
+            TargetColorSrm: 4m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: boilerId,
+            FermenterId: fermenterId
+        ));
+        liveKegBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var liveKegBatchId = (await liveKegBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!.Id;
+
+        var pkgRes = await client.PatchAsJsonAsync($"/api/v1/batches/{liveKegBatchId}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: kegId, MeasuredPackagedVolumeLiters: 18.5m));
+        pkgRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 2. Live Batch B occupies the Fermenter in Ferment stage (21.0L)
+        var liveFermBatchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Live Fermenting IPA",
+            BeerStyle: "American IPA",
+            BrewDate: today,
+            TargetBatchSizeLiters: 21m,
+            TargetOg: 1.062m,
+            TargetFg: 1.012m,
+            TargetAbv: 6.5m,
+            TargetIbu: 55m,
+            TargetColorSrm: 7m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: boilerId,
+            FermenterId: fermenterId
+        ));
+        liveFermBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var liveFermBatchId = (await liveFermBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!.Id;
+
+        var fermRes = await client.PatchAsJsonAsync($"/api/v1/batches/{liveFermBatchId}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredBatchSizeLiters: 21.0m));
+        fermRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 3. Live Batch C occupies the Boiler in Mash stage
+        var liveMashBatchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Live Mashing Stout",
+            BeerStyle: "Irish Stout",
+            BrewDate: today,
+            TargetBatchSizeLiters: 22m,
+            TargetOg: 1.045m,
+            TargetFg: 1.011m,
+            TargetAbv: 4.5m,
+            TargetIbu: 38m,
+            TargetColorSrm: 35m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 72m,
+            BoilerId: boilerId,
+            FermenterId: null
+        ));
+        liveMashBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        async Task<(decimal BoilerVol, decimal FermenterVol, decimal KegVol, Guid? KegAssignedBatchId)> ReadEquipmentSnapshotAsync()
+        {
+            var b = (await (await client.GetAsync($"/api/v1/inventory/equipment/{boilerId}"))
+                .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+            var f = (await (await client.GetAsync($"/api/v1/inventory/equipment/{fermenterId}"))
+                .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+            var k = (await (await client.GetAsync($"/api/v1/inventory/equipment/{kegId}"))
+                .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+            return (b.CurrentVolumeLiters, f.CurrentVolumeLiters, k.CurrentVolumeLiters, k.AssignedBatchId);
+        }
+
+        var baseline = await ReadEquipmentSnapshotAsync();
+        baseline.BoilerVol.Should().BeGreaterThan(0m);
+        baseline.FermenterVol.Should().Be(21.0m);
+        baseline.KegVol.Should().Be(18.5m);
+        baseline.KegAssignedBatchId.Should().Be(liveKegBatchId);
+
+        // 4. Create a past-date batch using all three currently occupied vessels
+        var pastCreateRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "Historical Amber Log",
+            BeerStyle: "Amber Ale",
+            BrewDate: pastDate,
+            TargetBatchSizeLiters: 12m,
+            TargetOg: 1.050m,
+            TargetFg: 1.012m,
+            TargetAbv: 5.0m,
+            TargetIbu: 28m,
+            TargetColorSrm: 12m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 70m,
+            BoilerId: boilerId,
+            FermenterId: fermenterId,
+            PackagingVesselId: kegId
+        ));
+        pastCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var pastBatch = (await pastCreateRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+
+        // 5. Advance past-date batch through Boil -> Ferment -> Condition -> Package
+        var toBoil = await client.PatchAsJsonAsync($"/api/v1/batches/{pastBatch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Boil, MeasuredPreBoilVolumeLiters: 15.0m));
+        toBoil.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+
+        var toFerment = await client.PatchAsJsonAsync($"/api/v1/batches/{pastBatch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.051m, MeasuredBatchSizeLiters: 12.0m));
+        toFerment.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+
+        var toCondition = await client.PatchAsJsonAsync($"/api/v1/batches/{pastBatch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Condition));
+        toCondition.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+
+        var toPackage = await client.PatchAsJsonAsync($"/api/v1/batches/{pastBatch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, MeasuredFg: 1.012m, PackagingVesselId: kegId, MeasuredPackagedVolumeLiters: 11.0m));
+        toPackage.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+
+        // 6. Update packaged volume on the past-date batch
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/batches/{pastBatch.Id}", new UpdateBatchRequest(
+            MeasuredPackagedVolumeLiters: 10.5m,
+            PackagingVesselId: kegId,
+            Notes: "Updated paper volume"
+        ));
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+
+        // 7. Delete past-date batch — must not reset live equipment volumes or keg assignment
+        var delRes = await client.DeleteAsync($"/api/v1/batches/{pastBatch.Id}");
+        delRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
+    }
 }

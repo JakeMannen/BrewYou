@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { setupAuthenticatedSession } from './fixtures/auth';
-import type { BatchDetailDto } from '$lib/types/api';
+import type { BatchDetailDto, EquipmentDto, RecipeDetailDto } from '$lib/types/api';
 
 test.describe('Batch Step Progression & Stage Navigation', () => {
 	const batchId = 'batch-progression-test-1';
@@ -612,5 +612,726 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 		await expect(readingModal).toBeHidden();
 
 		await expect(triggerBadge).toBeVisible();
+	});
+});
+
+test.describe('Printable Recipe Brew Sheet, Past-Date Batch & Offline Progression', () => {
+	const recipeId = 'recipe-print-test-1';
+	const offlineBatchId = 'batch-offline-test-1';
+	const offlineBoilerId = 'boiler-brewlink-offline-1';
+
+	test('scales printable brew sheet and carries target settings to past-date new batch wizard', async ({
+		page
+	}) => {
+		const mockRecipe: RecipeDetailDto = {
+			id: recipeId,
+			name: 'Nordic Lager',
+			description: 'Crisp Bohemian pilsner for brew sheet verification.',
+			beerStyle: 'Czech Premium Pale Lager',
+			batchSizeLiters: 20,
+			originalGravity: 1.049,
+			finalGravity: 1.011,
+			alcoholByVolume: 5.0,
+			bitternessIbu: 36,
+			colorSrm: 4,
+			isPublic: false,
+			createdAt: '2026-01-01T10:00:00Z',
+			updatedAt: '2026-01-01T10:00:00Z',
+			boilTimeMinutes: 60,
+			efficiencyPercent: 75,
+			ingredients: [
+				{
+					id: 'ri-1',
+					ingredientId: 'ing-pils',
+					ingredientName: 'Bohemian Pilsner Malt',
+					ingredientType: 'Fermentable',
+					amount: 5.0,
+					unit: 'kg',
+					usage: 'Mash'
+				},
+				{
+					id: 'ri-2',
+					ingredientId: 'ing-saaz',
+					ingredientName: 'Saaz',
+					ingredientType: 'Hop',
+					amount: 40,
+					unit: 'g',
+					durationMinutes: 60,
+					usage: 'Boil',
+					form: 'Pellet'
+				}
+			],
+			mashSteps: [
+				{
+					id: 'rms-1',
+					recipeId,
+					stepOrder: 1,
+					name: 'Beta Amylase Rest',
+					type: 'Temperature',
+					temperatureC: 63,
+					durationMinutes: 45
+				}
+			],
+			fermentationSteps: [
+				{
+					id: 'rfs-1',
+					recipeId,
+					stepOrder: 1,
+					name: 'Lager Primary',
+					type: 'Primary',
+					targetTemperatureC: 10,
+					durationDays: 14
+				}
+			]
+		};
+
+		const offlineBoiler: EquipmentDto = {
+			id: offlineBoilerId,
+			brewerySetupId: 'setup-1',
+			name: 'Grainfather G30',
+			type: 'Boiler',
+			subtype: 'AllInOne',
+			capacity: 30,
+			unit: 'Liters',
+			capacityLiters: 30,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			boilOffRatePerHour: 3.0,
+			trubLossLiters: 1.5,
+			mashTunDeadSpaceLiters: 3.5,
+			fillPercentage: 0,
+			connectionType: 'BrewLink',
+			latestMetricsJson: null,
+			createdAt: '2026-01-01T10:00:00Z',
+			updatedAt: '2026-01-01T10:00:00Z'
+		};
+
+		await setupAuthenticatedSession(page);
+
+		await page.route(`**/api/v1/recipes/${recipeId}`, async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: mockRecipe })
+			});
+		});
+
+		await page.route('**/api/v1/recipes', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [mockRecipe] })
+			});
+		});
+
+		await page.route('**/api/v1/ingredients*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [] })
+			});
+		});
+
+		await page.route('**/api/v1/inventory/equipment*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [offlineBoiler] })
+			});
+		});
+
+		await page.route('**/api/v1/batches/next-code*', async (route) => {
+			const url = new URL(route.request().url());
+			const date = url.searchParams.get('date') || '2026-10-01';
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: { batchCode: `B-${date}-01` } })
+			});
+		});
+
+		await page.route('**/api/v1/batches/check-stock', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: { hasShortage: false, shortages: [] } })
+			});
+		});
+
+		// 1. Navigate to Recipe Detail and click Print Brew Sheet button
+		await page.goto(`/recipes/${recipeId}`);
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		const printBtn = page.locator('[data-testid="print-recipe-btn"]');
+		await expect(printBtn).toBeVisible();
+		await printBtn.click();
+
+		await page.waitForURL(`**/recipes/${recipeId}/print`);
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		const sheet = page.locator('[data-testid="printable-brew-sheet"]');
+		await expect(sheet).toBeVisible();
+		await expect(page.locator('[data-testid="print-mash-steps-table"]')).toBeVisible();
+		await expect(page.locator('[data-testid="print-gravity-log-table"]')).toBeVisible();
+
+		// 2. Scale batch size to 40L and switch basis to packaged
+		await page.locator('[data-testid="print-batch-size-input"]').fill('40');
+		await page.locator('[data-testid="print-volume-basis-select"]').selectOption('packaged');
+
+		await expect(page.locator('[data-testid="print-mash-section"]')).toContainText('10');
+
+		const startBatchLink = page.locator('[data-testid="print-start-batch-btn"]');
+		await expect(startBatchLink).toHaveAttribute(
+			'href',
+			/\/batches\/new\?recipeId=recipe-print-test-1&batchSize=40(?:\.00)?&basis=packaged/
+		);
+		await startBatchLink.click();
+
+		// 3. Verify Batch New wizard pre-fills batchSize and handles past brew date
+		await page.waitForURL('**/batches/new*');
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		await expect(page.locator('#batch-size')).toHaveValue('40');
+
+		await page.locator('#brew-date').fill('2025-05-10');
+		await page.locator('#brew-date').dispatchEvent('change');
+
+		await expect(page.locator('[data-testid="past-brew-date-notice"]')).toBeVisible();
+		await expect(page.locator('#batch-code')).toHaveValue('B-2025-05-10-01');
+
+		// Proceed to Step 2 and confirm BrewLink send toggle is disabled for past date
+		await page
+			.locator('button')
+			.filter({ hasText: /Next|Nästa/i })
+			.first()
+			.click();
+		await page.locator('#boiler-select').selectOption(offlineBoilerId);
+		const sendToggle = page.locator('[data-testid="brewlink-send-toggle"]');
+		await expect(sendToggle).toBeDisabled();
+		await expect(sendToggle).not.toBeChecked();
+	});
+
+	test('allows progressing mash steps, advancing stage, timer, and historical metric logging when BrewLink is offline', async ({
+		page
+	}) => {
+		const capturedStageForces: boolean[] = [];
+		const capturedTempTimestamps: Array<string | null> = [];
+		const capturedReadingPayloads: Array<{
+			specificGravity: number;
+			temperatureC?: number | null;
+			timestamp?: string | null;
+		}> = [];
+
+		const offlineBoiler: EquipmentDto = {
+			id: offlineBoilerId,
+			brewerySetupId: 'setup-1',
+			name: 'Grainfather G30',
+			type: 'Boiler',
+			subtype: 'AllInOne',
+			capacity: 30,
+			unit: 'Liters',
+			capacityLiters: 30,
+			currentVolume: 20,
+			currentVolumeLiters: 20,
+			boilOffRatePerHour: 3.0,
+			trubLossLiters: 1.5,
+			mashTunDeadSpaceLiters: 3.5,
+			fillPercentage: 67,
+			connectionType: 'BrewLink',
+			latestMetricsJson: JSON.stringify({
+				connected: true,
+				timer: { active: true, remainingSeconds: 600, totalSeconds: 3600 },
+				interaction: { required: true, message: 'Stale prompt' }
+			}),
+			createdAt: '2026-01-01T10:00:00Z',
+			updatedAt: '2026-01-01T10:00:00Z'
+		};
+
+		const offlineBatch: BatchDetailDto = {
+			id: offlineBatchId,
+			userId: 'test-user-1',
+			recipeId: 'recipe-test-1',
+			recipeName: 'Offline Brew Day Ale',
+			batchCode: 'B-2025-05-10-01',
+			name: 'Offline Brew Day Ale',
+			beerStyle: 'American Pale Ale',
+			status: 'Brewing',
+			currentStage: 'Mash',
+			brewDate: '2025-05-10T09:00:00Z',
+			daysActive: 100,
+			targetOg: 1.054,
+			targetFg: 1.012,
+			targetAbv: 5.5,
+			targetIbu: 40,
+			targetColorSrm: 6,
+			targetBatchSizeLiters: 20,
+			boilTimeMinutes: 60,
+			efficiencyPercent: 75,
+			measuredOg: null,
+			currentGravity: null,
+			measuredFg: null,
+			alcoholByVolume: null,
+			brewhouseEfficiency: null,
+			measuredBatchSizeLiters: 20,
+			pitchTemperatureC: 19.0,
+			boilerId: offlineBoilerId,
+			boilerName: 'Grainfather G30',
+			notes: 'Offline paper recovery',
+			createdAt: '2025-05-10T09:00:00Z',
+			updatedAt: '2025-05-10T09:00:00Z',
+			readings: [],
+			ingredients: [],
+			mashSteps: [
+				{
+					id: 'omash-1',
+					batchId: offlineBatchId,
+					stepOrder: 1,
+					name: 'Protein Rest',
+					type: 'Temperature',
+					targetTemperatureC: 50,
+					durationMinutes: 20,
+					isCompleted: false
+				},
+				{
+					id: 'omash-2',
+					batchId: offlineBatchId,
+					stepOrder: 2,
+					name: 'Saccharification',
+					type: 'Temperature',
+					targetTemperatureC: 65,
+					durationMinutes: 60,
+					isCompleted: false
+				}
+			],
+			fermentationSteps: [
+				{
+					id: 'oferm-1',
+					batchId: offlineBatchId,
+					stepOrder: 1,
+					name: 'Primary',
+					type: 'Primary',
+					targetTemperatureC: 19,
+					durationDays: 10,
+					isCompleted: false
+				}
+			],
+			stageHistory: [],
+			sensorAssignments: []
+		};
+
+		await setupAuthenticatedSession(page);
+
+		await page.route(`**/api/v1/batches/${offlineBatchId}`, async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: offlineBatch })
+			});
+		});
+
+		await page.route('**/api/v1/inventory/equipment*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [offlineBoiler] })
+			});
+		});
+
+		await page.route(`**/api/v1/batches/${offlineBatchId}/mash-steps/*`, async (route) => {
+			const stepId = route.request().url().split('/').pop()?.split('?')[0];
+			const postData = route.request().postDataJSON() || {};
+			const step = offlineBatch.mashSteps.find((s) => s.id === stepId);
+			if (step) {
+				step.isCompleted =
+					postData.isCompleted !== undefined ? postData.isCompleted : !step.isCompleted;
+				if (postData.actualTemperatureC !== undefined) {
+					step.actualTemperatureC = postData.actualTemperatureC;
+				}
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: step })
+			});
+		});
+
+		await page.route(`**/api/v1/batches/${offlineBatchId}/stage*`, async (route) => {
+			const postData = route.request().postDataJSON() || {};
+			capturedStageForces.push(Boolean(postData.force));
+			offlineBatch.currentStage = postData.targetStage || 'Boil';
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: offlineBatch })
+			});
+		});
+
+		await page.route(`**/api/v1/batches/${offlineBatchId}/equipment-readings*`, async (route) => {
+			if (route.request().method() === 'POST') {
+				const postData = route.request().postDataJSON() || {};
+				capturedTempTimestamps.push(postData.timestamp ?? null);
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({
+						success: true,
+						data: {
+							id: 'eq-read-1',
+							equipmentId: offlineBoilerId,
+							equipmentName: 'Grainfather G30',
+							batchId: offlineBatchId,
+							stage: postData.stage ?? 'Mash',
+							batchMashStepId: postData.batchMashStepId ?? null,
+							stepName: postData.stepName ?? 'Protein Rest',
+							temperatureC: postData.temperatureC,
+							timestamp: postData.timestamp ?? '2025-05-10T10:15:00Z',
+							source: 'Manual',
+							targetTemperatureC: postData.targetTemperatureC ?? null,
+							notes: postData.notes ?? null
+						}
+					})
+				});
+				return;
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [] })
+			});
+		});
+
+		await page.route(`**/api/v1/batches/${offlineBatchId}/readings*`, async (route) => {
+			if (route.request().method() === 'POST') {
+				const postData = route.request().postDataJSON() || {};
+				capturedReadingPayloads.push(postData);
+				const reading = {
+					id: 'read-offline-1',
+					batchId: offlineBatchId,
+					timestamp: postData.timestamp ?? '2025-05-10T16:30:00Z',
+					specificGravity: postData.specificGravity,
+					temperatureC: postData.temperatureC ?? null,
+					notes: postData.notes ?? null,
+					createdAt: '2025-05-10T16:30:00Z',
+					alcoholByVolume: 5.2
+				};
+				offlineBatch.readings.push(reading);
+				offlineBatch.currentGravity = reading.specificGravity;
+				await route.fulfill({
+					status: 201,
+					contentType: 'application/json',
+					body: JSON.stringify({ success: true, data: reading })
+				});
+				return;
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [] })
+			});
+		});
+
+		await page.goto(`/batches/${offlineBatchId}`);
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		// Offline/past-date BrewLink equipment shows informative banner, hides stale hardware prompts, and does NOT block stage advancement
+		await expect(page.locator('[data-testid="offline-equipment-notice"]')).toBeVisible();
+		await expect(page.locator('[data-testid="advance-stage-blocked-banner"]')).toBeHidden();
+		await expect(page.getByText('Stale prompt')).toBeHidden();
+
+		// Local timer starts cleanly even with assigned BrewLink equipment offline
+		const timerPanel = page.locator('[data-testid="mash-timer-panel"]');
+		await timerPanel.getByRole('button', { name: /Start|Starta/i }).click();
+
+		// Advance Mash Step 1 directly without hardware confirm modal
+		await page.locator('[data-testid="advance-mash-step-btn"]').click();
+		await expect(page.locator('[data-testid="mash-step-checkbox-omash-1"]')).toBeChecked();
+		await expect(page.locator('[data-testid="active-step-name"]')).toHaveText('Saccharification');
+
+		// Log step temperature with historical timestamp for active step 2
+		const step2Row = page.locator('[data-testid="mash-step-row-omash-2"]');
+		await step2Row.locator('button[title]').first().click();
+		const tempModal = page.locator('div[role="dialog"]');
+		await tempModal.locator('[data-testid="log-temp-timestamp-input"]').fill('2025-05-10T10:15');
+		await tempModal.locator('button[type="submit"]').click();
+		await expect(tempModal).toBeHidden();
+		expect(capturedTempTimestamps).toHaveLength(1);
+		expect(capturedTempTimestamps[0]).toContain('2025-05-10');
+
+		// Advance stage from Mash -> Boil even though Mash step 2 is incomplete (forced offline override)
+		await page.locator('[data-testid="advance-stage-btn"]').click();
+		await page.locator('[data-testid="confirm-advance-stage-btn"]').click();
+		expect(capturedStageForces).toContain(true);
+		await expect(page.locator('[data-testid="stage-node-boil"]')).toHaveAttribute(
+			'aria-current',
+			'step'
+		);
+		await expect(page.locator('[data-testid="boil-brewlink-interaction-banner"]')).toBeHidden();
+
+		// Advance stage from Boil -> Ferment without triggering stale active-boil-timer confirmation modal
+		await page.locator('[data-testid="advance-stage-btn"]').click();
+		await page.locator('[data-testid="confirm-advance-stage-btn"]').click();
+		await expect(page.locator('[data-testid="stage-node-ferment"]')).toHaveAttribute(
+			'aria-current',
+			'step'
+		);
+
+		// Log gravity reading with temperature & historical timestamp
+		await page.locator('[data-testid="log-sg-reading-btn"]').click();
+		const sgModal = page.locator('div[role="dialog"]');
+		await sgModal.locator('input[type="number"]').first().fill('1.050');
+		await sgModal.locator('[data-testid="reading-temp-input"]').fill('20.5');
+		await sgModal.locator('[data-testid="reading-timestamp-input"]').fill('2025-05-10T16:30');
+		await sgModal.locator('[data-testid="submit-reading-btn"]').click();
+		await expect(sgModal).toBeHidden();
+
+		expect(capturedReadingPayloads).toHaveLength(1);
+		expect(capturedReadingPayloads[0].specificGravity).toBe(1.05);
+		expect(capturedReadingPayloads[0].temperatureC).toBe(20.5);
+		expect(capturedReadingPayloads[0].timestamp).toContain('2025-05-10');
+	});
+
+	test('hides equipment occupancy badges and warnings for past brew dates and allows starting with occupied vessels', async ({
+		page
+	}) => {
+		const occupiedBoilerId = 'eq-occupied-boiler-1';
+		const occupiedFermenterId = 'eq-occupied-fermenter-1';
+		const occupiedKegId = 'eq-occupied-keg-1';
+		const capturedCreatePayloads: Array<Record<string, unknown>> = [];
+
+		const occupiedBoiler: EquipmentDto = {
+			id: occupiedBoilerId,
+			brewerySetupId: 'setup-1',
+			name: 'Busy Kettle 40L',
+			type: 'Boiler',
+			subtype: 'AllInOne',
+			capacity: 40,
+			unit: 'Liters',
+			capacityLiters: 40,
+			currentVolume: 28,
+			currentVolumeLiters: 28,
+			boilOffRatePerHour: 3.0,
+			trubLossLiters: 1.5,
+			mashTunDeadSpaceLiters: 3.5,
+			fillPercentage: 70,
+			connectionType: 'None',
+			latestMetricsJson: null,
+			createdAt: '2026-01-01T10:00:00Z',
+			updatedAt: '2026-01-01T10:00:00Z'
+		};
+
+		const occupiedFermenter: EquipmentDto = {
+			id: occupiedFermenterId,
+			brewerySetupId: 'setup-1',
+			name: 'Busy Fermenter 30L',
+			type: 'Fermenter',
+			subtype: 'ConicalFermenter',
+			capacity: 30,
+			unit: 'Liters',
+			capacityLiters: 30,
+			currentVolume: 20,
+			currentVolumeLiters: 20,
+			fillPercentage: 67,
+			connectionType: 'None',
+			latestMetricsJson: null,
+			createdAt: '2026-01-01T10:00:00Z',
+			updatedAt: '2026-01-01T10:00:00Z'
+		};
+
+		const occupiedKeg: EquipmentDto = {
+			id: occupiedKegId,
+			brewerySetupId: 'setup-1',
+			name: 'Busy Corny Keg 19L',
+			type: 'Keg',
+			subtype: 'Cornelius',
+			capacity: 19,
+			unit: 'Liters',
+			capacityLiters: 19,
+			currentVolume: 18,
+			currentVolumeLiters: 18,
+			packagingLossLiters: 0.5,
+			fillPercentage: 95,
+			connectionType: 'None',
+			latestMetricsJson: null,
+			createdAt: '2026-01-01T10:00:00Z',
+			updatedAt: '2026-01-01T10:00:00Z'
+		};
+
+		const createdPastBatch: BatchDetailDto = {
+			id: 'past-occupied-batch-1',
+			userId: 'test-user-1',
+			batchCode: 'B-2025-05-10-01',
+			name: 'Past Batch With Occupied Vessels',
+			beerStyle: 'American IPA',
+			status: 'Brewing',
+			currentStage: 'Mash',
+			brewDate: '2025-05-10T00:00:00Z',
+			daysActive: 100,
+			targetOg: 1.05,
+			targetFg: 1.01,
+			targetAbv: 5.25,
+			targetIbu: 35,
+			targetColorSrm: 6,
+			targetBatchSizeLiters: 20,
+			boilTimeMinutes: 60,
+			efficiencyPercent: 72,
+			boilerId: occupiedBoilerId,
+			fermenterId: occupiedFermenterId,
+			packagingVesselId: occupiedKegId,
+			createdAt: '2025-05-10T00:00:00Z',
+			updatedAt: '2025-05-10T00:00:00Z',
+			readings: [],
+			ingredients: [],
+			mashSteps: [],
+			fermentationSteps: [],
+			stageHistory: [],
+			sensorAssignments: []
+		};
+
+		await setupAuthenticatedSession(page);
+
+		await page.route('**/api/v1/recipes*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [] })
+			});
+		});
+
+		await page.route('**/api/v1/ingredients*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [] })
+			});
+		});
+
+		await page.route('**/api/v1/inventory/equipment*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					success: true,
+					data: [occupiedBoiler, occupiedFermenter, occupiedKeg]
+				})
+			});
+		});
+
+		await page.route('**/api/v1/batches/next-code*', async (route) => {
+			const url = new URL(route.request().url());
+			const date = url.searchParams.get('date') || '2026-11-14';
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: { batchCode: `B-${date}-01` } })
+			});
+		});
+
+		await page.route('**/api/v1/batches/check-stock', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: { hasShortage: false, shortages: [] } })
+			});
+		});
+
+		await page.route('**/api/v1/batches', async (route) => {
+			if (route.request().method() === 'POST') {
+				const postData = route.request().postDataJSON() as Record<string, unknown>;
+				capturedCreatePayloads.push(postData);
+				await route.fulfill({
+					status: 201,
+					contentType: 'application/json',
+					body: JSON.stringify({
+						success: true,
+						data: createdPastBatch
+					})
+				});
+				return;
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ success: true, data: [] })
+			});
+		});
+
+		await page.route('**/api/v1/batches/past-occupied-batch-1*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					success: true,
+					data: createdPastBatch
+				})
+			});
+		});
+
+		await page.goto('/batches/new');
+		await page.locator('[data-hydrated="true"]').waitFor({ timeout: 10000 });
+
+		// Step 1: Ad-hoc mode with today's date first
+		await page.locator('#batch-name').fill('Past Batch With Occupied Vessels');
+		await page
+			.locator('button')
+			.filter({ hasText: /Next|Nästa/i })
+			.first()
+			.click();
+
+		// Step 2 (today's date): selecting occupied vessels shows In Use / Occupied badges and warning
+		await page.locator('#boiler-select').selectOption(occupiedBoilerId);
+		await page.locator('#fermenter-select').selectOption(occupiedFermenterId);
+		await page.locator('#packaging-vessel-select').selectOption(occupiedKegId);
+
+		await expect(page.locator('#boiler-summary')).toContainText(/In Use|Används/i);
+		await expect(page.locator('#fermenter-summary')).toContainText(/Occupied|Upptagen/i);
+		await expect(page.locator('#packaging-vessel-summary')).toContainText(/In Use|Används/i);
+		await expect(page.locator('[data-testid="fermenter-occupied-warning"]')).toBeVisible();
+
+		// Go back to Step 1 and switch Brew Date to a past date
+		await page
+			.locator('button')
+			.filter({ hasText: /Previous|Back|Föregående|Tillbaka/i })
+			.first()
+			.click();
+		await page.locator('#brew-date').fill('2025-05-10');
+		await page.locator('#brew-date').dispatchEvent('change');
+		await expect(page.locator('[data-testid="past-brew-date-notice"]')).toBeVisible();
+
+		await page
+			.locator('button')
+			.filter({ hasText: /Next|Nästa/i })
+			.first()
+			.click();
+
+		// Step 2 (past date): occupied badges, suffixes, and warning are hidden for the same vessels
+		await expect(page.locator('#boiler-summary')).not.toContainText(/In Use|Används/i);
+		await expect(page.locator('#fermenter-summary')).not.toContainText(/Occupied|Upptagen/i);
+		await expect(page.locator('#packaging-vessel-summary')).not.toContainText(/In Use|Används/i);
+		await expect(page.locator('[data-testid="fermenter-occupied-warning"]')).toBeHidden();
+		await expect(page.locator('#boiler-select option:checked')).not.toContainText(
+			/In use|Används/i
+		);
+		await expect(page.locator('#fermenter-select option:checked')).not.toContainText(
+			/Occupied|Upptagen/i
+		);
+
+		// Step 3: Submit batch and confirm occupied vessels are accepted for past date
+		await page
+			.locator('button')
+			.filter({ hasText: /Next|Nästa/i })
+			.first()
+			.click();
+		await page
+			.locator('button')
+			.filter({ hasText: /Start Batch|Starta bryggning/i })
+			.first()
+			.click();
+
+		await page.waitForURL('**/batches/past-occupied-batch-1');
+		expect(capturedCreatePayloads).toHaveLength(1);
+		expect(capturedCreatePayloads[0].boilerId).toBe(occupiedBoilerId);
+		expect(capturedCreatePayloads[0].fermenterId).toBe(occupiedFermenterId);
+		expect(capturedCreatePayloads[0].packagingVesselId).toBe(occupiedKegId);
+		expect(capturedCreatePayloads[0].brewDate).toBe('2025-05-10');
 	});
 });
