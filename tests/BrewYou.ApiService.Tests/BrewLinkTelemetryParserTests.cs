@@ -586,4 +586,55 @@ public class BrewLinkTelemetryParserTests
         var roundTripped = JsonSerializer.Deserialize<BrewLinkCanonicalMetrics>(json, BrewLinkTelemetryParser.JsonOptions);
         roundTripped.Should().BeEquivalentTo(canonical, options => options.Using<DateTime>(ctx => ctx.Subject.Should().BeCloseTo(ctx.Expectation, TimeSpan.FromMilliseconds(50))).WhenTypeIs<DateTime>());
     }
+
+    [Fact]
+    public void Parse_G30FlagsAndErrorCode_ExtractsFromNestedFlagsAndFlatState()
+    {
+        var parser = new BrewLinkTelemetryParser();
+        using var nestedDoc = JsonDocument.Parse("""
+        {
+            "event": "telemetry",
+            "mac": "C44F331A8B22",
+            "state": {
+                "temperature": { "current_c": 65.0, "target_c": 65.0, "boil_c": 100.0 },
+                "flags": {
+                    "delayed_heat": true,
+                    "interrupted": true,
+                    "manual_power": true,
+                    "sparge_alert": true
+                },
+                "error_code": 261
+            }
+        }
+        """);
+
+        var nestedResult = parser.Parse(nestedDoc.RootElement, TestBrewLinkEquipment);
+        nestedResult.Should().NotBeNull();
+        var nestedCanonical = JsonSerializer.Deserialize<BrewLinkCanonicalMetrics>(nestedResult!.MetricsJson!, BrewLinkTelemetryParser.JsonOptions);
+        nestedCanonical!.DelayedHeat.Should().BeTrue();
+        nestedCanonical.Interrupted.Should().BeTrue();
+        nestedCanonical.ManualPower.Should().BeTrue();
+        nestedCanonical.SpargeAlert.Should().BeTrue();
+        nestedCanonical.ErrorCode.Should().Be(261);
+
+        using var flatDoc = JsonDocument.Parse("""
+        {
+            "current_temp_c": 99.0,
+            "delayed_heat": false,
+            "interrupted": false,
+            "manual_power": false,
+            "sparge_alert": true,
+            "error_code": 0
+        }
+        """);
+
+        var flatResult = parser.Parse(flatDoc.RootElement, TestBrewLinkEquipment);
+        flatResult.Should().NotBeNull();
+        var flatCanonical = JsonSerializer.Deserialize<BrewLinkCanonicalMetrics>(flatResult!.MetricsJson!, BrewLinkTelemetryParser.JsonOptions);
+        flatCanonical!.DelayedHeat.Should().BeFalse();
+        flatCanonical.Interrupted.Should().BeFalse();
+        flatCanonical.ManualPower.Should().BeFalse();
+        flatCanonical.SpargeAlert.Should().BeTrue();
+        flatCanonical.ErrorCode.Should().Be(0);
+    }
 }

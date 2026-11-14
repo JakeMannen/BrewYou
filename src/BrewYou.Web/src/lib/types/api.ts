@@ -761,6 +761,29 @@ export interface BrewLinkEquipmentDeviceDto {
 	rssi?: number | null;
 	capabilities: BrewLinkEquipmentCapabilitiesDto;
 	state?: BrewLinkEquipmentStateDto | null;
+	existingEquipmentId?: string | null;
+	existingEquipmentName?: string | null;
+	mappedEquipmentType?: EquipmentType;
+	mappedSubtype?: EquipmentSubtype;
+	recommendedCapacityLiters?: number;
+}
+
+export interface ProvisionBrewLinkDeviceItem {
+	slot: number;
+	mac?: string | null;
+	name?: string | null;
+	model?: string | null;
+	equipmentType?: string | null;
+}
+
+export interface ProvisionBrewLinkEquipmentRequest {
+	brewerySetupId: string;
+	devices: ProvisionBrewLinkDeviceItem[];
+}
+
+export interface ProvisionBrewLinkEquipmentResultDto {
+	createdEquipment: EquipmentDto[];
+	skippedExistingIds: string[];
 }
 
 export interface StartBrewLinkPairingRequest {
@@ -787,15 +810,21 @@ export type BrewLinkControlAction =
 	| 'set_pump'
 	| 'set_heat'
 	| 'set_target_temp'
+	| 'temp_up'
+	| 'temp_down'
+	| 'delayed_heat'
 	| 'set_timer'
 	| 'pause_timer'
 	| 'resume_timer'
+	| 'toggle_timer'
 	| 'cancel_timer'
 	| 'press_set'
 	| 'ack_interaction'
 	| 'dismiss_alert'
 	| 'dismiss_sparge_alert'
-	| 'cancel_session';
+	| 'cancel_session'
+	| 'disconnect_manual'
+	| 'disconnect_auto';
 
 export interface SendBrewLinkControlRequest {
 	action: BrewLinkControlAction | string;
@@ -803,6 +832,8 @@ export interface SendBrewLinkControlRequest {
 	powerPct?: number | null;
 	tempC?: number | null;
 	durationMin?: number | null;
+	minutes?: number | null;
+	seconds?: number | null;
 	params?: Record<string, unknown> | null;
 }
 

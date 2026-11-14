@@ -39,7 +39,12 @@ public sealed record BrewLinkCanonicalMetrics(
     [property: JsonPropertyName("interaction")] BrewLinkInteractionMetrics? Interaction,
     [property: JsonPropertyName("mac")] string? Mac,
     [property: JsonPropertyName("rssi")] short? Rssi,
-    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
+    [property: JsonPropertyName("delayedHeat")] bool? DelayedHeat = null,
+    [property: JsonPropertyName("interrupted")] bool? Interrupted = null,
+    [property: JsonPropertyName("manualPower")] bool? ManualPower = null,
+    [property: JsonPropertyName("spargeAlert")] bool? SpargeAlert = null,
+    [property: JsonPropertyName("errorCode")] int? ErrorCode = null
 );
 
 public class BrewLinkTelemetryParser : ITelemetryParser
@@ -173,10 +178,12 @@ public class BrewLinkTelemetryParser : ITelemetryParser
         }
 
         // 2. Resolve nested state object
+        var hasNestedState = false;
         if (TelemetryHelper.TryGetPropertyInsensitive(deviceElem, "state", out var nestedState) &&
             nestedState.ValueKind == JsonValueKind.Object)
         {
             stateElem = nestedState;
+            hasNestedState = true;
         }
 
         // 3. Extract MAC address safely
@@ -209,9 +216,7 @@ public class BrewLinkTelemetryParser : ITelemetryParser
         var extractedUpdatedAt = ExtractTimestamp(deviceElem, stateElem);
 
         // 6. Extract Temperatures
-        var currentTempC = ExtractTemperature(stateElem, "current");
-        var targetTempC = ExtractTemperature(stateElem, "target");
-        var boilTempC = ExtractTemperature(stateElem, "boil");
+        ExtractTemperatures(stateElem, out var currentTempC, out var targetTempC, out var boilTempC);
 
         // 7. Extract Heating
         ExtractHeating(stateElem, out var heatActive, out var heatPowerPct, out var rampActive);
@@ -231,6 +236,10 @@ public class BrewLinkTelemetryParser : ITelemetryParser
         // 12. Extract Interaction
         var interaction = ExtractInteraction(stateElem);
 
+        // 13. Extract G30 flags and controller error code (Section 6.1.1 / 6.1.2)
+        ExtractFlags(stateElem, deviceElem, hasNestedState, out var delayedHeat, out var interrupted, out var manualPower, out var spargeAlert);
+        var errorCode = ExtractErrorCode(stateElem, deviceElem, hasNestedState);
+
         return new BrewLinkCanonicalMetrics(
             CurrentTempC: currentTempC,
             TargetTempC: targetTempC,
@@ -245,7 +254,12 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             Interaction: interaction,
             Mac: extractedMac,
             Rssi: extractedRssi,
-            UpdatedAt: extractedUpdatedAt
+            UpdatedAt: extractedUpdatedAt,
+            DelayedHeat: delayedHeat,
+            Interrupted: interrupted,
+            ManualPower: manualPower,
+            SpargeAlert: spargeAlert,
+            ErrorCode: errorCode
         );
     }
 
@@ -333,29 +347,64 @@ public class BrewLinkTelemetryParser : ITelemetryParser
         return eqArray[0];
     }
 
-    private static decimal? ExtractTemperature(JsonElement state, string kind)
+    private static readonly string[] NestedCurrentKeys = ["current_c", "current", "temp_c", "temp", "current_temp_c", "current_temp"];
+    private static readonly string[] NestedTargetKeys = ["target_c", "target", "target_temp_c", "target_temp", "setpoint_c", "setpoint"];
+    private static readonly string[] NestedBoilKeys = ["boil_c", "boil", "boil_temp_c", "boil_temp"];
+    private static readonly string[] NestedCurrentFKeys = ["current_f", "temp_f", "current_temp_f"];
+    private static readonly string[] NestedTargetFKeys = ["target_f", "target_temp_f"];
+    private static readonly string[] NestedBoilFKeys = ["boil_f", "boil_temp_f"];
+    private static readonly string[] FlatCurrentKeys = ["current_temp_c", "currentTempC", "current_temp", "currentTemperature", "temp_c", "temp", "temperature"];
+    private static readonly string[] FlatTargetKeys = ["target_temp_c", "targetTempC", "target_temp", "target_c", "target", "targetTemp", "setpoint_c", "setpoint"];
+    private static readonly string[] FlatBoilKeys = ["boil_temp_c", "boilTempC", "boil_temp", "boil_c"];
+    private static readonly string[] FlatCurrentFKeys = ["current_temp_f", "currentTempF", "temp_f"];
+    private static readonly string[] FlatTargetFKeys = ["target_temp_f", "targetTempF", "target_f"];
+    private static readonly string[] FlatBoilFKeys = ["boil_temp_f", "boilTempF", "boil_f"];
+
+    private static void ExtractTemperatures(
+        JsonElement state,
+        out decimal? currentTempC,
+        out decimal? targetTempC,
+        out decimal? boilTempC)
     {
-        // 1. Nested in "temperature" object
-        if (TelemetryHelper.TryGetPropertyInsensitive(state, "temperature", out var tempObj) &&
-            tempObj.ValueKind == JsonValueKind.Object)
+        var hasTempObj = TelemetryHelper.TryGetPropertyInsensitive(state, "temperature", out var tempObj) &&
+                         tempObj.ValueKind == JsonValueKind.Object;
+
+        var tempUnit = "C";
+        if (hasTempObj &&
+            (TelemetryHelper.TryGetPropertyInsensitive(tempObj, "unit", out var u) ||
+             TelemetryHelper.TryGetPropertyInsensitive(tempObj, "temp_unit", out u) ||
+             TelemetryHelper.TryGetPropertyInsensitive(tempObj, "temp_units", out u)) &&
+            u.ValueKind == JsonValueKind.String)
         {
-            var tempUnit = "C";
-            if ((TelemetryHelper.TryGetPropertyInsensitive(tempObj, "unit", out var u) ||
-                 TelemetryHelper.TryGetPropertyInsensitive(tempObj, "temp_unit", out u) ||
-                 TelemetryHelper.TryGetPropertyInsensitive(tempObj, "temp_units", out u)) &&
-                u.ValueKind == JsonValueKind.String)
-            {
-                tempUnit = u.GetString() ?? "C";
-            }
+            tempUnit = u.GetString() ?? "C";
+        }
 
-            string[] nestedKeys = kind switch
-            {
-                "current" => ["current_c", "current", "temp_c", "temp", "current_temp_c", "current_temp"],
-                "target" => ["target_c", "target", "target_temp_c", "target_temp", "setpoint_c", "setpoint"],
-                "boil" => ["boil_c", "boil", "boil_temp_c", "boil_temp"],
-                _ => []
-            };
+        string? flatUnit = null;
 
+        currentTempC = ResolveTemperature(
+            hasTempObj, tempObj, tempUnit, NestedCurrentKeys, NestedCurrentFKeys,
+            state, ref flatUnit, FlatCurrentKeys, FlatCurrentFKeys);
+        targetTempC = ResolveTemperature(
+            hasTempObj, tempObj, tempUnit, NestedTargetKeys, NestedTargetFKeys,
+            state, ref flatUnit, FlatTargetKeys, FlatTargetFKeys);
+        boilTempC = ResolveTemperature(
+            hasTempObj, tempObj, tempUnit, NestedBoilKeys, NestedBoilFKeys,
+            state, ref flatUnit, FlatBoilKeys, FlatBoilFKeys);
+    }
+
+    private static decimal? ResolveTemperature(
+        bool hasTempObj,
+        JsonElement tempObj,
+        string tempUnit,
+        string[] nestedKeys,
+        string[] nestedFKeys,
+        JsonElement state,
+        ref string? flatUnit,
+        string[] flatKeys,
+        string[] flatFKeys)
+    {
+        if (hasTempObj)
+        {
             foreach (var key in nestedKeys)
             {
                 if (TelemetryHelper.TryGetPropertyInsensitive(tempObj, key, out var elem) &&
@@ -365,15 +414,7 @@ public class BrewLinkTelemetryParser : ITelemetryParser
                 }
             }
 
-            string[] fKeys = kind switch
-            {
-                "current" => ["current_f", "temp_f", "current_temp_f"],
-                "target" => ["target_f", "target_temp_f"],
-                "boil" => ["boil_f", "boil_temp_f"],
-                _ => []
-            };
-
-            foreach (var key in fKeys)
+            foreach (var key in nestedFKeys)
             {
                 if (TelemetryHelper.TryGetPropertyInsensitive(tempObj, key, out var elem) &&
                     TelemetryHelper.TryExtractDecimal(elem, out var val))
@@ -383,24 +424,18 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             }
         }
 
-        // 2. Flat properties in state
-        var flatUnit = "C";
-        if ((TelemetryHelper.TryGetPropertyInsensitive(state, "unit", out var su) ||
-             TelemetryHelper.TryGetPropertyInsensitive(state, "temp_unit", out su) ||
-             TelemetryHelper.TryGetPropertyInsensitive(state, "temp_units", out su) ||
-             TelemetryHelper.TryGetPropertyInsensitive(state, "temperature_unit", out su)) &&
-            su.ValueKind == JsonValueKind.String)
+        if (flatUnit == null)
         {
-            flatUnit = su.GetString() ?? "C";
+            flatUnit = "C";
+            if ((TelemetryHelper.TryGetPropertyInsensitive(state, "unit", out var su) ||
+                 TelemetryHelper.TryGetPropertyInsensitive(state, "temp_unit", out su) ||
+                 TelemetryHelper.TryGetPropertyInsensitive(state, "temp_units", out su) ||
+                 TelemetryHelper.TryGetPropertyInsensitive(state, "temperature_unit", out su)) &&
+                su.ValueKind == JsonValueKind.String)
+            {
+                flatUnit = su.GetString() ?? "C";
+            }
         }
-
-        string[] flatKeys = kind switch
-        {
-            "current" => ["current_temp_c", "currentTempC", "current_temp", "currentTemperature", "temp_c", "temp", "temperature"],
-            "target" => ["target_temp_c", "targetTempC", "target_temp", "target_c", "target", "targetTemp", "setpoint_c", "setpoint"],
-            "boil" => ["boil_temp_c", "boilTempC", "boil_temp", "boil_c"],
-            _ => []
-        };
 
         foreach (var key in flatKeys)
         {
@@ -410,14 +445,6 @@ public class BrewLinkTelemetryParser : ITelemetryParser
                 return TelemetryHelper.ConvertToCelsius(val, flatUnit);
             }
         }
-
-        string[] flatFKeys = kind switch
-        {
-            "current" => ["current_temp_f", "currentTempF", "temp_f"],
-            "target" => ["target_temp_f", "targetTempF", "target_f"],
-            "boil" => ["boil_temp_f", "boilTempF", "boil_f"],
-            _ => []
-        };
 
         foreach (var key in flatFKeys)
         {
@@ -621,6 +648,11 @@ public class BrewLinkTelemetryParser : ITelemetryParser
                     totalSeconds = tVal;
                 }
             }
+            else if (TelemetryHelper.TryGetPropertyInsensitive(timerObj, "total_minutes_set", out var minElem) &&
+                     TryExtractInt32(minElem, out var mVal))
+            {
+                totalSeconds = mVal * 60;
+            }
 
             return new BrewLinkTimerMetrics(active, paused, remainingSeconds, totalSeconds);
         }
@@ -816,6 +848,133 @@ public class BrewLinkTelemetryParser : ITelemetryParser
                 Code: flatCode,
                 Message: flatMessage
             );
+        }
+
+        return null;
+    }
+
+    private static void ExtractFlags(
+        JsonElement state,
+        JsonElement root,
+        bool hasNestedState,
+        out bool? delayedHeat,
+        out bool? interrupted,
+        out bool? manualPower,
+        out bool? spargeAlert)
+    {
+        delayedHeat = null;
+        interrupted = null;
+        manualPower = null;
+        spargeAlert = null;
+
+        // First scan state in a single pass (including nested "flags" object if present, with nested flags taking precedence)
+        bool? flatDelayedHeat = null;
+        bool? flatInterrupted = null;
+        bool? flatManualPower = null;
+        bool? flatSpargeAlert = null;
+
+        ScanFlagsObject(state, allowNestedFlags: true, ref delayedHeat, ref interrupted, ref manualPower, ref spargeAlert,
+            ref flatDelayedHeat, ref flatInterrupted, ref flatManualPower, ref flatSpargeAlert);
+
+        delayedHeat ??= flatDelayedHeat;
+        interrupted ??= flatInterrupted;
+        manualPower ??= flatManualPower;
+        spargeAlert ??= flatSpargeAlert;
+
+        if (hasNestedState && (!delayedHeat.HasValue || !interrupted.HasValue || !manualPower.HasValue || !spargeAlert.HasValue))
+        {
+            bool? rootDelayedHeat = null;
+            bool? rootInterrupted = null;
+            bool? rootManualPower = null;
+            bool? rootSpargeAlert = null;
+            bool? unused = null;
+
+            ScanFlagsObject(root, allowNestedFlags: false, ref unused, ref unused, ref unused, ref unused,
+                ref rootDelayedHeat, ref rootInterrupted, ref rootManualPower, ref rootSpargeAlert);
+
+            delayedHeat ??= rootDelayedHeat;
+            interrupted ??= rootInterrupted;
+            manualPower ??= rootManualPower;
+            spargeAlert ??= rootSpargeAlert;
+        }
+    }
+
+    private static void ScanFlagsObject(
+        JsonElement source,
+        bool allowNestedFlags,
+        ref bool? nestedDelayedHeat,
+        ref bool? nestedInterrupted,
+        ref bool? nestedManualPower,
+        ref bool? nestedSpargeAlert,
+        ref bool? flatDelayedHeat,
+        ref bool? flatInterrupted,
+        ref bool? flatManualPower,
+        ref bool? flatSpargeAlert)
+    {
+        if (source.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        foreach (var prop in source.EnumerateObject())
+        {
+            var valueKind = prop.Value.ValueKind;
+            if (valueKind == JsonValueKind.Object)
+            {
+                if (allowNestedFlags && string.Equals(prop.Name, "flags", StringComparison.OrdinalIgnoreCase))
+                {
+                    bool? dummy = null;
+                    ScanFlagsObject(prop.Value, allowNestedFlags: false,
+                        ref dummy, ref dummy, ref dummy, ref dummy,
+                        ref nestedDelayedHeat, ref nestedInterrupted, ref nestedManualPower, ref nestedSpargeAlert);
+                }
+                continue;
+            }
+
+            if (valueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                continue;
+            }
+
+            var name = prop.Name;
+
+            if (string.Equals(name, "delayed_heat", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "delayedHeat", StringComparison.OrdinalIgnoreCase))
+            {
+                flatDelayedHeat ??= prop.Value.GetBoolean();
+            }
+            else if (string.Equals(name, "interrupted", StringComparison.OrdinalIgnoreCase))
+            {
+                flatInterrupted ??= prop.Value.GetBoolean();
+            }
+            else if (string.Equals(name, "manual_power", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(name, "manualPower", StringComparison.OrdinalIgnoreCase))
+            {
+                flatManualPower ??= prop.Value.GetBoolean();
+            }
+            else if (string.Equals(name, "sparge_alert", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(name, "spargeAlert", StringComparison.OrdinalIgnoreCase))
+            {
+                flatSpargeAlert ??= prop.Value.GetBoolean();
+            }
+        }
+    }
+
+    private static int? ExtractErrorCode(JsonElement state, JsonElement root, bool hasNestedState)
+    {
+        if ((TelemetryHelper.TryGetPropertyInsensitive(state, "error_code", out var errElem) ||
+             TelemetryHelper.TryGetPropertyInsensitive(state, "errorCode", out errElem)) &&
+            TryExtractInt32(errElem, out var code))
+        {
+            return code;
+        }
+
+        if (hasNestedState &&
+            (TelemetryHelper.TryGetPropertyInsensitive(root, "error_code", out errElem) ||
+             TelemetryHelper.TryGetPropertyInsensitive(root, "errorCode", out errElem)) &&
+            TryExtractInt32(errElem, out code))
+        {
+            return code;
         }
 
         return null;

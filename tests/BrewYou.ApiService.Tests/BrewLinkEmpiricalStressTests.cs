@@ -393,7 +393,8 @@ public class BrewLinkEmpiricalStressTests : IClassFixture<WebApplicationFactory<
         for (var i = 0; i < 1000; i++)
         {
             var parsed = parser.Parse(root, equipment);
-            _ = throttler.ShouldPersist(equipmentId, DateTime.UtcNow, parsed!.TemperatureC);
+            var warmupCanonical = BrewLinkTelemetryParser.ParseCanonical(root, equipment);
+            _ = throttler.ShouldPersist(equipmentId, DateTime.UtcNow, parsed!.TemperatureC, warmupCanonical);
         }
 
         throttler.Reset(equipmentId);

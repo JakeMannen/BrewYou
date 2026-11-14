@@ -1,5 +1,6 @@
 using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Services;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace BrewYou.ApiService.Endpoints;
@@ -50,6 +51,7 @@ public static class BrewLinkEndpoints
 
         group.MapGet("/{id:guid}/equipment", async (
             Guid id,
+            [FromQuery] Guid? setupId,
             ClaimsPrincipal principal,
             IBrewLinkService brewLinkService,
             CancellationToken ct) =>
@@ -60,7 +62,7 @@ public static class BrewLinkEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var (succeeded, equipment, error) = await brewLinkService.GetGatewayEquipmentAsync(userId, id, ct);
+            var (succeeded, equipment, error) = await brewLinkService.GetGatewayEquipmentAsync(userId, id, setupId, ct);
             if (!succeeded || equipment == null)
             {
                 return Results.BadRequest(ApiResponse.Fail("EQUIPMENT_LIST_FAILED", error ?? "Failed to list equipment from BrewLink gateway."));
@@ -72,6 +74,35 @@ public static class BrewLinkEndpoints
         .Produces<ApiResponse<List<BrewLinkEquipmentDeviceDto>>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
+        group.MapPost("/{id:guid}/equipment/provision", async (
+            Guid id,
+            ProvisionBrewLinkEquipmentRequest request,
+            ClaimsPrincipal principal,
+            IBrewLinkService brewLinkService,
+            CancellationToken ct) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, data, error) = await brewLinkService.ProvisionGatewayEquipmentAsync(userId, id, request, ct);
+            return result switch
+            {
+                BrewLinkSendResult.Success when data != null => Results.Ok(ApiResponse<ProvisionBrewLinkEquipmentResultDto>.Ok(data)),
+                BrewLinkSendResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "BrewLink gateway or brewery setup not found.")),
+                BrewLinkSendResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Insufficient permissions to provision equipment."), statusCode: StatusCodes.Status403Forbidden),
+                _ => Results.BadRequest(ApiResponse.Fail("PROVISION_FAILED", error ?? "Failed to provision BrewLink equipment."))
+            };
+        })
+        .WithName("ProvisionBrewLinkGatewayEquipment")
+        .Produces<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
 
         group.MapPost("/pair-start", async (
             StartBrewLinkPairingRequest request,
@@ -153,7 +184,8 @@ public static class BrewLinkEndpoints
             Guid id,
             ClaimsPrincipal principal,
             IBrewLinkService brewLinkService,
-            CancellationToken ct) =>
+            [FromQuery] bool force = false,
+            CancellationToken ct = default) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
@@ -161,7 +193,12 @@ public static class BrewLinkEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var (succeeded, error) = await brewLinkService.DeleteGatewayAsync(userId, id, ct);
+            var (succeeded, conflict, error) = await brewLinkService.DeleteGatewayAsync(userId, id, force, ct);
+            if (conflict)
+            {
+                return Results.Conflict(ApiResponse.Fail("EQUIPMENT_IN_USE", error ?? "BrewLink gateway has equipment assigned to active batches."));
+            }
+
             if (!succeeded)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "BrewLink gateway not found."));
@@ -172,7 +209,8 @@ public static class BrewLinkEndpoints
         .WithName("DeleteBrewLinkGateway")
         .Produces(StatusCodes.Status204NoContent)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
 
         return group;
     }

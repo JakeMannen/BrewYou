@@ -47,6 +47,32 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         return envelope!.Data!;
     }
 
+    private static async Task<List<RecipeSummaryDto>> GetAllRecipesAsync(HttpClient client, string scope)
+    {
+        var items = new List<RecipeSummaryDto>();
+        var page = 1;
+        int totalPages;
+
+        do
+        {
+            var res = await client.GetAsync($"/api/v1/recipes?scope={Uri.EscapeDataString(scope)}&page={page}&limit=100");
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            var envelope = await res.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>();
+            envelope.Should().NotBeNull();
+            envelope!.Success.Should().BeTrue();
+            if (envelope.Data is { Count: > 0 })
+            {
+                items.AddRange(envelope.Data);
+            }
+
+            totalPages = envelope.Pagination?.TotalPages ?? 1;
+            page++;
+        }
+        while (page <= totalPages);
+
+        return items;
+    }
+
     [Fact]
     public async Task CreateRecipe_WithValidIngredients_CalculatesMetricsAndPersists()
     {
@@ -488,21 +514,26 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task GetRecipes_ScopesAndOwnership_FilterAndMapCorrectly()
     {
-        // Arrange: Create two separate users
-        var (clientA, userAId, _) = await CreateAuthenticatedUserAsync("brewer_scope_a");
-        var (clientB, userBId, _) = await CreateAuthenticatedUserAsync("brewer_scope_b");
+        // Arrange: Create two separate users and unique recipe prefixes to prevent cross-test interference
+        var (clientA, _, _) = await CreateAuthenticatedUserAsync("brewer_scope_a");
+        var (clientB, _, _) = await CreateAuthenticatedUserAsync("brewer_scope_b");
+        var prefix = $"Scope_{Guid.NewGuid():N}";
+        var nameA1 = $"{prefix}_A_Public";
+        var nameA2 = $"{prefix}_A_Private";
+        var nameB1 = $"{prefix}_B_Public";
+        var nameB2 = $"{prefix}_B_Private";
 
         // Brewer A creates: 1 public recipe, 1 private recipe
-        var reqA1 = new CreateRecipeRequest("Scope A Public", null, "Saison", 20m, 60, 70m, true, new());
-        var reqA2 = new CreateRecipeRequest("Scope A Private", null, "Porter", 20m, 60, 70m, false, new());
+        var reqA1 = new CreateRecipeRequest(nameA1, null, "Saison", 20m, 60, 70m, true, new());
+        var reqA2 = new CreateRecipeRequest(nameA2, null, "Porter", 20m, 60, 70m, false, new());
         var resA1 = await clientA.PostAsJsonAsync("/api/v1/recipes", reqA1);
         var resA2 = await clientA.PostAsJsonAsync("/api/v1/recipes", reqA2);
         resA1.StatusCode.Should().Be(HttpStatusCode.Created);
         resA2.StatusCode.Should().Be(HttpStatusCode.Created);
 
         // Brewer B creates: 1 public recipe, 1 private recipe
-        var reqB1 = new CreateRecipeRequest("Scope B Public", null, "IPA", 20m, 60, 70m, true, new());
-        var reqB2 = new CreateRecipeRequest("Scope B Private", null, "Stout", 20m, 60, 70m, false, new());
+        var reqB1 = new CreateRecipeRequest(nameB1, null, "IPA", 20m, 60, 70m, true, new());
+        var reqB2 = new CreateRecipeRequest(nameB2, null, "Stout", 20m, 60, 70m, false, new());
         var resB1 = await clientB.PostAsJsonAsync("/api/v1/recipes", reqB1);
         var resB2 = await clientB.PostAsJsonAsync("/api/v1/recipes", reqB2);
         resB1.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -511,29 +542,23 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var recipeB2 = (await resB2.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
 
         // 1. Test "mine" scope for Brewer A
-        var mineRes = await clientA.GetAsync("/api/v1/recipes?scope=mine");
-        mineRes.StatusCode.Should().Be(HttpStatusCode.OK);
-        var mineData = (await mineRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
-        mineData.Should().Contain(r => r.Name == "Scope A Public" && r.IsOwner);
-        mineData.Should().Contain(r => r.Name == "Scope A Private" && r.IsOwner);
-        mineData.Should().NotContain(r => r.Name.StartsWith("Scope B"));
+        var mineData = await GetAllRecipesAsync(clientA, "mine");
+        mineData.Should().Contain(r => r.Name == nameA1 && r.IsOwner);
+        mineData.Should().Contain(r => r.Name == nameA2 && r.IsOwner);
+        mineData.Should().NotContain(r => r.Name.StartsWith($"{prefix}_B"));
 
         // 2. Test "shared" scope for Brewer A
-        var sharedRes = await clientA.GetAsync("/api/v1/recipes?scope=shared");
-        sharedRes.StatusCode.Should().Be(HttpStatusCode.OK);
-        var sharedData = (await sharedRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
-        sharedData.Should().Contain(r => r.Name == "Scope B Public" && !r.IsOwner && r.AuthorName == "brewer_scope_b Display");
-        sharedData.Should().NotContain(r => r.Name == "Scope B Private"); // Private recipe not leaked
-        sharedData.Should().NotContain(r => r.Name.StartsWith("Scope A")); // Own recipes excluded from shared tab
+        var sharedData = await GetAllRecipesAsync(clientA, "shared");
+        sharedData.Should().Contain(r => r.Name == nameB1 && !r.IsOwner && r.AuthorName == "brewer_scope_b Display");
+        sharedData.Should().NotContain(r => r.Name == nameB2); // Private recipe not leaked
+        sharedData.Should().NotContain(r => r.Name.StartsWith($"{prefix}_A")); // Own recipes excluded from shared tab
 
         // 3. Test "all" scope for Brewer A
-        var allRes = await clientA.GetAsync("/api/v1/recipes?scope=all");
-        allRes.StatusCode.Should().Be(HttpStatusCode.OK);
-        var allData = (await allRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
-        allData.Should().Contain(r => r.Name == "Scope A Public" && r.IsOwner);
-        allData.Should().Contain(r => r.Name == "Scope A Private" && r.IsOwner);
-        allData.Should().Contain(r => r.Name == "Scope B Public" && !r.IsOwner);
-        allData.Should().NotContain(r => r.Name == "Scope B Private"); // Other's private recipe excluded
+        var allData = await GetAllRecipesAsync(clientA, "all");
+        allData.Should().Contain(r => r.Name == nameA1 && r.IsOwner);
+        allData.Should().Contain(r => r.Name == nameA2 && r.IsOwner);
+        allData.Should().Contain(r => r.Name == nameB1 && !r.IsOwner);
+        allData.Should().NotContain(r => r.Name == nameB2); // Other's private recipe excluded
 
         // 4. Test single recipe privacy: Brewer A accessing Brewer B's private recipe returns 404 (IDOR defense)
         var foreignPrivateRes = await clientA.GetAsync($"/api/v1/recipes/{recipeB2.Id}");
@@ -545,6 +570,38 @@ public class RecipeEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var foreignPublicDto = (await foreignPublicRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
         foreignPublicDto.IsOwner.Should().BeFalse();
         foreignPublicDto.AuthorName.Should().Be("brewer_scope_b Display");
+    }
+
+    [Fact]
+    public async Task GetRecipes_SharedScopeOverDefaultPageLimit_PaginatesAllPublicRecipes()
+    {
+        var (clientA, _, _) = await CreateAuthenticatedUserAsync("brewer_page_a");
+        var (clientB, _, _) = await CreateAuthenticatedUserAsync("brewer_page_b");
+        var prefix = $"Paginate_{Guid.NewGuid():N}";
+
+        // Seed 21 alphabetically earlier public recipes so target recipe overflows default page size (20)
+        for (var i = 0; i < 21; i++)
+        {
+            var earlierReq = new CreateRecipeRequest($"000_{prefix}_{i:D2}", null, "Pale Ale", 20m, 60, 70m, true, new());
+            var earlierRes = await clientB.PostAsJsonAsync("/api/v1/recipes", earlierReq);
+            earlierRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        var targetName = $"zzz_{prefix}_Target";
+        var targetRes = await clientB.PostAsJsonAsync(
+            "/api/v1/recipes",
+            new CreateRecipeRequest(targetName, null, "IPA", 20m, 60, 70m, true, new()));
+        targetRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Default page=1&limit=20 omits the alphabetically later recipe, while full pagination finds it
+        var page1Res = await clientA.GetAsync("/api/v1/recipes?scope=shared");
+        page1Res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var page1Envelope = await page1Res.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>();
+        page1Envelope!.Data.Should().HaveCount(20);
+        page1Envelope.Data.Should().NotContain(r => r.Name == targetName);
+
+        var allShared = await GetAllRecipesAsync(clientA, "shared");
+        allShared.Should().Contain(r => r.Name == targetName && !r.IsOwner && r.AuthorName == "brewer_page_b Display");
     }
 
     [Fact]

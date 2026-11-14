@@ -38,6 +38,12 @@ public class BrewLinkControlTests : BrewLinkE2ETestBase
     [InlineData("dismiss_alert", "{\"id\":\"alert-1\"}")]
     [InlineData("dismiss_sparge_alert", "{}")]
     [InlineData("cancel_session", "{}")]
+    [InlineData("temp_up", "{}")]
+    [InlineData("temp_down", "{}")]
+    [InlineData("delayed_heat", "{\"minutes\":90,\"seconds\":15}")]
+    [InlineData("toggle_timer", "{}")]
+    [InlineData("disconnect_manual", "{}")]
+    [InlineData("disconnect_auto", "{}")]
     public async Task Control_All12Actions_SendValidHmacSignedEnvelopeAndReturn200(string action, string paramJson)
     {
         var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
@@ -703,6 +709,144 @@ public class BrewLinkControlTests : BrewLinkE2ETestBase
 
         eventLine.Should().Be("event: reading");
         dataLine.Should().Contain("69.1");
+    }
+
+    #endregion
+
+    #region 8. G30 Section 6.1 Validation, Auto-Mode Guard & New Actions
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(1000, 0)]
+    [InlineData(10, -1)]
+    [InlineData(10, 60)]
+    public async Task Control_DelayedHeat_InvalidParams_ReturnsBadRequest400(int minutes, int seconds)
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+        var gw = await PairTestGatewayAsync(client);
+        var eq = await CreateBrewLinkEquipmentAsync(client, defaultSetupId, gw.Id);
+
+        var req = new BrewLinkControlTestRequest("delayed_heat", new { minutes, seconds });
+        var res = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control", req);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse>();
+        body!.Error!.Code.Should().Be("BAD_REQUEST");
+    }
+
+    [Fact]
+    public async Task Control_DelayedHeat_MissingParams_ReturnsBadRequest400()
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+        var gw = await PairTestGatewayAsync(client);
+        var eq = await CreateBrewLinkEquipmentAsync(client, defaultSetupId, gw.Id);
+
+        var req = new BrewLinkControlTestRequest("delayed_heat", new { });
+        var res = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control", req);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Theory]
+    [InlineData("set_timer", "{\"duration_min\":60}")]
+    [InlineData("cancel_timer", "{}")]
+    [InlineData("set_target_temp", "{\"temp_c\":68.0}")]
+    [InlineData("temp_up", "{}")]
+    [InlineData("temp_down", "{}")]
+    public async Task Control_WhenAutoModeTrue_RejectsSetpointAndTimerMutationsWith400(string action, string paramJson)
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+        var gw = await PairTestGatewayAsync(client);
+        var eq = await CreateBrewLinkEquipmentAsync(client, defaultSetupId, gw.Id);
+
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dbEq = await db.Equipment.FindAsync(eq.Id);
+            dbEq!.LatestMetricsJson = """{"currentTempC":65.0,"targetTempC":65.0,"autoMode":true}""";
+            await db.SaveChangesAsync();
+        }
+
+        var req = new BrewLinkControlTestRequest(action, JsonNode.Parse(paramJson));
+        var res = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control", req);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse>();
+        body!.Error!.Code.Should().Be("BAD_REQUEST");
+    }
+
+    [Theory]
+    [InlineData("pause_timer")]
+    [InlineData("resume_timer")]
+    [InlineData("toggle_timer")]
+    [InlineData("press_set")]
+    [InlineData("cancel_session")]
+    [InlineData("disconnect_auto")]
+    public async Task Control_WhenAutoModeTrue_AllowsSessionAndPauseActions(string action)
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+        var gw = await PairTestGatewayAsync(client);
+        var eq = await CreateBrewLinkEquipmentAsync(client, defaultSetupId, gw.Id);
+
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dbEq = await db.Equipment.FindAsync(eq.Id);
+            dbEq!.LatestMetricsJson = """{"currentTempC":65.0,"targetTempC":65.0,"autoMode":true}""";
+            await db.SaveChangesAsync();
+        }
+
+        Factory.HttpHandler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"status":"ok","req_id":"auto-ok"}""")
+        };
+
+        var req = new BrewLinkControlTestRequest(action, new { });
+        var res = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control", req);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Control_TempUpAndTempDown_AndToggleTimer_UpdateCanonicalStateOptimistically()
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+        var gw = await PairTestGatewayAsync(client);
+        var eq = await CreateBrewLinkEquipmentAsync(client, defaultSetupId, gw.Id);
+
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dbEq = await db.Equipment.FindAsync(eq.Id);
+            dbEq!.LatestMetricsJson = """{"currentTempC":65.0,"targetTempC":65.0,"autoMode":false,"timer":{"active":true,"paused":false,"remainingSeconds":1800,"totalSeconds":3600}}""";
+            await db.SaveChangesAsync();
+        }
+
+        Factory.HttpHandler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"status":"ok","req_id":"g30-opt"}""")
+        };
+
+        var upRes = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control",
+            new BrewLinkControlTestRequest("temp_up"));
+        upRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var toggleRes = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control",
+            new BrewLinkControlTestRequest("toggle_timer"));
+        toggleRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var delayRes = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/control",
+            new BrewLinkControlTestRequest("delayed_heat", new { minutes = 30, seconds = 15 }));
+        delayRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var verifyScope = Factory.Services.CreateScope())
+        {
+            var db = verifyScope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dbEq = await db.Equipment.FindAsync(eq.Id);
+            dbEq!.LatestMetricsJson.Should().Contain("\"targetTempC\":66.0");
+            dbEq.LatestMetricsJson.Should().Contain("\"paused\":true");
+            dbEq.LatestMetricsJson.Should().Contain("\"delayedHeat\":true");
+        }
     }
 
     #endregion

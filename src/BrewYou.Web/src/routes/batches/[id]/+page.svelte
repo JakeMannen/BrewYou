@@ -37,7 +37,7 @@
 	import BrewLinkInteractionModal from '$lib/components/brewery/BrewLinkInteractionModal.svelte';
 	import BrewLinkControlPanel from '$lib/components/brewery/BrewLinkControlPanel.svelte';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
-	import { extractInteraction } from '$lib/utils/brewlink';
+	import { extractInteraction, getInteractionActions } from '$lib/utils/brewlink';
 	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
@@ -258,6 +258,17 @@
 		return eq?.connectionType === 'BrewLink' ? eq : null;
 	});
 
+	let brewLinkAutoMode = $derived.by<boolean>(() => {
+		const rawJson = activeStageBrewLinkEquipment?.latestMetricsJson;
+		if (!rawJson) return false;
+		try {
+			const parsed = JSON.parse(rawJson);
+			return parsed?.autoMode === true || parsed?.auto_mode === true;
+		} catch {
+			return false;
+		}
+	});
+
 	let activeBrewLinkPrompt = $derived.by<{
 		equipment: EquipmentDto;
 		message: string;
@@ -335,8 +346,9 @@
 		try {
 			const eq = activeBrewLinkPrompt.equipment;
 			const msg = activeBrewLinkPrompt.message.toLowerCase();
+			const { confirmAction } = getInteractionActions(activeBrewLinkPrompt.code);
 			await api.equipment.sendBrewLinkControl(eq.id, {
-				action: 'ack_interaction'
+				action: confirmAction
 			});
 			const res = await api.equipment.syncBrewLinkState(eq.id);
 			if (res && (res.temperatureC != null || res.metricsJson)) {
@@ -377,8 +389,9 @@
 			const eq = activeBrewLinkPrompt.equipment;
 			const promptKey = `${eq.id}:${activeBrewLinkPrompt.code ?? activeBrewLinkPrompt.message}`;
 			dismissedPromptKey = promptKey;
+			const { dismissAction } = getInteractionActions(activeBrewLinkPrompt.code);
 			await api.equipment.sendBrewLinkControl(eq.id, {
-				action: 'dismiss_alert'
+				action: dismissAction
 			});
 			const res = await api.equipment.syncBrewLinkState(eq.id);
 			if (res && (res.temperatureC != null || res.metricsJson)) {
@@ -1505,7 +1518,7 @@
 		const timerWasRunning = timerRunning;
 		try {
 			await api.equipment.sendBrewLinkControl(equipment.id, { action: 'press_set' });
-			if (nextStep) {
+			if (nextStep && !brewLinkAutoMode) {
 				await api.equipment.sendBrewLinkControl(equipment.id, {
 					action: 'set_target_temp',
 					tempC: nextStep.targetTemperatureC
@@ -1712,7 +1725,7 @@
 					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 						action: 'resume_timer'
 					});
-				} else if (inspectedStage === 'Mash') {
+				} else if (!brewLinkAutoMode && inspectedStage === 'Mash') {
 					const step = currentSelectedMashStep;
 					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 						action: 'set_timer',
@@ -1726,7 +1739,7 @@
 						action: 'set_heat',
 						state: true
 					});
-				} else {
+				} else if (!brewLinkAutoMode) {
 					await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
 						action: 'set_timer',
 						durationMin: Math.max(1, Math.round(boilDurationSeconds / 60))
@@ -1924,8 +1937,9 @@
 	async function handleAcknowledgeInteraction() {
 		if (!activeStageBrewLinkEquipment) return;
 		try {
+			const { confirmAction } = getInteractionActions(activeBrewLinkPrompt?.code);
 			await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
-				action: 'ack_interaction'
+				action: confirmAction
 			});
 			const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
 			handleEquipmentUpdate(updated);
@@ -1937,8 +1951,9 @@
 	async function handleDismissAlert() {
 		if (!activeStageBrewLinkEquipment) return;
 		try {
+			const { dismissAction } = getInteractionActions(activeBrewLinkPrompt?.code);
 			await api.equipment.sendBrewLinkControl(activeStageBrewLinkEquipment.id, {
-				action: 'dismiss_alert'
+				action: dismissAction
 			});
 			const updated = await api.equipment.getById(activeStageBrewLinkEquipment.id);
 			handleEquipmentUpdate(updated);

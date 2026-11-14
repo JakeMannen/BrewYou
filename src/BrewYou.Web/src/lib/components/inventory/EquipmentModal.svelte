@@ -53,6 +53,8 @@
 		defaultCategory?: EquipmentType;
 		onClose: () => void;
 		onSaved: (item: EquipmentDto) => void;
+		onGatewayPaired?: (gateway: BrewLinkGatewayDto, createdSensor?: EquipmentDto) => void;
+		onCheckBrewLinkEquipment?: (gateway: BrewLinkGatewayDto) => void;
 	}
 
 	let {
@@ -61,7 +63,9 @@
 		existingEquipment = [],
 		defaultCategory = 'Boiler',
 		onClose,
-		onSaved
+		onSaved,
+		onGatewayPaired,
+		onCheckBrewLinkEquipment
 	}: Props = $props();
 
 	let name = $state('');
@@ -139,6 +143,10 @@
 			if (match) {
 				onSaved(match);
 				onClose();
+				onGatewayPaired?.(gateway, match);
+			} else {
+				onClose();
+				onGatewayPaired?.(gateway);
 			}
 		} catch {
 			// User can also click Create button if needed
@@ -2118,6 +2126,12 @@
 										<BrewLinkGatewayManager
 											onGatewaysChanged={handleGatewaysChanged}
 											onGatewayPaired={handleGatewayPaired}
+											onCheckEquipment={onCheckBrewLinkEquipment
+												? (gw) => {
+														onClose();
+														onCheckBrewLinkEquipment?.(gw);
+													}
+												: undefined}
 										/>
 									</div>
 

@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Radio, Loader2, Check, AlertCircle, Pencil, Trash2 } from 'lucide-svelte';
+	import { Radio, Loader2, Check, AlertCircle, Pencil, Trash2, Cpu } from 'lucide-svelte';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
-	import { api } from '$lib/api/client';
+	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import type { BrewLinkGatewayDto, BrewLinkDiscoveredGatewayDto } from '$lib/types/api';
 
 	interface Props {
 		onGatewaysChanged?: (gateways: BrewLinkGatewayDto[]) => void;
 		onGatewayPaired?: (gateway: BrewLinkGatewayDto) => void;
+		onCheckEquipment?: (gateway: BrewLinkGatewayDto) => void;
 	}
 
-	let { onGatewaysChanged, onGatewayPaired }: Props = $props();
+	let { onGatewaysChanged, onGatewayPaired, onCheckEquipment }: Props = $props();
 
 	let brewLinkGateways = $state<BrewLinkGatewayDto[]>([]);
 	let isLoadingGateways = $state(false);
@@ -37,6 +38,7 @@
 	// Delete gateway state
 	let gatewayToDelete = $state<BrewLinkGatewayDto | null>(null);
 	let isDeletingGateway = $state(false);
+	let deleteGatewayError = $state<string | null>(null);
 
 	async function loadGateways() {
 		isLoadingGateways = true;
@@ -179,18 +181,25 @@
 	}
 
 	function confirmDeleteGateway(gw: BrewLinkGatewayDto) {
+		deleteGatewayError = null;
 		gatewayToDelete = gw;
 	}
 
 	async function handleDeleteGateway() {
 		if (!gatewayToDelete) return;
 		isDeletingGateway = true;
+		deleteGatewayError = null;
 		try {
 			await api.brewlink.deleteGateway(gatewayToDelete.id);
 			gatewayToDelete = null;
 			await loadGateways();
 		} catch (err: unknown) {
-			console.error('Failed to delete gateway', err);
+			if (err instanceof ApiClientError && err.status === 409) {
+				deleteGatewayError = t('settings.brewlink.unpair_in_use_error');
+			} else {
+				deleteGatewayError = (err as Error).message || 'Failed to delete gateway';
+			}
+			gatewayToDelete = null;
 		} finally {
 			isDeletingGateway = false;
 		}
@@ -272,7 +281,18 @@
 							</div>
 						</div>
 
-						<div class="flex shrink-0 items-center gap-1.5 self-end sm:self-center">
+						<div class="flex shrink-0 flex-wrap items-center gap-1.5 self-end sm:self-center">
+							{#if onCheckEquipment}
+								<button
+									type="button"
+									data-testid="check-gateway-equipment-btn-{gw.id}"
+									onclick={() => onCheckEquipment?.(gw)}
+									class="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 shadow-2xs hover:bg-sky-500/20 dark:text-sky-300"
+								>
+									<Cpu class="h-3 w-3" />
+									<span>{t('settings.brewlink.check_equipment')}</span>
+								</button>
+							{/if}
 							<button
 								type="button"
 								data-testid="edit-gateway-btn-{gw.id}"
@@ -294,6 +314,16 @@
 						</div>
 					</div>
 				{/each}
+			</div>
+		{/if}
+
+		{#if deleteGatewayError}
+			<div
+				class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+				role="alert"
+			>
+				<AlertCircle class="h-4 w-4 shrink-0" />
+				<span>{deleteGatewayError}</span>
 			</div>
 		{/if}
 	</div>

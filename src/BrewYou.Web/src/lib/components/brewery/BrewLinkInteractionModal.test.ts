@@ -22,7 +22,24 @@ describe('BrewLinkInteractionModal & Telemetry Handshake Logic', () => {
 			'brewlink_hardware_confirmed',
 			'brewlink_ack_prompt',
 			'brewlink_dismiss_alert',
-			'brewlink_interaction_alert'
+			'brewlink_interaction_alert',
+			'brewlink_auto_mode',
+			'brewlink_manual_mode',
+			'brewlink_ramp_active',
+			'brewlink_delayed_heat',
+			'brewlink_schedule_delayed_heat',
+			'brewlink_delayed_heat_min',
+			'brewlink_delayed_heat_sec',
+			'brewlink_sparge_alert',
+			'brewlink_dismiss_sparge',
+			'brewlink_error_code',
+			'brewlink_auto_mode_locked',
+			'brewlink_power_readonly',
+			'brewlink_cancel_session',
+			'brewlink_confirm_cancel_session_title',
+			'brewlink_confirm_cancel_session_message',
+			'brewlink_disconnect_auto',
+			'brewlink_disconnect_manual'
 		];
 
 		for (const { code, json } of locales) {

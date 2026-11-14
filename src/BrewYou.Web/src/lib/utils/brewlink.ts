@@ -1,7 +1,85 @@
+import type { BrewLinkControlAction } from '$lib/types/api';
+
 export interface ParsedInteraction {
 	required: boolean;
 	message: string;
 	code?: number;
+}
+
+export interface BrewLinkInteractionActionPlan {
+	confirmAction: BrewLinkControlAction;
+	dismissAction: BrewLinkControlAction;
+	confirmLabelKey:
+		| 'equipment.brewlink_press_set'
+		| 'equipment.brewlink_ack_prompt'
+		| 'equipment.brewlink_dismiss_alert';
+	dismissLabelKey: 'equipment.brewlink_dismiss_sparge' | 'equipment.brewlink_dismiss_alert';
+}
+
+const AUTO_MODE_LOCKED_ACTIONS = new Set<string>([
+	'set_timer',
+	'cancel_timer',
+	'set_target_temp',
+	'temp_up',
+	'temp_down'
+]);
+
+export function isG30ActionBlockedInAutoMode(
+	action: BrewLinkControlAction | string,
+	autoMode?: boolean | null
+): boolean {
+	return autoMode === true && AUTO_MODE_LOCKED_ACTIONS.has(action.toLowerCase());
+}
+
+/**
+ * Maps Grainfather G30 interaction codes (0-6 from brewlink-external-client Section 6.1.1)
+ * to their expected confirm & dismiss actions.
+ */
+export function getInteractionActions(code?: number | null): BrewLinkInteractionActionPlan {
+	switch (code) {
+		case 1:
+			// Add mash water, then press SET to start heating
+			return {
+				confirmAction: 'press_set',
+				dismissAction: 'dismiss_alert',
+				confirmLabelKey: 'equipment.brewlink_press_set',
+				dismissLabelKey: 'equipment.brewlink_dismiss_alert'
+			};
+		case 3:
+			// Mash finished: sparge alert
+			return {
+				confirmAction: 'ack_interaction',
+				dismissAction: 'dismiss_sparge_alert',
+				confirmLabelKey: 'equipment.brewlink_ack_prompt',
+				dismissLabelKey: 'equipment.brewlink_dismiss_sparge'
+			};
+		case 4:
+			// Sparge: add sparge water, SET skips to boil
+			return {
+				confirmAction: 'press_set',
+				dismissAction: 'dismiss_sparge_alert',
+				confirmLabelKey: 'equipment.brewlink_press_set',
+				dismissLabelKey: 'equipment.brewlink_dismiss_sparge'
+			};
+		case 5:
+			// Boil addition alert (hops/adjuncts)
+			return {
+				confirmAction: 'dismiss_alert',
+				dismissAction: 'dismiss_alert',
+				confirmLabelKey: 'equipment.brewlink_dismiss_alert',
+				dismissLabelKey: 'equipment.brewlink_dismiss_alert'
+			};
+		case 2:
+		case 6:
+		default:
+			// Add grain (2), boil finished start cooling (6), or generic prompt
+			return {
+				confirmAction: 'ack_interaction',
+				dismissAction: 'dismiss_alert',
+				confirmLabelKey: 'equipment.brewlink_ack_prompt',
+				dismissLabelKey: 'equipment.brewlink_dismiss_alert'
+			};
+	}
 }
 
 export function extractInteraction(metricsJson?: string | null): ParsedInteraction {

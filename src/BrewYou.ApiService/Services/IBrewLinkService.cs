@@ -1,3 +1,4 @@
+using BrewYou.ApiService.Data.Entities;
 using System.Text.Json;
 
 namespace BrewYou.ApiService.Services;
@@ -34,7 +35,9 @@ public record BrewLinkControlRequest(
     decimal? PowerPct = null,
     decimal? TempC = null,
     int? DurationMin = null,
-    JsonElement? Params = null
+    JsonElement? Params = null,
+    int? Minutes = null,
+    int? Seconds = null
 );
 
 public record BrewLinkSyncResultDto(
@@ -60,7 +63,23 @@ public record BrewLinkEquipmentStateDto(
     decimal? HeatPct = null,
     bool? PumpOn = null,
     int? StepIndex = null,
-    int? TimerRemainingSec = null
+    int? TimerRemainingSec = null,
+    decimal? BoilTempC = null,
+    bool? HeatActive = null,
+    bool? AutoMode = null,
+    bool? RampActive = null,
+    bool? TimerActive = null,
+    bool? TimerPaused = null,
+    int? TimerTotalSec = null,
+    string? StepName = null,
+    bool? InteractionRequired = null,
+    int? InteractionCode = null,
+    string? InteractionMessage = null,
+    bool? DelayedHeat = null,
+    bool? Interrupted = null,
+    bool? ManualPower = null,
+    bool? SpargeAlert = null,
+    int? ErrorCode = null
 );
 
 public record BrewLinkEquipmentDeviceDto(
@@ -73,7 +92,30 @@ public record BrewLinkEquipmentDeviceDto(
     string Mac,
     int? Rssi,
     BrewLinkEquipmentCapabilitiesDto Capabilities,
-    BrewLinkEquipmentStateDto? State = null
+    BrewLinkEquipmentStateDto? State = null,
+    Guid? ExistingEquipmentId = null,
+    string? ExistingEquipmentName = null,
+    BrewYou.ApiService.Data.Entities.EquipmentType MappedEquipmentType = BrewYou.ApiService.Data.Entities.EquipmentType.Boiler,
+    EquipmentSubtype MappedSubtype = EquipmentSubtype.AllInOne,
+    decimal RecommendedCapacityLiters = 30.0m
+);
+
+public record ProvisionBrewLinkDeviceItem(
+    int Slot,
+    string? Mac = null,
+    string? Name = null,
+    string? Model = null,
+    string? EquipmentType = null
+);
+
+public record ProvisionBrewLinkEquipmentRequest(
+    Guid BrewerySetupId,
+    List<ProvisionBrewLinkDeviceItem> Devices
+);
+
+public record ProvisionBrewLinkEquipmentResultDto(
+    List<EquipmentDto> CreatedEquipment,
+    List<Guid> SkippedExistingIds
 );
 
 public enum BrewLinkSendResult
@@ -109,15 +151,25 @@ public interface IBrewLinkService
         UpdateBrewLinkGatewayRequest request,
         CancellationToken ct = default);
 
-    Task<(bool Succeeded, string? ErrorMessage)> DeleteGatewayAsync(
+    Task<(bool Succeeded, bool Conflict, string? ErrorMessage)> DeleteGatewayAsync(
         string userId,
         Guid id,
+        bool force = false,
         CancellationToken ct = default);
 
     Task<(bool Succeeded, List<BrewLinkEquipmentDeviceDto>? Equipment, string? ErrorMessage)> GetGatewayEquipmentAsync(
         string userId,
         Guid gatewayId,
+        Guid? setupId = null,
         CancellationToken ct = default);
+
+    Task<(BrewLinkSendResult Result, ProvisionBrewLinkEquipmentResultDto? Data, string? ErrorMessage)> ProvisionGatewayEquipmentAsync(
+        string userId,
+        Guid gatewayId,
+        ProvisionBrewLinkEquipmentRequest request,
+        CancellationToken ct = default);
+
+    Task RevokeGatewayTokenBestEffortAsync(BrewLinkGateway gateway, CancellationToken ct = default);
 
     Task<(BrewLinkSendResult Result, BrewLinkCommandResultDto? CommandResult, string? ErrorMessage)> SendRecipeToEquipmentAsync(
         string userId,

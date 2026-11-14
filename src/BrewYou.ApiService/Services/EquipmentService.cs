@@ -19,7 +19,7 @@ public class EquipmentService : IEquipmentService
 {
     private static readonly Regex MultipleWhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
     private const decimal GallonsToLitersFactor = 3.785411784m;
-    private const int MaxEquipmentPerUser = 100;
+    internal const int MaxEquipmentPerUser = 100;
 
     private readonly BrewYouDbContext _db;
     private readonly ILogger<EquipmentService> _logger;
@@ -28,6 +28,7 @@ public class EquipmentService : IEquipmentService
     private readonly ILabelImageProcessor? _imageProcessor;
     private readonly IMemoryCache? _cache;
     private readonly ILabelUrlSigner? _urlSigner;
+    private readonly IBrewLinkService? _brewLinkService;
 
     public EquipmentService(
         BrewYouDbContext db,
@@ -35,7 +36,8 @@ public class EquipmentService : IEquipmentService
         IDataProtectionProvider? dataProtectionProvider = null,
         ILabelImageProcessor? imageProcessor = null,
         IMemoryCache? cache = null,
-        ILabelUrlSigner? urlSigner = null)
+        ILabelUrlSigner? urlSigner = null,
+        IBrewLinkService? brewLinkService = null)
     {
         _db = db;
         _logger = logger;
@@ -44,6 +46,7 @@ public class EquipmentService : IEquipmentService
         _imageProcessor = imageProcessor;
         _cache = cache;
         _urlSigner = urlSigner;
+        _brewLinkService = brewLinkService;
     }
 
     public async Task<(List<EquipmentDto> Items, PaginationMeta Pagination)> GetEquipmentListAsync(
@@ -641,107 +644,39 @@ public class EquipmentService : IEquipmentService
             return EquipmentAccessResult.Forbidden;
         }
 
-        // Active batch guard: Check if assigned to active batches unless force flag is set
+        List<Equipment> itemsToDelete;
+        BrewLinkGateway? gatewayToDelete = null;
+
+        if (equipment.Subtype == EquipmentSubtype.BrewLink &&
+            BrewLinkLifecycleHelper.TryParseBrewLinkConfig(equipment.ConnectionConfigJson, out var parsedGwId, out _, out _) &&
+            parsedGwId.HasValue)
+        {
+            itemsToDelete = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, parsedGwId.Value, equipment);
+            gatewayToDelete = await _db.BrewLinkGateways
+                .FirstOrDefaultAsync(g => g.Id == parsedGwId.Value && (g.UserId == userId || g.UserId == equipment.UserId));
+        }
+        else
+        {
+            itemsToDelete = [equipment];
+        }
+
+        // Active batch guard: Check if equipment (or attached BrewLink devices) is assigned to active batches unless force flag is set
         if (!force)
         {
-            var hasActiveBatches = await _db.Batches.AsNoTracking().AnyAsync(b =>
-                (b.UserId == userId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
-                (b.BoilerId == id ||
-                 b.FermenterId == id ||
-                 b.PackagingVesselId == id ||
-                 b.HltId == id ||
-                 b.MashTunId == id ||
-                 (equipment.AssignedBatchId != null && b.Id == equipment.AssignedBatchId) ||
-                 b.SensorAssignments.Any(sa => sa.EquipmentId == id)) &&
-                b.Status != BatchStatus.Completed &&
-                b.Status != BatchStatus.Archived);
-
+            var hasActiveBatches = await BrewLinkLifecycleHelper.HasActiveBatchesForEquipmentGroupAsync(_db, itemsToDelete);
             if (hasActiveBatches)
             {
-                _logger.LogWarning("Rejecting deletion of equipment {EquipmentId} as it is in use by active batches and force flag was false", id);
+                _logger.LogWarning("Rejecting deletion of equipment {EquipmentId} as it (or attached BrewLink equipment) is in use by active batches and force flag was false", id);
                 return EquipmentAccessResult.Conflict;
             }
         }
 
-        // 1. Decouple all 5 batch vessels using this equipment
-        var batchesWithEquipment = await _db.Batches
-            .Where(b => b.BoilerId == id ||
-                        b.FermenterId == id ||
-                        b.PackagingVesselId == id ||
-                        b.HltId == id ||
-                        b.MashTunId == id)
-            .ToListAsync();
-
-        foreach (var b in batchesWithEquipment)
+        if (gatewayToDelete != null && _brewLinkService != null)
         {
-            if (b.BoilerId == id) b.BoilerId = null;
-            if (b.FermenterId == id) b.FermenterId = null;
-            if (b.PackagingVesselId == id) b.PackagingVesselId = null;
-            if (b.HltId == id) b.HltId = null;
-            if (b.MashTunId == id) b.MashTunId = null;
-            b.UpdatedAt = DateTime.UtcNow;
+            await _brewLinkService.RevokeGatewayTokenBestEffortAsync(gatewayToDelete);
         }
 
-        // 2. Pre-clean/remove BatchSensorAssignments referencing this equipment to prevent FK 23503 DbUpdateException
-        var sensorAssignments = await _db.BatchSensorAssignments
-            .Where(sa => sa.EquipmentId == id)
-            .ToListAsync();
-
-        if (sensorAssignments.Count > 0)
-        {
-            _db.BatchSensorAssignments.RemoveRange(sensorAssignments);
-        }
-
-        // 3. Decouple any taps referencing this equipment (if this equipment is an assigned keg)
-        var referencingTaps = await _db.Equipment
-            .Where(e => e.AssignedKegId == id)
-            .ToListAsync();
-
-        foreach (var tap in referencingTaps)
-        {
-            tap.AssignedKegId = null;
-            tap.AssignedKeg = null;
-            tap.UpdatedAt = DateTime.UtcNow;
-        }
-
-        // 4. Decouple batch or keg assignments if deleting a Tap or Keg
-        if (equipment.AssignedBatchId != null)
-        {
-            equipment.AssignedBatchId = null;
-            equipment.AssignedBatch = null;
-            equipment.AssignedAt = null;
-            equipment.CurrentVolume = 0m;
-            equipment.CurrentVolumeLiters = 0m;
-        }
-
-        if (equipment.AssignedKegId != null)
-        {
-            equipment.AssignedKegId = null;
-            equipment.AssignedKeg = null;
-        }
-
-        if (equipment.Subtype == EquipmentSubtype.BrewLink && !string.IsNullOrWhiteSpace(equipment.ConnectionConfigJson))
-        {
-            try
-            {
-                var node = JsonNode.Parse(equipment.ConnectionConfigJson) as JsonObject;
-                var gwIdStr = node?["brewLinkGatewayId"]?.GetValue<string>();
-                if (Guid.TryParse(gwIdStr, out var parsedGwId))
-                {
-                    var gw = await _db.BrewLinkGateways.FirstOrDefaultAsync(g => g.Id == parsedGwId && g.UserId == userId);
-                    if (gw != null)
-                    {
-                        _db.BrewLinkGateways.Remove(gw);
-                    }
-                }
-            }
-            catch
-            {
-                // Non-blocking cleanup
-            }
-        }
-
-        _db.Equipment.Remove(equipment);
+        await BrewLinkLifecycleHelper.CleanEquipmentGroupRelationsAndRemoveAsync(_db, itemsToDelete, gatewayToDelete);
 
         try
         {
@@ -753,7 +688,7 @@ public class EquipmentService : IEquipmentService
             return EquipmentAccessResult.Conflict;
         }
 
-        _logger.LogInformation("Equipment {EquipmentId} deleted by user {UserId}", id, userId);
+        _logger.LogInformation("Equipment {EquipmentId} deleted by user {UserId} (total items removed: {Count})", id, userId, itemsToDelete.Count);
         return EquipmentAccessResult.Success;
     }
 
@@ -770,15 +705,32 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.NotFound, null);
         }
 
+        List<Equipment> targetGroup;
+        if (equipment.Subtype == EquipmentSubtype.BrewLink &&
+            BrewLinkLifecycleHelper.TryParseBrewLinkConfig(equipment.ConnectionConfigJson, out var parsedGwId, out _, out _) &&
+            parsedGwId.HasValue)
+        {
+            targetGroup = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, parsedGwId.Value, equipment);
+        }
+        else
+        {
+            targetGroup = [equipment];
+        }
+
+        var targetIds = targetGroup.Select(e => e.Id).ToHashSet();
+        var assignedBatchIds = targetGroup
+            .Where(e => e.AssignedBatchId.HasValue)
+            .Select(e => e.AssignedBatchId!.Value)
+            .ToHashSet();
+
         var batchList = await _db.Batches.AsNoTracking()
-            .Where(b => (b.UserId == userId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
-                        (b.BoilerId == equipmentId ||
-                         b.FermenterId == equipmentId ||
-                         b.PackagingVesselId == equipmentId ||
-                         b.HltId == equipmentId ||
-                         b.MashTunId == equipmentId ||
-                         (equipment.AssignedBatchId != null && b.Id == equipment.AssignedBatchId) ||
-                         b.SensorAssignments.Any(sa => sa.EquipmentId == equipmentId)) &&
+            .Where(b => (b.BoilerId.HasValue && targetIds.Contains(b.BoilerId.Value) ||
+                         b.FermenterId.HasValue && targetIds.Contains(b.FermenterId.Value) ||
+                         b.PackagingVesselId.HasValue && targetIds.Contains(b.PackagingVesselId.Value) ||
+                         b.HltId.HasValue && targetIds.Contains(b.HltId.Value) ||
+                         b.MashTunId.HasValue && targetIds.Contains(b.MashTunId.Value) ||
+                         assignedBatchIds.Contains(b.Id) ||
+                         b.SensorAssignments.Any(sa => targetIds.Contains(sa.EquipmentId))) &&
                         b.Status != BatchStatus.Completed &&
                         b.Status != BatchStatus.Archived)
             .OrderByDescending(b => b.BrewDate)
@@ -790,13 +742,13 @@ public class EquipmentService : IEquipmentService
                 b.Name,
                 b.Status,
                 b.CurrentStage,
-                IsBoiler = b.BoilerId == equipmentId,
-                IsFermenter = b.FermenterId == equipmentId,
-                IsHlt = b.HltId == equipmentId,
-                IsMashTun = b.MashTunId == equipmentId,
-                IsPackaging = b.PackagingVesselId == equipmentId,
-                IsSensor = b.SensorAssignments.Any(sa => sa.EquipmentId == equipmentId),
-                IsAssigned = equipment.AssignedBatchId != null && b.Id == equipment.AssignedBatchId
+                IsBoiler = b.BoilerId.HasValue && targetIds.Contains(b.BoilerId.Value),
+                IsFermenter = b.FermenterId.HasValue && targetIds.Contains(b.FermenterId.Value),
+                IsHlt = b.HltId.HasValue && targetIds.Contains(b.HltId.Value),
+                IsMashTun = b.MashTunId.HasValue && targetIds.Contains(b.MashTunId.Value),
+                IsPackaging = b.PackagingVesselId.HasValue && targetIds.Contains(b.PackagingVesselId.Value),
+                IsSensor = b.SensorAssignments.Any(sa => targetIds.Contains(sa.EquipmentId)),
+                IsAssigned = assignedBatchIds.Contains(b.Id)
             })
             .ToListAsync();
 
@@ -887,10 +839,6 @@ public class EquipmentService : IEquipmentService
             assignedBatch = _db.Batches.FirstOrDefault(b => b.Id == e.AssignedBatchId.Value);
         }
 
-        var fillPercentage = e.CapacityLiters > 0
-            ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
-            : 0m;
-
         AssignedKegSummaryDto? assignedKegSummary = null;
         if (assignedKeg != null)
         {
@@ -924,6 +872,26 @@ public class EquipmentService : IEquipmentService
 
         var effectiveBatch = assignedKeg?.AssignedBatch ?? assignedBatch;
         var effectiveAssignedAt = assignedKeg?.AssignedAt ?? e.AssignedAt;
+        var batchLabelUrl = effectiveBatch != null ? ResolveBatchLabelUrl(effectiveBatch) : null;
+
+        return BuildDto(e, isOwner, effectiveBatch, effectiveAssignedAt, assignedKegSummary, assignedKeg, batchLabelUrl);
+    }
+
+    internal static EquipmentDto ToBasicEquipmentDto(Equipment e, bool isOwner = true) =>
+        BuildDto(e, isOwner, effectiveBatch: null, effectiveAssignedAt: null, assignedKegSummary: null, assignedKeg: null, effectiveBatchLabelUrl: null);
+
+    private static EquipmentDto BuildDto(
+        Equipment e,
+        bool isOwner,
+        Batch? effectiveBatch,
+        DateTime? effectiveAssignedAt,
+        AssignedKegSummaryDto? assignedKegSummary,
+        Equipment? assignedKeg,
+        string? effectiveBatchLabelUrl)
+    {
+        var fillPercentage = e.CapacityLiters > 0
+            ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
+            : 0m;
 
         decimal? fillLevelPercent = e.Type switch
         {
@@ -1026,7 +994,7 @@ public class EquipmentService : IEquipmentService
                     effectiveBatch.AlcoholByVolume,
                     effectiveAssignedAt,
                     effectiveBatch.RecipeId,
-                    ResolveBatchLabelUrl(effectiveBatch))
+                    effectiveBatchLabelUrl)
                 : null,
             e.AssignedKegId,
             assignedKegSummary,
