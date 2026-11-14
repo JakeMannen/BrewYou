@@ -45,6 +45,7 @@
 	let selectedBoilStepName = $state<string>('');
 	let tempInputValue = $state<number>(65.0);
 	let notes = $state<string>('');
+	let timestampLocal = $state<string>('');
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 
@@ -100,6 +101,7 @@
 					? Number(((target * 9) / 5 + 32).toFixed(1))
 					: target;
 			notes = '';
+			timestampLocal = '';
 			error = null;
 		}
 	});
@@ -148,7 +150,8 @@
 				batchMashStepId: stage === 'Mash' ? selectedMashStepId || null : null,
 				stepName: stepName,
 				notes: notes.trim() || null,
-				targetTemperatureC: targetTemp
+				targetTemperatureC: targetTemp,
+				timestamp: timestampLocal ? new Date(timestampLocal).toISOString() : null
 			});
 			onClose();
 		} catch (err: unknown) {
@@ -320,11 +323,28 @@
 								</select>
 							{:else}
 								<span class="mt-0.5 block text-zinc-500"
-									>{t('batches.telemetry.no_equipment_available')}</span
+									>{t('batches.telemetry.no_equipment_fallback')}</span
 								>
 							{/if}
 						</div>
 					</div>
+				</div>
+
+				<!-- Timestamp Input -->
+				<div>
+					<label
+						for="log-temp-timestamp"
+						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+					>
+						{t('batches.telemetry.timestamp_label')}
+					</label>
+					<input
+						id="log-temp-timestamp"
+						data-testid="log-temp-timestamp-input"
+						type="datetime-local"
+						bind:value={timestampLocal}
+						class="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+					/>
 				</div>
 
 				<!-- Notes Input -->

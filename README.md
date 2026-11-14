@@ -109,7 +109,8 @@ The Recipe Atelier and Formulator is an interactive brewing formulation workspac
 6. **Import & Export**:
    - Click **Import** to load existing `.xml` (BeerXML) or `.json` (BeerJSON) recipe files directly into your catalog (private by default, with an optional community-sharing toggle). Unmatched ingredients prompt an interactive reconciliation dialog that highlights suggested close matches from your catalog, lets you pick any existing catalog ingredient of the same type, or creates a new custom ingredient—after validating recipe name conflicts upfront.
    - Click **Export** on any recipe to download standard BeerXML or BeerJSON files preserving `First Wort` hops, Dry Hop day durations, miscellaneous weight/volume additions, and complete mash/fermentation profiles.
-7. **Start a Brew**: Click **Brew This Recipe** to turn the formulation into an active brew day batch.
+7. **Print a Scaled Brew Sheet**: Click **Print Brew Sheet** on any recipe (`/recipes/[id]`) to open `/recipes/[id]/print`, select your target batch size, volume basis (_Fermenter_ or _Packaged_), and optional boiler profile, then print a complete brew-day record sheet with scaled water calculations, mash/boil/fermentation checklists, and blank gravity/temperature tables to fill in on paper. Click **Start Batch with These Settings** to launch a matching batch with those scaled targets.
+8. **Start a Brew**: Click **Brew This Recipe** to turn the formulation into an active brew day batch.
 
 ### Recipe Labels & Digital Tap Screen Graphics
 
@@ -137,6 +138,8 @@ BrewYou bridges physical packaging and digital taproom displays through integrat
 ### Batch Tracking & Live Brew Day Execution
 
 Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: _Mash_ ➔ _Boil_ ➔ _Ferment_ ➔ _Condition_ ➔ _Package_ (with clean support for skipping optional stages such as _Condition_ while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
+
+- **Past-Date Batch Creation & Offline Equipment Progression**: Log a completed or in-progress paper brew day retroactively by picking a historical brew date in `/batches/new` (auto-generating a date-matched batch code via `/api/v1/batches/next-code?date=YYYY-MM-DD` and disabling hardware auto-dispatch). When assigned BrewLink hardware is offline—or even without configured vessels—BrewYou preserves full manual control over mash/boil step advancement, forced stage transitions, local fallback timers, step temperature logging, and gravity samples with optional historical timestamps and vessel temperatures.
 
 #### Multi-Vessel & All-in-One Brewhouse Topologies
 

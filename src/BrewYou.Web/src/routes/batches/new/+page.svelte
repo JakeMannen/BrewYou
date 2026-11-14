@@ -59,9 +59,13 @@
 	let recipeMashSteps = $state<RecipeMashStepOutputDto[]>([]);
 	let recipeFermentationSteps = $state<RecipeFermentationStepOutputDto[]>([]);
 	let batchCode = $state('');
+	let batchCodeManuallyEdited = $state(false);
 	let batchName = $state('');
 	let beerStyle = $state('American IPA');
 	let brewDate = $state(new Date().toISOString().split('T')[0]);
+	let isPastBrewDate = $derived(
+		Boolean(brewDate && brewDate < new Date().toISOString().split('T')[0])
+	);
 	let targetBatchSizeLiters = $state(20.0);
 	type BrewhouseTopology = '1V' | '2V_AIO_HLT' | '2V_MLT_BK' | '3V';
 
@@ -336,7 +340,7 @@
 	);
 
 	let isFermenterOccupied = $derived(
-		selectedFermenter !== null && selectedFermenter.currentVolumeLiters > 0
+		!isPastBrewDate && selectedFermenter !== null && selectedFermenter.currentVolumeLiters > 0
 	);
 
 	let targetMashTempC = $derived.by(() => {
@@ -398,14 +402,48 @@
 		return true;
 	});
 
+	async function refreshBatchCodeForDate(targetDate: string) {
+		if (batchCodeManuallyEdited || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+		try {
+			const res = await api.batches.getNextCode(targetDate);
+			if (brewDate === targetDate && !batchCodeManuallyEdited) {
+				batchCode = res.batchCode;
+			}
+		} catch (err) {
+			console.warn('Failed to refresh batch code for date:', err);
+		}
+	}
+
+	$effect(() => {
+		if (isPastBrewDate) {
+			sendRecipeToBoiler = false;
+		}
+	});
+
 	onMount(async () => {
 		loading = true;
 		error = null;
+		const urlBrewDate = page.url.searchParams.get('brewDate');
+		const validUrlBrewDate =
+			urlBrewDate && /^\d{4}-\d{2}-\d{2}$/.test(urlBrewDate) ? urlBrewDate : undefined;
+		if (validUrlBrewDate) {
+			brewDate = validUrlBrewDate;
+		}
+		const urlBatchSizeRaw = page.url.searchParams.get('batchSize');
+		const parsedUrlBatchSize = urlBatchSizeRaw ? Number(urlBatchSizeRaw) : NaN;
+		const urlBasisRaw = page.url.searchParams.get('basis');
+		const validUrlBasis: TargetVolumeBasis | null =
+			urlBasisRaw?.toLowerCase() === 'packaged'
+				? 'packaged'
+				: urlBasisRaw?.toLowerCase() === 'fermenter'
+					? 'fermenter'
+					: null;
+
 		try {
 			const [recipeList, equipList, codeRes] = await Promise.all([
 				api.recipes.list(),
 				api.equipment.list(),
-				api.batches.getNextCode()
+				api.batches.getNextCode(validUrlBrewDate)
 			]);
 			recipes = [...recipeList].sort((a, b) =>
 				a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
@@ -444,6 +482,13 @@
 				isAdHoc = true;
 				batchName = t('batches.wizard.default_adhoc_name');
 				recipeMashSteps = [];
+			}
+
+			if (!Number.isNaN(parsedUrlBatchSize) && parsedUrlBatchSize > 0) {
+				targetBatchSizeLiters = parsedUrlBatchSize;
+			}
+			if (validUrlBasis) {
+				targetVolumeBasis = validUrlBasis;
 			}
 
 			// Pre-select first fermenter and boiler if available
@@ -880,6 +925,9 @@
 							id="batch-code"
 							type="text"
 							bind:value={batchCode}
+							oninput={() => {
+								batchCodeManuallyEdited = true;
+							}}
 							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 						<span class="block text-[11px] text-zinc-400">
@@ -931,8 +979,18 @@
 							id="brew-date"
 							type="date"
 							bind:value={brewDate}
+							onchange={() => void refreshBatchCodeForDate(brewDate)}
 							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
+						{#if isPastBrewDate}
+							<p
+								data-testid="past-brew-date-notice"
+								class="mt-1 flex items-start gap-1.5 rounded-lg border border-sky-500/25 bg-sky-500/10 px-2.5 py-1.5 text-[11px] leading-snug text-sky-800 dark:text-sky-200"
+							>
+								<Info class="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+								<span>{t('batches.wizard.past_brew_date_notice')}</span>
+							</p>
+						{/if}
 					</div>
 
 					<div class="space-y-1.5">
@@ -1137,8 +1195,8 @@
 							<option value="">-- {t('batches.equipment.select_hlt_placeholder')} --</option>
 							{#each hlts as h}
 								<option value={h.id}>
-									{h.name} [{getSubtypeName(h.subtype)}] ({h.capacityLiters}L){h.currentVolumeLiters >
-									0
+									{h.name} [{getSubtypeName(h.subtype)}] ({h.capacityLiters}L){!isPastBrewDate &&
+									h.currentVolumeLiters > 0
 										? ` ${t('batches.equipment.in_use_suffix')}`
 										: ''}
 								</option>
@@ -1181,8 +1239,8 @@
 							<option value="">-- {t('batches.equipment.select_mash_tun_placeholder')} --</option>
 							{#each mashTuns as m}
 								<option value={m.id}>
-									{m.name} [{getSubtypeName(m.subtype)}] ({m.capacityLiters}L){m.currentVolumeLiters >
-									0
+									{m.name} [{getSubtypeName(m.subtype)}] ({m.capacityLiters}L){!isPastBrewDate &&
+									m.currentVolumeLiters > 0
 										? ` ${t('batches.equipment.in_use_suffix')}`
 										: ''}
 								</option>
@@ -1227,8 +1285,8 @@
 						<option value="">-- {t('batches.equipment.select_boiler_placeholder')} --</option>
 						{#each boilers as b}
 							<option value={b.id}>
-								{b.name} [{getSubtypeName(b.subtype)}] ({b.capacityLiters}L){b.currentVolumeLiters >
-								0
+								{b.name} [{getSubtypeName(b.subtype)}] ({b.capacityLiters}L){!isPastBrewDate &&
+								b.currentVolumeLiters > 0
 									? ` ${t('batches.equipment.in_use_suffix')}`
 									: ''}
 							</option>
@@ -1249,7 +1307,7 @@
 							>
 								{t('batches.equipment.capacity', { liters: selectedBoiler.capacityLiters })}
 							</span>
-							{#if selectedBoiler.currentVolumeLiters > 0}
+							{#if !isPastBrewDate && selectedBoiler.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 								>
@@ -1274,8 +1332,9 @@
 									id="brewlink-send-toggle"
 									data-testid="brewlink-send-toggle"
 									type="checkbox"
+									disabled={isPastBrewDate}
 									bind:checked={sendRecipeToBoiler}
-									class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500 dark:border-zinc-700 dark:bg-zinc-800"
+									class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800"
 								/>
 								<div class="space-y-0.5">
 									<label
@@ -1357,8 +1416,8 @@
 						<option value="">-- {t('batches.equipment.select_fermenter_placeholder')} --</option>
 						{#each fermenters as f}
 							<option value={f.id}>
-								{f.name} [{getSubtypeName(f.subtype)}] ({f.capacityLiters}L){f.currentVolumeLiters >
-								0
+								{f.name} [{getSubtypeName(f.subtype)}] ({f.capacityLiters}L){!isPastBrewDate &&
+								f.currentVolumeLiters > 0
 									? ` ${t('batches.equipment.occupied_suffix')}`
 									: ''}
 							</option>
@@ -1391,7 +1450,7 @@
 									{t('batches.equipment.headspace', { headspace: fermenterHeadspacePercent })}
 								</span>
 							{/if}
-							{#if selectedFermenter.currentVolumeLiters > 0}
+							{#if !isPastBrewDate && selectedFermenter.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 								>
@@ -1435,6 +1494,7 @@
 						{#if isFermenterOccupied}
 							<div
 								role="alert"
+								data-testid="fermenter-occupied-warning"
 								class="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
 							>
 								<AlertTriangle class="h-4 w-4 shrink-0" />
@@ -1517,8 +1577,8 @@
 						>
 						{#each packagingVessels as p}
 							<option value={p.id}>
-								{p.name} [{getSubtypeName(p.subtype)}] ({p.capacityLiters}L){p.currentVolumeLiters >
-								0
+								{p.name} [{getSubtypeName(p.subtype)}] ({p.capacityLiters}L){!isPastBrewDate &&
+								p.currentVolumeLiters > 0
 									? ` ${t('batches.equipment.in_use_suffix')}`
 									: ''}
 							</option>
@@ -1544,7 +1604,7 @@
 									liters: selectedPackagingVessel.capacityLiters
 								})}
 							</span>
-							{#if selectedPackagingVessel.currentVolumeLiters > 0}
+							{#if !isPastBrewDate && selectedPackagingVessel.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 								>

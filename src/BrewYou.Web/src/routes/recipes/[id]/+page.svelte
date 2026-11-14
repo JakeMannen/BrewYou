@@ -58,7 +58,8 @@
 		Activity,
 		Clock,
 		Thermometer,
-		Cpu
+		Cpu,
+		Printer
 	} from '@lucide/svelte';
 
 	let recipeId = $derived(page.params.id);
@@ -442,6 +443,15 @@
 					<Download class="h-4 w-4 text-amber-500" />
 					<span>{t('recipes.export_recipe')}</span>
 				</button>
+
+				<a
+					href="/recipes/{recipe.id}/print"
+					data-testid="print-recipe-btn"
+					class="flex min-h-[42px] items-center gap-2 rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 text-xs font-semibold text-zinc-700 shadow-xs transition-all hover:border-amber-500/40 hover:bg-amber-50 hover:text-amber-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
+				>
+					<Printer class="h-4 w-4 text-amber-500" />
+					<span>{t('recipes.print_recipe')}</span>
+				</a>
 
 				{#if isRecipeOwner(recipe)}
 					<button
