@@ -105,10 +105,31 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Detect Changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            apiservice:
+              - 'src/BrewYou.ApiService/**'
+              - 'src/BrewYou.ServiceDefaults/**'
+              - 'Directory.Build.props'
+              - 'Directory.Packages.props'
+              - 'global.json'
+              - 'NuGet.config'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'src/BrewYou.Web/**'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
+
       - name: Set up Docker Buildx
+        if: steps.filter.outputs.apiservice == 'true' || steps.filter.outputs.web == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build ApiService Docker Image (Dry Run)
+        if: steps.filter.outputs.apiservice == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -117,9 +138,16 @@ jobs:
           cache-from: type=gha,scope=apiservice
 
       - name: Build Web Docker Image (Dry Run)
+        if: steps.filter.outputs.web == 'true'
         uses: docker/build-push-action@v6
         with:
           context: src/BrewYou.Web
           file: src/BrewYou.Web/Dockerfile
           push: false
           cache-from: type=gha,scope=web
+
+      - name: Summary
+        run: |
+          echo "=== Docker Build Verification Summary ==="
+          echo "ApiService Image: ${{ steps.filter.outputs.apiservice == 'true' && 'Built (changes detected)' || 'Skipped (no changes)' }}"
+          echo "Web Image:        ${{ steps.filter.outputs.web == 'true' && 'Built (changes detected)' || 'Skipped (no changes)' }}"
