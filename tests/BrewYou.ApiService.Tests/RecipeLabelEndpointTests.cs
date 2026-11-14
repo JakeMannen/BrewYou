@@ -78,7 +78,7 @@ public class RecipeLabelEndpointTests : IClassFixture<WebApplicationFactory<Prog
         var (client, _, _) = await CreateAuthenticatedUserAsync("labelsummary");
         var recipe = await CreateSampleRecipeAsync(client, "Default Label Ale");
 
-        var listRes = await client.GetAsync("/api/v1/recipes");
+        var listRes = await client.GetAsync("/api/v1/recipes?scope=mine");
         listRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var listEnvelope = await listRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>();
         var summary = listEnvelope!.Data!.First(r => r.Id == recipe.Id);
