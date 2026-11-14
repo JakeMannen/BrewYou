@@ -79,6 +79,8 @@ import type {
 	BrewLinkGatewayDto,
 	BrewLinkDiscoveredGatewayDto,
 	BrewLinkEquipmentDeviceDto,
+	ProvisionBrewLinkEquipmentRequest,
+	ProvisionBrewLinkEquipmentResultDto,
 	StartBrewLinkPairingRequest,
 	PairBrewLinkRequest,
 	UpdateBrewLinkGatewayRequest,
@@ -665,9 +667,26 @@ export const api = {
 			return request<BrewLinkDiscoveredGatewayDto[]>('/api/v1/brewlink/gateways/discover');
 		},
 
-		async getGatewayEquipment(gatewayId: string): Promise<BrewLinkEquipmentDeviceDto[]> {
+		async getGatewayEquipment(
+			gatewayId: string,
+			setupId?: string
+		): Promise<BrewLinkEquipmentDeviceDto[]> {
+			const query = setupId ? `?setupId=${encodeURIComponent(setupId)}` : '';
 			return request<BrewLinkEquipmentDeviceDto[]>(
-				`/api/v1/brewlink/gateways/${gatewayId}/equipment`
+				`/api/v1/brewlink/gateways/${gatewayId}/equipment${query}`
+			);
+		},
+
+		async provisionGatewayEquipment(
+			gatewayId: string,
+			req: ProvisionBrewLinkEquipmentRequest
+		): Promise<ProvisionBrewLinkEquipmentResultDto> {
+			return request<ProvisionBrewLinkEquipmentResultDto>(
+				`/api/v1/brewlink/gateways/${gatewayId}/equipment/provision`,
+				{
+					method: 'POST',
+					body: JSON.stringify(req)
+				}
 			);
 		},
 
@@ -696,8 +715,9 @@ export const api = {
 			});
 		},
 
-		async deleteGateway(id: string): Promise<void> {
-			return request<void>(`/api/v1/brewlink/gateways/${id}`, {
+		async deleteGateway(id: string, force = false): Promise<void> {
+			const query = force ? '?force=true' : '';
+			return request<void>(`/api/v1/brewlink/gateways/${id}${query}`, {
 				method: 'DELETE'
 			});
 		}

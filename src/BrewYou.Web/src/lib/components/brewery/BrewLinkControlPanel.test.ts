@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { EquipmentDto, SendBrewLinkControlRequest } from '$lib/types/api';
+import { getInteractionActions, isG30ActionBlockedInAutoMode } from '$lib/utils/brewlink';
 
 export function parseBrewLinkMetrics(latestMetricsJson?: string | null) {
 	if (!latestMetricsJson) return {};
@@ -164,5 +165,47 @@ describe('BrewLinkControlPanel Specifications', () => {
 		expect(parseBrewLinkMetrics(null)).toEqual({});
 		expect(parseBrewLinkMetrics('')).toEqual({});
 		expect(parseBrewLinkMetrics('{ invalid json')).toEqual({});
+	});
+
+	it('maps G30 interaction codes 1-6 to exact confirm and dismiss actions', () => {
+		expect(getInteractionActions(1)).toEqual({
+			confirmAction: 'press_set',
+			dismissAction: 'dismiss_alert',
+			confirmLabelKey: 'equipment.brewlink_press_set',
+			dismissLabelKey: 'equipment.brewlink_dismiss_alert'
+		});
+		expect(getInteractionActions(2).confirmAction).toBe('ack_interaction');
+		expect(getInteractionActions(3)).toEqual({
+			confirmAction: 'ack_interaction',
+			dismissAction: 'dismiss_sparge_alert',
+			confirmLabelKey: 'equipment.brewlink_ack_prompt',
+			dismissLabelKey: 'equipment.brewlink_dismiss_sparge'
+		});
+		expect(getInteractionActions(4)).toEqual({
+			confirmAction: 'press_set',
+			dismissAction: 'dismiss_sparge_alert',
+			confirmLabelKey: 'equipment.brewlink_press_set',
+			dismissLabelKey: 'equipment.brewlink_dismiss_sparge'
+		});
+		expect(getInteractionActions(5).confirmAction).toBe('dismiss_alert');
+		expect(getInteractionActions(6).confirmAction).toBe('ack_interaction');
+	});
+
+	it('blocks setpoint and timer edits only when auto_mode is true', () => {
+		for (const action of ['set_timer', 'cancel_timer', 'set_target_temp', 'temp_up', 'temp_down']) {
+			expect(isG30ActionBlockedInAutoMode(action, true)).toBe(true);
+			expect(isG30ActionBlockedInAutoMode(action, false)).toBe(false);
+		}
+		for (const action of [
+			'pause_timer',
+			'resume_timer',
+			'toggle_timer',
+			'press_set',
+			'cancel_session',
+			'set_heat',
+			'set_pump'
+		]) {
+			expect(isG30ActionBlockedInAutoMode(action, true)).toBe(false);
+		}
 	});
 });

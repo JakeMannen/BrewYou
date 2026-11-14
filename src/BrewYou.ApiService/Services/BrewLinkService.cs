@@ -20,9 +20,16 @@ public partial class BrewLinkService : IBrewLinkService
 {
     private static readonly HashSet<string> SupportedActions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "set_pump", "set_heat", "set_target_temp", "set_timer",
-        "pause_timer", "resume_timer", "cancel_timer", "press_set",
-        "ack_interaction", "dismiss_alert", "dismiss_sparge_alert", "cancel_session"
+        "set_pump", "set_heat", "set_target_temp", "temp_up", "temp_down",
+        "delayed_heat", "set_timer", "pause_timer", "resume_timer",
+        "toggle_timer", "cancel_timer", "press_set", "ack_interaction",
+        "dismiss_alert", "dismiss_sparge_alert", "cancel_session",
+        "disconnect_manual", "disconnect_auto"
+    };
+
+    private static readonly HashSet<string> AutoModeLockedActions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "set_timer", "cancel_timer", "set_target_temp", "temp_up", "temp_down"
     };
 
     private readonly BrewYouDbContext _db;
@@ -302,27 +309,18 @@ public partial class BrewLinkService : IBrewLinkService
         return (true, ToDto(gateway), null);
     }
 
-    public async Task<(bool Succeeded, string? ErrorMessage)> DeleteGatewayAsync(
-        string userId,
-        Guid id,
-        CancellationToken ct = default)
+    private static string NormalizeGatewayBaseUrl(string host) =>
+        host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+        host.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? host.TrimEnd('/')
+            : $"http://{host.TrimEnd('/')}";
+
+    public async Task RevokeGatewayTokenBestEffortAsync(BrewLinkGateway gateway, CancellationToken ct = default)
     {
-        var gateway = await _db.BrewLinkGateways
-            .FirstOrDefaultAsync(g => g.Id == id && g.UserId == userId, ct);
-
-        if (gateway == null)
-        {
-            return (false, "BrewLink gateway not found.");
-        }
-
-        // Best-effort revoke client token on the ESP32 gateway (/api/pair/delete)
         try
         {
             var rawToken = _protector.Unprotect(gateway.ApiToken);
-            var baseHost = gateway.Host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                           gateway.Host.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                ? gateway.Host.TrimEnd('/')
-                : $"http://{gateway.Host.TrimEnd('/')}";
+            var baseHost = NormalizeGatewayBaseUrl(gateway.Host);
 
             using var revokeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             revokeCts.CancelAfter(TimeSpan.FromSeconds(3));
@@ -345,25 +343,51 @@ public partial class BrewLinkService : IBrewLinkService
         {
             _logger.LogDebug(ex, "Best-effort token revocation on BrewLink gateway {GatewayId} failed (gateway may be offline).", gateway.GatewayId);
         }
+    }
 
-        var gwIdStr = gateway.Id.ToString();
-        var linkedSensors = await _db.Equipment
-            .Where(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink &&
-                e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gwIdStr))
-            .ToListAsync(ct);
-        if (linkedSensors.Count > 0)
+    public async Task<(bool Succeeded, bool Conflict, string? ErrorMessage)> DeleteGatewayAsync(
+        string userId,
+        Guid id,
+        bool force = false,
+        CancellationToken ct = default)
+    {
+        var gateway = await _db.BrewLinkGateways
+            .FirstOrDefaultAsync(g => g.Id == id && g.UserId == userId, ct);
+
+        if (gateway == null)
         {
-            _db.Equipment.RemoveRange(linkedSensors);
+            return (false, false, "BrewLink gateway not found.");
         }
 
-        _db.BrewLinkGateways.Remove(gateway);
-        await _db.SaveChangesAsync(ct);
-        return (true, null);
+        var itemsToDelete = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, gateway.Id, ct: ct);
+
+        if (!force && await BrewLinkLifecycleHelper.HasActiveBatchesForEquipmentGroupAsync(_db, itemsToDelete, ct))
+        {
+            return (false, true, "Cannot delete BrewLink gateway while its attached equipment is assigned to active batches.");
+        }
+
+        // Best-effort revoke client token on the ESP32 gateway (/api/pair/delete)
+        await RevokeGatewayTokenBestEffortAsync(gateway, ct);
+
+        await BrewLinkLifecycleHelper.CleanEquipmentGroupRelationsAndRemoveAsync(_db, itemsToDelete, gateway, ct);
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database conflict occurred while deleting BrewLink gateway {GatewayId}", id);
+            return (false, true, "Cannot delete BrewLink gateway due to active entity references.");
+        }
+
+        return (true, false, null);
     }
 
     public async Task<(bool Succeeded, List<BrewLinkEquipmentDeviceDto>? Equipment, string? ErrorMessage)> GetGatewayEquipmentAsync(
         string userId,
         Guid gatewayId,
+        Guid? setupId = null,
         CancellationToken ct = default)
     {
         var gateway = await _db.BrewLinkGateways
@@ -375,6 +399,250 @@ public partial class BrewLinkService : IBrewLinkService
             return (false, null, "BrewLink gateway not found.");
         }
 
+        var (succeeded, liveItems, error) = await FetchGatewayEquipmentSlotsInternalAsync(gateway, ct);
+        if (!succeeded || liveItems == null)
+        {
+            return (false, null, error);
+        }
+
+        var attachedEquipment = await LoadGatewayAttachedEquipmentAsync(userId, gatewayId, setupId, ct);
+
+        var devices = liveItems.Select(entry =>
+        {
+            var dev = entry.Device;
+            var match = BrewLinkLifecycleHelper.FindMatchingLinkedEquipment(attachedEquipment, dev.Slot, dev.Mac);
+            return dev with
+            {
+                ExistingEquipmentId = match?.Id,
+                ExistingEquipmentName = match?.Name
+            };
+        }).ToList();
+
+        return (true, devices, null);
+    }
+
+    public async Task<(BrewLinkSendResult Result, ProvisionBrewLinkEquipmentResultDto? Data, string? ErrorMessage)> ProvisionGatewayEquipmentAsync(
+        string userId,
+        Guid gatewayId,
+        ProvisionBrewLinkEquipmentRequest request,
+        CancellationToken ct = default)
+    {
+        var gateway = await _db.BrewLinkGateways
+            .AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == gatewayId && g.UserId == userId, ct);
+
+        if (gateway == null)
+        {
+            return (BrewLinkSendResult.NotFound, null, "BrewLink gateway not found.");
+        }
+
+        BrewerySetup? targetSetup;
+        if (request.BrewerySetupId == Guid.Empty)
+        {
+            targetSetup = await _db.BrewerySetups
+                .Include(s => s.Members)
+                .Where(s => s.UserId == userId)
+                .OrderByDescending(s => s.IsDefault)
+                .ThenBy(s => s.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+        else
+        {
+            targetSetup = await _db.BrewerySetups
+                .Include(s => s.Members)
+                .FirstOrDefaultAsync(s => s.Id == request.BrewerySetupId, ct);
+        }
+
+        if (targetSetup == null)
+        {
+            return (BrewLinkSendResult.NotFound, null, "Target brewery setup not found.");
+        }
+
+        var isSetupOwner = targetSetup.UserId == userId;
+        var memberRole = targetSetup.Members.FirstOrDefault(m => m.UserId == userId)?.Role;
+        if (!isSetupOwner && memberRole == null)
+        {
+            return (BrewLinkSendResult.NotFound, null, "Target brewery setup not found.");
+        }
+
+        if (!isSetupOwner && memberRole is not (BreweryRole.Owner or BreweryRole.Brewer))
+        {
+            return (BrewLinkSendResult.Forbidden, null, "Insufficient permissions to add equipment to this brewery setup.");
+        }
+
+        var devicesToProcess = request.Devices ?? [];
+        if (devicesToProcess.Count == 0)
+        {
+            return (BrewLinkSendResult.Success, new ProvisionBrewLinkEquipmentResultDto([], []), null);
+        }
+
+        var currentEquipmentCount = await _db.Equipment.CountAsync(e => e.UserId == userId, ct);
+
+        // Best-effort live query from the ESP32 gateway for canonical state and authoritative metadata
+        var (liveOk, liveSlots, _) = await FetchGatewayEquipmentSlotsInternalAsync(gateway, ct);
+        var liveList = liveOk && liveSlots != null ? liveSlots : [];
+
+        var existingAttached = await LoadGatewayAttachedEquipmentAsync(userId, gatewayId, targetSetup.Id, ct);
+        var existingSetupNamesList = await _db.Equipment.AsNoTracking()
+            .Where(e => e.BrewerySetupId == targetSetup.Id)
+            .Select(e => e.Name)
+            .ToListAsync(ct);
+        var usedNames = new HashSet<string>(existingSetupNamesList, StringComparer.OrdinalIgnoreCase);
+
+        var createdEntities = new List<Equipment>();
+        var skippedExistingIds = new List<Guid>();
+        var seenProcessedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in devicesToProcess)
+        {
+            var requestedNormMac = BrewLinkLifecycleHelper.NormalizeMac(item.Mac);
+            var liveMatch = liveList.FirstOrDefault(l =>
+                (!string.IsNullOrEmpty(requestedNormMac) &&
+                 string.Equals(BrewLinkLifecycleHelper.NormalizeMac(l.Device.Mac), requestedNormMac, StringComparison.OrdinalIgnoreCase)) ||
+                (item.Slot > 0 && l.Device.Slot == item.Slot && string.IsNullOrEmpty(requestedNormMac)));
+
+            var slot = liveMatch.Device?.Slot ?? (item.Slot > 0 ? item.Slot : 1);
+            var rawMac = !string.IsNullOrWhiteSpace(liveMatch.Device?.Mac) ? liveMatch.Device!.Mac : (item.Mac ?? string.Empty);
+            var normMac = BrewLinkLifecycleHelper.NormalizeMac(rawMac);
+            var dedupeKey = !string.IsNullOrEmpty(normMac) ? $"mac:{normMac}" : $"slot:{slot}";
+            if (!seenProcessedKeys.Add(dedupeKey))
+            {
+                continue;
+            }
+
+            var existingMatch = BrewLinkLifecycleHelper.FindMatchingLinkedEquipment(existingAttached, slot, normMac);
+            if (existingMatch != null)
+            {
+                if (!skippedExistingIds.Contains(existingMatch.Id))
+                {
+                    skippedExistingIds.Add(existingMatch.Id);
+                }
+                continue;
+            }
+
+            if (currentEquipmentCount + createdEntities.Count >= EquipmentService.MaxEquipmentPerUser)
+            {
+                return (BrewLinkSendResult.BadRequest, null, $"Equipment inventory limit reached (max {EquipmentService.MaxEquipmentPerUser} items).");
+            }
+
+            var rawTargetName = !string.IsNullOrWhiteSpace(liveMatch.Device?.Name)
+                ? liveMatch.Device!.Name
+                : (!string.IsNullOrWhiteSpace(item.Name) ? item.Name!.Trim() : $"BrewLink Slot {slot}");
+            var model = !string.IsNullOrWhiteSpace(liveMatch.Device?.Model)
+                ? liveMatch.Device!.Model
+                : (!string.IsNullOrWhiteSpace(item.Model) ? item.Model!.Trim() : null);
+            var eqType = !string.IsNullOrWhiteSpace(liveMatch.Device?.EquipmentType)
+                ? liveMatch.Device!.EquipmentType
+                : (!string.IsNullOrWhiteSpace(item.EquipmentType) ? item.EquipmentType!.Trim().ToLowerInvariant() : "boiler");
+
+            var spec = BrewLinkLifecycleHelper.MapModelSpec(model, eqType);
+
+            var normalizedBaseName = EquipmentService.NormalizeEquipmentName(rawTargetName);
+            if (string.IsNullOrWhiteSpace(normalizedBaseName))
+            {
+                normalizedBaseName = model ?? $"BrewLink {spec.EquipmentType}";
+            }
+
+            var uniqueName = normalizedBaseName;
+            var suffixCounter = 1;
+            while (usedNames.Contains(uniqueName))
+            {
+                uniqueName = $"{normalizedBaseName} ({++suffixCounter})";
+            }
+            usedNames.Add(uniqueName);
+
+            var configPayload = new Dictionary<string, object?>
+            {
+                ["brewLinkGatewayId"] = gateway.Id.ToString(),
+                ["targetName"] = rawTargetName,
+                ["slot"] = slot
+            };
+            if (!string.IsNullOrEmpty(normMac))
+            {
+                configPayload["targetMac"] = normMac;
+            }
+            if (!string.IsNullOrWhiteSpace(model))
+            {
+                configPayload["model"] = model;
+            }
+
+            var now = DateTime.UtcNow;
+            var entity = new Equipment
+            {
+                UserId = userId,
+                BrewerySetupId = targetSetup.Id,
+                Name = uniqueName,
+                Type = spec.EquipmentType,
+                Subtype = spec.Subtype,
+                Capacity = spec.CapacityLiters,
+                Unit = VolumeUnit.Liters,
+                CapacityLiters = spec.CapacityLiters,
+                CurrentVolume = 0m,
+                CurrentVolumeLiters = 0m,
+                BoilOffRatePerHour = spec.BoilOffRatePerHour,
+                TrubLossLiters = spec.TrubLossLiters,
+                MashTunDeadSpaceLiters = spec.MashTunDeadSpaceLiters,
+                ConnectionType = EquipmentConnectionType.BrewLink,
+                ConnectionConfigJson = JsonSerializer.Serialize(configPayload),
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            if (liveMatch.Device?.Connected == true && liveMatch.Canonical != null)
+            {
+                var canonical = liveMatch.Canonical;
+                entity.CurrentTemperatureC = canonical.CurrentTempC;
+                entity.TemperatureUpdatedAt = canonical.CurrentTempC.HasValue ? now : null;
+                entity.LastTelemetryAt = now;
+                entity.LatestMetricsJson = BrewLinkTelemetryParser.ToMetricsJson(canonical);
+            }
+
+            createdEntities.Add(entity);
+            existingAttached.Add(entity);
+        }
+
+        if (createdEntities.Count > 0)
+        {
+            _db.Equipment.AddRange(createdEntities);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var createdDtos = createdEntities
+            .Select(e => EquipmentService.ToBasicEquipmentDto(e, isOwner: true))
+            .ToList();
+
+        return (BrewLinkSendResult.Success, new ProvisionBrewLinkEquipmentResultDto(createdDtos, skippedExistingIds), null);
+    }
+
+    private async Task<List<Equipment>> LoadGatewayAttachedEquipmentAsync(
+        string userId,
+        Guid gatewayId,
+        Guid? setupId,
+        CancellationToken ct)
+    {
+        var query = _db.Equipment.AsNoTracking()
+            .Where(e => e.ConnectionType == EquipmentConnectionType.BrewLink &&
+                        e.Subtype != EquipmentSubtype.BrewLink &&
+                        e.ConnectionConfigJson != null &&
+                        (e.UserId == userId ||
+                         (e.BrewerySetup != null &&
+                          (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId)))));
+
+        if (setupId.HasValue && setupId.Value != Guid.Empty)
+        {
+            query = query.Where(e => e.BrewerySetupId == setupId.Value);
+        }
+
+        var candidates = await query.ToListAsync(ct);
+        return candidates
+            .Where(e => BrewLinkLifecycleHelper.TryParseBrewLinkConfig(e.ConnectionConfigJson, out var eqGwId, out _, out _) &&
+                        eqGwId == gatewayId)
+            .ToList();
+    }
+
+    private async Task<(bool Succeeded, List<(BrewLinkEquipmentDeviceDto Device, BrewLinkCanonicalMetrics? Canonical)>? Items, string? ErrorMessage)>
+        FetchGatewayEquipmentSlotsInternalAsync(BrewLinkGateway gateway, CancellationToken ct)
+    {
         string rawToken;
         try
         {
@@ -386,10 +654,7 @@ public partial class BrewLinkService : IBrewLinkService
             return (false, null, "Gateway credentials could not be decrypted. Please re-pair the gateway.");
         }
 
-        var baseHost = gateway.Host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                       gateway.Host.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            ? gateway.Host.TrimEnd('/')
-            : $"http://{gateway.Host.TrimEnd('/')}";
+        var baseHost = NormalizeGatewayBaseUrl(gateway.Host);
 
         try
         {
@@ -437,7 +702,7 @@ public partial class BrewLinkService : IBrewLinkService
                 }
             }
 
-            var devices = new List<BrewLinkEquipmentDeviceDto>();
+            var devices = new List<(BrewLinkEquipmentDeviceDto Device, BrewLinkCanonicalMetrics? Canonical)>();
             if (hasArray)
             {
                 var fallbackSlot = 1;
@@ -494,19 +759,42 @@ public partial class BrewLinkService : IBrewLinkService
                     }
 
                     BrewLinkEquipmentStateDto? state = null;
+                    BrewLinkCanonicalMetrics? canonical = null;
                     if (item.TryGetProperty("state", out var stateProp) && stateProp.ValueKind == JsonValueKind.Object)
                     {
-                        state = new BrewLinkEquipmentStateDto(
-                            TempC: stateProp.TryGetProperty("temp_c", out var tc) && tc.TryGetDecimal(out var tcVal) ? tcVal : null,
-                            TargetTempC: stateProp.TryGetProperty("target_temp_c", out var ttc) && ttc.TryGetDecimal(out var ttcVal) ? ttcVal : null,
-                            HeatPct: stateProp.TryGetProperty("heat_pct", out var hp) && hp.TryGetDecimal(out var hpVal) ? hpVal : null,
-                            PumpOn: stateProp.TryGetProperty("pump_on", out var po) && po.ValueKind is JsonValueKind.True or JsonValueKind.False ? po.GetBoolean() : null,
-                            StepIndex: stateProp.TryGetProperty("step_index", out var si) && si.TryGetInt32(out var siVal) ? siVal : null,
-                            TimerRemainingSec: stateProp.TryGetProperty("timer_remaining_sec", out var tr) && tr.TryGetInt32(out var trVal) ? trVal : null
-                        );
+                        canonical = BrewLinkTelemetryParser.ParseCanonical(item);
+                        if (canonical != null)
+                        {
+                            state = new BrewLinkEquipmentStateDto(
+                                TempC: canonical.CurrentTempC,
+                                TargetTempC: canonical.TargetTempC,
+                                HeatPct: canonical.HeatPowerPct,
+                                PumpOn: canonical.PumpActive,
+                                StepIndex: canonical.Stage?.StepIndex,
+                                TimerRemainingSec: canonical.Timer?.RemainingSeconds,
+                                BoilTempC: canonical.BoilTempC,
+                                HeatActive: canonical.HeatActive,
+                                AutoMode: canonical.AutoMode,
+                                RampActive: canonical.RampActive,
+                                TimerActive: canonical.Timer?.Active,
+                                TimerPaused: canonical.Timer?.Paused,
+                                TimerTotalSec: canonical.Timer?.TotalSeconds,
+                                StepName: canonical.Stage?.StepName,
+                                InteractionRequired: canonical.Interaction?.Required,
+                                InteractionCode: canonical.Interaction?.Code,
+                                InteractionMessage: canonical.Interaction?.Message,
+                                DelayedHeat: canonical.DelayedHeat,
+                                Interrupted: canonical.Interrupted,
+                                ManualPower: canonical.ManualPower,
+                                SpargeAlert: canonical.SpargeAlert,
+                                ErrorCode: canonical.ErrorCode
+                            );
+                        }
                     }
 
-                    devices.Add(new BrewLinkEquipmentDeviceDto(
+                    var spec = BrewLinkLifecycleHelper.MapModelSpec(model, eqType);
+
+                    var dto = new BrewLinkEquipmentDeviceDto(
                         Slot: slot,
                         Paired: paired,
                         Connected: connected,
@@ -516,8 +804,15 @@ public partial class BrewLinkService : IBrewLinkService
                         Mac: mac,
                         Rssi: rssi,
                         Capabilities: capabilities,
-                        State: state
-                    ));
+                        State: state,
+                        ExistingEquipmentId: null,
+                        ExistingEquipmentName: null,
+                        MappedEquipmentType: spec.EquipmentType,
+                        MappedSubtype: spec.Subtype,
+                        RecommendedCapacityLiters: spec.CapacityLiters
+                    );
+
+                    devices.Add((dto, canonical));
                 }
             }
 
@@ -921,7 +1216,7 @@ public partial class BrewLinkService : IBrewLinkService
         }
 
         var mashStepsArray = new JsonArray();
-        foreach (var ms in batch.MashSteps.OrderBy(s => s.StepOrder))
+        foreach (var ms in batch.MashSteps.OrderBy(s => s.StepOrder).Take(8))
         {
             mashStepsArray.Add(new JsonObject
             {
@@ -936,7 +1231,8 @@ public partial class BrewLinkService : IBrewLinkService
             .Where(i => i.AdditionStage == IngredientUsage.Boil && i.AdditionTimeMinutes.HasValue && i.AdditionTimeMinutes.Value > 0 && i.AdditionTimeMinutes.Value <= boilTime)
             .Select(i => i.AdditionTimeMinutes!.Value)
             .Distinct()
-            .OrderByDescending(m => m);
+            .OrderByDescending(m => m)
+            .Take(8);
 
         foreach (var m in distinctBoilMinutes)
         {
@@ -956,7 +1252,7 @@ public partial class BrewLinkService : IBrewLinkService
 
         return new JsonObject
         {
-            ["name"] = batch.Name.Trim(),
+            ["name"] = TruncateG30RecipeName(batch.Name),
             ["boil_time_min"] = boilTime,
             ["hop_stand_min"] = hopStandMin,
             ["mash_water_l"] = strikeWaterL,
@@ -1004,7 +1300,7 @@ public partial class BrewLinkService : IBrewLinkService
         var spargeWaterL = Math.Round(volCalc.SpargeWaterLiters, 1);
 
         var mashStepsArray = new JsonArray();
-        foreach (var ms in recipe.MashSteps.OrderBy(s => s.StepOrder))
+        foreach (var ms in recipe.MashSteps.OrderBy(s => s.StepOrder).Take(8))
         {
             mashStepsArray.Add(new JsonObject
             {
@@ -1019,7 +1315,8 @@ public partial class BrewLinkService : IBrewLinkService
             .Where(i => i.Usage == IngredientUsage.Boil && i.DurationMinutes.HasValue && i.DurationMinutes.Value > 0 && i.DurationMinutes.Value <= boilTime)
             .Select(i => i.DurationMinutes!.Value)
             .Distinct()
-            .OrderByDescending(m => m);
+            .OrderByDescending(m => m)
+            .Take(8);
 
         foreach (var m in distinctBoilMinutes)
         {
@@ -1039,7 +1336,7 @@ public partial class BrewLinkService : IBrewLinkService
 
         return new JsonObject
         {
-            ["name"] = recipe.Name.Trim(),
+            ["name"] = TruncateG30RecipeName(recipe.Name),
             ["boil_time_min"] = boilTime,
             ["hop_stand_min"] = hopStandMin,
             ["mash_water_l"] = strikeWaterL,
@@ -1050,6 +1347,12 @@ public partial class BrewLinkService : IBrewLinkService
             ["target_og_sg"] = Math.Round(recipe.OriginalGravity, 3),
             ["target_fg_sg"] = Math.Round(recipe.FinalGravity, 3)
         };
+    }
+
+    private static string TruncateG30RecipeName(string name)
+    {
+        var trimmed = name.Trim();
+        return trimmed.Length <= 31 ? trimmed : trimmed[..31];
     }
 
     public async Task<(BrewLinkSendResult Result, BrewLinkCommandResultDto? CommandResult, string? ErrorMessage)> SendControlCommandAsync(
@@ -1104,10 +1407,19 @@ public partial class BrewLinkService : IBrewLinkService
             request.State,
             request.PowerPct,
             request.TempC,
-            request.DurationMin);
+            request.DurationMin,
+            request.Minutes,
+            request.Seconds);
         if (!isValidAction)
         {
             return (BrewLinkSendResult.BadRequest, null, actionError ?? "Invalid control action.");
+        }
+
+        var currentMetrics = BrewLinkTelemetryParser.FromMetricsJson(equipment.LatestMetricsJson);
+        if (currentMetrics?.AutoMode == true && AutoModeLockedActions.Contains(request.Action.Trim()))
+        {
+            return (BrewLinkSendResult.BadRequest, null,
+                $"Action '{request.Action.Trim()}' is rejected while the controller is in recipe auto mode (auto_mode: true).");
         }
 
         var gateway = await _db.BrewLinkGateways
@@ -1619,7 +1931,9 @@ public partial class BrewLinkService : IBrewLinkService
         bool? state = null,
         decimal? powerPct = null,
         decimal? tempC = null,
-        int? durationMin = null)
+        int? durationMin = null,
+        int? minutes = null,
+        int? seconds = null)
     {
         var act = action?.Trim() ?? string.Empty;
         if (!SupportedActions.Contains(act))
@@ -1769,6 +2083,53 @@ public partial class BrewLinkService : IBrewLinkService
                     return (true, null, payload);
                 }
 
+            case "delayed_heat":
+                {
+                    var delayMinutes = minutes;
+                    var delaySeconds = seconds;
+
+                    if (rawParams.HasValue && rawParams.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var obj = rawParams.Value;
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "minutes", out var minElem))
+                        {
+                            if (minElem.TryGetInt32(out var mVal))
+                                delayMinutes = mVal;
+                            else if (int.TryParse(minElem.ToString(), out var mParsed))
+                                delayMinutes = mParsed;
+                        }
+                        if (TelemetryHelper.TryGetPropertyInsensitive(obj, "seconds", out var secElem))
+                        {
+                            if (secElem.TryGetInt32(out var sVal))
+                                delaySeconds = sVal;
+                            else if (int.TryParse(secElem.ToString(), out var sParsed))
+                                delaySeconds = sParsed;
+                        }
+                    }
+
+                    var effectiveMinutes = delayMinutes ?? 0;
+                    var effectiveSeconds = delaySeconds ?? 0;
+
+                    if (!delayMinutes.HasValue && !delaySeconds.HasValue)
+                    {
+                        return (false, "Delayed heat requires 'minutes' (0-999) and/or 'seconds' (0-59).", payload);
+                    }
+
+                    if (effectiveMinutes < 0 || effectiveMinutes > 999)
+                    {
+                        return (false, "Delayed heat minutes must be between 0 and 999.", payload);
+                    }
+
+                    if (effectiveSeconds < 0 || effectiveSeconds > 59)
+                    {
+                        return (false, "Delayed heat seconds must be between 0 and 59.", payload);
+                    }
+
+                    payload["minutes"] = effectiveMinutes;
+                    payload["seconds"] = effectiveSeconds;
+                    return (true, null, payload);
+                }
+
             case "ack_interaction":
             case "dismiss_alert":
                 {
@@ -1784,7 +2145,7 @@ public partial class BrewLinkService : IBrewLinkService
                 }
 
             default:
-                // pause_timer, resume_timer, cancel_timer, press_set, dismiss_sparge_alert, cancel_session
+                // temp_up, temp_down, pause_timer, resume_timer, toggle_timer, cancel_timer, press_set, dismiss_sparge_alert, cancel_session, disconnect_manual, disconnect_auto
                 return (true, null, payload);
         }
     }
@@ -1867,6 +2228,29 @@ public partial class BrewLinkService : IBrewLinkService
                     };
                 }
 
+            case "temp_up":
+                {
+                    var nextTemp = Math.Clamp((existing.TargetTempC ?? 65.0m) + 1.0m, 0.0m, 105.0m);
+                    return existing with { TargetTempC = nextTemp, UpdatedAt = now };
+                }
+
+            case "temp_down":
+                {
+                    var nextTemp = Math.Clamp((existing.TargetTempC ?? 65.0m) - 1.0m, 0.0m, 105.0m);
+                    return existing with { TargetTempC = nextTemp, UpdatedAt = now };
+                }
+
+            case "delayed_heat":
+                {
+                    var m = 0;
+                    var s = 0;
+                    if (payloadParams.TryGetPropertyValue("minutes", out var mNode) && mNode != null)
+                        int.TryParse(mNode.ToString(), out m);
+                    if (payloadParams.TryGetPropertyValue("seconds", out var sNode) && sNode != null)
+                        int.TryParse(sNode.ToString(), out s);
+                    return existing with { DelayedHeat = (m > 0 || s > 0), UpdatedAt = now };
+                }
+
             case "set_timer":
                 {
                     var durationMin = 60;
@@ -1915,6 +2299,16 @@ public partial class BrewLinkService : IBrewLinkService
                     };
                 }
 
+            case "toggle_timer":
+                {
+                    var currentTimer = existing.Timer ?? new BrewLinkTimerMetrics(true, false, 0, 0);
+                    return existing with
+                    {
+                        Timer = currentTimer with { Paused = !currentTimer.Paused },
+                        UpdatedAt = now
+                    };
+                }
+
             case "cancel_timer":
                 {
                     return existing with
@@ -1931,11 +2325,29 @@ public partial class BrewLinkService : IBrewLinkService
 
             case "ack_interaction":
             case "dismiss_alert":
-            case "dismiss_sparge_alert":
                 {
                     return existing with
                     {
                         Interaction = new BrewLinkInteractionMetrics(Required: false, Code: 0, Message: null),
+                        UpdatedAt = now
+                    };
+                }
+
+            case "dismiss_sparge_alert":
+                {
+                    return existing with
+                    {
+                        SpargeAlert = false,
+                        Interaction = new BrewLinkInteractionMetrics(Required: false, Code: 0, Message: null),
+                        UpdatedAt = now
+                    };
+                }
+
+            case "disconnect_auto":
+                {
+                    return existing with
+                    {
+                        AutoMode = false,
                         UpdatedAt = now
                     };
                 }
@@ -1948,6 +2360,8 @@ public partial class BrewLinkService : IBrewLinkService
                         HeatActive = false,
                         HeatPowerPct = 0m,
                         PumpActive = false,
+                        DelayedHeat = false,
+                        SpargeAlert = false,
                         Timer = new BrewLinkTimerMetrics(Active: false, Paused: false, RemainingSeconds: 0, TotalSeconds: 0),
                         Interaction = new BrewLinkInteractionMetrics(Required: false, Code: 0, Message: null),
                         UpdatedAt = now

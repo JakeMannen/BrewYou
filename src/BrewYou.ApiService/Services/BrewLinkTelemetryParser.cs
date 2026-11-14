@@ -39,7 +39,12 @@ public sealed record BrewLinkCanonicalMetrics(
     [property: JsonPropertyName("interaction")] BrewLinkInteractionMetrics? Interaction,
     [property: JsonPropertyName("mac")] string? Mac,
     [property: JsonPropertyName("rssi")] short? Rssi,
-    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
+    [property: JsonPropertyName("delayedHeat")] bool? DelayedHeat = null,
+    [property: JsonPropertyName("interrupted")] bool? Interrupted = null,
+    [property: JsonPropertyName("manualPower")] bool? ManualPower = null,
+    [property: JsonPropertyName("spargeAlert")] bool? SpargeAlert = null,
+    [property: JsonPropertyName("errorCode")] int? ErrorCode = null
 );
 
 public class BrewLinkTelemetryParser : ITelemetryParser
@@ -231,6 +236,10 @@ public class BrewLinkTelemetryParser : ITelemetryParser
         // 12. Extract Interaction
         var interaction = ExtractInteraction(stateElem);
 
+        // 13. Extract G30 flags and controller error code (Section 6.1.1 / 6.1.2)
+        ExtractFlags(stateElem, deviceElem, out var delayedHeat, out var interrupted, out var manualPower, out var spargeAlert);
+        var errorCode = ExtractErrorCode(stateElem, deviceElem);
+
         return new BrewLinkCanonicalMetrics(
             CurrentTempC: currentTempC,
             TargetTempC: targetTempC,
@@ -245,7 +254,12 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             Interaction: interaction,
             Mac: extractedMac,
             Rssi: extractedRssi,
-            UpdatedAt: extractedUpdatedAt
+            UpdatedAt: extractedUpdatedAt,
+            DelayedHeat: delayedHeat,
+            Interrupted: interrupted,
+            ManualPower: manualPower,
+            SpargeAlert: spargeAlert,
+            ErrorCode: errorCode
         );
     }
 
@@ -621,6 +635,11 @@ public class BrewLinkTelemetryParser : ITelemetryParser
                     totalSeconds = tVal;
                 }
             }
+            else if (TelemetryHelper.TryGetPropertyInsensitive(timerObj, "total_minutes_set", out var minElem) &&
+                     TryExtractInt32(minElem, out var mVal))
+            {
+                totalSeconds = mVal * 60;
+            }
 
             return new BrewLinkTimerMetrics(active, paused, remainingSeconds, totalSeconds);
         }
@@ -818,6 +837,60 @@ public class BrewLinkTelemetryParser : ITelemetryParser
             );
         }
 
+        return null;
+    }
+
+    private static void ExtractFlags(
+        JsonElement state,
+        JsonElement root,
+        out bool? delayedHeat,
+        out bool? interrupted,
+        out bool? manualPower,
+        out bool? spargeAlert)
+    {
+        delayedHeat = null;
+        interrupted = null;
+        manualPower = null;
+        spargeAlert = null;
+
+        if (TelemetryHelper.TryGetPropertyInsensitive(state, "flags", out var flagsObj) &&
+            flagsObj.ValueKind == JsonValueKind.Object)
+        {
+            delayedHeat = TryExtractBool(flagsObj, "delayed_heat", "delayedHeat");
+            interrupted = TryExtractBool(flagsObj, "interrupted");
+            manualPower = TryExtractBool(flagsObj, "manual_power", "manualPower");
+            spargeAlert = TryExtractBool(flagsObj, "sparge_alert", "spargeAlert");
+        }
+
+        delayedHeat ??= TryExtractBool(state, "delayed_heat", "delayedHeat") ?? TryExtractBool(root, "delayed_heat", "delayedHeat");
+        interrupted ??= TryExtractBool(state, "interrupted") ?? TryExtractBool(root, "interrupted");
+        manualPower ??= TryExtractBool(state, "manual_power", "manualPower") ?? TryExtractBool(root, "manual_power", "manualPower");
+        spargeAlert ??= TryExtractBool(state, "sparge_alert", "spargeAlert") ?? TryExtractBool(root, "sparge_alert", "spargeAlert");
+    }
+
+    private static bool? TryExtractBool(JsonElement source, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (TelemetryHelper.TryGetPropertyInsensitive(source, name, out var elem) &&
+                elem.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                return elem.GetBoolean();
+            }
+        }
+        return null;
+    }
+
+    private static int? ExtractErrorCode(JsonElement state, JsonElement root)
+    {
+        if ((TelemetryHelper.TryGetPropertyInsensitive(state, "error_code", out var errElem) ||
+             TelemetryHelper.TryGetPropertyInsensitive(state, "errorCode", out errElem) ||
+             TelemetryHelper.TryGetPropertyInsensitive(root, "error_code", out errElem) ||
+             TelemetryHelper.TryGetPropertyInsensitive(root, "errorCode", out errElem)) &&
+            TryExtractInt32(errElem, out var code))
+        {
+            return code;
+        }
         return null;
     }
 

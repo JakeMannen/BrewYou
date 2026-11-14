@@ -785,6 +785,92 @@ public class BrewLinkEndpointsTests : IClassFixture<BrewLinkTestFactory>, IDispo
     }
 
     [Fact]
+    public async Task SendRecipe_EnforcesG30Section614Limits_NameAndStepAndAdditionCaps()
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+
+        _factory.HttpHandler.Handler = _ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new
+                {
+                    status = "ok",
+                    gateway_id = "gw-limits-test",
+                    api_token = "tok-limits",
+                    mqtt_topic_key = "key-limits"
+                }))
+            };
+
+        var pairRes = await client.PostAsJsonAsync("/api/v1/brewlink/gateways/pair",
+            new PairBrewLinkRequest("192.168.1.151", "112233", "Limits Lab"));
+        var gw = (await pairRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+
+        var eqConfig = JsonSerializer.Serialize(new
+        {
+            brewLinkGatewayId = gw.Id,
+            targetMac = "C4:4F:33:1A:8B:22"
+        });
+        var eqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "G30 Boiler", EquipmentType.Boiler, 30,
+                Subtype: EquipmentSubtype.AllInOne,
+                ConnectionType: EquipmentConnectionType.BrewLink,
+                ConnectionConfigJson: eqConfig));
+        var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var ingsRes = await client.GetAsync("/api/v1/ingredients");
+        var ingsEnv = await ingsRes.Content.ReadFromJsonAsync<ApiResponse<List<IngredientDto>>>();
+        var grain = ingsEnv!.Data!.First(i => i.Type == IngredientType.Fermentable);
+        var hop = ingsEnv.Data!.First(i => i.Type == IngredientType.Hop);
+
+        var ingredients = new List<RecipeIngredientInputDto>
+        {
+            new(grain.Id, 5.0m, "kg", 60, IngredientUsage.Mash, "Base Malt")
+        };
+        for (var min = 60; min >= 5; min -= 5)
+        {
+            ingredients.Add(new(hop.Id, 15m, "g", min, IngredientUsage.Boil, $"{min}m"));
+        }
+
+        var mashSteps = Enumerable.Range(1, 10)
+            .Select(i => new RecipeMashStepInputDto(i, $"Step {i}", MashStepType.Temperature, 60m + i, 5, null, null, null))
+            .ToList();
+
+        var longName = "Very Long Grainfather G30 Recipe Name Beyond Thirty One Chars";
+        var recipeRes = await client.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: longName,
+            Description: "Limits check",
+            BeerStyle: "IPA",
+            BatchSizeLiters: 20m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            IsPublic: false,
+            Ingredients: ingredients,
+            MashSteps: mashSteps,
+            FermentationSteps: new List<RecipeFermentationStepInputDto>()
+        ));
+        recipeRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var recipe = (await recipeRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        _factory.HttpHandler.RecordedRequests.Clear();
+        _factory.HttpHandler.Handler = _ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"status":"ok","message":"queued"}""")
+            };
+
+        var sendRes = await client.PostAsJsonAsync($"/api/v1/inventory/equipment/{eq.Id}/brewlink/send-recipe",
+            new SendBrewLinkRecipeRequest(RecipeId: recipe.Id, BatchId: null));
+        sendRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var recorded = _factory.HttpHandler.RecordedRequests.Should().ContainSingle().Subject;
+        using var json = JsonDocument.Parse(recorded.Body!);
+        var recipeEl = json.RootElement.GetProperty("params").GetProperty("recipe");
+        recipeEl.GetProperty("name").GetString()!.Length.Should().BeLessThanOrEqualTo(31);
+        recipeEl.GetProperty("mash_steps").GetArrayLength().Should().Be(8);
+        recipeEl.GetProperty("boil_additions_min").GetArrayLength().Should().Be(8);
+    }
+
+    [Fact]
     public async Task SendRecipe_EquipmentDisconnected_Returns409Conflict()
     {
         var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
@@ -950,5 +1036,351 @@ public class BrewLinkEndpointsTests : IClassFixture<BrewLinkTestFactory>, IDispo
         _factory.HttpHandler.RecordedRequests.Should().HaveCount(2);
         _factory.HttpHandler.RecordedRequests[0].Request.RequestUri!.AbsolutePath.Should().EndWith("/api/equipment/recipe");
         _factory.HttpHandler.RecordedRequests[1].Request.RequestUri!.AbsolutePath.Should().EndWith("/api/equipment/cmd");
+    }
+
+    [Fact]
+    public async Task GetGatewayEquipment_Section611StateAndExistingEquipment_ParsesFullStateAndFlagsLinkedDevices()
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+
+        var pairRes = await client.PostAsJsonAsync("/api/v1/brewlink/gateways/pair",
+            new PairBrewLinkRequest("192.168.1.201", null, "Section 6.1.1 Gateway"));
+        var gw = (await pairRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+
+        // Create existing Boiler attached to slot 1 MAC
+        var existingConfig = JsonSerializer.Serialize(new
+        {
+            brewLinkGatewayId = gw.Id.ToString(),
+            targetMac = "C44F331A8B22",
+            targetName = "G30-8B22",
+            slot = 1
+        });
+        var existingBoilerRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "Garage Grainfather", EquipmentType.Boiler, 30m,
+                Subtype: EquipmentSubtype.AllInOne,
+                ConnectionType: EquipmentConnectionType.BrewLink,
+                ConnectionConfigJson: existingConfig));
+        existingBoilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var existingBoiler = (await existingBoilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        _factory.HttpHandler.Handler = req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/equipment"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                    {
+                      "max_slots": 3,
+                      "active_connections": 1,
+                      "equipment": [
+                        {
+                          "slot": 1,
+                          "paired": true,
+                          "connected": true,
+                          "name": "G30-8B22",
+                          "model": "Grainfather G30 Connect",
+                          "equipment_type": "boiler",
+                          "mac": "C4:4F:33:1A:8B:22",
+                          "rssi": -58,
+                          "capabilities": {
+                            "recipe_upload": true,
+                            "mash_profile": true,
+                            "pump_control": true,
+                            "heat_control": true
+                          },
+                          "state": {
+                            "current_temp_c": 66.5,
+                            "target_temp_c": 67.0,
+                            "boil_temp_c": 100.0,
+                            "heat_active": true,
+                            "heat_power_pct": 80,
+                            "pump_active": true,
+                            "auto_mode": true,
+                            "ramp_active": false,
+                            "timer": {
+                              "active": true,
+                              "paused": false,
+                              "remaining_seconds": 1800,
+                              "total_minutes_set": 60
+                            },
+                            "stage": {
+                              "step_index": 2,
+                              "step_name": "Saccharification"
+                            },
+                            "interaction": {
+                              "required": true,
+                              "code": 1,
+                              "message": "Add grain"
+                            }
+                          }
+                        },
+                        {
+                          "slot": 2,
+                          "paired": true,
+                          "connected": false,
+                          "name": "G30-789A",
+                          "model": "Grainfather G30 Connect",
+                          "equipment_type": "boiler",
+                          "mac": "D8:12:34:56:78:9A"
+                        }
+                      ]
+                    }
+                    """)
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+
+        var eqListRes = await client.GetAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment?setupId={defaultSetupId}");
+        eqListRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var env = await eqListRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewLinkEquipmentDeviceDto>>>();
+        env!.Data.Should().HaveCount(2);
+
+        var slot1 = env.Data!.First(d => d.Slot == 1);
+        slot1.ExistingEquipmentId.Should().Be(existingBoiler.Id);
+        slot1.ExistingEquipmentName.Should().Be("Garage Grainfather");
+        slot1.MappedEquipmentType.Should().Be(EquipmentType.Boiler);
+        slot1.MappedSubtype.Should().Be(EquipmentSubtype.AllInOne);
+        slot1.RecommendedCapacityLiters.Should().Be(30.0m);
+
+        slot1.State.Should().NotBeNull();
+        slot1.State!.TempC.Should().Be(66.5m);
+        slot1.State.TargetTempC.Should().Be(67.0m);
+        slot1.State.BoilTempC.Should().Be(100.0m);
+        slot1.State.HeatActive.Should().BeTrue();
+        slot1.State.HeatPct.Should().Be(80m);
+        slot1.State.PumpOn.Should().BeTrue();
+        slot1.State.AutoMode.Should().BeTrue();
+        slot1.State.RampActive.Should().BeFalse();
+        slot1.State.TimerActive.Should().BeTrue();
+        slot1.State.TimerPaused.Should().BeFalse();
+        slot1.State.TimerRemainingSec.Should().Be(1800);
+        slot1.State.TimerTotalSec.Should().Be(3600);
+        slot1.State.StepIndex.Should().Be(2);
+        slot1.State.StepName.Should().Be("Saccharification");
+        slot1.State.InteractionRequired.Should().BeTrue();
+        slot1.State.InteractionCode.Should().Be(1);
+        slot1.State.InteractionMessage.Should().Be("Add grain");
+
+        var slot2 = env.Data!.First(d => d.Slot == 2);
+        slot2.ExistingEquipmentId.Should().BeNull();
+        slot2.ExistingEquipmentName.Should().BeNull();
+        slot2.MappedEquipmentType.Should().Be(EquipmentType.Boiler);
+        slot2.RecommendedCapacityLiters.Should().Be(30.0m);
+    }
+
+    [Fact]
+    public async Task ProvisionGatewayEquipment_CreatesGrainfatherG30WithPresetAndLiveTelemetry_AndIsIdempotent()
+    {
+        var (client, _, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+
+        var pairRes = await client.PostAsJsonAsync("/api/v1/brewlink/gateways/pair",
+            new PairBrewLinkRequest("192.168.1.202", null, "Provision Gateway"));
+        var gw = (await pairRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+
+        _factory.HttpHandler.Handler = req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/equipment"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                    {
+                      "equipment": [
+                        {
+                          "slot": 1,
+                          "paired": true,
+                          "connected": true,
+                          "name": "G30-8B22",
+                          "model": "Grainfather G30 Connect",
+                          "equipment_type": "boiler",
+                          "mac": "C4:4F:33:1A:8B:22",
+                          "rssi": -55,
+                          "state": {
+                            "current_temp_c": 65.4,
+                            "target_temp_c": 66.0,
+                            "heat_active": true,
+                            "heat_power_pct": 100,
+                            "pump_active": true
+                          }
+                        },
+                        {
+                          "slot": 2,
+                          "paired": true,
+                          "connected": false,
+                          "name": "Conical-EE02",
+                          "model": "BrewLink Cooler 30",
+                          "equipment_type": "fermenter",
+                          "mac": "AA:BB:CC:DD:EE:02"
+                        }
+                      ]
+                    }
+                    """)
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+
+        var provisionReq = new ProvisionBrewLinkEquipmentRequest(
+            BrewerySetupId: defaultSetupId,
+            Devices:
+            [
+                new ProvisionBrewLinkDeviceItem(1, "C4:4F:33:1A:8B:22", "G30-8B22", "Grainfather G30 Connect", "boiler"),
+                new ProvisionBrewLinkDeviceItem(2, "AA:BB:CC:DD:EE:02", "Conical-EE02", "BrewLink Cooler 30", "fermenter")
+            ]
+        );
+
+        var firstRes = await client.PostAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment/provision", provisionReq);
+        firstRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var firstData = (await firstRes.Content.ReadFromJsonAsync<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>())!.Data!;
+        firstData.SkippedExistingIds.Should().BeEmpty();
+        firstData.CreatedEquipment.Should().HaveCount(2);
+
+        var boiler = firstData.CreatedEquipment.First(e => e.Type == EquipmentType.Boiler);
+        boiler.Subtype.Should().Be(EquipmentSubtype.AllInOne);
+        boiler.Name.Should().Be("G30-8B22");
+        boiler.CapacityLiters.Should().Be(30.0m);
+        boiler.MashTunDeadSpaceLiters.Should().Be(3.5m);
+        boiler.BoilOffRatePerHour.Should().Be(3.0m);
+        boiler.TrubLossLiters.Should().Be(2.0m);
+        boiler.ConnectionType.Should().Be(EquipmentConnectionType.BrewLink);
+        boiler.CurrentTemperatureC.Should().Be(65.4m);
+        boiler.LatestMetricsJson.Should().NotBeNullOrWhiteSpace();
+        boiler.ConnectionConfigJson.Should().Contain(gw.Id.ToString());
+        boiler.ConnectionConfigJson.Should().Contain("C44F331A8B22");
+        boiler.ConnectionConfigJson.Should().Contain("Grainfather G30 Connect");
+
+        var ferm = firstData.CreatedEquipment.First(e => e.Type == EquipmentType.Fermenter);
+        ferm.Subtype.Should().Be(EquipmentSubtype.ConicalFermenter);
+        ferm.CapacityLiters.Should().Be(30.0m);
+        ferm.TrubLossLiters.Should().Be(1.5m);
+        ferm.BoilOffRatePerHour.Should().BeNull();
+        ferm.MashTunDeadSpaceLiters.Should().BeNull();
+
+        // Second provision call must skip both idempotently
+        var secondRes = await client.PostAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment/provision", provisionReq);
+        secondRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var secondData = (await secondRes.Content.ReadFromJsonAsync<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>())!.Data!;
+        secondData.CreatedEquipment.Should().BeEmpty();
+        secondData.SkippedExistingIds.Should().BeEquivalentTo([boiler.Id, ferm.Id]);
+    }
+
+    [Fact]
+    public async Task DeleteGatewaySensor_WhenAttachedBoilerInActiveBatch_GuardsConflictAndForceCascadesAndCleansRelations()
+    {
+        var (client, userId, _, defaultSetupId) = await CreateAuthenticatedUserAsync();
+
+        var pairRes = await client.PostAsJsonAsync("/api/v1/brewlink/gateways/pair",
+            new PairBrewLinkRequest("192.168.1.203", null, "Cascade Gateway"));
+        var gw = (await pairRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+
+        // Fetch equipment list so EnsureBrewLinkGatewaySensorsAsync creates the BrewLink gateway sensor
+        var listRes = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        listRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var sensors = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        var gatewaySensor = sensors.First(s =>
+            s.Subtype == EquipmentSubtype.BrewLink &&
+            s.ConnectionConfigJson != null &&
+            s.ConnectionConfigJson.Contains(gw.Id.ToString()));
+
+        // Provision attached Grainfather G30 boiler
+        var provisionRes = await client.PostAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment/provision",
+            new ProvisionBrewLinkEquipmentRequest(
+                BrewerySetupId: defaultSetupId,
+                Devices:
+                [
+                    new ProvisionBrewLinkDeviceItem(1, "AA:11:22:33:44:55", "G30-4455", "Grainfather G30 Connect", "boiler")
+                ]));
+        provisionRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var boiler = (await provisionRes.Content.ReadFromJsonAsync<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>())!.Data!.CreatedEquipment.Single();
+
+        // Create an active batch referencing the attached boiler, plus a BatchSensorAssignment and EquipmentReading
+        var recipeRes = await client.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Cascade Test IPA",
+            Description: "Testing cascading gateway delete",
+            BeerStyle: "American IPA",
+            BatchSizeLiters: 20m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            IsPublic: false,
+            Ingredients: new List<RecipeIngredientInputDto>(),
+            MashSteps: new List<RecipeMashStepInputDto>(),
+            FermentationSteps: new List<RecipeFermentationStepInputDto>()
+        ));
+        var recipe = (await recipeRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: recipe.Id,
+            BatchCode: null,
+            Name: "Cascade Test Batch",
+            BeerStyle: "American IPA",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.060m,
+            TargetFg: 1.012m,
+            TargetAbv: 6.3m,
+            TargetIbu: 55m,
+            TargetColorSrm: 8m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: boiler.Id,
+            FermenterId: null));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchSummaryDto>>())!.Data!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            db.BatchSensorAssignments.Add(new BatchSensorAssignment
+            {
+                Id = Guid.NewGuid(),
+                BatchId = batch.Id,
+                EquipmentId = gatewaySensor.Id,
+                Stage = BrewStage.Boil,
+                CreatedAt = DateTime.UtcNow
+            });
+            db.EquipmentReadings.Add(new EquipmentReading
+            {
+                Id = Guid.NewGuid(),
+                EquipmentId = boiler.Id,
+                TemperatureC = 64.2m,
+                Timestamp = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Active batches check on gateway sensor must aggregate the attached boiler's active batch
+        var activeBatchesRes = await client.GetAsync($"/api/v1/inventory/equipment/{gatewaySensor.Id}/active-batches");
+        activeBatchesRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var activeBatches = (await activeBatchesRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>())!.Data!;
+        activeBatches.Should().ContainSingle(b => b.Id == batch.Id);
+
+        // 2. Deleting gateway sensor without force must return 409 Conflict
+        var conflictEqRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{gatewaySensor.Id}");
+        conflictEqRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 3. Deleting gateway endpoint directly without force must also return 409 Conflict
+        var conflictGwRes = await client.DeleteAsync($"/api/v1/brewlink/gateways/{gw.Id}");
+        conflictGwRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        // 4. Deleting gateway sensor with force=true must cascade-delete everything cleanly
+        var forceRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{gatewaySensor.Id}?force=true");
+        forceRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            db.Equipment.Any(e => e.Id == gatewaySensor.Id || e.Id == boiler.Id).Should().BeFalse();
+            db.BrewLinkGateways.Any(g => g.Id == gw.Id).Should().BeFalse();
+            db.BatchSensorAssignments.Any(sa => sa.EquipmentId == gatewaySensor.Id || sa.EquipmentId == boiler.Id).Should().BeFalse();
+            db.EquipmentReadings.Any(r => r.EquipmentId == gatewaySensor.Id || r.EquipmentId == boiler.Id).Should().BeFalse();
+
+            var reloadedBatch = db.Batches.FirstOrDefault(b => b.Id == batch.Id);
+            reloadedBatch.Should().NotBeNull();
+            reloadedBatch!.BoilerId.Should().BeNull();
+        }
     }
 }

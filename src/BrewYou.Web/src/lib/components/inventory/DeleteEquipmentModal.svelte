@@ -7,11 +7,12 @@
 	interface Props {
 		open: boolean;
 		equipment: EquipmentDto | null;
+		attachedEquipment?: EquipmentDto[];
 		onClose: () => void;
 		onDeleted: (equipmentId: string) => void;
 	}
 
-	let { open, equipment, onClose, onDeleted }: Props = $props();
+	let { open, equipment, attachedEquipment = [], onClose, onDeleted }: Props = $props();
 
 	let activeBatches = $state<EquipmentActiveBatchDto[]>([]);
 	let isLoadingBatches = $state(false);
@@ -150,6 +151,46 @@
 				<p class="text-sm text-zinc-600 dark:text-zinc-300">
 					{t('equipment.delete_modal.confirm_prompt', { name: equipment.name })}
 				</p>
+
+				<!-- BrewLink Gateway Cascade Deletion Warning -->
+				{#if equipment.subtype === 'BrewLink'}
+					<div
+						class="rounded-xl border border-red-500/40 bg-red-500/10 p-4 dark:border-red-500/30 dark:bg-red-500/5"
+						data-testid="brewlink-cascade-delete-warning"
+					>
+						<div class="flex items-start gap-3">
+							<AlertTriangle class="h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+							<div class="w-full space-y-2">
+								<h3 class="text-sm font-semibold text-red-900 dark:text-red-200">
+									{t('equipment.delete_modal.brewlink_cascade_warning_title')}
+								</h3>
+								{#if attachedEquipment.length > 0}
+									<p class="text-xs text-red-800/90 dark:text-red-300/80">
+										{t('equipment.delete_modal.brewlink_cascade_warning_desc')}
+									</p>
+									<ul class="space-y-1 pt-1">
+										{#each attachedEquipment as child (child.id)}
+											<li
+												class="flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs"
+											>
+												<span class="font-semibold text-zinc-900 dark:text-zinc-100">
+													{child.name}
+												</span>
+												<span class="font-mono text-[10px] text-red-700 dark:text-red-300">
+													{t(`equipment.subtypes.${child.subtype}`)}
+												</span>
+											</li>
+										{/each}
+									</ul>
+								{:else}
+									<p class="text-xs text-red-800/90 dark:text-red-300/80">
+										{t('equipment.delete_modal.brewlink_cascade_warning_empty_desc')}
+									</p>
+								{/if}
+							</div>
+						</div>
+					</div>
+				{/if}
 
 				<!-- Loading Active Batches -->
 				{#if isLoadingBatches}

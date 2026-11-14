@@ -47,6 +47,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
+	import { getInteractionActions } from '$lib/utils/brewlink';
 	import {
 		Play,
 		Pause,
@@ -170,6 +171,10 @@
 				parseBool(raw.interaction_required) ??
 				parseBool(raw.interaction?.required) ??
 				false;
+			const interactionCode =
+				parseNum(raw.interactionCode) ??
+				parseNum(raw.interaction_code) ??
+				parseNum(raw.interaction?.code);
 			const interactionMessage = (raw.interactionMessage ??
 				raw.interaction_message ??
 				raw.interaction?.message ??
@@ -181,6 +186,7 @@
 				pumpActive,
 				interaction: {
 					required: interactionRequired,
+					code: interactionCode,
 					message: interactionMessage
 				}
 			};
@@ -189,19 +195,18 @@
 		}
 	});
 
+	let hudInteractionPlan = $derived(getInteractionActions(brewLinkMetrics?.interaction.code));
+
 	async function quickToggleHeater() {
 		if (!brewLinkEquipment) return;
 		isTogglingHeat = true;
 		try {
 			const nextState = !brewLinkMetrics?.heatActive;
-			const powerPct = nextState ? (brewLinkMetrics?.heatPowerPct ?? 100) : 0;
 			const res = await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
 				action: 'set_heat',
 				state: nextState,
-				powerPct,
 				params: {
-					state: nextState,
-					power_pct: powerPct
+					state: nextState
 				}
 			});
 			if (res.latestMetricsJson) {
@@ -357,7 +362,7 @@
 							onclick={async () => {
 								if (!brewLinkEquipment) return;
 								await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
-									action: 'ack_interaction'
+									action: hudInteractionPlan.confirmAction
 								});
 								const res = await api.equipment.getById(brewLinkEquipment.id);
 								onBrewLinkUpdate?.(res);
@@ -365,14 +370,14 @@
 							class="rounded-lg bg-amber-500 px-3 py-1 text-xs font-bold text-zinc-950 shadow hover:bg-amber-400 active:scale-95"
 							data-testid="hud-ack-interaction-btn"
 						>
-							{t('common.yes')} — {t('equipment.brewlink_ack_prompt')}
+							{t('common.yes')} — {t(hudInteractionPlan.confirmLabelKey)}
 						</button>
 						<button
 							type="button"
 							onclick={async () => {
 								if (!brewLinkEquipment) return;
 								await api.equipment.sendBrewLinkControl(brewLinkEquipment.id, {
-									action: 'dismiss_alert'
+									action: hudInteractionPlan.dismissAction
 								});
 								const res = await api.equipment.getById(brewLinkEquipment.id);
 								onBrewLinkUpdate?.(res);
@@ -380,7 +385,7 @@
 							class="rounded-lg border border-amber-400/40 bg-zinc-900/60 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-zinc-900 active:scale-95"
 							data-testid="hud-dismiss-alert-btn"
 						>
-							{t('common.no')} — {t('equipment.brewlink_dismiss_alert')}
+							{t('common.no')} — {t(hudInteractionPlan.dismissLabelKey)}
 						</button>
 					</div>
 				</div>

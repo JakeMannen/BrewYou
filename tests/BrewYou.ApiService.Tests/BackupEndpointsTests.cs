@@ -1252,11 +1252,14 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             sourceGatewayId = gw.Id;
         }
 
-        // 4. Create All-in-One Boiler linked to this gateway
+        // 4. Create All-in-One Boiler linked to this gateway (mimicking provisioned Grainfather G30 Connect)
         var connConfig = JsonSerializer.Serialize(new
         {
             brewLinkGatewayId = sourceGatewayId.ToString(),
-            targetMac = "C44F331A8B22"
+            targetMac = "C44F331A8B22",
+            targetName = "G30-8B22",
+            slot = 1,
+            model = "Grainfather G30 Connect"
         });
 
         var eqRes = await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
@@ -1265,6 +1268,10 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             Type: EquipmentType.Boiler,
             Capacity: 30m,
             Subtype: EquipmentSubtype.AllInOne,
+            BoilOffRatePerHour: 3.0m,
+            TrubLossLiters: 2.0m,
+            MashTunDeadSpaceLiters: 3.5m,
+            CurrentTemperatureC: 65.4m,
             ConnectionType: EquipmentConnectionType.BrewLink,
             ConnectionConfigJson: connConfig
         ));
@@ -1326,14 +1333,20 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             protector.Unprotect(targetGateway.ApiToken!).Should().Be("test-api-token");
             protector.Unprotect(targetGateway.MqttTopicKey!).Should().Be("test-topic-key");
 
-            // Verify equipment in database has brewLinkGatewayId remapped to targetGateway.Id
+            // Verify equipment in database has brewLinkGatewayId remapped to targetGateway.Id and preserves provisioned specs
             var restoredEq = db.Equipment.FirstOrDefault(e => e.UserId == targetUserId && e.Name == "Grainfather G30");
             restoredEq.Should().NotBeNull();
             restoredEq!.ConnectionType.Should().Be(EquipmentConnectionType.BrewLink);
+            restoredEq.BoilOffRatePerHour.Should().Be(3.0m);
+            restoredEq.TrubLossLiters.Should().Be(2.0m);
+            restoredEq.MashTunDeadSpaceLiters.Should().Be(3.5m);
 
             var parsedConfig = JsonSerializer.Deserialize<JsonElement>(restoredEq.ConnectionConfigJson!);
             parsedConfig.GetProperty("brewLinkGatewayId").GetString().Should().Be(targetGateway.Id.ToString());
             parsedConfig.GetProperty("targetMac").GetString().Should().Be("C44F331A8B22");
+            parsedConfig.GetProperty("targetName").GetString().Should().Be("G30-8B22");
+            parsedConfig.GetProperty("slot").GetInt32().Should().Be(1);
+            parsedConfig.GetProperty("model").GetString().Should().Be("Grainfather G30 Connect");
 
             // Verify fermenter with BrewLink connectivity was also restored and remapped
             var restoredFerm = db.Equipment.FirstOrDefault(e => e.UserId == targetUserId && e.Name == "Rapt Fermenter Tank");

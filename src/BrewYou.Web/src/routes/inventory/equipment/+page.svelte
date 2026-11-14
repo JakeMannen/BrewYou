@@ -6,12 +6,13 @@
 	import { auth } from '$lib/stores/auth.svelte';
 	import { brewery, DEFAULT_BREWERY_ID } from '$lib/stores/brewery.svelte';
 	import { settings, litersToGallons } from '$lib/stores/settings.svelte';
-	import {
-		type EquipmentDto,
-		type EquipmentType,
-		type EquipmentSubtype,
-		type EquipmentTelemetryUpdateDto,
-		type AssignedKegSummaryDto
+	import type {
+		EquipmentDto,
+		EquipmentType,
+		EquipmentSubtype,
+		EquipmentTelemetryUpdateDto,
+		AssignedKegSummaryDto,
+		BrewLinkGatewayDto
 	} from '$lib/types/api';
 	import EquipmentModal from '$lib/components/inventory/EquipmentModal.svelte';
 	import DeleteEquipmentModal from '$lib/components/inventory/DeleteEquipmentModal.svelte';
@@ -19,6 +20,7 @@
 	import AssignKegModal from '$lib/components/inventory/AssignKegModal.svelte';
 	import TapDisplayLinkModal from '$lib/components/inventory/TapDisplayLinkModal.svelte';
 	import BrewLinkControlModal from '$lib/components/brewery/BrewLinkControlModal.svelte';
+	import BrewLinkEquipmentProvisionModal from '$lib/components/inventory/BrewLinkEquipmentProvisionModal.svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
 	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
 	import { sortEquipmentByName } from '$lib/utils/equipment-order';
@@ -121,6 +123,99 @@
 	let expandedAttributes = $state<Record<string, boolean>>({});
 	let brewLinkModalOpen = $state(false);
 	let selectedBrewLinkEquipment = $state<EquipmentDto | null>(null);
+	let provisionModalOpen = $state(false);
+	let provisionGatewayId = $state<string | null>(null);
+	let provisionGatewayName = $state<string | null>(null);
+	let provisionGatewayHost = $state<string | null>(null);
+	let provisionHardwareGatewayId = $state<string | null>(null);
+	let provisionSetupId = $state<string>('00000000-0000-0000-0000-000000000000');
+
+	function resolveTargetSetupId(preferredSetupId?: string | null): string {
+		if (preferredSetupId && preferredSetupId !== DEFAULT_BREWERY_ID) {
+			return preferredSetupId;
+		}
+		if (brewery.activeSetupId && brewery.activeSetupId !== DEFAULT_BREWERY_ID) {
+			return brewery.activeSetupId;
+		}
+		return (
+			brewery.setups.find((s) => s.isDefault)?.id ??
+			brewery.setups[0]?.id ??
+			'00000000-0000-0000-0000-000000000000'
+		);
+	}
+
+	function getAttachedEquipmentForItem(item: EquipmentDto | null): EquipmentDto[] {
+		if (!item || item.subtype !== 'BrewLink') return [];
+		const gwId = extractGatewayId(item)?.toLowerCase();
+		if (!gwId) return [];
+		return equipmentList.filter(
+			(e) =>
+				e.id !== item.id &&
+				e.connectionType === 'BrewLink' &&
+				extractGatewayId(e)?.toLowerCase() === gwId
+		);
+	}
+
+	function openBrewLinkProvisionModalForEquipment(item: EquipmentDto) {
+		const gwId = extractGatewayId(item);
+		if (!gwId) return;
+		provisionGatewayId = gwId;
+		provisionGatewayName = item.name;
+		provisionGatewayHost = null;
+		provisionHardwareGatewayId = null;
+		provisionSetupId = resolveTargetSetupId(item.brewerySetupId);
+		provisionModalOpen = true;
+	}
+
+	function openBrewLinkProvisionModalForGateway(
+		gateway: BrewLinkGatewayDto,
+		sensor?: EquipmentDto
+	) {
+		provisionGatewayId = gateway.id;
+		provisionGatewayName = gateway.name;
+		provisionGatewayHost = gateway.host;
+		provisionHardwareGatewayId = gateway.gatewayId;
+		provisionSetupId = resolveTargetSetupId(sensor?.brewerySetupId);
+		provisionModalOpen = true;
+	}
+
+	function handleBrewLinkProvisioned(created: EquipmentDto[]) {
+		if (created.length === 0) return;
+
+		const existingIds = new Set(equipmentList.map((e) => e.id));
+		const visibleAdditions = created.filter(
+			(item) =>
+				!existingIds.has(item.id) && (selectedCategory === 'All' || selectedCategory === item.type)
+		);
+
+		if (visibleAdditions.length > 0) {
+			equipmentList = [...visibleAdditions, ...equipmentList];
+		}
+
+		for (const eq of created) {
+			void api.equipment
+				.syncBrewLinkState(eq.id)
+				.then((res) => {
+					if (res && (res.temperatureC != null || res.metricsJson)) {
+						equipmentList = equipmentList.map((item) =>
+							item.id === eq.id
+								? {
+										...item,
+										currentTemperatureC: res.temperatureC ?? item.currentTemperatureC,
+										latestMetricsJson: res.metricsJson ?? item.latestMetricsJson,
+										temperatureUpdatedAt: new Date().toISOString()
+									}
+								: item
+						);
+					}
+				})
+				.catch(() => {
+					// Background sync failure is non-fatal
+				});
+		}
+
+		void loadBrewLinkGatewayDeviceCounts();
+	}
 
 	function openBrewLinkControlModal(item: EquipmentDto) {
 		selectedBrewLinkEquipment = item;
@@ -517,8 +612,22 @@
 	}
 
 	function handleDeleted(equipmentId: string) {
+		const deletedItem = equipmentList.find((e) => e.id === equipmentId);
+		const deletedGatewayId =
+			deletedItem?.subtype === 'BrewLink' ? extractGatewayId(deletedItem)?.toLowerCase() : null;
+
 		equipmentList = equipmentList
-			.filter((e) => e.id !== equipmentId)
+			.filter((e) => {
+				if (e.id === equipmentId) return false;
+				if (
+					deletedGatewayId &&
+					e.connectionType === 'BrewLink' &&
+					extractGatewayId(e)?.toLowerCase() === deletedGatewayId
+				) {
+					return false;
+				}
+				return true;
+			})
 			.map((e) => {
 				if (e.assignedKegId === equipmentId || e.assignedKeg?.id === equipmentId) {
 					return {
@@ -1030,6 +1139,7 @@
 							<!-- Live Temperature & Telemetry Status -->
 							{#if item.subtype === 'BrewLink'}
 								{@const deviceCount = getDevicesProvidedCount(item)}
+								{@const attachedCount = getAttachedEquipmentForItem(item).length}
 								<div
 									class="mt-3 flex flex-col gap-2 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 dark:border-sky-500/20 dark:bg-sky-500/10"
 									data-testid="equipment-brewlink-gateway-badge"
@@ -1049,14 +1159,32 @@
 										</span>
 									</div>
 									<div
-										class="flex items-center gap-1.5 border-t border-sky-500/15 pt-2 text-xs font-medium text-sky-700 dark:text-sky-300"
+										class="flex items-center justify-between gap-2 border-t border-sky-500/15 pt-2 text-xs font-medium text-sky-700 dark:text-sky-300"
 									>
-										<Cpu class="h-3.5 w-3.5 flex-shrink-0 text-sky-500" />
-										<span data-testid="equipment-brewlink-device-count">
-											{deviceCount === 1
-												? t('equipment.brewlink_devices_provided_one')
-												: t('equipment.brewlink_devices_provided_other', { count: deviceCount })}
-										</span>
+										<div class="flex items-center gap-1.5">
+											<Cpu class="h-3.5 w-3.5 flex-shrink-0 text-sky-500" />
+											<span data-testid="equipment-brewlink-device-count">
+												{deviceCount === 1
+													? t('equipment.brewlink_devices_provided_one')
+													: t('equipment.brewlink_devices_provided_other', { count: deviceCount })}
+											</span>
+											{#if attachedCount > 0}
+												<span
+													class="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-300"
+												>
+													{t('equipment.brewlink_attached_count', { count: attachedCount })}
+												</span>
+											{/if}
+										</div>
+										<button
+											type="button"
+											onclick={() => openBrewLinkProvisionModalForEquipment(item)}
+											data-testid="check-brewlink-equipment-btn"
+											class="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] font-bold text-sky-700 transition hover:bg-sky-500/20 dark:text-sky-300"
+										>
+											<Cpu class="h-3 w-3 text-sky-500" />
+											<span>{t('equipment.brewlink_check_equipment')}</span>
+										</button>
 									</div>
 								</div>
 							{:else if tempInfo.hasTemp}
@@ -1570,12 +1698,15 @@
 	defaultCategory={selectedCategory !== 'All' ? (selectedCategory as EquipmentType) : 'Boiler'}
 	onClose={() => (modalOpen = false)}
 	onSaved={handleSaved}
+	onGatewayPaired={(gw, sensor) => openBrewLinkProvisionModalForGateway(gw, sensor)}
+	onCheckBrewLinkEquipment={(gw) => openBrewLinkProvisionModalForGateway(gw)}
 />
 
 <!-- Delete Confirmation Modal -->
 <DeleteEquipmentModal
 	open={deleteModalOpen}
 	equipment={itemToDelete}
+	attachedEquipment={getAttachedEquipmentForItem(itemToDelete)}
 	onClose={() => {
 		deleteModalOpen = false;
 		itemToDelete = null;
@@ -1625,4 +1756,19 @@
 		selectedBrewLinkEquipment = null;
 	}}
 	onUpdate={handleEquipmentUpdate}
+/>
+
+<!-- BrewLink Equipment Discovery & Provisioning Modal -->
+<BrewLinkEquipmentProvisionModal
+	open={provisionModalOpen}
+	gatewayId={provisionGatewayId}
+	gatewayName={provisionGatewayName}
+	gatewayHost={provisionGatewayHost}
+	hardwareGatewayId={provisionHardwareGatewayId}
+	brewerySetupId={provisionSetupId}
+	onClose={() => {
+		provisionModalOpen = false;
+		provisionGatewayId = null;
+	}}
+	onProvisioned={handleBrewLinkProvisioned}
 />
