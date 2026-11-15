@@ -636,4 +636,186 @@ public class BrewingCalculatorTests
         hochkurz645C.FinalGravity.Should().BeLessThan(standard67C.FinalGravity);
         dextrinous70C.FinalGravity.Should().BeGreaterThan(standard67C.FinalGravity);
     }
+
+    [Fact]
+    public void Calculate_WithSugarAndDryExtractCategories_Uses100PercentFermentabilityForSugarAndYeastAttenuationForExtract()
+    {
+        var baseMalt = new Ingredient
+        {
+            Name = "Pilsner Malt",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
+            PotentialGravity = 1.037m,
+            ColorSrm = 1.8m
+        };
+        var yeast = new Ingredient
+        {
+            Name = "Abbey Ale Yeast",
+            Type = IngredientType.Yeast,
+            AttenuationPercent = 78.0m
+        };
+        var tripelSugar = new Ingredient
+        {
+            Name = "Candi Sugar (Clear)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            PotentialGravity = 1.038m,
+            ColorSrm = 0.5m
+        };
+        var customNameExtract = new Ingredient
+        {
+            Name = "Custom Golden Powder",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.DryExtract,
+            PotentialGravity = 1.044m,
+            ColorSrm = 3.0m
+        };
+
+        var maltPlusSugar = new List<RecipeIngredient>
+        {
+            new() { Amount = 4.0m, Unit = "kg", Usage = IngredientUsage.Mash, Ingredient = baseMalt },
+            new() { Amount = 1.0m, Unit = "kg", Usage = IngredientUsage.Boil, Ingredient = tripelSugar },
+            new() { Amount = 11.5m, Unit = "g", Usage = IngredientUsage.Primary, Ingredient = yeast }
+        };
+
+        var maltPlusExtract = new List<RecipeIngredient>
+        {
+            new() { Amount = 4.0m, Unit = "kg", Usage = IngredientUsage.Mash, Ingredient = baseMalt },
+            new() { Amount = 1.0m, Unit = "kg", Usage = IngredientUsage.Boil, Ingredient = customNameExtract },
+            new() { Amount = 11.5m, Unit = "g", Usage = IngredientUsage.Primary, Ingredient = yeast }
+        };
+
+        // Explicit Sugar / DryExtract categories ignore mash efficiency even with a generic name
+        var res60 = BrewingCalculator.Calculate(20.0m, 60.0m, 60, maltPlusExtract);
+        var res85 = BrewingCalculator.Calculate(20.0m, 85.0m, 60, maltPlusExtract);
+        var maltOnly60 = BrewingCalculator.Calculate(20.0m, 60.0m, 60, [maltPlusExtract[0], maltPlusExtract[2]]);
+        var maltOnly85 = BrewingCalculator.Calculate(20.0m, 85.0m, 60, [maltPlusExtract[0], maltPlusExtract[2]]);
+
+        (res60.OriginalGravity - maltOnly60.OriginalGravity).Should()
+            .BeApproximately(res85.OriginalGravity - maltOnly85.OriginalGravity, 0.001m);
+
+        // 100% fermentable Sugar addition leaves fewer unfermentable residual points than an Extract addition at 78% yeast attenuation
+        var sugarRes = BrewingCalculator.Calculate(20.0m, 75.0m, 60, maltPlusSugar);
+        var maltOnly75 = BrewingCalculator.Calculate(20.0m, 75.0m, 60, [maltPlusSugar[0], maltPlusSugar[2]]);
+        sugarRes.OriginalGravity.Should().BeGreaterThan(maltOnly75.OriginalGravity);
+        sugarRes.FinalGravity.Should().Be(maltOnly75.FinalGravity);
+        sugarRes.AlcoholByVolume.Should().BeGreaterThan(maltOnly75.AlcoholByVolume);
+
+        // Extract addition DOES contribute unfermentable residual extract to FG
+        var extractRes = BrewingCalculator.Calculate(20.0m, 75.0m, 60, maltPlusExtract);
+        extractRes.FinalGravity.Should().BeGreaterThan(maltOnly75.FinalGravity);
+    }
+
+    [Fact]
+    public void Calculate_WithBottlingPrimingSugar_ExcludesFromOgFgAbvAndColor()
+    {
+        var baseList = new List<RecipeIngredient>
+        {
+            new()
+            {
+                Amount = 4.5m,
+                Unit = "kg",
+                Usage = IngredientUsage.Mash,
+                Ingredient = new Ingredient { Name = "Pale Malt", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Grain, PotentialGravity = 1.037m, ColorSrm = 2.5m }
+            },
+            new()
+            {
+                Amount = 11.5m,
+                Unit = "g",
+                Usage = IngredientUsage.Primary,
+                Ingredient = new Ingredient { Name = "US-05", Type = IngredientType.Yeast, AttenuationPercent = 78.0m }
+            }
+        };
+
+        var withPrimingSugar = new List<RecipeIngredient>(baseList)
+        {
+            new()
+            {
+                Amount = 0.14m,
+                Unit = "kg",
+                Usage = IngredientUsage.Bottling,
+                Ingredient = new Ingredient { Name = "Priming Dextrose", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Sugar, PotentialGravity = 1.046m, ColorSrm = 5.0m }
+            }
+        };
+
+        var baseline = BrewingCalculator.Calculate(20.0m, 75.0m, 60, baseList);
+        var withBottling = BrewingCalculator.Calculate(20.0m, 75.0m, 60, withPrimingSugar);
+
+        withBottling.Should().Be(baseline);
+    }
+
+    [Fact]
+    public void Calculate_WithExplicitFermentabilityPercentOverride_AppliesPartialFermentability()
+    {
+        var malt = new Ingredient
+        {
+            Name = "Pilsner Malt",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
+            PotentialGravity = 1.037m,
+            ColorSrm = 2.0m
+        };
+        var honeyMust = new Ingredient
+        {
+            Name = "Wildflower Honey",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            PotentialGravity = 1.035m,
+            ColorSrm = 1.5m,
+            FermentabilityPercent = 50.0m // 50% fermentable override
+        };
+        var yeast = new Ingredient
+        {
+            Name = "Saison Yeast",
+            Type = IngredientType.Yeast,
+            AttenuationPercent = 80.0m
+        };
+
+        var baseline = BrewingCalculator.Calculate(20.0m, 75.0m, 60,
+        [
+            new() { Amount = 4.0m, Unit = "kg", Usage = IngredientUsage.Mash, Ingredient = malt },
+            new() { Amount = 11.5m, Unit = "g", Usage = IngredientUsage.Primary, Ingredient = yeast }
+        ]);
+
+        var withHalfFermentableHoney = BrewingCalculator.Calculate(20.0m, 75.0m, 60,
+        [
+            new() { Amount = 4.0m, Unit = "kg", Usage = IngredientUsage.Mash, Ingredient = malt },
+            new() { Amount = 1.0m, Unit = "kg", Usage = IngredientUsage.Boil, Ingredient = honeyMust },
+            new() { Amount = 11.5m, Unit = "g", Usage = IngredientUsage.Primary, Ingredient = yeast }
+        ]);
+
+        var addedPoints = withHalfFermentableHoney.OriginalGravity - baseline.OriginalGravity;
+        var addedFgPoints = withHalfFermentableHoney.FinalGravity - baseline.FinalGravity;
+
+        addedPoints.Should().BeGreaterThan(0.012m);
+        // Roughly 50% of added points remain in FG
+        addedFgPoints.Should().BeApproximately(addedPoints * 0.50m, 0.002m);
+    }
+
+    [Fact]
+    public void CalculateMashGrainWeightKg_ExcludesSugarsExtractsAndNonMashAdditions()
+    {
+        var recipeIngredients = new List<RecipeIngredient>
+        {
+            new() { Amount = 4.0m, Unit = "kg", Usage = IngredientUsage.Mash, Ingredient = new Ingredient { Name = "Pilsner", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Grain } },
+            new() { Amount = 500m, Unit = "g", Usage = IngredientUsage.Mash, Ingredient = new Ingredient { Name = "Flaked Oats", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Adjunct } },
+            new() { Amount = 1.0m, Unit = "kg", Usage = IngredientUsage.Boil, Ingredient = new Ingredient { Name = "Candi Sugar", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Sugar } },
+            new() { Amount = 1.5m, Unit = "kg", Usage = IngredientUsage.Mash, Ingredient = new Ingredient { Name = "Liquid Malt Extract", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Extract } },
+            new() { Amount = 0.5m, Unit = "kg", Usage = IngredientUsage.Boil, Ingredient = new Ingredient { Name = "Caramel 60L", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Grain } },
+            new() { Amount = 150m, Unit = "g", Usage = IngredientUsage.Bottling, Ingredient = new Ingredient { Name = "Dextrose", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Sugar } },
+            new() { Amount = 30m, Unit = "g", Usage = IngredientUsage.Boil, Ingredient = new Ingredient { Name = "Hallertau", Type = IngredientType.Hop } }
+        };
+
+        BrewingCalculator.CalculateMashGrainWeightKg(recipeIngredients).Should().BeApproximately(4.5m, 0.001m);
+
+        var batchIngredients = new List<BatchIngredient>
+        {
+            new() { Name = "Pilsner", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Grain, AdditionStage = IngredientUsage.Mash, Amount = 4.0m, Unit = "kg" },
+            new() { Name = "Flaked Wheat", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Adjunct, AdditionStage = IngredientUsage.Mash, Amount = 0.5m, Unit = "kg" },
+            new() { Name = "Maple Syrup", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.Sugar, AdditionStage = IngredientUsage.Boil, Amount = 1.0m, Unit = "kg" },
+            new() { Name = "Dry Malt Extract", Type = IngredientType.Fermentable, FermentableCategory = FermentableCategory.DryExtract, AdditionStage = IngredientUsage.Boil, Amount = 0.5m, Unit = "kg" }
+        };
+
+        BrewingCalculator.CalculateMashGrainWeightKg(batchIngredients).Should().BeApproximately(4.5m, 0.001m);
+    }
 }

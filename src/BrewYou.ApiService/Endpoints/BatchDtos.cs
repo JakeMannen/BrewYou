@@ -61,7 +61,9 @@ public record BatchIngredientDto(
     bool IsChecked,
     bool IsDeducted,
     string? Notes,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record BatchMashStepDto(
@@ -302,7 +304,9 @@ public record BatchIngredientInputDto(
     IngredientUsage AdditionStage,
     int? AdditionTimeMinutes,
     string? Notes,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record AdvanceBatchStageRequest(

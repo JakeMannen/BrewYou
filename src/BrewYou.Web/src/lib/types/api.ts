@@ -1,5 +1,7 @@
 export type IngredientType = 'Fermentable' | 'Hop' | 'Yeast' | 'Other';
 
+export type FermentableCategory = 'Grain' | 'Adjunct' | 'Sugar' | 'Extract' | 'DryExtract';
+
 export type TargetVolumeBasis = 'Fermenter' | 'Packaged' | 'fermenter' | 'packaged';
 
 export type MashStepType = 'Infusion' | 'Temperature' | 'Decoction';
@@ -64,6 +66,8 @@ export interface IngredientDto {
 	stockUnit?: string;
 	isInStock?: boolean;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface CreateIngredientRequest {
@@ -77,6 +81,8 @@ export interface CreateIngredientRequest {
 	initialStock?: number | null;
 	stockUnit?: string | null;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface UpdateIngredientStockRequest {
@@ -93,6 +99,8 @@ export interface UpdateIngredientRequest {
 	attenuationPercent?: number | null;
 	description?: string | null;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface IngredientUsageRecipeDto {
@@ -132,6 +140,8 @@ export interface RecipeIngredientOutputDto {
 	alphaAcidPercent?: number | null;
 	attenuationPercent?: number | null;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface RecipeMashStepInputDto {
@@ -1079,6 +1089,8 @@ export interface BatchIngredientDto {
 	isDeducted?: boolean;
 	notes?: string | null;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface BatchStageHistoryDto {
@@ -1268,6 +1280,8 @@ export interface BatchIngredientInputDto {
 	additionTimeMinutes?: number | null;
 	notes?: string | null;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface CreateBatchRequest {

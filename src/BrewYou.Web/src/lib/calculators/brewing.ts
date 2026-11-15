@@ -1,4 +1,10 @@
-import type { CalculateRecipeResponse, IngredientDto, IngredientUsage } from '$lib/types/api';
+import type {
+	CalculateRecipeResponse,
+	FermentableCategory,
+	IngredientDto,
+	IngredientType,
+	IngredientUsage
+} from '$lib/types/api';
 import type { BitternessFormula, ColorFormula, AbvFormula } from '$lib/stores/settings.svelte';
 
 const KG_TO_LBS = 2.20462262;
@@ -30,8 +36,14 @@ const SOLUBLE_SUGAR_KEYWORDS = [
 	'maltodextrin',
 	'molasses',
 	'treacle',
+	'syrup',
 	'maple syrup',
-	'agave'
+	'agave',
+	'turbinado',
+	'demerara',
+	'piloncillo',
+	'muscovado',
+	'invert'
 ];
 
 const UNFERMENTABLE_SUGAR_KEYWORDS = ['lactose', 'milk sugar', 'maltodextrin'];
@@ -80,9 +92,73 @@ export function normalizeHopToGrams(amount: number, unit?: string | null): numbe
 	return amount;
 }
 
+export function isMassUnit(unit?: string | null): boolean {
+	if (!unit) return false;
+	const u = unit.trim().toLowerCase();
+	return (
+		u === 'kg' ||
+		u === 'kilogram' ||
+		u === 'kilograms' ||
+		u === 'g' ||
+		u === 'gram' ||
+		u === 'grams' ||
+		u === 'lb' ||
+		u === 'lbs' ||
+		u === 'pound' ||
+		u === 'pounds' ||
+		u === 'oz' ||
+		u === 'ounce' ||
+		u === 'ounces'
+	);
+}
+
+export function resolveFermentableCategory(
+	category?: FermentableCategory | null,
+	name?: string | null
+): FermentableCategory {
+	if (category) return category;
+	if (!name) return 'Grain';
+
+	const lower = name.trim().toLowerCase();
+	if (
+		lower.includes('dry malt extract') ||
+		lower.includes('dried malt extract') ||
+		lower.includes('dme')
+	) {
+		return 'DryExtract';
+	}
+	if (
+		lower.includes('liquid malt extract') ||
+		lower.includes('malt extract') ||
+		lower.includes('lme') ||
+		lower.includes('extract')
+	) {
+		return 'Extract';
+	}
+	if (SOLUBLE_SUGAR_KEYWORDS.some((kw) => lower.includes(kw))) {
+		return 'Sugar';
+	}
+	if (lower.includes('flaked') || lower.includes('torrified')) {
+		return 'Adjunct';
+	}
+	return 'Grain';
+}
+
+export function isMashGrain(
+	type?: IngredientType | null,
+	usage?: IngredientUsage | null,
+	category?: FermentableCategory | null,
+	name?: string | null
+): boolean {
+	if (type !== 'Fermentable' || usage !== 'Mash') return false;
+	const resolved = resolveFermentableCategory(category, name);
+	return resolved === 'Grain' || resolved === 'Adjunct';
+}
+
 export function isSolubleSugarOrExtract(
 	name: string | null | undefined,
-	usage?: IngredientUsage
+	usage?: IngredientUsage,
+	category?: FermentableCategory | null
 ): boolean {
 	if (
 		usage === 'Whirlpool' ||
@@ -92,9 +168,8 @@ export function isSolubleSugarOrExtract(
 	) {
 		return true;
 	}
-	if (!name) return false;
-	const lower = name.trim().toLowerCase();
-	return SOLUBLE_SUGAR_KEYWORDS.some((kw) => lower.includes(kw));
+	const resolved = resolveFermentableCategory(category, name);
+	return resolved === 'Sugar' || resolved === 'Extract' || resolved === 'DryExtract';
 }
 
 export function isUnfermentableSugar(name: string | null | undefined): boolean {
@@ -168,7 +243,8 @@ export function calculateBrewMetrics(
 	const eff = efficiencyPercent > 0 ? Math.max(0.01, efficiencyPercent / 100) : 0.72;
 
 	let totalGravityPoints = 0;
-	let unfermentablePoints = 0;
+	let customFermentabilityPoints = 0;
+	let customFermentabilityFgPoints = 0;
 	let totalMcu = 0;
 	let maxYeastAttenuation: number | null = null;
 
@@ -176,18 +252,48 @@ export function calculateBrewMetrics(
 		if (!item.ingredient) continue;
 
 		if (item.ingredient.type === 'Fermentable') {
+			// Bottling priming sugar is used solely for post-fermentation carbonation and excluded from pre-fermentation OG/FG/ABV.
+			if (item.usage === 'Bottling') {
+				continue;
+			}
+
 			const weightKg = normalizeFermentableToKg(item.amount, item.unit);
 			const weightLbs = weightKg * KG_TO_LBS;
 			const ppg = item.ingredient.potentialGravity
 				? (item.ingredient.potentialGravity - 1.0) * 1000
 				: 37;
 
-			const effectiveEff = isSolubleSugarOrExtract(item.ingredient.name, item.usage) ? 1.0 : eff;
+			const resolvedCategory = resolveFermentableCategory(
+				item.ingredient.fermentableCategory,
+				item.ingredient.name
+			);
+			const effectiveEff = isSolubleSugarOrExtract(
+				item.ingredient.name,
+				item.usage,
+				resolvedCategory
+			)
+				? 1.0
+				: eff;
 			const points = (weightLbs * ppg * effectiveEff) / volumeGallons;
 			totalGravityPoints += points;
 
-			if (isUnfermentableSugar(item.ingredient.name)) {
-				unfermentablePoints += points;
+			let explicitFermentability: number | null = null;
+			if (
+				item.ingredient.fermentabilityPercent !== undefined &&
+				item.ingredient.fermentabilityPercent !== null &&
+				!isNaN(item.ingredient.fermentabilityPercent)
+			) {
+				explicitFermentability =
+					Math.min(100, Math.max(0, item.ingredient.fermentabilityPercent)) / 100.0;
+			} else if (isUnfermentableSugar(item.ingredient.name)) {
+				explicitFermentability = 0.0;
+			} else if (resolvedCategory === 'Sugar') {
+				explicitFermentability = 1.0;
+			}
+
+			if (explicitFermentability !== null) {
+				customFermentabilityPoints += points;
+				customFermentabilityFgPoints += points * (1.0 - explicitFermentability);
 			}
 
 			const color = item.ingredient.colorSrm ?? 2.0;
@@ -215,8 +321,8 @@ export function calculateBrewMetrics(
 		options.mashSteps
 	);
 	const attenuation = effectiveAttenuationPercent / 100.0;
-	const fermentablePoints = Math.max(0, ogPoints - unfermentablePoints);
-	const fgPoints = fermentablePoints * (1.0 - attenuation) + unfermentablePoints;
+	const standardWortPoints = Math.max(0, ogPoints - customFermentabilityPoints);
+	const fgPoints = standardWortPoints * (1.0 - attenuation) + customFermentabilityFgPoints;
 	const fg = 1.0 + fgPoints / 1000.0;
 
 	// ABV calculation
@@ -504,7 +610,14 @@ export function reconcileImportedEfficiency(
 	batchSizeLiters: number,
 	statedEfficiencyPercent: number,
 	targetOg: number | null | undefined,
-	fermentables: Array<{ amount: number; potentialGravity?: number | null }>
+	fermentables: Array<{
+		amount: number;
+		unit?: string | null;
+		potentialGravity?: number | null;
+		usage?: IngredientUsage;
+		fermentableCategory?: FermentableCategory | null;
+		name?: string | null;
+	}>
 ): number {
 	if (
 		!targetOg ||
@@ -518,26 +631,37 @@ export function reconcileImportedEfficiency(
 	}
 
 	const volumeGallons = batchSizeLiters * LITERS_TO_GALLONS;
-	let maxGravityPoints = 0;
+	let mashMaxGravityPoints = 0;
+	let solubleGravityPoints = 0;
 
 	for (const f of fermentables) {
-		if (!f || f.amount <= 0) continue;
-		const weightLbs = f.amount * KG_TO_LBS;
+		if (!f || f.amount <= 0 || f.usage === 'Bottling') continue;
+		const weightKg = normalizeFermentableToKg(f.amount, f.unit);
+		const weightLbs = weightKg * KG_TO_LBS;
 		const ppg = f.potentialGravity ? (f.potentialGravity - 1.0) * 1000 : 37;
-		maxGravityPoints += (weightLbs * ppg) / volumeGallons;
+		const fullPoints = (weightLbs * ppg) / volumeGallons;
+
+		if (isSolubleSugarOrExtract(f.name, f.usage, f.fermentableCategory)) {
+			solubleGravityPoints += fullPoints;
+		} else {
+			mashMaxGravityPoints += fullPoints;
+		}
 	}
 
-	if (maxGravityPoints <= 0) {
+	if (mashMaxGravityPoints <= 0) {
 		return statedEfficiencyPercent;
 	}
 
-	const calculatedOg = 1.0 + (maxGravityPoints * (statedEfficiencyPercent / 100.0)) / 1000.0;
+	const calculatedOg =
+		1.0 +
+		(solubleGravityPoints + mashMaxGravityPoints * (statedEfficiencyPercent / 100.0)) / 1000.0;
 	if (Math.round(calculatedOg * 1000) === Math.round(targetOg * 1000)) {
 		return statedEfficiencyPercent;
 	}
 
 	const targetPoints = (targetOg - 1.0) * 1000.0;
-	const derivedEfficiency = (targetPoints / maxGravityPoints) * 100.0;
+	const remainingMashPoints = targetPoints - solubleGravityPoints;
+	const derivedEfficiency = (remainingMashPoints / mashMaxGravityPoints) * 100.0;
 
 	if (derivedEfficiency >= 25.0 && derivedEfficiency <= 100.0) {
 		return Math.round(derivedEfficiency * 10) / 10;

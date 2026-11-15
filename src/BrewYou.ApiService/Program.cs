@@ -129,6 +129,7 @@ builder.Services.AddScoped<IBreweryCollaborationService, BreweryCollaborationSer
 builder.Services.AddScoped<IBatchService, BatchService>();
 builder.Services.AddSingleton<IBackupSchemaMigrator, V0ToV1BackupMigrator>();
 builder.Services.AddSingleton<IBackupSchemaMigrator, V1ToV2BackupMigrator>();
+builder.Services.AddSingleton<IBackupSchemaMigrator, V2ToV3BackupMigrator>();
 builder.Services.AddSingleton<BackupMigrationPipeline>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddHttpClient();

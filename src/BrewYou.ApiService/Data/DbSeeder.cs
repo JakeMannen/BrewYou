@@ -97,6 +97,11 @@ public static class DbSeeder
                     );
                     ALTER TABLE "BrewLinkGateways" ADD COLUMN IF NOT EXISTS "ClientName" character varying(64);
                     CREATE UNIQUE INDEX IF NOT EXISTS "IX_BrewLinkGateways_UserId_GatewayId" ON "BrewLinkGateways" ("UserId", "GatewayId");
+
+                    ALTER TABLE "Ingredients" ADD COLUMN IF NOT EXISTS "FermentableCategory" character varying(20);
+                    ALTER TABLE "Ingredients" ADD COLUMN IF NOT EXISTS "FermentabilityPercent" numeric(5,2);
+                    ALTER TABLE "BatchIngredients" ADD COLUMN IF NOT EXISTS "FermentableCategory" character varying(20);
+                    ALTER TABLE "BatchIngredients" ADD COLUMN IF NOT EXISTS "FermentabilityPercent" numeric(5,2);
                     """);
             }
 
@@ -118,6 +123,8 @@ public static class DbSeeder
                 {
                     if (existing.ColorSrm != catalogItem.ColorSrm ||
                         existing.PotentialGravity != catalogItem.PotentialGravity ||
+                        existing.FermentableCategory != catalogItem.FermentableCategory ||
+                        existing.FermentabilityPercent != catalogItem.FermentabilityPercent ||
                         existing.AlphaAcidPercent != catalogItem.AlphaAcidPercent ||
                         existing.AttenuationPercent != catalogItem.AttenuationPercent ||
                         existing.Form != catalogItem.Form ||
@@ -125,6 +132,8 @@ public static class DbSeeder
                     {
                         existing.ColorSrm = catalogItem.ColorSrm;
                         existing.PotentialGravity = catalogItem.PotentialGravity;
+                        existing.FermentableCategory = catalogItem.FermentableCategory;
+                        existing.FermentabilityPercent = catalogItem.FermentabilityPercent;
                         existing.AlphaAcidPercent = catalogItem.AlphaAcidPercent;
                         existing.AttenuationPercent = catalogItem.AttenuationPercent;
                         existing.Form = catalogItem.Form;
@@ -264,13 +273,14 @@ public static class DbSeeder
     public static List<Ingredient> GetDefaultCatalogIngredients() =>
     [
         // ==========================================
-        // 1. Fermentables & Grains (31 items)
+        // 1. Fermentables: Grains, Adjuncts, Sugars & Extracts
         // ==========================================
         // Base Malts
         new()
         {
             Name = "Pale Malt (2-Row)",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.037m,
             ColorSrm = 1.8m,
             Description = "Clean, neutral sweet base malt canvas for American IPAs, Pale Ales, and general craft ales."
@@ -279,6 +289,7 @@ public static class DbSeeder
         {
             Name = "Pilsner Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.037m,
             ColorSrm = 1.6m,
             Description = "Lightest European base malt, delicate sweet cracker, honey, and fresh bread dough notes."
@@ -287,6 +298,7 @@ public static class DbSeeder
         {
             Name = "Maris Otter",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.038m,
             ColorSrm = 3.0m,
             Description = "Premium British heritage pale ale malt imparting rich biscuit, toasted bread, and nutty depth."
@@ -295,6 +307,7 @@ public static class DbSeeder
         {
             Name = "Golden Promise",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.038m,
             ColorSrm = 2.5m,
             Description = "Premium heritage Scottish pale ale malt delivering sweet, bready, and silky grain foundation for ales and hazies."
@@ -303,6 +316,7 @@ public static class DbSeeder
         {
             Name = "Vienna Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.036m,
             ColorSrm = 4.0m,
             Description = "Imparts a golden to amber hue with luscious toasted bread crust character and gentle sweetness."
@@ -311,6 +325,7 @@ public static class DbSeeder
         {
             Name = "Munich Malt (Light)",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.035m,
             ColorSrm = 9.0m,
             Description = "Adds rich malty backbone, amber color, and crusty bread notes without caramel sweetness."
@@ -319,6 +334,7 @@ public static class DbSeeder
         {
             Name = "Munich Malt (Dark)",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.035m,
             ColorSrm = 15.0m,
             Description = "Deep maltiness, intensely toasted bread crust, and copper coloration for bocks and dunkels."
@@ -329,6 +345,7 @@ public static class DbSeeder
         {
             Name = "Carapils / Dextrine Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.033m,
             ColorSrm = 1.5m,
             Description = "Boosts body, mouthfeel, and foam stability through unfermentable dextrins with minimal color."
@@ -337,6 +354,7 @@ public static class DbSeeder
         {
             Name = "Caramel / Crystal 20L",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.035m,
             ColorSrm = 20.0m,
             Description = "Sweet candied sugar, light honey, and fresh caramel notes with a light golden hue."
@@ -345,6 +363,7 @@ public static class DbSeeder
         {
             Name = "Caramel / Crystal 40L",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.034m,
             ColorSrm = 40.0m,
             Description = "Classic caramel, toasted marshmallow, and light toffee with a deep golden/light copper hue."
@@ -353,6 +372,7 @@ public static class DbSeeder
         {
             Name = "Caramel / Crystal 60L",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.034m,
             ColorSrm = 60.0m,
             Description = "Medium crystal malt providing pronounced toffee sweetness, body, and reddish-amber color."
@@ -361,6 +381,7 @@ public static class DbSeeder
         {
             Name = "Caramel / Crystal 120L",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.033m,
             ColorSrm = 120.0m,
             Description = "Dark fruit, raisin, prune, burnt sugar, and dark reddish-brown color for porters and barleywines."
@@ -369,6 +390,7 @@ public static class DbSeeder
         {
             Name = "CaraMunich II",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.034m,
             ColorSrm = 60.9m,
             Description = "Benchmark German caramel malt imparting rich toffee, bread crust, and deep copper hue for Märzen and Bocks."
@@ -377,6 +399,7 @@ public static class DbSeeder
         {
             Name = "Special B",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.030m,
             ColorSrm = 150.0m,
             Description = "Belgian dark crystal imparting heavy dark raisins, black figs, plums, and brown sugar notes."
@@ -385,6 +408,7 @@ public static class DbSeeder
         {
             Name = "Melanoidin Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.034m,
             ColorSrm = 35.5m,
             Description = "Provides intensely malty, crusty bread and honeyed biscuit notes simulating traditional decoction mashing."
@@ -393,6 +417,7 @@ public static class DbSeeder
         {
             Name = "Biscuit / Victory Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.035m,
             ColorSrm = 25.0m,
             Description = "Warm toasted bread, saltine crackers, and nutty grain flavor without adding caramel or crystal sweetness."
@@ -401,6 +426,7 @@ public static class DbSeeder
         {
             Name = "Smoked Malt (Rauchmalz)",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.037m,
             ColorSrm = 2.5m,
             Description = "Beechwood-smoked malt contributing authentic campfire and savory aroma for classic Bamberg Rauchbier."
@@ -409,6 +435,7 @@ public static class DbSeeder
         {
             Name = "Acidulated Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.034m,
             ColorSrm = 2.0m,
             Description = "Naturally soured malt reducing mash pH to 5.2-5.6 for Reinheitsgebot compliance and enhanced enzyme activity."
@@ -419,6 +446,7 @@ public static class DbSeeder
         {
             Name = "Chocolate Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.028m,
             ColorSrm = 400.0m,
             Description = "Rich cocoa powder, dark unsweetened chocolate, coffee grounds, and nutty roast."
@@ -427,6 +455,7 @@ public static class DbSeeder
         {
             Name = "Pale Chocolate Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.030m,
             ColorSrm = 280.0m,
             Description = "Gentle roast malt offering hazelnut, smooth cocoa, and milk chocolate character without sharp acrid bitterness."
@@ -435,6 +464,7 @@ public static class DbSeeder
         {
             Name = "Roasted Barley",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.025m,
             ColorSrm = 600.0m,
             Description = "Unmalted roasted grain imparting deep black color, espresso, and signature dry roasty bite."
@@ -443,6 +473,7 @@ public static class DbSeeder
         {
             Name = "Black Patent / Black Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.025m,
             ColorSrm = 685.0m,
             Description = "Intensely roasted malt providing sharp, ashen charcoal bitterness and deep jet-black coloration."
@@ -451,6 +482,7 @@ public static class DbSeeder
         {
             Name = "Carafa Special III",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.032m,
             ColorSrm = 710.7m,
             Description = "De-husked roasted malt providing pitch-black color and smooth coffee notes without harsh astringency."
@@ -461,6 +493,7 @@ public static class DbSeeder
         {
             Name = "Malted Wheat",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.037m,
             ColorSrm = 2.5m,
             Description = "High protein grain adding pale haze, fluffy head retention, and bready tart wheat flour notes."
@@ -469,6 +502,7 @@ public static class DbSeeder
         {
             Name = "Dark Wheat Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.037m,
             ColorSrm = 9.0m,
             Description = "Deep bready crust, rich wheat dough, light caramel, and soft sweetness for Dunkelweizen and Weizenbock."
@@ -477,6 +511,7 @@ public static class DbSeeder
         {
             Name = "Flaked Wheat",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Adjunct,
             PotentialGravity = 1.036m,
             ColorSrm = 2.0m,
             Description = "Unmalted wheat imparting raw wheat tang, creamy mouthfeel, and stable protein haze for Witbiers and NEIPAs."
@@ -485,6 +520,7 @@ public static class DbSeeder
         {
             Name = "Torrified Wheat",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Adjunct,
             PotentialGravity = 1.036m,
             ColorSrm = 1.8m,
             Description = "Puffed wheat boosting foam stability, creamy head retention, and lacing without adding cloudiness."
@@ -493,6 +529,7 @@ public static class DbSeeder
         {
             Name = "Rye Malt",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
             PotentialGravity = 1.030m,
             ColorSrm = 3.5m,
             Description = "Imparts a distinct peppery spice, crisp rye bread flavor, and full viscous mouthfeel."
@@ -501,6 +538,7 @@ public static class DbSeeder
         {
             Name = "Flaked Oats",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Adjunct,
             PotentialGravity = 1.033m,
             ColorSrm = 2.0m,
             Description = "Enhances mouthfeel, silky body, and pillowy haze for Oatmeal Stouts and Hazy IPAs."
@@ -509,6 +547,7 @@ public static class DbSeeder
         {
             Name = "Flaked Corn (Maize)",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Adjunct,
             PotentialGravity = 1.037m,
             ColorSrm = 1.0m,
             Description = "Lightens beer body and color while contributing a subtle, sweet corn character for Cream Ales and Lagers."
@@ -517,9 +556,187 @@ public static class DbSeeder
         {
             Name = "Flaked Rice",
             Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Adjunct,
             PotentialGravity = 1.038m,
             ColorSrm = 1.0m,
             Description = "Extremely neutral adjunct that dries out finish and thins body for clean, crisp dry lagers."
+        },
+
+        // Sugars, Syrups & Honey (Non-Mash Soluble)
+        new()
+        {
+            Name = "Dextrose (Corn Sugar)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 100.0m,
+            PotentialGravity = 1.046m,
+            ColorSrm = 0.0m,
+            Description = "100% fermentable pure glucose used in kettle or boil to dry out IPAs and Tripels without adding mash grain bulk, or for bottle priming."
+        },
+        new()
+        {
+            Name = "Sucrose (Cane / Table Sugar)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 100.0m,
+            PotentialGravity = 1.046m,
+            ColorSrm = 0.0m,
+            Description = "Neutral fully fermentable cane/beet sugar boosting ABV and lightening finish in Belgian Golden Strong Ales and Saisons."
+        },
+        new()
+        {
+            Name = "Belgian Candi Sugar (Clear)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 100.0m,
+            PotentialGravity = 1.036m,
+            ColorSrm = 0.5m,
+            Description = "Pure caramelized beet rock sugar elevating alcohol and lightening body in Tripels and Golden Strong Ales."
+        },
+        new()
+        {
+            Name = "Belgian Candi Syrup (Amber D-45)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 100.0m,
+            PotentialGravity = 1.032m,
+            ColorSrm = 45.0m,
+            Description = "Traditional Belgian invert syrup adding toffee, warm caramel, stone fruit, and amber brilliance to Dubbels and Bière de Garde."
+        },
+        new()
+        {
+            Name = "Belgian Candi Syrup (Dark D-180)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 100.0m,
+            PotentialGravity = 1.032m,
+            ColorSrm = 180.0m,
+            Description = "Deep dark Maillard syrup lending rich dark fruit, fig, toffee, and roasted caramel depth to Quads and Dark Strongs."
+        },
+        new()
+        {
+            Name = "Honey",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 95.0m,
+            PotentialGravity = 1.035m,
+            ColorSrm = 1.0m,
+            Description = "Natural floral sweetener adding delicate aromatics (when added at flameout or primary) and a dry, crisp finish."
+        },
+        new()
+        {
+            Name = "Maple Syrup",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 95.0m,
+            PotentialGravity = 1.030m,
+            ColorSrm = 35.0m,
+            Description = "Concentrated maple sap imparting woody caramel nuance and fermentable extract for porters, stouts, and brown ales."
+        },
+        new()
+        {
+            Name = "Turbinado / Demerara Sugar",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 100.0m,
+            PotentialGravity = 1.044m,
+            ColorSrm = 10.0m,
+            Description = "Minimally refined raw cane sugar with light molasses undertones for English bitters and Belgian ales."
+        },
+        new()
+        {
+            Name = "Molasses",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 60.0m,
+            PotentialGravity = 1.036m,
+            ColorSrm = 80.0m,
+            Description = "Partially fermentable dark cane syrup delivering bittersweet rum, licorice, and mineral richness to dark beers."
+        },
+        new()
+        {
+            Name = "Lactose (Milk Sugar)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 0.0m,
+            PotentialGravity = 1.035m,
+            ColorSrm = 0.0m,
+            Description = "Non-fermentable milk sugar by Saccharomyces cerevisiae; permanently raises FG, creamy sweetness, and body in Milk Stouts."
+        },
+        new()
+        {
+            Name = "Maltodextrin",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            FermentabilityPercent = 0.0m,
+            PotentialGravity = 1.040m,
+            ColorSrm = 0.0m,
+            Description = "Unfermentable complex polysaccharide boosting mouthfeel, viscosity, and head retention with minimal sweetness."
+        },
+
+        // Malt Extracts (LME & DME — Non-Mash Soluble)
+        new()
+        {
+            Name = "Light Liquid Malt Extract (LME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Extract,
+            PotentialGravity = 1.036m,
+            ColorSrm = 4.0m,
+            Description = "Concentrated pale wort syrup providing reliable gravity boost and clean malt sweetness without requiring mashing."
+        },
+        new()
+        {
+            Name = "Amber Liquid Malt Extract (LME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Extract,
+            PotentialGravity = 1.036m,
+            ColorSrm = 10.0m,
+            Description = "Pre-mashed amber wort syrup with balanced caramel and biscuity malt character."
+        },
+        new()
+        {
+            Name = "Dark Liquid Malt Extract (LME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Extract,
+            PotentialGravity = 1.036m,
+            ColorSrm = 30.0m,
+            Description = "Rich roasted and crystal malt extract syrup designed for extract porters, stouts, and dark ales."
+        },
+        new()
+        {
+            Name = "Wheat Liquid Malt Extract (LME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Extract,
+            PotentialGravity = 1.036m,
+            ColorSrm = 4.0m,
+            Description = "Concentrated wheat-barley extract syrup (typically ~60% wheat / ~40% pale malt) for extract Hefeweizens and Wits."
+        },
+        new()
+        {
+            Name = "Light Dry Malt Extract (DME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.DryExtract,
+            PotentialGravity = 1.044m,
+            ColorSrm = 4.0m,
+            Description = "Spray-dried pale malt extract ideal for extract brews, yeast starters, and last-minute boil gravity adjustments."
+        },
+        new()
+        {
+            Name = "Wheat Dry Malt Extract (DME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.DryExtract,
+            PotentialGravity = 1.044m,
+            ColorSrm = 4.0m,
+            Description = "Spray-dried wheat-barley malt extract lending hazy protein fullness and crisp wheat character."
+        },
+        new()
+        {
+            Name = "Dark Dry Malt Extract (DME)",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.DryExtract,
+            PotentialGravity = 1.044m,
+            ColorSrm = 30.0m,
+            Description = "Spray-dried dark malt extract contributing roasted chocolate notes, caramel body, and dark mahogany hue."
         },
 
         // ==========================================

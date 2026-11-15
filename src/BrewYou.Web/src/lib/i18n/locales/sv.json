@@ -193,6 +193,8 @@
 			"pitch_temp": "Jästtemperatur (Pitch)",
 			"packaged_volume": "Förpackad volym",
 			"mash_section_title": "Steg 1: Mäskningsschema & Maltnota",
+			"fermentables_bill_title": "Jäsbara ingredienser & Maltnota",
+			"mash_additions_title": "Mäskvatten- & Övriga tillsatser",
 			"mash_ingredients_title": "Mäskingredienser & Vattentillsatser",
 			"mash_steps_title": "Mäsksteg",
 			"default_single_infusion": "Enkel infusion / Försockringsrast",
@@ -372,12 +374,16 @@
 		},
 		"summaries": {
 			"total_grain": "Total maltgiva: {weight}",
+			"mash_grain": "Mäsk: {weight}",
 			"grist_percent": "100% Maltnota",
 			"total_hops": "Total humlegiva: {weight}",
 			"total_ibu": "Uppsk. {ibu} IBU",
 			"attenuation": "Utjäsning: {atten}%",
 			"items_count": "{count} givor",
 			"yeast_desc": "Jästgiva & utjäsningsprofil"
+		},
+		"badges": {
+			"no_mash_water": "Inget mäskvatten"
 		},
 		"columns": {
 			"ingredient": "Råvara",
@@ -558,6 +564,20 @@
 		"sensory_finish_very_dry": "Mycket torr / Hög utjäsning",
 		"form_label": "Form",
 		"form_placeholder": "Välj form...",
+		"unit_label": "Enhet",
+		"fermentable_category_label": "Kategori",
+		"fermentable_categories": {
+			"grain": "Malt / Spannmål",
+			"adjunct": "Råfrukt / Flingor",
+			"sugar": "Socker / Sirap",
+			"extract": "Flytande maltextrakt",
+			"dryextract": "Torkat maltextrakt"
+		},
+		"fermentability_label": "Förjäsbarhet (%)",
+		"fermentability_placeholder": "Auto (100% socker, jästutjäsning malt)",
+		"fermentability_hint": "Valfri åsidosättning (0–100%). Lämna tomt för jästens utjäsning på malt/extrakt, 100% för socker eller 0% för laktos/maltodextrin.",
+		"err_fermentability_range": "Förjäsbarheten måste vara mellan 0% och 100%.",
+		"no_mash_water_hint": "Tillsätts i kok/jäskärl — påverkar inte mäsk- eller lakvatten",
 		"forms": {
 			"pellet": "Pellets",
 			"leaf": "Kottar",

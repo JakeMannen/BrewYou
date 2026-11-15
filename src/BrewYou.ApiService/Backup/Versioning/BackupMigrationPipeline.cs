@@ -1,5 +1,6 @@
 using BrewYou.ApiService.Backup.Models;
 using BrewYou.ApiService.Data.Entities;
+using BrewYou.ApiService.Services;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -191,6 +192,112 @@ public class V1ToV2BackupMigrator : IBackupSchemaMigrator
 }
 
 /// <summary>
+/// Upgrades V2 backups to V3 by inferring missing FermentableCategory and unfermentable sugar defaults
+/// on legacy custom ingredients, ingredient snapshots, and batch ingredients.
+/// </summary>
+public class V2ToV3BackupMigrator : IBackupSchemaMigrator
+{
+    public int FromVersion => 2;
+    public int ToVersion => 3;
+
+    public void Migrate(JsonObject data, List<string> migrationNotes)
+    {
+        int classifiedCount = 0;
+
+        void EnrichFermentableObject(JsonObject obj, string typeKey = "type", string nameKey = "name")
+        {
+            var typeStr = GetCaseInsensitiveString(obj, typeKey);
+            if (!string.Equals(typeStr, nameof(IngredientType.Fermentable), StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var name = GetCaseInsensitiveString(obj, nameKey);
+            if (!ContainsPropertyCaseInsensitive(obj, "fermentableCategory"))
+            {
+                var inferredCategory = BrewingCalculator.ResolveFermentableCategory(null, name);
+                obj["fermentableCategory"] = inferredCategory.ToString();
+                classifiedCount++;
+            }
+
+            if (!ContainsPropertyCaseInsensitive(obj, "fermentabilityPercent") &&
+                BrewingCalculator.IsUnfermentableSugar(name))
+            {
+                obj["fermentabilityPercent"] = 0.0m;
+            }
+        }
+
+        if (data.TryGetPropertyValue("customIngredients", out var customNode) && customNode is JsonArray customArr)
+        {
+            foreach (var item in customArr.OfType<JsonObject>())
+            {
+                EnrichFermentableObject(item);
+            }
+        }
+
+        if (data.TryGetPropertyValue("ingredientStocks", out var stocksNode) && stocksNode is JsonArray stocksArr)
+        {
+            foreach (var stockObj in stocksArr.OfType<JsonObject>())
+            {
+                if (stockObj.TryGetPropertyValue("ingredientSnapshot", out var snapNode) && snapNode is JsonObject snapObj)
+                {
+                    EnrichFermentableObject(snapObj);
+                }
+            }
+        }
+
+        if (data.TryGetPropertyValue("recipes", out var recipesNode) && recipesNode is JsonArray recipesArr)
+        {
+            foreach (var recipeObj in recipesArr.OfType<JsonObject>())
+            {
+                if (recipeObj.TryGetPropertyValue("ingredients", out var rIngsNode) && rIngsNode is JsonArray rIngsArr)
+                {
+                    foreach (var riObj in rIngsArr.OfType<JsonObject>())
+                    {
+                        if (riObj.TryGetPropertyValue("ingredientSnapshot", out var snapNode) && snapNode is JsonObject snapObj)
+                        {
+                            EnrichFermentableObject(snapObj);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (data.TryGetPropertyValue("batches", out var batchesNode) && batchesNode is JsonArray batchesArr)
+        {
+            foreach (var batchObj in batchesArr.OfType<JsonObject>())
+            {
+                if (batchObj.TryGetPropertyValue("ingredients", out var bIngsNode) && bIngsNode is JsonArray bIngsArr)
+                {
+                    foreach (var biObj in bIngsArr.OfType<JsonObject>())
+                    {
+                        EnrichFermentableObject(biObj);
+                    }
+                }
+            }
+        }
+
+        if (classifiedCount > 0)
+        {
+            migrationNotes.Add($"Classified {classifiedCount} legacy fermentable record(s) into explicit fermentable categories (v2 -> v3).");
+        }
+    }
+
+    private static bool ContainsPropertyCaseInsensitive(JsonObject obj, string propertyName) =>
+        obj.Any(kvp => string.Equals(kvp.Key, propertyName, StringComparison.OrdinalIgnoreCase) && kvp.Value != null);
+
+    private static string? GetCaseInsensitiveString(JsonObject obj, string propertyName)
+    {
+        var match = obj.FirstOrDefault(kvp => string.Equals(kvp.Key, propertyName, StringComparison.OrdinalIgnoreCase));
+        if (match.Value is JsonValue val && val.TryGetValue<string>(out var s))
+        {
+            return s;
+        }
+        return null;
+    }
+}
+
+/// <summary>
 /// Tolerant enum converter that maps legacy aliases and falls back gracefully instead of failing deserialization
 /// when loading backups created on older or slightly newer versions.
 /// </summary>
@@ -329,6 +436,23 @@ public class TolerantEnumConverter<TEnum>(List<string> warnings) : JsonConverter
                 return true;
             }
         }
+        else if (typeof(TEnum) == typeof(FermentableCategory))
+        {
+            FermentableCategory? mapped = norm switch
+            {
+                "malt" or "malts" or "grains" => FermentableCategory.Grain,
+                "adjuncts" or "flake" or "flaked" => FermentableCategory.Adjunct,
+                "sugars" or "syrup" or "honey" => FermentableCategory.Sugar,
+                "liquidextract" or "liquid_extract" or "lme" => FermentableCategory.Extract,
+                "dryextract" or "dry_extract" or "dme" => FermentableCategory.DryExtract,
+                _ => null
+            };
+            if (mapped.HasValue)
+            {
+                result = (TEnum)(object)mapped.Value;
+                return true;
+            }
+        }
         else if (typeof(TEnum) == typeof(BrewStage))
         {
             BrewStage? mapped = norm switch
@@ -360,6 +484,8 @@ public class TolerantEnumConverter<TEnum>(List<string> warnings) : JsonConverter
             return (TEnum)(object)EquipmentSubtype.Other;
         if (typeof(TEnum) == typeof(IngredientType))
             return (TEnum)(object)IngredientType.Other;
+        if (typeof(TEnum) == typeof(FermentableCategory))
+            return (TEnum)(object)FermentableCategory.Grain;
         return default;
     }
 }
@@ -395,7 +521,7 @@ public class BackupMigrationPipeline
 
     public BackupMigrationPipeline(IEnumerable<IBackupSchemaMigrator>? migrators = null)
     {
-        _migrators = (migrators ?? [new V0ToV1BackupMigrator(), new V1ToV2BackupMigrator()])
+        _migrators = (migrators ?? [new V0ToV1BackupMigrator(), new V1ToV2BackupMigrator(), new V2ToV3BackupMigrator()])
             .OrderBy(m => m.FromVersion)
             .ToList();
     }

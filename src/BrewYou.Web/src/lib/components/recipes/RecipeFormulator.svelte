@@ -10,6 +10,7 @@
 		calculateBrewMetrics,
 		calculateBuGuRatio,
 		calculateApparentAttenuation,
+		resolveFermentableCategory,
 		type CalculatorItem
 	} from '$lib/calculators/brewing';
 	import type {
@@ -558,7 +559,9 @@
 				colorSrm: catalogMatch?.colorSrm,
 				alphaAcidPercent: catalogMatch?.alphaAcidPercent,
 				attenuationPercent: catalogMatch?.attenuationPercent,
-				form: item.form ?? catalogMatch?.form ?? undefined
+				form: item.form ?? catalogMatch?.form ?? undefined,
+				fermentableCategory: catalogMatch?.fermentableCategory ?? undefined,
+				fermentabilityPercent: catalogMatch?.fermentabilityPercent ?? undefined
 			};
 		});
 
@@ -626,15 +629,26 @@
 							: 11.5
 						: 5;
 
+		const defaultFermentableCat =
+			type === 'Fermentable'
+				? resolveFermentableCategory(defaultIng.fermentableCategory, defaultIng.name)
+				: null;
+		const defaultFermentableUsage: IngredientUsage =
+			defaultFermentableCat === 'Sugar' ||
+			defaultFermentableCat === 'Extract' ||
+			defaultFermentableCat === 'DryExtract'
+				? 'Boil'
+				: 'Mash';
+
 		items.push({
 			id: Math.random().toString(36).substring(2, 9),
 			ingredientId: defaultIng.id,
 			type,
 			amount: defaultAmount,
 			unit: defaultUnit,
-			durationMinutes: isHop ? 15 : 60,
+			durationMinutes: isHop ? 15 : boilTimeMinutes || 60,
 			usage: (type === 'Fermentable'
-				? 'Mash'
+				? defaultFermentableUsage
 				: isHop
 					? 'Boil'
 					: isYeast

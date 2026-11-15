@@ -128,7 +128,7 @@
 		data-hydrated={isHydrated}
 		inert={!isHydrated || !auth.isAuthenticated || auth.needsBreweryOnboarding}
 		aria-hidden={!isHydrated || !auth.isAuthenticated || auth.needsBreweryOnboarding}
-		class="flex min-h-screen bg-[var(--canvas-bg)] font-sans text-[var(--text-primary)] transition-all duration-300 selection:bg-amber-500 selection:text-black {!auth.isAuthenticated ||
+		class="flex min-h-screen bg-[var(--canvas-bg)] font-sans text-[var(--text-primary)] transition-all duration-300 selection:bg-amber-500 selection:text-black print:block print:h-auto print:min-h-0 print:overflow-visible print:bg-white {!auth.isAuthenticated ||
 		auth.needsBreweryOnboarding
 			? 'pointer-events-none opacity-40 blur-md select-none'
 			: ''}"
@@ -136,14 +136,16 @@
 		<!-- Desktop Collapsible SaaS Sidebar -->
 		<Sidebar
 			bind:collapsed={sidebarCollapsed}
-			class="sticky top-0 z-30 hidden h-screen flex-shrink-0 md:flex"
+			class="sticky top-0 z-30 hidden h-screen flex-shrink-0 md:flex print:hidden"
 		/>
 
 		<!-- Main Content Area & Header Canvas -->
-		<div class="flex min-w-0 flex-1 flex-col overflow-x-hidden">
+		<div
+			class="flex min-w-0 flex-1 flex-col overflow-x-hidden print:block print:flex-none print:overflow-visible"
+		>
 			<!-- Top Sub-Header Bar -->
 			<header
-				class="glass-panel sticky top-0 z-20 border-b border-zinc-200/80 px-4 py-3 sm:px-6 lg:px-8 dark:border-white/[0.08]"
+				class="glass-panel sticky top-0 z-20 border-b border-zinc-200/80 px-4 py-3 sm:px-6 lg:px-8 dark:border-white/[0.08] print:hidden"
 			>
 				<div class="flex h-10 items-center justify-between">
 					<!-- Mobile Brand & Title (Hidden on Desktop) -->
@@ -279,7 +281,9 @@
 			</header>
 
 			<!-- Main Page Canvas -->
-			<main class="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+			<main
+				class="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 print:m-0 print:max-w-none print:p-0"
+			>
 				{@render children()}
 			</main>
 		</div>
@@ -291,7 +295,7 @@
 				tabindex="-1"
 				role="button"
 				aria-label={t('nav.close_menu')}
-				class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden"
+				class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden print:hidden"
 				onclick={() => (mobileMenuOpen = false)}
 				onkeydown={(e) => {
 					if (e.key === 'Escape') mobileMenuOpen = false;
@@ -305,7 +309,7 @@
 				role="dialog"
 				aria-modal="true"
 				aria-label={t('nav.mobile_navigation')}
-				class="glass-panel fixed inset-y-0 right-0 z-50 flex w-full max-w-xs flex-col justify-between border-l border-zinc-200/80 p-5 shadow-2xl md:hidden dark:border-white/10"
+				class="glass-panel fixed inset-y-0 right-0 z-50 flex w-full max-w-xs flex-col justify-between border-l border-zinc-200/80 p-5 shadow-2xl md:hidden dark:border-white/10 print:hidden"
 			>
 				<!-- Drawer Header -->
 				<div class="flex flex-col gap-5">

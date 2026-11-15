@@ -6,6 +6,7 @@ import type {
 	ExportResult
 } from './types';
 import { sanitizeFilename } from '$lib/utils/downloadFile';
+import { normalizeFermentableToKg, resolveFermentableCategory } from '$lib/calculators/brewing';
 
 export function getIngName(i: ExportableIngredient): string {
 	return i.name || i.ingredientName || 'Unnamed Ingredient';
@@ -327,17 +328,29 @@ export function serializeBeerXml(recipe: ExportableRecipe): ExportResult {
 	lines.push('    <FERMENTABLES>');
 	for (const f of fermentables) {
 		// Amount in kg
-		const amountKg = f.unit.toLowerCase() === 'g' ? f.amount / 1000.0 : f.amount;
+		const amountKg = normalizeFermentableToKg(f.amount, f.unit);
 		const yieldVal = potentialToYieldPercent(f.potentialGravity);
 		const colorVal = f.colorSrm ?? 2.0;
+		const resolvedCategory = resolveFermentableCategory(f.fermentableCategory, getIngName(f));
+		const xmlType = resolvedCategory === 'DryExtract' ? 'Dry Extract' : resolvedCategory;
+		const addAfterBoil =
+			f.usage === 'Whirlpool' ||
+			f.usage === 'Primary' ||
+			f.usage === 'Secondary' ||
+			f.usage === 'Bottling';
+		const recommendMash =
+			f.usage === 'Mash' && (resolvedCategory === 'Grain' || resolvedCategory === 'Adjunct');
 
 		lines.push('      <FERMENTABLE>');
 		lines.push(`        <NAME>${escapeXml(getIngName(f))}</NAME>`);
 		lines.push('        <VERSION>1</VERSION>');
-		lines.push('        <TYPE>Grain</TYPE>');
+		lines.push(`        <TYPE>${xmlType}</TYPE>`);
 		lines.push(`        <AMOUNT>${formatXmlNumber(amountKg, 4)}</AMOUNT>`);
 		lines.push(`        <YIELD>${formatXmlNumber(yieldVal, 1)}</YIELD>`);
 		lines.push(`        <COLOR>${formatXmlNumber(colorVal, 1)}</COLOR>`);
+		lines.push(`        <ADD_AFTER_BOIL>${addAfterBoil ? 'TRUE' : 'FALSE'}</ADD_AFTER_BOIL>`);
+		lines.push(`        <RECOMMEND_MASH>${recommendMash ? 'TRUE' : 'FALSE'}</RECOMMEND_MASH>`);
+		lines.push(`        <USE>${escapeXml(f.usage)}</USE>`);
 		if (f.notes) {
 			lines.push(`        <NOTES>${escapeXml(f.notes)}</NOTES>`);
 		}

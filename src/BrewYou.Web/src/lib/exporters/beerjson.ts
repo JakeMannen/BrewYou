@@ -5,6 +5,7 @@ import type {
 	ExportResult
 } from './types';
 import { sanitizeFilename } from '$lib/utils/downloadFile';
+import { normalizeFermentableToKg, resolveFermentableCategory } from '$lib/calculators/brewing';
 import { potentialToYieldPercent, detectFermentationType, getIngName, getIngType } from './beerxml';
 
 /**
@@ -96,20 +97,37 @@ export function serializeBeerJson(recipe: ExportableRecipe): ExportResult {
 	const fermentable_additions = recipe.ingredients
 		.filter((i) => getIngType(i) === 'Fermentable')
 		.map((f) => {
-			const amountKg = f.unit.toLowerCase() === 'g' ? f.amount / 1000.0 : f.amount;
+			const ingName = getIngName(f);
+			const amountKg = normalizeFermentableToKg(f.amount, f.unit);
 			const potentialVal = f.potentialGravity ?? 1.037;
 			const yieldPercent = potentialToYieldPercent(potentialVal);
 			const colorVal = f.colorSrm ?? 2.0;
+			const resolvedCategory = resolveFermentableCategory(f.fermentableCategory, ingName);
+			const beerJsonType =
+				resolvedCategory === 'DryExtract' ? 'dry extract' : resolvedCategory.toLowerCase();
+			const useVal = mapBeerJsonHopUse(f.usage);
+			const timing: Record<string, unknown> = {
+				use: useVal
+			};
+			if (f.usage === 'Secondary') {
+				timing.stage = 'secondary';
+			} else if (f.usage === 'Primary') {
+				timing.stage = 'primary';
+			}
+			if (f.durationMinutes !== undefined && f.durationMinutes !== null) {
+				timing.time = { value: f.durationMinutes, unit: 'min' };
+			}
 
 			return {
-				name: getIngName(f),
-				type: 'grain',
+				name: ingName,
+				type: beerJsonType,
 				amount: { value: Math.round(amountKg * 10000) / 10000, unit: 'kg' },
 				yield: {
 					fine_grind: { value: yieldPercent, unit: '%' },
 					potential: { value: Math.round(potentialVal * 1000) / 1000, unit: 'sg' }
 				},
 				color: { value: colorVal, unit: 'SRM' },
+				timing,
 				notes: f.notes || undefined
 			};
 		});

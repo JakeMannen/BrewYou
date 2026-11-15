@@ -282,6 +282,14 @@ public class CreateIngredientRequestValidator : AbstractValidator<CreateIngredie
             .MaximumLength(50).WithMessage("Form cannot exceed 50 characters.")
             .Must(f => string.IsNullOrEmpty(f) || (!f.Contains('<') && !f.Contains('>')))
             .WithMessage("Form contains forbidden characters.");
+        RuleFor(x => x.FermentableCategory)
+            .IsInEnum()
+            .When(x => x.FermentableCategory.HasValue)
+            .WithMessage("Invalid fermentable category.");
+        RuleFor(x => x.FermentabilityPercent)
+            .InclusiveBetween(0m, 100m)
+            .When(x => x.FermentabilityPercent.HasValue)
+            .WithMessage("Fermentability percent must be between 0 and 100.");
     }
 }
 
@@ -324,6 +332,14 @@ public class UpdateIngredientRequestValidator : AbstractValidator<UpdateIngredie
             .MaximumLength(50).WithMessage("Form cannot exceed 50 characters.")
             .Must(f => string.IsNullOrEmpty(f) || (!f.Contains('<') && !f.Contains('>')))
             .WithMessage("Form contains forbidden characters.");
+        RuleFor(x => x.FermentableCategory)
+            .IsInEnum()
+            .When(x => x.FermentableCategory.HasValue)
+            .WithMessage("Invalid fermentable category.");
+        RuleFor(x => x.FermentabilityPercent)
+            .InclusiveBetween(0m, 100m)
+            .When(x => x.FermentabilityPercent.HasValue)
+            .WithMessage("Fermentability percent must be between 0 and 100.");
     }
 }
 

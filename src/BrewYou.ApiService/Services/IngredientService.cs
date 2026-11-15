@@ -26,7 +26,8 @@ public interface IIngredientService
         int page,
         int limit,
         bool? inStock = null,
-        bool? customOnly = null);
+        bool? customOnly = null,
+        FermentableCategory? fermentableCategory = null);
 
     Task<IngredientDto?> GetIngredientByIdAsync(Guid id, string? userId);
 
@@ -65,7 +66,8 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         int page,
         int limit,
         bool? inStock = null,
-        bool? customOnly = null)
+        bool? customOnly = null,
+        FermentableCategory? fermentableCategory = null)
     {
         page = Math.Max(1, page);
         limit = Math.Clamp(limit, 1, 250);
@@ -89,6 +91,12 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         if (type.HasValue)
         {
             query = query.Where(x => x.Ingredient.Type == type.Value);
+        }
+
+        if (fermentableCategory.HasValue)
+        {
+            query = query.Where(x => x.Ingredient.Type == IngredientType.Fermentable &&
+                                     x.Ingredient.FermentableCategory == fermentableCategory.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -117,21 +125,7 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
             var defaultUnit = i.Type == IngredientType.Fermentable ? "kg" : "g";
             var stockAmount = x.Stock?.Amount ?? 0.0m;
             var stockUnit = x.Stock != null && !string.IsNullOrWhiteSpace(x.Stock.Unit) ? x.Stock.Unit : defaultUnit;
-            return new IngredientDto(
-                i.Id,
-                i.Name,
-                i.Type,
-                i.PotentialGravity,
-                i.ColorSrm,
-                i.AlphaAcidPercent,
-                i.AttenuationPercent,
-                i.Description,
-                i.IsCatalogItem,
-                stockAmount,
-                stockUnit,
-                stockAmount > 0,
-                i.Form
-            );
+            return MapToIngredientDto(i, stockAmount, stockUnit);
         }).ToList();
 
         var meta = new PaginationMeta(page, limit, total, totalPages);
@@ -159,21 +153,7 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         var stockAmount = stock?.Amount ?? 0.0m;
         var stockUnit = stock != null && !string.IsNullOrWhiteSpace(stock.Unit) ? stock.Unit : defaultUnit;
 
-        return new IngredientDto(
-            ingredient.Id,
-            ingredient.Name,
-            ingredient.Type,
-            ingredient.PotentialGravity,
-            ingredient.ColorSrm,
-            ingredient.AlphaAcidPercent,
-            ingredient.AttenuationPercent,
-            ingredient.Description,
-            ingredient.IsCatalogItem,
-            stockAmount,
-            stockUnit,
-            stockAmount > 0,
-            ingredient.Form
-        );
+        return MapToIngredientDto(ingredient, stockAmount, stockUnit);
     }
 
     public async Task<(IngredientOperationResult Result, IngredientDto? Ingredient, string? ErrorMessage)> CreateIngredientAsync(
@@ -199,12 +179,16 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         decimal? colorSrm = null;
         decimal? alphaAcidPercent = null;
         decimal? attenuationPercent = null;
+        FermentableCategory? fermentableCategory = null;
+        decimal? fermentabilityPercent = null;
 
         switch (request.Type)
         {
             case IngredientType.Fermentable:
                 potentialGravity = request.PotentialGravity;
                 colorSrm = request.ColorSrm;
+                fermentableCategory = request.FermentableCategory ?? FermentableCategory.Grain;
+                fermentabilityPercent = request.FermentabilityPercent;
                 break;
             case IngredientType.Hop:
                 alphaAcidPercent = request.AlphaAcidPercent;
@@ -222,6 +206,8 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
             Type = request.Type,
             PotentialGravity = potentialGravity,
             ColorSrm = colorSrm,
+            FermentableCategory = fermentableCategory,
+            FermentabilityPercent = fermentabilityPercent,
             AlphaAcidPercent = alphaAcidPercent,
             AttenuationPercent = attenuationPercent,
             Form = string.IsNullOrWhiteSpace(request.Form) ? null : request.Form.Trim(),
@@ -251,21 +237,7 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
 
         await db.SaveChangesAsync();
 
-        var dto = new IngredientDto(
-            ingredient.Id,
-            ingredient.Name,
-            ingredient.Type,
-            ingredient.PotentialGravity,
-            ingredient.ColorSrm,
-            ingredient.AlphaAcidPercent,
-            ingredient.AttenuationPercent,
-            ingredient.Description,
-            ingredient.IsCatalogItem,
-            stockAmount,
-            stockUnit,
-            stockAmount > 0,
-            ingredient.Form
-        );
+        var dto = MapToIngredientDto(ingredient, stockAmount, stockUnit);
 
         return (IngredientOperationResult.Success, dto, null);
     }
@@ -310,21 +282,7 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
 
         await db.SaveChangesAsync();
 
-        var dto = new IngredientDto(
-            ingredient.Id,
-            ingredient.Name,
-            ingredient.Type,
-            ingredient.PotentialGravity,
-            ingredient.ColorSrm,
-            ingredient.AlphaAcidPercent,
-            ingredient.AttenuationPercent,
-            ingredient.Description,
-            ingredient.IsCatalogItem,
-            stock.Amount,
-            stock.Unit,
-            stock.Amount > 0,
-            ingredient.Form
-        );
+        var dto = MapToIngredientDto(ingredient, stock.Amount, stock.Unit);
 
         return (IngredientOperationResult.Success, dto, null);
     }
@@ -400,10 +358,14 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
 
         ingredient.Name = trimmedName;
         ingredient.Type = request.Type;
-        ingredient.PotentialGravity = request.PotentialGravity;
-        ingredient.ColorSrm = request.ColorSrm;
-        ingredient.AlphaAcidPercent = request.AlphaAcidPercent;
-        ingredient.AttenuationPercent = request.AttenuationPercent;
+        ingredient.PotentialGravity = request.Type == IngredientType.Fermentable ? request.PotentialGravity : null;
+        ingredient.ColorSrm = request.Type == IngredientType.Fermentable ? request.ColorSrm : null;
+        ingredient.FermentableCategory = request.Type == IngredientType.Fermentable
+            ? (request.FermentableCategory ?? ingredient.FermentableCategory ?? FermentableCategory.Grain)
+            : null;
+        ingredient.FermentabilityPercent = request.Type == IngredientType.Fermentable ? request.FermentabilityPercent : null;
+        ingredient.AlphaAcidPercent = request.Type == IngredientType.Hop ? request.AlphaAcidPercent : null;
+        ingredient.AttenuationPercent = request.Type == IngredientType.Yeast ? request.AttenuationPercent : null;
         ingredient.Description = request.Description?.Trim();
         ingredient.Form = request.Form?.Trim();
 
@@ -448,7 +410,13 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
         var stockAmount = stock?.Amount ?? 0.0m;
         var stockUnit = stock != null && !string.IsNullOrWhiteSpace(stock.Unit) ? stock.Unit : defaultUnit;
 
-        var dto = new IngredientDto(
+        var dto = MapToIngredientDto(ingredient, stockAmount, stockUnit);
+
+        return (IngredientOperationResult.Success, dto, null);
+    }
+
+    private static IngredientDto MapToIngredientDto(Ingredient ingredient, decimal stockAmount, string stockUnit) =>
+        new(
             ingredient.Id,
             ingredient.Name,
             ingredient.Type,
@@ -461,11 +429,10 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
             stockAmount,
             stockUnit,
             stockAmount > 0,
-            ingredient.Form
+            ingredient.Form,
+            ingredient.FermentableCategory,
+            ingredient.FermentabilityPercent
         );
-
-        return (IngredientOperationResult.Success, dto, null);
-    }
 
     public async Task<(IngredientOperationResult Result, string? ErrorMessage)> DeleteIngredientAsync(
         Guid id,

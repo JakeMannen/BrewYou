@@ -1,4 +1,5 @@
 import type {
+	FermentableCategory,
 	FermentationStepType,
 	IngredientType,
 	IngredientUsage,
@@ -41,6 +42,8 @@ export interface ExportableIngredient {
 	alphaAcidPercent?: number | null;
 	attenuationPercent?: number | null;
 	form?: string | null;
+	fermentableCategory?: FermentableCategory | null;
+	fermentabilityPercent?: number | null;
 }
 
 export interface ExportableMashStep {

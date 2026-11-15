@@ -13,6 +13,7 @@
 		RecipeMashStepOutputDto
 	} from '$lib/types/api';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
 	import { calculateWaterRequirements } from '$lib/calculators/volume';
 	import type { TargetVolumeBasis } from '$lib/calculators/volume';
 	import {
@@ -519,13 +520,11 @@
 
 			if (r.ingredients && r.ingredients.length > 0) {
 				const grainSum = r.ingredients
-					.filter((i) => i.ingredientType === 'Fermentable')
-					.reduce(
-						(sum, i) =>
-							sum + (i.unit.toLowerCase() === 'kg' ? Number(i.amount) : Number(i.amount) / 1000),
-						0
-					);
-				if (grainSum > 0) totalGrainKg = Math.round(grainSum * 10) / 10;
+					.filter((i) =>
+						isMashGrain(i.ingredientType, i.usage, i.fermentableCategory, i.ingredientName)
+					)
+					.reduce((sum, i) => sum + normalizeFermentableToKg(Number(i.amount), i.unit), 0);
+				totalGrainKg = grainSum > 0 ? Math.round(grainSum * 10) / 10 : 0;
 			}
 
 			if (r.mashSteps && r.mashSteps.length > 0) {

@@ -55,8 +55,14 @@ public static class BrewingCalculator
         "maltodextrin",
         "molasses",
         "treacle",
+        "syrup",
         "maple syrup",
-        "agave"
+        "agave",
+        "turbinado",
+        "demerara",
+        "piloncillo",
+        "muscovado",
+        "invert"
     ];
 
     private static readonly string[] UnfermentableSugarKeywords =
@@ -83,7 +89,8 @@ public static class BrewingCalculator
 
         // 1. Calculate Original Gravity (OG) & Color (MCU)
         double totalGravityPoints = 0.0;
-        double unfermentablePoints = 0.0;
+        double customFermentabilityPoints = 0.0;
+        double customFermentabilityFgPoints = 0.0;
         double totalMcu = 0.0;
         double? maxYeastAttenuation = null;
 
@@ -93,19 +100,35 @@ public static class BrewingCalculator
 
             if (item.Ingredient.Type == IngredientType.Fermentable)
             {
+                // Bottling priming sugar is used solely for post-fermentation carbonation and does not contribute to pre-fermentation OG/FG/ABV.
+                if (item.Usage == IngredientUsage.Bottling)
+                {
+                    continue;
+                }
+
                 var weightKg = NormalizeFermentableToKg((double)item.Amount, item.Unit);
                 var weightLbs = weightKg * KgToLbs;
                 var ppg = item.Ingredient.PotentialGravity.HasValue
                     ? (double)(item.Ingredient.PotentialGravity.Value - 1.0m) * 1000.0
                     : 37.0; // Default 37 PPG
 
-                var effectiveEff = IsSolubleSugarOrExtract(item.Ingredient.Name, item.Usage) ? 1.0 : eff;
+                var resolvedCategory = ResolveFermentableCategory(item.Ingredient.FermentableCategory, item.Ingredient.Name);
+                var effectiveEff = IsSolubleSugarOrExtract(item.Ingredient.Name, item.Usage, resolvedCategory) ? 1.0 : eff;
                 var points = (weightLbs * ppg * effectiveEff) / volumeGallons;
                 totalGravityPoints += points;
 
-                if (IsUnfermentableSugar(item.Ingredient.Name))
+                double? explicitFermentability = item.Ingredient.FermentabilityPercent.HasValue
+                    ? Math.Clamp((double)item.Ingredient.FermentabilityPercent.Value, 0.0, 100.0) / 100.0
+                    : IsUnfermentableSugar(item.Ingredient.Name)
+                        ? 0.0
+                        : resolvedCategory == FermentableCategory.Sugar
+                            ? 1.0
+                            : null;
+
+                if (explicitFermentability.HasValue)
                 {
-                    unfermentablePoints += points;
+                    customFermentabilityPoints += points;
+                    customFermentabilityFgPoints += points * (1.0 - explicitFermentability.Value);
                 }
 
                 var color = (double)(item.Ingredient.ColorSrm ?? 2.0m);
@@ -126,12 +149,12 @@ public static class BrewingCalculator
         var ogPoints = Math.Max(0.0, totalGravityPoints);
         var og = 1.0 + (ogPoints / 1000.0);
 
-        // 2. Calculate Final Gravity (FG) and ABV (adjusting for mash saccharification temperature and unfermentable sugars)
+        // 2. Calculate Final Gravity (FG) and ABV (adjusting for mash saccharification temperature and explicit sugar fermentability)
         var baseAttenuationPercent = maxYeastAttenuation ?? 75.0;
         var effectiveAttenuationPercent = CalculateMashAdjustedAttenuationPercent(baseAttenuationPercent, options?.MashSteps);
         var attenuation = effectiveAttenuationPercent / 100.0;
-        var fermentablePoints = Math.Max(0.0, ogPoints - unfermentablePoints);
-        var fgPoints = (fermentablePoints * (1.0 - attenuation)) + unfermentablePoints;
+        var standardWortPoints = Math.Max(0.0, ogPoints - customFermentabilityPoints);
+        var fgPoints = (standardWortPoints * (1.0 - attenuation)) + customFermentabilityFgPoints;
         var fg = 1.0 + (fgPoints / 1000.0);
 
         var abvFormula = options?.AbvFormula?.Trim() ?? "Linear";
@@ -205,25 +228,94 @@ public static class BrewingCalculator
         };
     }
 
-    public static bool IsSolubleSugarOrExtract(string? name, IngredientUsage usage)
+    public static FermentableCategory ResolveFermentableCategory(FermentableCategory? category, string? name)
+    {
+        if (category.HasValue)
+        {
+            return category.Value;
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return FermentableCategory.Grain;
+        }
+
+        var lower = name.Trim().ToLowerInvariant();
+        if (lower.Contains("dry malt extract", StringComparison.Ordinal) ||
+            lower.Contains("dried malt extract", StringComparison.Ordinal) ||
+            lower.Contains("dme", StringComparison.Ordinal))
+        {
+            return FermentableCategory.DryExtract;
+        }
+
+        if (lower.Contains("liquid malt extract", StringComparison.Ordinal) ||
+            lower.Contains("malt extract", StringComparison.Ordinal) ||
+            lower.Contains("lme", StringComparison.Ordinal) ||
+            lower.Contains("extract", StringComparison.Ordinal))
+        {
+            return FermentableCategory.Extract;
+        }
+
+        foreach (var keyword in SolubleSugarKeywords)
+        {
+            if (lower.Contains(keyword, StringComparison.Ordinal))
+            {
+                return FermentableCategory.Sugar;
+            }
+        }
+
+        if (lower.Contains("flaked", StringComparison.Ordinal) ||
+            lower.Contains("torrified", StringComparison.Ordinal))
+        {
+            return FermentableCategory.Adjunct;
+        }
+
+        return FermentableCategory.Grain;
+    }
+
+    public static bool IsMashGrain(
+        IngredientType type,
+        IngredientUsage usage,
+        FermentableCategory? category,
+        string? name = null)
+    {
+        if (type != IngredientType.Fermentable || usage != IngredientUsage.Mash)
+        {
+            return false;
+        }
+
+        var resolved = ResolveFermentableCategory(category, name);
+        return resolved is FermentableCategory.Grain or FermentableCategory.Adjunct;
+    }
+
+    public static decimal CalculateMashGrainWeightKg(IEnumerable<BatchIngredient> ingredients)
+    {
+        return ingredients
+            .Where(i => IsMashGrain(i.Type, i.AdditionStage, i.FermentableCategory, i.Name) && BatchService.IsMassUnit(i.Unit))
+            .Sum(i => BatchService.ConvertUnitAmount(i.Amount, i.Unit, "kg"));
+    }
+
+    public static decimal CalculateMashGrainWeightKg(IEnumerable<RecipeIngredient> ingredients)
+    {
+        return ingredients
+            .Where(i => i.Ingredient != null &&
+                        IsMashGrain(i.Ingredient.Type, i.Usage, i.Ingredient.FermentableCategory, i.Ingredient.Name) &&
+                        BatchService.IsMassUnit(i.Unit))
+            .Sum(i => BatchService.ConvertUnitAmount(i.Amount, i.Unit, "kg"));
+    }
+
+    public static bool IsSolubleSugarOrExtract(string? name, IngredientUsage usage) =>
+        IsSolubleSugarOrExtract(name, usage, null);
+
+    public static bool IsSolubleSugarOrExtract(string? name, IngredientUsage usage, FermentableCategory? category)
     {
         if (usage is IngredientUsage.Whirlpool or IngredientUsage.Primary or IngredientUsage.Secondary or IngredientUsage.Bottling)
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(name)) return false;
-
-        var lower = name.Trim().ToLowerInvariant();
-        foreach (var keyword in SolubleSugarKeywords)
-        {
-            if (lower.Contains(keyword, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var resolved = ResolveFermentableCategory(category, name);
+        return resolved is FermentableCategory.Sugar or FermentableCategory.Extract or FermentableCategory.DryExtract;
     }
 
     public static bool IsUnfermentableSugar(string? name)

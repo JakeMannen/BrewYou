@@ -11,6 +11,16 @@ public enum IngredientType
     Other
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum FermentableCategory
+{
+    Grain,
+    Adjunct,
+    Sugar,
+    Extract,
+    DryExtract
+}
+
 public class Ingredient
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -26,6 +36,17 @@ public class Ingredient
     /// For Fermentables: Color contribution in Lovibond/SRM
     /// </summary>
     public decimal? ColorSrm { get; set; }
+
+    /// <summary>
+    /// For Fermentables: Sub-classification (Grain, Adjunct, Sugar, Extract, DryExtract) driving mash water exclusion and extract efficiency.
+    /// </summary>
+    public FermentableCategory? FermentableCategory { get; set; }
+
+    /// <summary>
+    /// For Fermentables: Optional explicit fermentability percentage (0-100, e.g., 100 for simple sugars, 0 for lactose/maltodextrin).
+    /// Null defers attenuation to the active yeast and mash temperature profile.
+    /// </summary>
+    public decimal? FermentabilityPercent { get; set; }
 
     /// <summary>
     /// For Hops: Alpha acid percentage (e.g., 13.5)

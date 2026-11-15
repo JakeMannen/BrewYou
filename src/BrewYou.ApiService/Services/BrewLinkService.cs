@@ -1191,9 +1191,7 @@ public partial class BrewLinkService : IBrewLinkService
         }
         else
         {
-            var totalGrainKg = batch.Ingredients
-                .Where(i => i.Type == IngredientType.Fermentable && BatchService.IsMassUnit(i.Unit))
-                .Sum(i => BatchService.ConvertUnitAmount(i.Amount, i.Unit, "kg"));
+            var totalGrainKg = BrewingCalculator.CalculateMashGrainWeightKg(batch.Ingredients);
 
             var boilOffRate = boiler.BoilOffRatePerHour ?? 3.0m;
             var trubLoss = boiler.TrubLossLiters ?? 1.5m;
@@ -1276,9 +1274,7 @@ public partial class BrewLinkService : IBrewLinkService
             .DefaultIfEmpty(0)
             .Max();
 
-        var totalGrainKg = recipe.Ingredients
-            .Where(i => i.Ingredient?.Type == IngredientType.Fermentable && BatchService.IsMassUnit(i.Unit))
-            .Sum(i => BatchService.ConvertUnitAmount(i.Amount, i.Unit, "kg"));
+        var totalGrainKg = BrewingCalculator.CalculateMashGrainWeightKg(recipe.Ingredients);
 
         var boilOffRate = boiler.BoilOffRatePerHour ?? 3.0m;
         var trubLoss = boiler.TrubLossLiters ?? 1.5m;

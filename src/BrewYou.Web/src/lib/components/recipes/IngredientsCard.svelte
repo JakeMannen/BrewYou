@@ -1,12 +1,18 @@
 <script lang="ts">
 	import type { IngredientDto, IngredientType, IngredientUsage } from '$lib/types/api';
 	import { t } from '$lib/i18n/index.svelte';
-	import { getLocalizedIngredientName } from '$lib/i18n/ingredients';
+	import {
+		getLocalizedFermentableCategory,
+		getLocalizedIngredientName
+	} from '$lib/i18n/ingredients';
 	import {
 		srmToHexColor,
 		calculateBrewMetrics,
 		calculateSingleHopIbu,
 		formatPotentialGravity,
+		isMashGrain,
+		normalizeFermentableToKg,
+		resolveFermentableCategory,
 		type CalculatorItem
 	} from '$lib/calculators/brewing';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -79,15 +85,6 @@
 		})
 	);
 
-	function toGrainKg(amount: number, unit?: string): number {
-		const raw = Number(amount) || 0;
-		const u = (unit || 'kg').trim().toLowerCase();
-		if (u === 'g' || u === 'gram' || u === 'grams') return raw / 1000;
-		if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return raw * 0.45359237;
-		if (u === 'oz' || u === 'ounce' || u === 'ounces') return raw * 0.0283495231;
-		return raw;
-	}
-
 	function toHopGrams(amount: number, unit?: string): number {
 		const raw = Number(amount) || 0;
 		const u = (unit || 'g').trim().toLowerCase();
@@ -115,9 +112,49 @@
 		}
 	}
 
+	function supportsFermentableBoilTiming(usage: IngredientUsage | string): boolean {
+		return usage === 'Boil' || usage === 'FirstWort' || usage === 'Whirlpool';
+	}
+
+	function handleFermentableUsageChange(item: FormIngredientItem) {
+		const mins = Number(item.durationMinutes) || 0;
+		if (item.usage === 'Whirlpool' && (mins <= 0 || mins >= 1440)) {
+			item.durationMinutes = 15;
+		} else if (
+			(item.usage === 'Boil' || item.usage === 'FirstWort') &&
+			(mins <= 0 || mins >= 1440)
+		) {
+			item.durationMinutes = boilTimeMinutes || 60;
+		}
+	}
+
+	function handleFermentableIngredientChange(item: FormIngredientItem) {
+		const ing = catalogIngredients.find((i) => i.id === item.ingredientId);
+		const cat = resolveFermentableCategory(ing?.fermentableCategory, ing?.name);
+		if ((cat === 'Sugar' || cat === 'Extract' || cat === 'DryExtract') && item.usage === 'Mash') {
+			item.usage = 'Boil';
+			if (!item.durationMinutes || item.durationMinutes <= 0 || item.durationMinutes >= 1440) {
+				item.durationMinutes = boilTimeMinutes || 60;
+			}
+		}
+	}
+
+	let hasTimedFermentables = $derived(
+		fermentables.some((item) => supportsFermentableBoilTiming(item.usage))
+	);
+
 	// Totals
 	let totalGrainWeight = $derived(
-		fermentables.reduce((acc, curr) => acc + toGrainKg(curr.amount, curr.unit), 0)
+		fermentables.reduce((acc, curr) => acc + normalizeFermentableToKg(curr.amount, curr.unit), 0)
+	);
+
+	let totalMashGrainWeight = $derived(
+		fermentables.reduce((acc, curr) => {
+			const ing = catalogIngredients.find((i) => i.id === curr.ingredientId);
+			return isMashGrain('Fermentable', curr.usage, ing?.fermentableCategory, ing?.name)
+				? acc + normalizeFermentableToKg(curr.amount, curr.unit)
+				: acc;
+		}, 0)
 	);
 
 	let totalHopWeight = $derived(
@@ -188,6 +225,11 @@
 						{t('formulator.summaries.total_grain', {
 							weight: settings.formatGrain(totalGrainWeight)
 						})}
+						{#if Math.abs(totalGrainWeight - totalMashGrainWeight) > 0.0005}
+							• {t('formulator.summaries.mash_grain', {
+								weight: settings.formatGrain(totalMashGrainWeight)
+							})}
+						{/if}
 					</span>
 				</div>
 			</div>
@@ -211,39 +253,69 @@
 			<div class="divide-y divide-zinc-200/60 dark:divide-white/5">
 				{#each fermentables as item (item.id)}
 					{@const ing = catalogIngredients.find((i) => i.id === item.ingredientId)}
+					{@const resolvedCategory = resolveFermentableCategory(
+						ing?.fermentableCategory,
+						ing?.name
+					)}
+					{@const affectsMash = isMashGrain(
+						'Fermentable',
+						item.usage,
+						ing?.fermentableCategory,
+						ing?.name
+					)}
 					{@const gristPercent =
-						totalGrainWeight > 0 ? (toGrainKg(item.amount, item.unit) / totalGrainWeight) * 100 : 0}
+						totalGrainWeight > 0
+							? (normalizeFermentableToKg(item.amount, item.unit) / totalGrainWeight) * 100
+							: 0}
 					<div
 						class="flex flex-col items-stretch gap-3 p-4 transition-colors hover:bg-zinc-50/50 sm:flex-row sm:items-center dark:hover:bg-zinc-800/20"
 					>
 						<!-- Ingredient Select with Color Swatch -->
-						<div class="flex flex-1 items-center gap-2">
-							<div
-								class="h-6 w-6 flex-shrink-0 rounded-md border border-zinc-300 shadow-inner dark:border-zinc-700"
-								style="background-color: {srmToHexColor(ing?.colorSrm ?? 2.0)}"
-								title={settings.formatFermentableColor(ing?.colorSrm ?? 2.0)}
-							></div>
-							<select
-								bind:value={item.ingredientId}
-								class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm font-medium text-zinc-900 transition-colors focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-							>
-								{#if item.ingredientId && !availableFermentables.some((f) => f.id === item.ingredientId)}
-									<option value={item.ingredientId}>
-										{ing ? getLocalizedIngredientName(ing) : item.notes || item.ingredientId}
-									</option>
-								{/if}
-								{#each availableFermentables as f}
-									<option value={f.id}>
-										{getLocalizedIngredientName(f)} ({settings.formatFermentableColor(f.colorSrm)} • {formatPotentialGravity(
-											f.potentialGravity
-										)})
-									</option>
-								{/each}
-							</select>
+						<div class="flex flex-1 flex-col gap-1">
+							<div class="flex items-center gap-2">
+								<div
+									class="h-6 w-6 flex-shrink-0 rounded-md border border-zinc-300 shadow-inner dark:border-zinc-700"
+									style="background-color: {srmToHexColor(ing?.colorSrm ?? 2.0)}"
+									title={settings.formatFermentableColor(ing?.colorSrm ?? 2.0)}
+								></div>
+								<select
+									bind:value={item.ingredientId}
+									onchange={() => handleFermentableIngredientChange(item)}
+									class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm font-medium text-zinc-900 transition-colors focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+								>
+									{#if item.ingredientId && !availableFermentables.some((f) => f.id === item.ingredientId)}
+										<option value={item.ingredientId}>
+											{ing ? getLocalizedIngredientName(ing) : item.notes || item.ingredientId}
+										</option>
+									{/if}
+									{#each availableFermentables as f}
+										<option value={f.id}>
+											{getLocalizedIngredientName(f)} ({settings.formatFermentableColor(f.colorSrm)} •
+											{formatPotentialGravity(f.potentialGravity)})
+										</option>
+									{/each}
+								</select>
+							</div>
+							{#if resolvedCategory !== 'Grain' || !affectsMash}
+								<div class="flex flex-wrap items-center gap-1.5 pl-8">
+									<span
+										class="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+									>
+										{getLocalizedFermentableCategory(resolvedCategory)}
+									</span>
+									{#if !affectsMash}
+										<span
+											class="rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"
+										>
+											{t('formulator.badges.no_mash_water')}
+										</span>
+									{/if}
+								</div>
+							{/if}
 						</div>
 
 						<!-- Amount Input & Grist % Bar -->
-						<div class="flex items-center gap-3 sm:w-64">
+						<div class="flex items-center gap-3 sm:w-72">
 							<div class="flex items-center gap-1.5">
 								<input
 									type="number"
@@ -252,7 +324,16 @@
 									bind:value={item.amount}
 									class="h-10 w-24 rounded-xl border border-zinc-200/80 bg-white px-2.5 text-right font-mono text-sm font-bold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
-								<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">kg</span>
+								<select
+									bind:value={item.unit}
+									aria-label={t('ingredients.unit_label')}
+									class="h-10 rounded-xl border border-zinc-200/80 bg-white px-2 text-xs font-semibold text-zinc-700 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+								>
+									<option value="kg">kg</option>
+									<option value="g">g</option>
+									<option value="lb">lb</option>
+									<option value="oz">oz</option>
+								</select>
 							</div>
 
 							<!-- Visual Grist % Progress -->
@@ -274,14 +355,44 @@
 							</div>
 						</div>
 
+						<!-- Boil / Whirlpool Timing (Minutes) -->
+						{#if supportsFermentableBoilTiming(item.usage)}
+							<div class="flex items-center gap-1.5 sm:w-28">
+								<input
+									type="number"
+									step="5"
+									min="0"
+									bind:value={item.durationMinutes}
+									aria-label={t('formulator.columns.duration')}
+									data-testid="fermentable-duration-input"
+									title={item.usage === 'Boil' && (Number(item.durationMinutes) || 0) === 0
+										? t('batches.workspace.boil_step_flameout')
+										: t('formulator.columns.duration')}
+									class="h-10 w-18 rounded-xl border border-zinc-200/80 bg-white px-2.5 text-right font-mono text-sm font-bold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+								<span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+									{t('common.minutes_short')}
+								</span>
+							</div>
+						{:else if hasTimedFermentables}
+							<div class="hidden sm:block sm:w-28"></div>
+						{/if}
+
 						<!-- Usage Select -->
-						<div class="w-full sm:w-32">
+						<div class="w-full sm:w-36">
 							<select
 								bind:value={item.usage}
+								onchange={() => handleFermentableUsageChange(item)}
+								data-testid="fermentable-usage-select"
 								class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-2.5 text-xs font-medium text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 							>
 								<option value="Mash">{t('formulator.usages.mash')}</option>
+								<option value="FirstWort">{t('formulator.usages.first_wort')}</option>
 								<option value="Boil">{t('formulator.usages.boil')}</option>
+								<option value="Whirlpool">{t('formulator.usages.whirlpool')}</option>
+								<option value="Primary">{t('formulator.usages.primary')}</option>
+								<option value="Secondary">{t('formulator.usages.secondary')}</option>
+								<option value="Bottling">{t('formulator.usages.bottling')}</option>
 							</select>
 						</div>
 

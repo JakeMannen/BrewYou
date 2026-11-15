@@ -745,4 +745,82 @@ describe('BeerXML Parser', () => {
 		expect(metrics.bitternessIbu).toBe(13.2);
 		expect(metrics.colorSrm).toBe(4.0);
 	});
+
+	it('parses Sugar, Extract, Dry Extract, and Adjunct types with ADD_AFTER_BOIL and Bottling usage', () => {
+		const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<RECIPES>
+ <RECIPE>
+  <NAME>Belgian Tripel With Candi Sugar</NAME>
+  <VERSION>1</VERSION>
+  <BATCH_SIZE>20.0</BATCH_SIZE>
+  <BOIL_TIME>60</BOIL_TIME>
+  <EFFICIENCY>75.0</EFFICIENCY>
+  <FERMENTABLES>
+   <FERMENTABLE>
+    <NAME>Pilsner Malt</NAME>
+    <TYPE>Grain</TYPE>
+    <AMOUNT>5.0</AMOUNT>
+    <YIELD>80.0</YIELD>
+    <COLOR>2.0</COLOR>
+    <RECOMMEND_MASH>TRUE</RECOMMEND_MASH>
+   </FERMENTABLE>
+   <FERMENTABLE>
+    <NAME>Flaked Oats</NAME>
+    <TYPE>Adjunct</TYPE>
+    <AMOUNT>0.5</AMOUNT>
+    <YIELD>72.0</YIELD>
+    <COLOR>1.5</COLOR>
+    <RECOMMEND_MASH>TRUE</RECOMMEND_MASH>
+   </FERMENTABLE>
+   <FERMENTABLE>
+    <NAME>Belgian Candi Sugar</NAME>
+    <TYPE>Sugar</TYPE>
+    <AMOUNT>1.0</AMOUNT>
+    <YIELD>82.0</YIELD>
+    <COLOR>0.5</COLOR>
+    <ADD_AFTER_BOIL>TRUE</ADD_AFTER_BOIL>
+   </FERMENTABLE>
+   <FERMENTABLE>
+    <NAME>Pilsen Light DME</NAME>
+    <TYPE>Dry Extract</TYPE>
+    <AMOUNT>0.5</AMOUNT>
+    <YIELD>95.0</YIELD>
+    <COLOR>2.0</COLOR>
+   </FERMENTABLE>
+   <FERMENTABLE>
+    <NAME>Priming Dextrose</NAME>
+    <TYPE>Sugar</TYPE>
+    <AMOUNT>0.14</AMOUNT>
+    <YIELD>98.0</YIELD>
+    <COLOR>0.0</COLOR>
+    <USE>Bottling</USE>
+   </FERMENTABLE>
+  </FERMENTABLES>
+ </RECIPE>
+</RECIPES>`;
+
+		const parsed = parseBeerXml(xml);
+		expect(parsed).toHaveLength(1);
+		const fermentables = parsed[0].ingredients.filter((i) => i.type === 'Fermentable');
+
+		const pils = fermentables.find((i) => i.name === 'Pilsner Malt');
+		expect(pils?.fermentableCategory).toBe('Grain');
+		expect(pils?.usage).toBe('Mash');
+
+		const oats = fermentables.find((i) => i.name === 'Flaked Oats');
+		expect(oats?.fermentableCategory).toBe('Adjunct');
+		expect(oats?.usage).toBe('Mash');
+
+		const candi = fermentables.find((i) => i.name === 'Belgian Candi Sugar');
+		expect(candi?.fermentableCategory).toBe('Sugar');
+		expect(candi?.usage).toBe('Whirlpool');
+
+		const dme = fermentables.find((i) => i.name === 'Pilsen Light DME');
+		expect(dme?.fermentableCategory).toBe('DryExtract');
+		expect(dme?.usage).toBe('Boil');
+
+		const priming = fermentables.find((i) => i.name === 'Priming Dextrose');
+		expect(priming?.fermentableCategory).toBe('Sugar');
+		expect(priming?.usage).toBe('Bottling');
+	});
 });

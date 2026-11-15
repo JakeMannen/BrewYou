@@ -129,7 +129,9 @@ public class BackupService : IBackupService
                 i.AttenuationPercent,
                 i.Form,
                 i.Description,
-                i.CreatedAt))
+                i.CreatedAt,
+                i.FermentableCategory,
+                i.FermentabilityPercent))
             .ToListAsync();
 
         // 3. Pantry Stock
@@ -156,7 +158,9 @@ public class BackupService : IBackupService
                     s.Ingredient.AlphaAcidPercent,
                     s.Ingredient.AttenuationPercent,
                     s.Ingredient.Form,
-                    s.Ingredient.Description)))
+                    s.Ingredient.Description,
+                    s.Ingredient.FermentableCategory,
+                    s.Ingredient.FermentabilityPercent)))
             .ToListAsync();
 
         // 4. Owned Brewery Setups & Collaboration
@@ -692,6 +696,8 @@ public class BackupService : IBackupService
                             existing.Name = normName;
                             existing.PotentialGravity = customDto.PotentialGravity;
                             existing.ColorSrm = customDto.ColorSrm;
+                            existing.FermentableCategory = customDto.FermentableCategory;
+                            existing.FermentabilityPercent = customDto.FermentabilityPercent;
                             existing.AlphaAcidPercent = customDto.AlphaAcidPercent;
                             existing.AttenuationPercent = customDto.AttenuationPercent;
                             existing.Form = customDto.Form;
@@ -713,6 +719,8 @@ public class BackupService : IBackupService
                             Type = customDto.Type,
                             PotentialGravity = customDto.PotentialGravity,
                             ColorSrm = customDto.ColorSrm,
+                            FermentableCategory = customDto.FermentableCategory,
+                            FermentabilityPercent = customDto.FermentabilityPercent,
                             AlphaAcidPercent = customDto.AlphaAcidPercent,
                             AttenuationPercent = customDto.AttenuationPercent,
                             Form = customDto.Form,
@@ -786,6 +794,8 @@ public class BackupService : IBackupService
                         Type = targetType,
                         PotentialGravity = snapshot?.PotentialGravity,
                         ColorSrm = snapshot?.ColorSrm,
+                        FermentableCategory = snapshot?.FermentableCategory,
+                        FermentabilityPercent = snapshot?.FermentabilityPercent,
                         AlphaAcidPercent = snapshot?.AlphaAcidPercent,
                         AttenuationPercent = snapshot?.AttenuationPercent,
                         Form = snapshot?.Form,
@@ -1922,7 +1932,9 @@ public class BackupService : IBackupService
                         ri.Ingredient.AlphaAcidPercent,
                         ri.Ingredient.AttenuationPercent,
                         ri.Ingredient.Form,
-                        ri.Ingredient.Description)
+                        ri.Ingredient.Description,
+                        ri.Ingredient.FermentableCategory,
+                        ri.Ingredient.FermentabilityPercent)
                     : null
             )).ToList(),
             r.MashSteps.OrderBy(ms => ms.StepOrder).Select(ms => new RecipeMashStepBackupDto(
@@ -2032,7 +2044,9 @@ public class BackupService : IBackupService
                 bi.IsDeducted,
                 bi.DeductedAt,
                 bi.Notes,
-                bi.Form
+                bi.Form,
+                bi.FermentableCategory,
+                bi.FermentabilityPercent
             )).ToList(),
             b.MashSteps.OrderBy(ms => ms.StepOrder).Select(ms => new BatchMashStepBackupDto(
                 ms.Id,
@@ -2620,6 +2634,8 @@ public class BackupService : IBackupService
                 : null,
             Name = string.IsNullOrWhiteSpace(bi.Name) ? "Ingredient" : bi.Name.Trim(),
             Type = bi.Type,
+            FermentableCategory = bi.FermentableCategory,
+            FermentabilityPercent = bi.FermentabilityPercent,
             Amount = Math.Max(0.001m, bi.Amount),
             Unit = string.IsNullOrWhiteSpace(bi.Unit) ? "kg" : bi.Unit.Trim(),
             AdditionStage = bi.AdditionStage,

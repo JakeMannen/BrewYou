@@ -220,6 +220,8 @@
 			"pitch_temp": "Température d'ensemencement",
 			"packaged_volume": "Volume conditionné",
 			"mash_section_title": "Étape 1 : Programme d'Empâtage & Céréales",
+			"fermentables_bill_title": "Ingrédients fermentescibles & Base maltée",
+			"mash_additions_title": "Ajouts d'eau et divers à l'empâtage",
 			"mash_ingredients_title": "Ingrédients d'empâtage & Ajouts d'eau",
 			"mash_steps_title": "Paliers d'empâtage",
 			"default_single_infusion": "Monopalier / Saccharification",
@@ -886,12 +888,16 @@
 		},
 		"summaries": {
 			"total_grain": "Total des grains : {weight}",
+			"mash_grain": "Empâtage : {weight}",
 			"grist_percent": "100% Mouture",
 			"total_hops": "Total des houblons : {weight}",
 			"total_ibu": "Est. {ibu} IBU",
 			"attenuation": "Atténuation : {atten}%",
 			"items_count": "{count} ingrédients",
 			"yeast_desc": "Taux d'ensemencement & profil d'atténuation"
+		},
+		"badges": {
+			"no_mash_water": "Sans eau d'empâtage"
 		},
 		"columns": {
 			"ingredient": "Ingrédient",
@@ -1078,6 +1084,20 @@
 		"sensory_finish_very_dry": "Très sec / Haute atténuation",
 		"form_label": "Forme",
 		"form_placeholder": "Sélectionnez une forme...",
+		"unit_label": "Unité",
+		"fermentable_category_label": "Catégorie",
+		"fermentable_categories": {
+			"grain": "Malt / Grain",
+			"adjunct": "Adjuvant / Flocons",
+			"sugar": "Sucre / Sirop",
+			"extract": "Extrait liquide",
+			"dryextract": "Extrait sec"
+		},
+		"fermentability_label": "Fermentescibilité (%)",
+		"fermentability_placeholder": "Auto (100% sucre, attén. levure malt)",
+		"fermentability_hint": "Remplacement optionnel (0–100%). Laissez vide pour l'atténuation de la levure sur malt/extrait, 100% pour les sucres ou 0% pour le lactose/maltodextrine.",
+		"err_fermentability_range": "La fermentescibilité doit être comprise entre 0% et 100%.",
+		"no_mash_water_hint": "Ajouté à l'ébullition ou en fermenteur — n'affecte pas l'eau d'empâtage",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Cônes",
