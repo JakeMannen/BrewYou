@@ -336,4 +336,82 @@ describe('Recipe Interoperability & Round-Trip Tests', () => {
 		expect(jsonAcid?.unit).toBe('ml');
 		expect(jsonAcid?.usage).toBe('Mash');
 	});
+
+	it('preserves fermentableCategory and usage for Sugar, DryExtract, and Adjunct in BeerXML & BeerJSON round-trips', () => {
+		const mixedRecipe: ExportableRecipe = {
+			...recipe,
+			ingredients: [
+				{
+					name: 'Pilsner Malt',
+					type: 'Fermentable',
+					fermentableCategory: 'Grain',
+					amount: 4.5,
+					unit: 'kg',
+					usage: 'Mash',
+					potentialGravity: 1.037,
+					colorSrm: 2.0
+				},
+				{
+					name: 'Flaked Oats',
+					type: 'Fermentable',
+					fermentableCategory: 'Adjunct',
+					amount: 0.4,
+					unit: 'kg',
+					usage: 'Mash',
+					potentialGravity: 1.033,
+					colorSrm: 1.5
+				},
+				{
+					name: 'Clear Candi Sugar',
+					type: 'Fermentable',
+					fermentableCategory: 'Sugar',
+					amount: 0.75,
+					unit: 'kg',
+					usage: 'Boil',
+					potentialGravity: 1.038,
+					colorSrm: 0.5
+				},
+				{
+					name: 'Golden Light DME',
+					type: 'Fermentable',
+					fermentableCategory: 'DryExtract',
+					amount: 0.5,
+					unit: 'kg',
+					usage: 'Boil',
+					potentialGravity: 1.044,
+					colorSrm: 4.0
+				}
+			]
+		};
+
+		const xmlOut = serializeBeerXml(mixedRecipe);
+		expect(xmlOut.content).toContain('<TYPE>Sugar</TYPE>');
+		expect(xmlOut.content).toContain('<TYPE>Dry Extract</TYPE>');
+		expect(xmlOut.content).toContain('<TYPE>Adjunct</TYPE>');
+		const xmlParsed = parseBeerXml(xmlOut.content)[0];
+		expect(
+			xmlParsed.ingredients.find((i) => i.name === 'Clear Candi Sugar')?.fermentableCategory
+		).toBe('Sugar');
+		expect(
+			xmlParsed.ingredients.find((i) => i.name === 'Golden Light DME')?.fermentableCategory
+		).toBe('DryExtract');
+		expect(xmlParsed.ingredients.find((i) => i.name === 'Flaked Oats')?.fermentableCategory).toBe(
+			'Adjunct'
+		);
+
+		const jsonOut = serializeBeerJson(mixedRecipe);
+		expect(jsonOut.content).toContain('"type": "sugar"');
+		expect(jsonOut.content).toContain('"type": "dry extract"');
+		expect(jsonOut.content).toContain('"type": "adjunct"');
+		const jsonParsed = parseBeerJson(jsonOut.content)[0];
+		expect(
+			jsonParsed.ingredients.find((i) => i.name === 'Clear Candi Sugar')?.fermentableCategory
+		).toBe('Sugar');
+		expect(
+			jsonParsed.ingredients.find((i) => i.name === 'Golden Light DME')?.fermentableCategory
+		).toBe('DryExtract');
+		expect(jsonParsed.ingredients.find((i) => i.name === 'Flaked Oats')?.fermentableCategory).toBe(
+			'Adjunct'
+		);
+	});
 });

@@ -24,6 +24,7 @@ import type {
 	EquipmentReadingDto,
 	TelemetryPollResult,
 	EquipmentType,
+	FermentableCategory,
 	GoogleAuthRequest,
 	IngredientDto,
 	IngredientType,
@@ -396,10 +397,12 @@ export const api = {
 			page?: number,
 			limit = 200,
 			inStock?: boolean,
-			customOnly?: boolean
+			customOnly?: boolean,
+			fermentableCategory?: FermentableCategory
 		): Promise<IngredientDto[]> {
 			const params = new URLSearchParams();
 			if (type) params.set('type', type);
+			if (fermentableCategory) params.set('fermentableCategory', fermentableCategory);
 			if (search) params.set('search', search);
 			if (page) params.set('page', page.toString());
 			if (limit) params.set('limit', limit.toString());

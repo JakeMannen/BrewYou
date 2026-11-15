@@ -1429,4 +1429,101 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             restoredBatch.SensorAssignments.First().Equipment!.Subtype.Should().Be(EquipmentSubtype.Tilt);
         }
     }
+
+    [Fact]
+    public async Task RoundTrip_AndV2ToV3Migration_PreservesAndInfersFermentableCategoryAndFermentability()
+    {
+        // Part A: Current schema v3 round-trip preserves FermentableCategory and FermentabilityPercent
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("V3 Fermentable Source");
+        var customHoneyReq = new CreateIngredientRequest(
+            Name: $"Acacia Honey {Guid.NewGuid():N}"[..28],
+            Type: IngredientType.Fermentable,
+            PotentialGravity: 1.035m,
+            ColorSrm: 1.5m,
+            AlphaAcidPercent: null,
+            AttenuationPercent: null,
+            Description: "Raw acacia honey",
+            FermentableCategory: FermentableCategory.Sugar,
+            FermentabilityPercent: 95m
+        );
+        var ingRes = await sourceClient.PostAsJsonAsync("/api/v1/ingredients", customHoneyReq);
+        ingRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var customHoney = (await ingRes.Content.ReadFromJsonAsync<ApiResponse<IngredientDto>>())!.Data!;
+
+        var recipeRes = await sourceClient.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Honey Tripel V3",
+            Description: "V3 backup test",
+            BeerStyle: "Belgian Tripel",
+            BatchSizeLiters: 20m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            IsPublic: false,
+            Ingredients:
+            [
+                new RecipeIngredientInputDto(customHoney.Id, 1.0m, "kg", 0, IngredientUsage.Boil, "Flameout honey")
+            ]
+        ));
+        recipeRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+        envelope.SchemaVersion.Should().Be(3);
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("V3 Fermentable Target");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoredCustomRes = await targetClient.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?customOnly=true");
+        var restoredHoney = restoredCustomRes!.Data!.FirstOrDefault(i => i.Name == customHoneyReq.Name);
+        restoredHoney.Should().NotBeNull();
+        restoredHoney!.FermentableCategory.Should().Be(FermentableCategory.Sugar);
+        restoredHoney.FermentabilityPercent.Should().Be(95m);
+
+        // Part B: Legacy v2 backup without FermentableCategory is migrated by V2ToV3BackupMigrator
+        var (legacyClient, _, _) = await CreateAuthenticatedUserAsync("Legacy V2 Migrator");
+        var v2SugarId = Guid.NewGuid();
+        var v2LactoseId = Guid.NewGuid();
+        var v2DataJson = $$"""
+        {
+          "customIngredients": [
+            {
+              "id": "{{v2SugarId}}",
+              "name": "Homemade Invert Syrup",
+              "type": "Fermentable",
+              "potentialGravity": 1.036,
+              "colorSrm": 8.0
+            },
+            {
+              "id": "{{v2LactoseId}}",
+              "name": "Artisan Lactose Powder",
+              "type": "Fermentable",
+              "potentialGravity": 1.043,
+              "colorSrm": 0.5
+            }
+          ]
+        }
+        """;
+        var v2Elem = JsonSerializer.Deserialize<JsonElement>(v2DataJson);
+        var v2Envelope = new BrewYouBackupEnvelope(
+            Format: BackupSchemaConstants.FormatIdentifier,
+            SchemaVersion: 2,
+            AppVersion: "1.6.1",
+            ExportedAtUtc: DateTime.UtcNow.AddDays(-7),
+            ChecksumSha256: BackupMigrationPipeline.ComputeChecksumSha256(v2Elem),
+            Data: v2Elem);
+
+        var legacyRestoreRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(v2Envelope, new RestoreOptionsDto()));
+        legacyRestoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var migratedIngredients = (await legacyClient.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?customOnly=true"))!.Data!;
+        var migratedSyrup = migratedIngredients.First(i => i.Name == "Homemade Invert Syrup");
+        migratedSyrup.FermentableCategory.Should().Be(FermentableCategory.Sugar);
+
+        var migratedLactose = migratedIngredients.First(i => i.Name == "Artisan Lactose Powder");
+        migratedLactose.FermentableCategory.Should().Be(FermentableCategory.Sugar);
+        migratedLactose.FermentabilityPercent.Should().Be(0m);
+    }
 }

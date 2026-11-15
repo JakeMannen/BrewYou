@@ -220,6 +220,8 @@
 			"pitch_temp": "Pitch Temperature",
 			"packaged_volume": "Packaged Volume",
 			"mash_section_title": "Stage 1: Mash Schedule & Grain Bill",
+			"fermentables_bill_title": "Fermentables & Grain Bill",
+			"mash_additions_title": "Mash Water & Misc Additions",
 			"mash_ingredients_title": "Mash Ingredients & Water Additions",
 			"mash_steps_title": "Mash Steps",
 			"default_single_infusion": "Single Infusion / Saccharification Rest",
@@ -886,12 +888,16 @@
 		},
 		"summaries": {
 			"total_grain": "Total Malt Bill: {weight}",
+			"mash_grain": "Mash: {weight}",
 			"grist_percent": "100% Grist",
 			"total_hops": "Total Hops: {weight}",
 			"total_ibu": "Est. {ibu} IBU",
 			"attenuation": "Attenuation: {atten}%",
 			"items_count": "{count} additions",
 			"yeast_desc": "Pitch rate & attenuation profile"
+		},
+		"badges": {
+			"no_mash_water": "No mash water"
 		},
 		"columns": {
 			"ingredient": "Ingredient",
@@ -1078,6 +1084,20 @@
 		"sensory_finish_very_dry": "Very dry / High attenuation",
 		"form_label": "Form",
 		"form_placeholder": "Select form...",
+		"unit_label": "Unit",
+		"fermentable_category_label": "Fermentable Category",
+		"fermentable_categories": {
+			"grain": "Grain",
+			"adjunct": "Adjunct",
+			"sugar": "Sugar",
+			"extract": "Liquid Extract",
+			"dryextract": "Dry Extract"
+		},
+		"fermentability_label": "Fermentability (%)",
+		"fermentability_placeholder": "Auto (100% sugar, yeast attn. malt)",
+		"fermentability_hint": "Optional override (0–100%). Leave blank for yeast attenuation on malt/extract, 100% on sugars, or 0% on lactose/maltodextrin.",
+		"err_fermentability_range": "Fermentability must be between 0% and 100%.",
+		"no_mash_water_hint": "Added to boil/fermenter — does not affect mash/sparge water",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Leaf",

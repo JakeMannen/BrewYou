@@ -1047,7 +1047,14 @@
 	let totalMashGrainKg = $derived.by(() => {
 		if (!batch) return 0;
 		return batch.ingredients
-			.filter((i) => i.type === 'Fermentable' && i.additionStage === 'Mash')
+			.filter(
+				(i) =>
+					i.type === 'Fermentable' &&
+					i.additionStage === 'Mash' &&
+					i.fermentableCategory !== 'Sugar' &&
+					i.fermentableCategory !== 'Extract' &&
+					i.fermentableCategory !== 'DryExtract'
+			)
 			.reduce((sum, i) => sum + convertMassToKg(i.amount, i.unit), 0);
 	});
 

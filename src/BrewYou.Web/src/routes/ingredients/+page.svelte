@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { IngredientDto, IngredientType } from '$lib/types/api';
+	import type { FermentableCategory, IngredientDto, IngredientType } from '$lib/types/api';
 	import {
 		Layers,
 		Search,
@@ -22,7 +22,8 @@
 		getLocalizedIngredientName,
 		getLocalizedIngredientDescription,
 		getLocalizedIngredientType,
-		getLocalizedIngredientForm
+		getLocalizedIngredientForm,
+		getLocalizedFermentableCategory
 	} from '$lib/i18n/ingredients';
 	import IngredientModal from '$lib/components/ingredients/IngredientModal.svelte';
 	import DeleteIngredientModal from '$lib/components/ingredients/DeleteIngredientModal.svelte';
@@ -32,6 +33,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let selectedType = $state<string>('All');
+	let selectedFermentableCategory = $state<FermentableCategory | 'All'>('All');
 	let filterInStock = $state(false);
 	let filterCustomOnly = $state(false);
 	let searchTerm = $state<string>('');
@@ -61,13 +63,18 @@
 		error = null;
 		try {
 			const typeFilter = selectedType === 'All' ? undefined : (selectedType as IngredientType);
+			const categoryFilter =
+				selectedType === 'Fermentable' && selectedFermentableCategory !== 'All'
+					? selectedFermentableCategory
+					: undefined;
 			ingredients = await api.ingredients.list(
 				typeFilter,
 				undefined,
 				undefined,
 				200,
 				filterInStock ? true : undefined,
-				filterCustomOnly ? true : undefined
+				filterCustomOnly ? true : undefined,
+				categoryFilter
 			);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('ingredients.load_error');
@@ -82,6 +89,14 @@
 
 	function onTypeChange(type: string) {
 		selectedType = type;
+		if (type !== 'Fermentable') {
+			selectedFermentableCategory = 'All';
+		}
+		loadIngredients();
+	}
+
+	function onFermentableCategoryChange(category: FermentableCategory | 'All') {
+		selectedFermentableCategory = category;
 		loadIngredients();
 	}
 
@@ -278,6 +293,23 @@
 		</div>
 	</div>
 
+	{#if selectedType === 'Fermentable'}
+		<div class="flex flex-wrap items-center gap-1.5">
+			{#each ['All', 'Grain', 'Adjunct', 'Sugar', 'Extract', 'DryExtract'] as const as cat}
+				<button
+					type="button"
+					onclick={() => onFermentableCategoryChange(cat)}
+					class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors {selectedFermentableCategory ===
+					cat
+						? 'border-amber-500/50 bg-amber-500/15 text-amber-700 dark:text-amber-300'
+						: 'border-zinc-200/80 bg-white/70 text-zinc-600 hover:text-zinc-900 dark:border-white/10 dark:bg-zinc-900/50 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+				>
+					{cat === 'All' ? t('ingredients.all_ingredients') : getLocalizedFermentableCategory(cat)}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
 	<!-- Ingredient Grid -->
 	{#if loading}
 		<div class="flex flex-col items-center justify-center gap-3 py-16 text-zinc-400">
@@ -326,6 +358,13 @@
 									>
 										{getLocalizedIngredientType(item.type)}
 									</span>
+									{#if item.type === 'Fermentable' && item.fermentableCategory}
+										<span
+											class="inline-block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-700 uppercase dark:text-amber-300"
+										>
+											{getLocalizedFermentableCategory(item.fermentableCategory)}
+										</span>
+									{/if}
 									{#if item.form}
 										<span
 											class="inline-block rounded-md border border-zinc-200/80 bg-zinc-100/80 px-2 py-0.5 text-[10px] font-bold tracking-wider text-zinc-700 uppercase dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"

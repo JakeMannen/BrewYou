@@ -17,7 +17,9 @@ public record CreateIngredientRequest(
     string? Description,
     decimal? InitialStock = null,
     string? StockUnit = null,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record UpdateIngredientStockRequest(
@@ -33,7 +35,9 @@ public record UpdateIngredientRequest(
     decimal? AlphaAcidPercent,
     decimal? AttenuationPercent,
     string? Description,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record IngredientDto(
@@ -49,7 +53,9 @@ public record IngredientDto(
     decimal StockAmount,
     string StockUnit,
     bool IsInStock,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record IngredientUsageRecipeDto(
@@ -73,6 +79,7 @@ public static class IngredientEndpoints
 
         group.MapGet("/", async (
             [FromQuery] IngredientType? type,
+            [FromQuery] FermentableCategory? fermentableCategory,
             [FromQuery] string? search,
             [FromQuery] bool? inStock,
             [FromQuery] bool? customOnly,
@@ -82,7 +89,7 @@ public static class IngredientEndpoints
             IIngredientService ingredientService) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
-            var (items, pagination) = await ingredientService.GetIngredientsAsync(userId, type, search, page ?? 1, limit ?? 100, inStock, customOnly);
+            var (items, pagination) = await ingredientService.GetIngredientsAsync(userId, type, search, page ?? 1, limit ?? 100, inStock, customOnly, fermentableCategory);
             return Results.Ok(ApiResponse<List<IngredientDto>>.Ok(items, pagination));
         })
         .WithName("GetIngredients")

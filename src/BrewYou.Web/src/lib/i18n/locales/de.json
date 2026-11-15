@@ -220,6 +220,8 @@
 			"pitch_temp": "Anstelltemperatur",
 			"packaged_volume": "Abgefülltes Volumen",
 			"mash_section_title": "Phase 1: Maischplan & Schüttung",
+			"fermentables_bill_title": "Vergärbare Zutaten & Schüttung",
+			"mash_additions_title": "Maischwasser & Sonstige Zugaben",
 			"mash_ingredients_title": "Maischzutaten & Wasseraufbereitung",
 			"mash_steps_title": "Maischrasten",
 			"default_single_infusion": "Kombirast / Verzuckerungsrast",
@@ -886,12 +888,16 @@
 		},
 		"summaries": {
 			"total_grain": "Gesamtschüttung: {weight}",
+			"mash_grain": "Maische: {weight}",
 			"grist_percent": "100% Schüttung",
 			"total_hops": "Gesamthopfen: {weight}",
 			"total_ibu": "Gesch. {ibu} IBU",
 			"attenuation": "Vergärung: {atten}%",
 			"items_count": "{count} Zutaten",
 			"yeast_desc": "Anstellrate & Vergärungsprofil"
+		},
+		"badges": {
+			"no_mash_water": "Kein Maischwasser"
 		},
 		"columns": {
 			"ingredient": "Zutat",
@@ -1078,6 +1084,20 @@
 		"sensory_finish_very_dry": "Sehr trocken / Hoher Vergärungsgrad",
 		"form_label": "Form",
 		"form_placeholder": "Form auswählen...",
+		"unit_label": "Einheit",
+		"fermentable_category_label": "Kategorie",
+		"fermentable_categories": {
+			"grain": "Malz / Getreide",
+			"adjunct": "Rohfrucht / Flocken",
+			"sugar": "Zucker / Sirup",
+			"extract": "Flüssigmalzextrakt",
+			"dryextract": "Trockenmalzextrakt"
+		},
+		"fermentability_label": "Vergärbarkeit (%)",
+		"fermentability_placeholder": "Auto (100% Zucker, Hefevergärung Malz)",
+		"fermentability_hint": "Optionale Vorgabe (0–100%). Leer lassen für Hefevergärung bei Malz/Extrakt, 100% bei Zucker oder 0% bei Laktose/Maltodextrin.",
+		"err_fermentability_range": "Die Vergärbarkeit muss zwischen 0% und 100% liegen.",
+		"no_mash_water_hint": "Zugabe in Würzepfanne/Gärtank — beeinflusst kein Maischwasser",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Dolden",

@@ -620,7 +620,9 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
                 ri.Ingredient?.ColorSrm,
                 ri.Ingredient?.AlphaAcidPercent,
                 ri.Ingredient?.AttenuationPercent,
-                ri.Form ?? ri.Ingredient?.Form
+                ri.Form ?? ri.Ingredient?.Form,
+                ri.Ingredient?.FermentableCategory,
+                ri.Ingredient?.FermentabilityPercent
             )).ToList(),
             recipe.MashSteps.OrderBy(ms => ms.StepOrder).Select(ms => new RecipeMashStepOutputDto(
                 ms.Id,

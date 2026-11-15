@@ -31,8 +31,8 @@ public enum CollaboratorRestoreMode
 public static class BackupSchemaConstants
 {
     public const string FormatIdentifier = "brewyou-user-backup";
-    public const int CurrentSchemaVersion = 2;
-    public const string CurrentAppVersion = "1.6.1";
+    public const int CurrentSchemaVersion = 3;
+    public const string CurrentAppVersion = "1.7.0";
 }
 
 public record BackupEncryptionMetadataDto(
@@ -92,7 +92,9 @@ public record IngredientSnapshotDto(
     decimal? AlphaAcidPercent = null,
     decimal? AttenuationPercent = null,
     string? Form = null,
-    string? Description = null
+    string? Description = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record CustomIngredientBackupDto(
@@ -105,7 +107,9 @@ public record CustomIngredientBackupDto(
     decimal? AttenuationPercent = null,
     string? Form = null,
     string? Description = null,
-    DateTime CreatedAt = default
+    DateTime CreatedAt = default,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record IngredientStockBackupDto(
@@ -323,7 +327,9 @@ public record BatchIngredientBackupDto(
     bool IsDeducted = false,
     DateTime? DeductedAt = null,
     string? Notes = null,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 public record BatchMashStepBackupDto(

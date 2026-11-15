@@ -1,4 +1,5 @@
 import type {
+	FermentableCategory,
 	FermentationStepType,
 	IngredientType,
 	IngredientUsage,
@@ -10,7 +11,12 @@ import type {
 	ParsedMashStep,
 	ParsedRecipe
 } from './types';
-import { reconcileImportedEfficiency, smartPotentialToSg } from '$lib/calculators/brewing';
+import {
+	isUnfermentableSugar,
+	reconcileImportedEfficiency,
+	resolveFermentableCategory,
+	smartPotentialToSg
+} from '$lib/calculators/brewing';
 
 const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024; // 2 MB
 
@@ -127,6 +133,47 @@ function mapBeerJsonMashStepType(type: unknown): MashStepType {
 	if (str.includes('decoct')) return 'Decoction';
 	if (str.includes('temp')) return 'Temperature';
 	return 'Infusion';
+}
+
+function mapBeerJsonFermentableCategory(type: unknown, name: string): FermentableCategory {
+	const str = cleanString(type).toLowerCase();
+	if (str.includes('sugar')) return 'Sugar';
+	if (str.includes('dry') && str.includes('extract')) return 'DryExtract';
+	if (str.includes('extract')) return 'Extract';
+	if (str.includes('adjunct')) return 'Adjunct';
+	if (str.includes('grain')) return 'Grain';
+	return resolveFermentableCategory(null, name);
+}
+
+function mapBeerJsonFermentableUsage(
+	use: unknown,
+	stage: unknown,
+	category: FermentableCategory
+): IngredientUsage {
+	const stageStr = cleanString(stage).toLowerCase();
+	if (stageStr.includes('secondary')) return 'Secondary';
+	if (stageStr.includes('primary')) return 'Primary';
+
+	const str = cleanString(use).toLowerCase();
+	if (!str) {
+		return category === 'Sugar' || category === 'Extract' || category === 'DryExtract'
+			? 'Boil'
+			: 'Mash';
+	}
+	if (str.includes('bottling') || str.includes('package')) return 'Bottling';
+	if (str.includes('secondary')) return 'Secondary';
+	if (str.includes('primary') || str.includes('ferment')) return 'Primary';
+	if (str.includes('whirlpool') || str.includes('aroma') || str.includes('flameout')) {
+		return 'Whirlpool';
+	}
+	if (str.includes('first') || str.includes('fwh')) return 'FirstWort';
+	if (str.includes('boil')) return 'Boil';
+	if (str.includes('mash')) {
+		return category === 'Sugar' || category === 'Extract' || category === 'DryExtract'
+			? 'Boil'
+			: 'Mash';
+	}
+	return 'Boil';
 }
 
 function mapBeerJsonUsage(use: unknown): IngredientUsage {
@@ -403,13 +450,34 @@ export function parseBeerJson(rawJson: string): ParsedRecipe[] {
 			if (!ingName) continue;
 
 			const { amount, unit } = parseMass(f.amount, 'kg');
+			const fermentableCategory = mapBeerJsonFermentableCategory(f.type, ingName);
+			const timingObj =
+				f.timing && typeof f.timing === 'object' ? (f.timing as Record<string, unknown>) : null;
+			const usage = mapBeerJsonFermentableUsage(
+				timingObj?.use,
+				timingObj?.stage,
+				fermentableCategory
+			);
+			const durationMinutes = timingObj
+				? parseDurationMinutes(timingObj.time || timingObj.duration)
+				: usage === 'Boil' || usage === 'FirstWort' || usage === 'Mash'
+					? boilTimeMinutes
+					: 0;
+			const fermentabilityPercent = isUnfermentableSugar(ingName)
+				? 0
+				: fermentableCategory === 'Sugar'
+					? 100
+					: undefined;
+
 			ingredients.push({
 				name: ingName,
 				type: 'Fermentable' as IngredientType,
+				fermentableCategory,
+				fermentabilityPercent,
 				amount,
 				unit,
-				durationMinutes: boilTimeMinutes,
-				usage: 'Mash',
+				durationMinutes,
+				usage,
 				colorSrm: parseColorSrm(f.color),
 				potentialGravity: parseFermentablePotential(f),
 				notes: cleanString(f.notes)

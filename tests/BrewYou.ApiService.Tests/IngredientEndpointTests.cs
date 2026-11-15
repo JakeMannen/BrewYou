@@ -464,17 +464,23 @@ public class IngredientEndpointTests : IClassFixture<WebApplicationFactory<Progr
     public void DefaultCatalog_ContainsDomainEssentialGermanAndCraftIngredients()
     {
         var catalog = DbSeeder.GetDefaultCatalogIngredients();
-        catalog.Should().HaveCount(87);
+        catalog.Should().HaveCount(105);
 
         var fermentables = catalog.Where(i => i.Type == IngredientType.Fermentable).ToList();
         var hops = catalog.Where(i => i.Type == IngredientType.Hop).ToList();
         var yeasts = catalog.Where(i => i.Type == IngredientType.Yeast).ToList();
         var other = catalog.Where(i => i.Type == IngredientType.Other).ToList();
 
-        fermentables.Should().HaveCount(31);
+        fermentables.Should().HaveCount(49);
         hops.Should().HaveCount(30);
         yeasts.Should().HaveCount(16);
         other.Should().HaveCount(10);
+
+        fermentables.Should().Contain(f => f.Name == "Belgian Candi Sugar (Clear)" && f.FermentableCategory == FermentableCategory.Sugar);
+        fermentables.Should().Contain(f => f.Name == "Lactose (Milk Sugar)" && f.FermentableCategory == FermentableCategory.Sugar && f.FermentabilityPercent == 0m);
+        fermentables.Should().Contain(f => f.Name == "Light Dry Malt Extract (DME)" && f.FermentableCategory == FermentableCategory.DryExtract);
+        fermentables.Should().Contain(f => f.Name == "Light Liquid Malt Extract (LME)" && f.FermentableCategory == FermentableCategory.Extract);
+        fermentables.Should().Contain(f => f.Name == "Flaked Oats" && f.FermentableCategory == FermentableCategory.Adjunct);
 
         // Verify Hallertau cultivars and German hops
         hops.Should().Contain(h => h.Name == "Hallertau Mittelfrüh" && h.AlphaAcidPercent == 4.0m && h.Form == "Pellet");
@@ -748,5 +754,50 @@ public class IngredientEndpointTests : IClassFixture<WebApplicationFactory<Progr
 
         var delRes = await clientB.DeleteAsync($"/api/v1/ingredients/{ingA.Id}");
         delRes.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task CreateAndFilterIngredients_ByFermentableCategory_AndValidateFermentabilityPercent()
+    {
+        var email = $"sugar_cat_{Guid.NewGuid():N}@example.com";
+        var reg = await _client.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(email, "Pass123!", "SugarBrewer"));
+        var auth = await reg.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth!.Data!.AccessToken);
+
+        // 1. Seeded catalog should contain sugars and extracts with explicit categories
+        var sugarsRes = await client.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?type=Fermentable&fermentableCategory=Sugar&limit=100");
+        sugarsRes!.Success.Should().BeTrue();
+        sugarsRes.Data.Should().NotBeEmpty();
+        sugarsRes.Data.Should().OnlyContain(i => i.FermentableCategory == FermentableCategory.Sugar);
+        sugarsRes.Data.Should().Contain(i => i.Name == "Lactose (Milk Sugar)" && i.FermentabilityPercent == 0m);
+
+        // 2. Create custom fermentable with explicit DryExtract category and 80% fermentability
+        var createReq = new CreateIngredientRequest(
+            Name: $"Custom Briess Gold DME {Guid.NewGuid():N}"[..36],
+            Type: IngredientType.Fermentable,
+            PotentialGravity: 1.044m,
+            ColorSrm: 4.0m,
+            AlphaAcidPercent: null,
+            AttenuationPercent: null,
+            Description: "High-fermentability DME",
+            FermentableCategory: FermentableCategory.DryExtract,
+            FermentabilityPercent: 80m
+        );
+        var postRes = await client.PostAsJsonAsync("/api/v1/ingredients", createReq);
+        postRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = (await postRes.Content.ReadFromJsonAsync<ApiResponse<IngredientDto>>())!.Data!;
+        created.FermentableCategory.Should().Be(FermentableCategory.DryExtract);
+        created.FermentabilityPercent.Should().Be(80m);
+
+        // 3. Filter by DryExtract includes our new custom item
+        var dmeFilterRes = await client.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?fermentableCategory=DryExtract&customOnly=true");
+        dmeFilterRes!.Data.Should().ContainSingle(i => i.Id == created.Id);
+
+        // 4. Out-of-range FermentabilityPercent (>100) returns BadRequest
+        var invalidReq = createReq with { Name = $"Bad Fermentability {Guid.NewGuid():N}"[..36], FermentabilityPercent = 120m };
+        var badRes = await client.PostAsJsonAsync("/api/v1/ingredients", invalidReq);
+        badRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }

@@ -220,6 +220,8 @@
 			"pitch_temp": "Temperatura de inoculación",
 			"packaged_volume": "Volumen envasado",
 			"mash_section_title": "Etapa 1: Programa de Maceración y Maltas",
+			"fermentables_bill_title": "Fermentables y molienda de malta",
+			"mash_additions_title": "Adiciones de agua y varios en maceración",
 			"mash_ingredients_title": "Ingredientes de maceración y adiciones de agua",
 			"mash_steps_title": "Escalones de maceración",
 			"default_single_infusion": "Infusión simple / Sacarificación",
@@ -886,12 +888,16 @@
 		},
 		"summaries": {
 			"total_grain": "Total de granos: {weight}",
+			"mash_grain": "Maceración: {weight}",
 			"grist_percent": "100% Molienda",
 			"total_hops": "Total de lúpulos: {weight}",
 			"total_ibu": "Est. {ibu} IBU",
 			"attenuation": "Atenuación: {atten}%",
 			"items_count": "{count} adiciones",
 			"yeast_desc": "Tasa de inoculación y perfil de atenuación"
+		},
+		"badges": {
+			"no_mash_water": "Sin agua de maceración"
 		},
 		"columns": {
 			"ingredient": "Ingrediente",
@@ -1078,6 +1084,20 @@
 		"sensory_finish_very_dry": "Muy seco / Alta atenuación",
 		"form_label": "Forma",
 		"form_placeholder": "Selecciona una forma...",
+		"unit_label": "Unidad",
+		"fermentable_category_label": "Categoría",
+		"fermentable_categories": {
+			"grain": "Malta / Grano",
+			"adjunct": "Adjunto / Copos",
+			"sugar": "Azúcar / Jarabe",
+			"extract": "Extracto líquido",
+			"dryextract": "Extracto seco"
+		},
+		"fermentability_label": "Fermentabilidad (%)",
+		"fermentability_placeholder": "Auto (100% azúcar, aten. levadura malta)",
+		"fermentability_hint": "Ajuste opcional (0–100%). Déjalo vacío para usar la atenuación de la levadura en malta/extracto, 100% en azúcares o 0% en lactosa/maltodextrina.",
+		"err_fermentability_range": "La fermentabilidad debe estar entre 0% y 100%.",
+		"no_mash_water_hint": "Añadido en cocción o fermentación — no afecta al agua de maceración",
 		"forms": {
 			"pellet": "Pellet",
 			"leaf": "Flor / Cono",

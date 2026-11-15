@@ -1301,4 +1301,120 @@ public class BatchServiceTests
             sensorsErr.Should().NotBeNullOrWhiteSpace();
         }
     }
+
+    [Fact]
+    public async Task CreateBatchAsync_WithMashMaltAndBoilSugar_CalculatesWaterVolumesOnlyFromMashGrain_AndSnapshotsCategory()
+    {
+        var userId = $"brewer_sugar_water_{Guid.NewGuid():N}";
+        var pilsner = new Ingredient
+        {
+            Id = Guid.NewGuid(),
+            Name = "Pilsner Malt",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Grain,
+            PotentialGravity = 1.037m,
+            ColorSrm = 1.8m
+        };
+        var candiSyrup = new Ingredient
+        {
+            Id = Guid.NewGuid(),
+            Name = "D-90 Candi Syrup",
+            Type = IngredientType.Fermentable,
+            FermentableCategory = FermentableCategory.Sugar,
+            PotentialGravity = 1.032m,
+            ColorSrm = 90m,
+            FermentabilityPercent = 100m
+        };
+        var yeast = new Ingredient
+        {
+            Id = Guid.NewGuid(),
+            Name = "BE-256",
+            Type = IngredientType.Yeast,
+            AttenuationPercent = 82m
+        };
+        _db.Ingredients.AddRange(pilsner, candiSyrup, yeast);
+
+        var recipeWithSugar = new Recipe
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Belgian Dark Strong",
+            BeerStyle = "Belgian Dark Strong Ale",
+            BatchSizeLiters = 20m,
+            BoilTimeMinutes = 60,
+            EfficiencyPercent = 75m,
+            Ingredients =
+            [
+                new RecipeIngredient { IngredientId = pilsner.Id, Ingredient = pilsner, Amount = 5.0m, Unit = "kg", Usage = IngredientUsage.Mash },
+                new RecipeIngredient { IngredientId = candiSyrup.Id, Ingredient = candiSyrup, Amount = 1.5m, Unit = "kg", Usage = IngredientUsage.Boil },
+                new RecipeIngredient { IngredientId = yeast.Id, Ingredient = yeast, Amount = 11.5m, Unit = "g", Usage = IngredientUsage.Primary }
+            ]
+        };
+        var grainOnlyRecipe = new Recipe
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Grain Only Reference",
+            BeerStyle = "Belgian Golden",
+            BatchSizeLiters = 20m,
+            BoilTimeMinutes = 60,
+            EfficiencyPercent = 75m,
+            Ingredients =
+            [
+                new RecipeIngredient { IngredientId = pilsner.Id, Ingredient = pilsner, Amount = 5.0m, Unit = "kg", Usage = IngredientUsage.Mash },
+                new RecipeIngredient { IngredientId = yeast.Id, Ingredient = yeast, Amount = 11.5m, Unit = "g", Usage = IngredientUsage.Primary }
+            ]
+        };
+        _db.Recipes.AddRange(recipeWithSugar, grainOnlyRecipe);
+        await _db.SaveChangesAsync();
+
+        var (_, sugarBatch, sugarErr) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            RecipeId: recipeWithSugar.Id,
+            BatchCode: $"B-SUG-{Guid.NewGuid():N}"[..16],
+            Name: "Sugar Water Test",
+            BeerStyle: "Belgian Dark Strong Ale",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.078m,
+            TargetFg: 1.012m,
+            TargetAbv: 8.6m,
+            TargetIbu: 25m,
+            TargetColorSrm: 20m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: null), userId);
+
+        var (_, grainBatch, grainErr) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            RecipeId: grainOnlyRecipe.Id,
+            BatchCode: $"B-GRN-{Guid.NewGuid():N}"[..16],
+            Name: "Grain Only Reference Test",
+            BeerStyle: "Belgian Golden",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.055m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.9m,
+            TargetIbu: 25m,
+            TargetColorSrm: 3m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: null), userId);
+
+        sugarErr.Should().BeNull();
+        grainErr.Should().BeNull();
+        sugarBatch!.VolumeProfile.Should().NotBeNull();
+        grainBatch!.VolumeProfile.Should().NotBeNull();
+
+        // Adding 1.5 kg boil sugar must NOT increase strike water, decrease sparge water, or increase total water
+        sugarBatch.VolumeProfile!.TotalWaterLiters.Should().Be(grainBatch.VolumeProfile!.TotalWaterLiters);
+        sugarBatch.VolumeProfile.StrikeWaterLiters.Should().Be(grainBatch.VolumeProfile.StrikeWaterLiters);
+        sugarBatch.VolumeProfile.SpargeWaterLiters.Should().Be(grainBatch.VolumeProfile.SpargeWaterLiters);
+
+        // Snapshots preserve FermentableCategory and FermentabilityPercent
+        var sugarSnapshot = sugarBatch.Ingredients.First(i => i.Name == "D-90 Candi Syrup");
+        sugarSnapshot.FermentableCategory.Should().Be(FermentableCategory.Sugar);
+        sugarSnapshot.FermentabilityPercent.Should().Be(100m);
+    }
 }

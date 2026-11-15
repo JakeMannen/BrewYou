@@ -153,6 +153,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.Property(i => i.Description).HasMaxLength(1000);
             entity.Property(i => i.PotentialGravity).HasPrecision(5, 4);
             entity.Property(i => i.ColorSrm).HasPrecision(5, 2);
+            entity.Property(i => i.FermentableCategory).HasConversion<string>().HasMaxLength(20);
+            entity.Property(i => i.FermentabilityPercent).HasPrecision(5, 2);
             entity.Property(i => i.AlphaAcidPercent).HasPrecision(4, 2);
             entity.Property(i => i.AttenuationPercent).HasPrecision(4, 2);
             entity.Property(i => i.Form).HasMaxLength(50);
@@ -430,6 +432,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.HasKey(bi => bi.Id);
             entity.Property(bi => bi.Name).HasMaxLength(150).IsRequired();
             entity.Property(bi => bi.Type).HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(bi => bi.FermentableCategory).HasConversion<string>().HasMaxLength(20);
+            entity.Property(bi => bi.FermentabilityPercent).HasPrecision(5, 2);
             entity.Property(bi => bi.AdditionStage).HasConversion<string>().HasMaxLength(30).IsRequired();
             entity.Property(bi => bi.Amount).HasPrecision(8, 3).IsRequired();
             entity.Property(bi => bi.Unit).HasMaxLength(20).IsRequired();

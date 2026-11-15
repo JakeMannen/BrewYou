@@ -4,7 +4,12 @@
 	import { srmToHexColor, sgToPpg, ppgToSg } from '$lib/calculators/brewing';
 	import { srmToEbc, ebcToSrm } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
-	import type { IngredientDto, IngredientType, CreateIngredientRequest } from '$lib/types/api';
+	import type {
+		FermentableCategory,
+		IngredientDto,
+		IngredientType,
+		CreateIngredientRequest
+	} from '$lib/types/api';
 	import { X, Loader2, Wheat, Flower2, Dna, Sparkles, Check } from '@lucide/svelte';
 
 	interface Props {
@@ -27,6 +32,8 @@
 
 	let name = $state('');
 	let type = $state<IngredientType>('Fermentable');
+	let fermentableCategory = $state<FermentableCategory>('Grain');
+	let fermentabilityPercent = $state<number | ''>('');
 	let potentialUnit = $state<'SG' | 'PPG'>('SG');
 	let potentialValue = $state<number | ''>(1.037);
 	let colorUnit = $state<'EBC' | 'SRM'>('EBC');
@@ -37,6 +44,17 @@
 	let initialStock = $state<number | ''>('');
 	let stockUnit = $state<string>('kg');
 	let form = $state<string>('');
+
+	function handleFermentableCategoryChange(nextCategory: FermentableCategory) {
+		fermentableCategory = nextCategory;
+		if (nextCategory === 'Sugar') {
+			if (fermentabilityPercent === '') {
+				fermentabilityPercent = 100;
+			}
+		} else {
+			fermentabilityPercent = '';
+		}
+	}
 
 	let isSubmitting = $state(false);
 	let errorMessage = $state<string | null>(null);
@@ -82,6 +100,8 @@
 			if (ingredient) {
 				name = ingredient.name;
 				type = ingredient.type;
+				fermentableCategory = ingredient.fermentableCategory ?? 'Grain';
+				fermentabilityPercent = ingredient.fermentabilityPercent ?? '';
 				potentialUnit = 'SG';
 				potentialValue = ingredient.potentialGravity ?? '';
 				colorUnit = 'EBC';
@@ -95,6 +115,8 @@
 			} else {
 				name = '';
 				type = initialType;
+				fermentableCategory = 'Grain';
+				fermentabilityPercent = '';
 				potentialUnit = 'SG';
 				potentialValue = initialType === 'Fermentable' ? 1.037 : '';
 				colorUnit = 'EBC';
@@ -223,6 +245,11 @@
 					}
 				}
 			}
+			if (typeof fermentabilityPercent === 'number') {
+				if (fermentabilityPercent < 0 || fermentabilityPercent > 100) {
+					errors.fermentabilitypercent = t('ingredients.err_fermentability_range');
+				}
+			}
 		} else if (type === 'Hop') {
 			if (typeof alphaAcidPercent === 'number') {
 				if (alphaAcidPercent < 0 || alphaAcidPercent > 100) {
@@ -286,7 +313,14 @@
 			description: description.trim() ? description.trim() : null,
 			initialStock: typeof initialStock === 'number' && initialStock > 0 ? initialStock : null,
 			stockUnit: typeof initialStock === 'number' && initialStock > 0 ? stockUnit : null,
-			form: (type === 'Hop' || type === 'Yeast') && form ? form : null
+			form: (type === 'Hop' || type === 'Yeast') && form ? form : null,
+			fermentableCategory: type === 'Fermentable' ? fermentableCategory : null,
+			fermentabilityPercent:
+				type === 'Fermentable' &&
+				typeof fermentabilityPercent === 'number' &&
+				!isNaN(fermentabilityPercent)
+					? fermentabilityPercent
+					: null
 		};
 
 		try {
@@ -443,6 +477,66 @@
 
 				<!-- Dynamic Metric Fields -->
 				{#if type === 'Fermentable'}
+					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+						<div>
+							<label
+								for="ingredient-fermentable-category"
+								class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+							>
+								{t('ingredients.fermentable_category_label')}
+							</label>
+							<select
+								id="ingredient-fermentable-category"
+								value={fermentableCategory}
+								onchange={(e) =>
+									handleFermentableCategoryChange(
+										(e.currentTarget as HTMLSelectElement).value as FermentableCategory
+									)}
+								class="mt-1.5 h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+							>
+								<option value="Grain">{t('ingredients.fermentable_categories.grain')}</option>
+								<option value="Adjunct">{t('ingredients.fermentable_categories.adjunct')}</option>
+								<option value="Sugar">{t('ingredients.fermentable_categories.sugar')}</option>
+								<option value="Extract">{t('ingredients.fermentable_categories.extract')}</option>
+								<option value="DryExtract">
+									{t('ingredients.fermentable_categories.dryextract')}
+								</option>
+							</select>
+							{#if fermentableCategory === 'Sugar' || fermentableCategory === 'Extract' || fermentableCategory === 'DryExtract'}
+								<p class="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+									{t('ingredients.no_mash_water_hint')}
+								</p>
+							{/if}
+						</div>
+
+						<div>
+							<label
+								for="ingredient-fermentability"
+								class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+							>
+								{t('ingredients.fermentability_label')}
+							</label>
+							<input
+								id="ingredient-fermentability"
+								type="number"
+								step="1"
+								min="0"
+								max="100"
+								bind:value={fermentabilityPercent}
+								placeholder={t('ingredients.fermentability_placeholder')}
+								class="mt-1.5 h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+							/>
+							<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+								{t('ingredients.fermentability_hint')}
+							</p>
+							{#if fieldErrors.fermentabilitypercent}
+								<p class="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">
+									{fieldErrors.fermentabilitypercent}
+								</p>
+							{/if}
+						</div>
+					</div>
+
 					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 						<!-- Potential Gravity / PPG -->
 						<div>

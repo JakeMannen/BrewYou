@@ -1,4 +1,5 @@
 import type {
+	FermentableCategory,
 	FermentationStepType,
 	IngredientType,
 	IngredientUsage,
@@ -10,7 +11,12 @@ import type {
 	ParsedMashStep,
 	ParsedRecipe
 } from './types';
-import { reconcileImportedEfficiency, smartPotentialToSg } from '$lib/calculators/brewing';
+import {
+	isUnfermentableSugar,
+	reconcileImportedEfficiency,
+	resolveFermentableCategory,
+	smartPotentialToSg
+} from '$lib/calculators/brewing';
 
 const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024; // 2 MB
 
@@ -69,9 +75,46 @@ function normalizeTemperatureC(temp: number | undefined | null, isMash = false):
 	return Math.round(celsius * 10) / 10;
 }
 
-function mapFermentableUsage(use: string | null): IngredientUsage {
+function mapBeerXmlFermentableCategory(rawType: string | null, name: string): FermentableCategory {
+	const normalized = (rawType || '').toLowerCase().trim();
+	if (normalized.includes('sugar')) return 'Sugar';
+	if (normalized.includes('dry') && normalized.includes('extract')) return 'DryExtract';
+	if (normalized.includes('extract')) return 'Extract';
+	if (normalized.includes('adjunct')) return 'Adjunct';
+	if (normalized.includes('grain')) return 'Grain';
+	return resolveFermentableCategory(null, name);
+}
+
+function mapFermentableUsage(
+	use: string | null,
+	addAfterBoil: string | null,
+	category: FermentableCategory,
+	recommendMash: string | null
+): IngredientUsage {
 	const normalized = (use || '').toLowerCase().trim();
-	if (normalized.includes('boil')) return 'Boil';
+	const isAfterBoil = (addAfterBoil || '').toLowerCase().trim() === 'true';
+
+	if (normalized.includes('bottling') || normalized.includes('package')) return 'Bottling';
+	if (normalized.includes('secondary')) return 'Secondary';
+	if (normalized.includes('primary') || normalized.includes('ferment')) return 'Primary';
+	if (
+		normalized.includes('whirlpool') ||
+		normalized.includes('aroma') ||
+		normalized.includes('flameout')
+	) {
+		return 'Whirlpool';
+	}
+	if (normalized.includes('first')) return 'FirstWort';
+	if (normalized.includes('boil')) return isAfterBoil ? 'Whirlpool' : 'Boil';
+	if (normalized.includes('mash')) {
+		return category === 'Sugar' || category === 'Extract' || category === 'DryExtract'
+			? 'Boil'
+			: 'Mash';
+	}
+
+	if (isAfterBoil) return 'Whirlpool';
+	if (category === 'Sugar' || category === 'Extract' || category === 'DryExtract') return 'Boil';
+	if ((recommendMash || '').toLowerCase().trim() === 'false') return 'Boil';
 	return 'Mash';
 }
 
@@ -185,13 +228,35 @@ export function parseBeerXml(rawXml: string): ParsedRecipe[] {
 					potentialGravity = isNaN(potential) ? 1.036 : Math.round(potential * 1000) / 1000;
 				}
 
+				const rawType = cleanText(extractTagContent(block, 'TYPE'));
+				const fermentableCategory = mapBeerXmlFermentableCategory(rawType, ingName);
+				const usage = mapFermentableUsage(
+					extractTagContent(block, 'USE'),
+					extractTagContent(block, 'ADD_AFTER_BOIL'),
+					fermentableCategory,
+					extractTagContent(block, 'RECOMMEND_MASH')
+				);
+				const fermentabilityPercent = isUnfermentableSugar(ingName)
+					? 0
+					: fermentableCategory === 'Sugar'
+						? 100
+						: undefined;
+
 				ingredients.push({
 					name: ingName,
 					type: 'Fermentable' as IngredientType,
-					amount: isNaN(amountKg) || amountKg <= 0 ? 1.0 : Math.round(amountKg * 100) / 100,
+					fermentableCategory,
+					fermentabilityPercent,
+					amount: isNaN(amountKg) || amountKg <= 0 ? 1.0 : Math.round(amountKg * 1000) / 1000,
 					unit: 'kg',
-					durationMinutes: boilTimeMinutes,
-					usage: mapFermentableUsage(extractTagContent(block, 'USE')),
+					durationMinutes:
+						usage === 'Whirlpool' ||
+						usage === 'Primary' ||
+						usage === 'Secondary' ||
+						usage === 'Bottling'
+							? 0
+							: boilTimeMinutes,
+					usage,
 					colorSrm,
 					potentialGravity,
 					notes: cleanText(extractTagContent(block, 'NOTES'))

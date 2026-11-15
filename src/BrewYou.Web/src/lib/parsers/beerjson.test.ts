@@ -452,4 +452,67 @@ describe('BeerJSON Parser', () => {
 		expect(recipes).toHaveLength(1);
 		expect(recipes[0].efficiencyPercent).toBe(70.7);
 	});
+
+	it('parses fermentable types (sugar, extract, dry_extract, adjunct) and timing uses in BeerJSON', () => {
+		const json = JSON.stringify({
+			beerjson: {
+				version: 2.06,
+				recipes: [
+					{
+						name: 'BeerJSON Extract & Sugar Test',
+						batch_size: { value: 20, unit: 'l' },
+						efficiency: { mash: { value: 75, unit: '%' } },
+						ingredients: {
+							fermentable_additions: [
+								{
+									name: 'Flaked Rye',
+									type: 'adjunct',
+									amount: { value: 0.5, unit: 'kg' },
+									yield: { fine_grind: { value: 75, unit: '%' } },
+									timing: { use: 'add_to_mash' }
+								},
+								{
+									name: 'Briess Gold LME',
+									type: 'extract',
+									amount: { value: 1.5, unit: 'kg' },
+									yield: { fine_grind: { value: 78, unit: '%' } },
+									timing: { use: 'add_to_boil' }
+								},
+								{
+									name: 'Muntons Extra Light DME',
+									type: 'dry_extract',
+									amount: { value: 0.5, unit: 'kg' },
+									yield: { fine_grind: { value: 95, unit: '%' } },
+									timing: { use: 'add_to_boil' }
+								},
+								{
+									name: 'Dextrose Priming',
+									type: 'sugar',
+									amount: { value: 140, unit: 'g' },
+									yield: { fine_grind: { value: 100, unit: '%' } },
+									timing: { use: 'add_to_package' }
+								}
+							]
+						}
+					}
+				]
+			}
+		});
+
+		const parsed = parseBeerJson(json);
+		expect(parsed).toHaveLength(1);
+		const items = parsed[0].ingredients;
+
+		expect(items.find((i) => i.name === 'Flaked Rye')?.fermentableCategory).toBe('Adjunct');
+		expect(items.find((i) => i.name === 'Flaked Rye')?.usage).toBe('Mash');
+
+		expect(items.find((i) => i.name === 'Briess Gold LME')?.fermentableCategory).toBe('Extract');
+		expect(items.find((i) => i.name === 'Briess Gold LME')?.usage).toBe('Boil');
+
+		expect(items.find((i) => i.name === 'Muntons Extra Light DME')?.fermentableCategory).toBe(
+			'DryExtract'
+		);
+		expect(items.find((i) => i.name === 'Dextrose Priming')?.fermentableCategory).toBe('Sugar');
+		expect(items.find((i) => i.name === 'Dextrose Priming')?.usage).toBe('Bottling');
+	});
 });

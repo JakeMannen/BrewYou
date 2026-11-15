@@ -378,6 +378,8 @@ public class BatchService : IBatchService
                     SourceIngredientId = ri.IngredientId,
                     Name = ri.Ingredient?.Name ?? "Ingredient",
                     Type = ri.Ingredient?.Type ?? IngredientType.Other,
+                    FermentableCategory = ri.Ingredient?.FermentableCategory,
+                    FermentabilityPercent = ri.Ingredient?.FermentabilityPercent,
                     Amount = Math.Round(ri.Amount * scale, 3),
                     Unit = ri.Unit,
                     AdditionStage = ri.Usage,
@@ -394,6 +396,8 @@ public class BatchService : IBatchService
                 BatchId = batch.Id,
                 Name = ci.Name.Trim(),
                 Type = ci.Type,
+                FermentableCategory = ci.FermentableCategory,
+                FermentabilityPercent = ci.FermentabilityPercent,
                 Amount = ci.Amount,
                 Unit = ci.Unit.Trim(),
                 AdditionStage = ci.AdditionStage,
@@ -518,10 +522,8 @@ public class BatchService : IBatchService
             });
         }
 
-        // 6.5 Calculate and attach Volume Profile
-        var totalGrainKg = batch.Ingredients
-            .Where(i => i.Type == IngredientType.Fermentable && IsMassUnit(i.Unit))
-            .Sum(i => ConvertUnitAmount(i.Amount, i.Unit, "kg"));
+        // 6.5 Calculate and attach Volume Profile (excluding non-mash sugars, syrups, and extracts)
+        var totalGrainKg = BrewingCalculator.CalculateMashGrainWeightKg(batch.Ingredients);
 
         var volumeInput = new VolumeCalculationInput(
             TargetBatchSizeLiters: plannedVolume,
@@ -1177,7 +1179,9 @@ public class BatchService : IBatchService
             ingredient.IsChecked,
             ingredient.IsDeducted,
             ingredient.Notes,
-            ingredient.Form
+            ingredient.Form,
+            ingredient.FermentableCategory,
+            ingredient.FermentabilityPercent
         );
 
         return (BatchAccessResult.Success, dto, null);
@@ -1511,9 +1515,7 @@ public class BatchService : IBatchService
                                  (batch.Boiler != null && batch.MashTun != null && batch.Boiler.Id == batch.MashTun.Id);
                 var mashThickness = isAllInOne ? 2.7m : 3.0m;
 
-                var totalGrainKg = batch.Ingredients
-                    .Where(i => i.Type == IngredientType.Fermentable && IsMassUnit(i.Unit))
-                    .Sum(i => ConvertUnitAmount(i.Amount, i.Unit, "kg"));
+                var totalGrainKg = BrewingCalculator.CalculateMashGrainWeightKg(batch.Ingredients);
 
                 var spargeEnabled = !string.Equals(batch.VolumeProfile.SpargeMethod, "NoSparge", StringComparison.OrdinalIgnoreCase);
                 var recalcResult = VolumeCalculator.CalculateWaterRequirements(new VolumeCalculationInput(
@@ -1738,7 +1740,9 @@ public class BatchService : IBatchService
     private async Task<decimal> CalculateTotalGrainPotentialPointsAsync(IEnumerable<BatchIngredient> ingredients)
     {
         var fermentables = ingredients
-            .Where(i => i.Type == IngredientType.Fermentable && IsMassUnit(i.Unit))
+            .Where(i => i.Type == IngredientType.Fermentable &&
+                        i.AdditionStage is not (IngredientUsage.Primary or IngredientUsage.Secondary or IngredientUsage.Bottling) &&
+                        IsMassUnit(i.Unit))
             .ToList();
 
         if (fermentables.Count == 0)
@@ -1925,7 +1929,9 @@ public class BatchService : IBatchService
                 i.IsChecked,
                 i.IsDeducted,
                 i.Notes,
-                i.Form
+                i.Form,
+                i.FermentableCategory,
+                i.FermentabilityPercent
             )).ToList(),
             MashSteps: b.MashSteps.OrderBy(s => s.StepOrder).Select(s => new BatchMashStepDto(
                 s.Id,

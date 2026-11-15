@@ -1,4 +1,5 @@
 import type {
+	FermentableCategory,
 	FermentationStepType,
 	IngredientType,
 	IngredientUsage,
@@ -18,6 +19,8 @@ export interface ParsedIngredient {
 	alphaAcidPercent?: number;
 	attenuationPercent?: number;
 	form?: string;
+	fermentableCategory?: FermentableCategory;
+	fermentabilityPercent?: number;
 }
 
 export interface ParsedMashStep {

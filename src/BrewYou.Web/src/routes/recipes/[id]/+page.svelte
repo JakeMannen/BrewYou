@@ -7,14 +7,21 @@
 	import { auth } from '$lib/stores/auth.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
-	import { getLocalizedIngredientName, getLocalizedIngredientForm } from '$lib/i18n/ingredients';
+	import {
+		getLocalizedFermentableCategory,
+		getLocalizedIngredientName,
+		getLocalizedIngredientForm
+	} from '$lib/i18n/ingredients';
 	import { formatNumber } from '$lib/utils/formatNumber';
+	import { formatPrintableStageTiming } from '$lib/utils/recipePrint';
 	import {
 		srmToHexColor,
 		calculateSingleHopIbu,
 		calculateBuGuRatio,
 		calculateApparentAttenuation,
-		formatPotentialGravity
+		formatPotentialGravity,
+		isMashGrain,
+		resolveFermentableCategory
 	} from '$lib/calculators/brewing';
 	import {
 		getLabelImageUrl,
@@ -177,6 +184,8 @@
 					colorSrm: ing.colorSrm ?? null,
 					alphaAcidPercent: ing.alphaAcidPercent ?? null,
 					attenuationPercent: ing.attenuationPercent ?? null,
+					fermentableCategory: ing.fermentableCategory ?? null,
+					fermentabilityPercent: ing.fermentabilityPercent ?? null,
 					isCatalogItem: false,
 					form: ing.form ?? null
 				});
@@ -719,10 +728,34 @@
 				{:else}
 					<div class="divide-y divide-zinc-200/60 dark:divide-white/5">
 						{#each fermentables as item (item.id)}
+							{@const resolvedCategory = resolveFermentableCategory(
+								item.fermentableCategory,
+								item.ingredientName
+							)}
+							{@const affectsMash = isMashGrain(
+								'Fermentable',
+								item.usage,
+								item.fermentableCategory,
+								item.ingredientName
+							)}
 							{@const gristPercent =
 								totalGrainWeight > 0
 									? (toGrainKg(item.amount, item.unit) / totalGrainWeight) * 100
 									: 0}
+							{@const usageTimingText = formatPrintableStageTiming(item, {
+								flameoutLabel: t('batches.workspace.boil_step_flameout'),
+								minutesShortLabel: t('common.minutes_short'),
+								usages: {
+									Mash: t('formulator.usages.mash'),
+									FirstWort: t('formulator.usages.first_wort'),
+									Boil: t('formulator.usages.boil'),
+									Whirlpool: t('formulator.usages.whirlpool'),
+									Primary: t('formulator.usages.primary'),
+									Secondary: t('formulator.usages.secondary'),
+									DryHop: t('formulator.usages.dry_hop'),
+									Bottling: t('formulator.usages.bottling')
+								}
+							})}
 							<div
 								class="flex flex-col items-stretch justify-between gap-3 p-4 sm:flex-row sm:items-center"
 							>
@@ -740,6 +773,22 @@
 											{settings.formatFermentableColor(item.colorSrm ?? 2.0)} •
 											{formatPotentialGravity(item.potentialGravity)}
 										</div>
+										{#if resolvedCategory !== 'Grain' || !affectsMash}
+											<div class="mt-1 flex flex-wrap items-center gap-1.5">
+												<span
+													class="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+												>
+													{getLocalizedFermentableCategory(resolvedCategory)}
+												</span>
+												{#if !affectsMash}
+													<span
+														class="rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"
+													>
+														{t('formulator.badges.no_mash_water')}
+													</span>
+												{/if}
+											</div>
+										{/if}
 										{#if item.notes}
 											<div class="mt-0.5 text-xs text-zinc-500 italic dark:text-zinc-400">
 												{item.notes}
@@ -752,7 +801,7 @@
 									<div
 										class="w-24 text-right font-mono text-sm font-bold text-zinc-900 dark:text-white"
 									>
-										{settings.formatGrain(item.amount)}
+										{settings.formatGrain(toGrainKg(item.amount, item.unit))}
 									</div>
 									<div class="flex-1">
 										<div class="flex justify-between text-[11px] font-semibold">
@@ -773,7 +822,7 @@
 									<span
 										class="rounded-lg border border-zinc-200/80 bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300"
 									>
-										{getUsageLabel(item.usage)}
+										{usageTimingText}
 									</span>
 								</div>
 							</div>

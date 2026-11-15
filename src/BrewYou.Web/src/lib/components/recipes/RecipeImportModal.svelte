@@ -11,7 +11,12 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { t } from '$lib/i18n/index.svelte';
 	import { api } from '$lib/api/client';
-	import type { IngredientDto, CreateIngredientRequest, IngredientType } from '$lib/types/api';
+	import type {
+		IngredientDto,
+		CreateIngredientRequest,
+		FermentableCategory,
+		IngredientType
+	} from '$lib/types/api';
 	import type { ParsedRecipe } from '$lib/parsers/types';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatPotentialGravity, smartPotentialToSg } from '$lib/calculators/brewing';
@@ -171,6 +176,8 @@
 		colorSrm?: number;
 		alphaAcidPercent?: number;
 		attenuationPercent?: number;
+		fermentableCategory?: FermentableCategory | null;
+		fermentabilityPercent?: number | null;
 		description?: string;
 		form?: string;
 		closeMatches: IngredientDto[];
@@ -217,6 +224,8 @@
 					colorSrm: ing.colorSrm,
 					alphaAcidPercent: ing.alphaAcidPercent,
 					attenuationPercent: ing.attenuationPercent,
+					fermentableCategory: ing.fermentableCategory ?? null,
+					fermentabilityPercent: ing.fermentabilityPercent ?? null,
 					description: ing.notes,
 					form: ing.form,
 					closeMatches,
@@ -319,7 +328,11 @@
 					description: sanitizedDesc,
 					form:
 						missing.form ??
-						(missing.type === 'Hop' ? 'Pellet' : missing.type === 'Yeast' ? 'Dry' : null)
+						(missing.type === 'Hop' ? 'Pellet' : missing.type === 'Yeast' ? 'Dry' : null),
+					fermentableCategory:
+						missing.type === 'Fermentable' ? (missing.fermentableCategory ?? null) : null,
+					fermentabilityPercent:
+						missing.type === 'Fermentable' ? (missing.fermentabilityPercent ?? null) : null
 				};
 
 				const created = await api.ingredients.create(requestPayload);

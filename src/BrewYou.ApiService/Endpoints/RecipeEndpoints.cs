@@ -31,7 +31,9 @@ public record RecipeIngredientOutputDto(
     decimal? ColorSrm = null,
     decimal? AlphaAcidPercent = null,
     decimal? AttenuationPercent = null,
-    string? Form = null
+    string? Form = null,
+    FermentableCategory? FermentableCategory = null,
+    decimal? FermentabilityPercent = null
 );
 
 

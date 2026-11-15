@@ -9,6 +9,7 @@ import {
 	ppgToSg,
 	smartPotentialToSg,
 	formatPotentialGravity,
+	isMashGrain,
 	reconcileImportedEfficiency,
 	type CalculatorItem
 } from './brewing';
@@ -590,6 +591,113 @@ describe('calculateBrewMetrics', () => {
 			expect(hochkurz645C.alcoholByVolume).toBeGreaterThanOrEqual(5.05);
 			expect(hochkurz645C.finalGravity).toBeLessThan(standard67C.finalGravity);
 			expect(dextrinous70C.finalGravity).toBeGreaterThan(standard67C.finalGravity);
+		});
+
+		it('handles Sugar 100% fermentability, Extract yeast attenuation, explicit fermentabilityPercent, and Bottling exclusion', () => {
+			const baseGrain: CalculatorItem = {
+				ingredient: {
+					id: 'g1',
+					name: 'Pilsner Malt',
+					type: 'Fermentable',
+					fermentableCategory: 'Grain',
+					potentialGravity: 1.037,
+					colorSrm: 1.8,
+					isCatalogItem: true
+				},
+				amount: 4.0,
+				unit: 'kg',
+				usage: 'Mash'
+			};
+			const yeast: CalculatorItem = {
+				ingredient: {
+					id: 'y1',
+					name: 'Abbey Ale',
+					type: 'Yeast',
+					attenuationPercent: 78,
+					isCatalogItem: true
+				},
+				amount: 11.5,
+				unit: 'g',
+				usage: 'Primary'
+			};
+			const sugar: CalculatorItem = {
+				ingredient: {
+					id: 's1',
+					name: 'Belgian Candi Sugar',
+					type: 'Fermentable',
+					fermentableCategory: 'Sugar',
+					potentialGravity: 1.038,
+					colorSrm: 0.5,
+					isCatalogItem: true
+				},
+				amount: 1.0,
+				unit: 'kg',
+				usage: 'Boil'
+			};
+			const extract: CalculatorItem = {
+				ingredient: {
+					id: 'e1',
+					name: 'Custom Powder',
+					type: 'Fermentable',
+					fermentableCategory: 'DryExtract',
+					potentialGravity: 1.044,
+					colorSrm: 3.0,
+					isCatalogItem: true
+				},
+				amount: 1.0,
+				unit: 'kg',
+				usage: 'Boil'
+			};
+			const priming: CalculatorItem = {
+				ingredient: {
+					id: 'p1',
+					name: 'Priming Dextrose',
+					type: 'Fermentable',
+					fermentableCategory: 'Sugar',
+					potentialGravity: 1.046,
+					colorSrm: 5.0,
+					isCatalogItem: true
+				},
+				amount: 0.14,
+				unit: 'kg',
+				usage: 'Bottling'
+			};
+			const partialHoney: CalculatorItem = {
+				ingredient: {
+					id: 'h1',
+					name: 'Acacia Honey',
+					type: 'Fermentable',
+					fermentableCategory: 'Sugar',
+					fermentabilityPercent: 50,
+					potentialGravity: 1.035,
+					colorSrm: 1.5,
+					isCatalogItem: false
+				},
+				amount: 1.0,
+				unit: 'kg',
+				usage: 'Boil'
+			};
+
+			const maltOnly = calculateBrewMetrics(20, 75, 60, [baseGrain, yeast]);
+			const withSugar = calculateBrewMetrics(20, 75, 60, [baseGrain, sugar, yeast]);
+			const withExtract = calculateBrewMetrics(20, 75, 60, [baseGrain, extract, yeast]);
+			const withPriming = calculateBrewMetrics(20, 75, 60, [baseGrain, priming, yeast]);
+			const withPartialHoney = calculateBrewMetrics(20, 75, 60, [baseGrain, partialHoney, yeast]);
+
+			expect(withSugar.originalGravity).toBeGreaterThan(maltOnly.originalGravity);
+			expect(withSugar.finalGravity).toBe(maltOnly.finalGravity);
+			expect(withExtract.finalGravity).toBeGreaterThan(maltOnly.finalGravity);
+			expect(withPriming).toEqual(maltOnly);
+
+			const addedOg = withPartialHoney.originalGravity - maltOnly.originalGravity;
+			const addedFg = withPartialHoney.finalGravity - maltOnly.finalGravity;
+			expect(addedFg).toBeCloseTo(addedOg * 0.5, 2);
+
+			expect(isMashGrain('Fermentable', 'Mash', 'Grain', 'Pilsner')).toBe(true);
+			expect(isMashGrain('Fermentable', 'Mash', 'Adjunct', 'Flaked Oats')).toBe(true);
+			expect(isMashGrain('Fermentable', 'Boil', 'Grain', 'Caramel 60L')).toBe(false);
+			expect(isMashGrain('Fermentable', 'Mash', 'Sugar', 'Dextrose')).toBe(false);
+			expect(isMashGrain('Fermentable', 'Boil', 'DryExtract', 'Light DME')).toBe(false);
 		});
 	});
 });

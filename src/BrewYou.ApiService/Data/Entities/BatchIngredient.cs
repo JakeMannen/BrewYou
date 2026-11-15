@@ -11,6 +11,8 @@ public class BatchIngredient
 
     public required string Name { get; set; }
     public IngredientType Type { get; set; }
+    public FermentableCategory? FermentableCategory { get; set; }
+    public decimal? FermentabilityPercent { get; set; }
     public decimal Amount { get; set; }
     public required string Unit { get; set; } = "kg";
 

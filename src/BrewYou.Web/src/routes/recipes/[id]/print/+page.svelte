@@ -3,15 +3,28 @@
 	import { page } from '$app/state';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import { getLocalizedIngredientName, getLocalizedIngredientForm } from '$lib/i18n/ingredients';
+	import {
+		getLocalizedFermentableCategory,
+		getLocalizedIngredientName,
+		getLocalizedIngredientForm
+	} from '$lib/i18n/ingredients';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import { settings, toDisplayVolume, fromDisplayVolume } from '$lib/stores/settings.svelte';
 	import {
 		calculateApparentAttenuation,
 		calculateBuGuRatio,
+		isMashGrain,
 		normalizeFermentableToKg,
-		normalizeHopToGrams
+		normalizeHopToGrams,
+		resolveFermentableCategory
 	} from '$lib/calculators/brewing';
+	import {
+		buildPrintableBoilSchedule,
+		formatPrintableStageTiming,
+		splitPrintableStageIngredients,
+		type PrintableBoilRow,
+		type PrintableTimingLabels
+	} from '$lib/utils/recipePrint';
 	import { calculateWaterRequirements, type TargetVolumeBasis } from '$lib/calculators/volume';
 	import type { EquipmentDto, RecipeDetailDto, RecipeIngredientOutputDto } from '$lib/types/api';
 	import { Printer, ArrowLeft, Play, Loader2, Info } from '@lucide/svelte';
@@ -62,7 +75,9 @@
 	let baseRecipeGrainKg = $derived.by(() => {
 		if (!recipe) return 0;
 		return recipe.ingredients
-			.filter((i) => i.ingredientType === 'Fermentable')
+			.filter((i) =>
+				isMashGrain(i.ingredientType, i.usage, i.fermentableCategory, i.ingredientName)
+			)
 			.reduce((sum, i) => sum + normalizeFermentableToKg(i.amount, i.unit), 0);
 	});
 
@@ -146,86 +161,48 @@
 		recipe ? calculateApparentAttenuation(recipe.originalGravity, recipe.finalGravity) : 0
 	);
 
+	let timingLabels = $derived<PrintableTimingLabels>({
+		rampLabel: t('batches.workspace.boil_step_ramp'),
+		whirlpoolLabel: t('batches.workspace.boil_step_whirlpool'),
+		flameoutLabel: t('batches.workspace.boil_step_flameout'),
+		minutesShortLabel: t('common.minutes_short'),
+		firstWortDurationText: t('formulator.usages.first_wort'),
+		rampDurationText: 'Ramp',
+		usages: {
+			Mash: t('formulator.usages.mash'),
+			FirstWort: t('formulator.usages.first_wort'),
+			Boil: t('formulator.usages.boil'),
+			Whirlpool: t('formulator.usages.whirlpool'),
+			Primary: t('formulator.usages.primary'),
+			Secondary: t('formulator.usages.secondary'),
+			DryHop: t('formulator.usages.dry_hop'),
+			Bottling: t('formulator.usages.bottling')
+		}
+	});
+
 	// Stage-grouped ingredients
-	let mashIngredients = $derived(
+	let stageIngredients = $derived(
 		recipe
-			? recipe.ingredients.filter(
-					(i) => i.usage === 'Mash' || (i.ingredientType === 'Fermentable' && i.usage !== 'Boil')
-				)
-			: []
+			? splitPrintableStageIngredients(recipe.ingredients)
+			: {
+					fermentableIngredients: [],
+					mashNonFermentableIngredients: [],
+					fermentationIngredients: [],
+					packagingIngredients: []
+				}
 	);
 
-	let fermentationIngredients = $derived(
-		recipe
-			? recipe.ingredients.filter(
-					(i) => i.usage === 'Primary' || i.usage === 'Secondary' || i.ingredientType === 'Yeast'
-				)
-			: []
-	);
-
-	let packagingIngredients = $derived(
-		recipe ? recipe.ingredients.filter((i) => i.usage === 'Bottling') : []
-	);
-
-	interface PrintableBoilRow {
-		key: string;
-		label: string;
-		durationText: string;
-		targetTempC: number;
-		items: RecipeIngredientOutputDto[];
-	}
+	let fermentableIngredients = $derived(stageIngredients.fermentableIngredients);
+	let mashNonFermentableIngredients = $derived(stageIngredients.mashNonFermentableIngredients);
+	let fermentationIngredients = $derived(stageIngredients.fermentationIngredients);
 
 	let boilScheduleRows = $derived.by<PrintableBoilRow[]>(() => {
 		if (!recipe) return [];
-		const rows: PrintableBoilRow[] = [];
-		const boilTime = recipe.boilTimeMinutes || 60;
-
-		const firstWort = recipe.ingredients.filter((i) => i.usage === 'FirstWort');
-		rows.push({
-			key: 'ramp',
-			label: t('batches.workspace.boil_step_ramp'),
-			durationText: firstWort.length > 0 ? 'First Wort' : 'Ramp',
-			targetTempC: 100,
-			items: firstWort
-		});
-
-		const boilItems = recipe.ingredients.filter((i) => i.usage === 'Boil');
-		const timeBuckets: Record<number, RecipeIngredientOutputDto[]> = {};
-		for (const item of boilItems) {
-			const mins = item.durationMinutes ?? boilTime;
-			if (!timeBuckets[mins]) {
-				timeBuckets[mins] = [];
-			}
-			timeBuckets[mins].push(item);
-		}
-
-		const sortedTimes = Object.keys(timeBuckets)
-			.map((k) => Number(k))
-			.sort((a, b) => b - a);
-		for (const mins of sortedTimes) {
-			const items = timeBuckets[mins] ?? [];
-			rows.push({
-				key: `boil-${mins}`,
-				label: mins === 0 ? t('batches.workspace.boil_step_flameout') : `${mins} min`,
-				durationText: `${mins} min`,
-				targetTempC: 100,
-				items
-			});
-		}
-
-		const whirlpoolItems = recipe.ingredients.filter((i) => i.usage === 'Whirlpool');
-		if (whirlpoolItems.length > 0) {
-			const maxWhirlpool = Math.max(15, ...whirlpoolItems.map((w) => w.durationMinutes ?? 15));
-			rows.push({
-				key: 'whirlpool',
-				label: t('batches.workspace.boil_step_whirlpool'),
-				durationText: `${maxWhirlpool} min`,
-				targetTempC: 85,
-				items: whirlpoolItems
-			});
-		}
-
-		return rows;
+		return buildPrintableBoilSchedule(
+			recipe.ingredients,
+			recipe.boilTimeMinutes || 60,
+			timingLabels
+		);
 	});
 
 	function formatScaledAmount(item: RecipeIngredientOutputDto): string {
@@ -245,7 +222,14 @@
 	function formatIngredientLabel(item: RecipeIngredientOutputDto): string {
 		const name = getLocalizedIngredientName({ name: item.ingredientName });
 		const form = item.form ? getLocalizedIngredientForm(item.form) : '';
-		return form ? `${name} (${form})` : name;
+		if (form) return `${name} (${form})`;
+		if (item.ingredientType === 'Fermentable') {
+			const category = resolveFermentableCategory(item.fermentableCategory, item.ingredientName);
+			if (category !== 'Grain') {
+				return `${name} (${getLocalizedFermentableCategory(category)})`;
+			}
+		}
+		return name;
 	}
 
 	function handlePrint() {
@@ -290,7 +274,7 @@
 </svelte:head>
 
 <div
-	class="print-container min-h-screen bg-zinc-100 p-4 font-sans text-zinc-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100"
+	class="print-container min-h-screen bg-zinc-100 p-4 font-sans text-zinc-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100 print:min-h-0 print:bg-white print:p-0 print:text-zinc-950"
 >
 	<!-- Screen-Only Configuration Toolbar -->
 	<header
@@ -456,17 +440,21 @@
 		<!-- High-Contrast Printable Brew Sheet -->
 		<main
 			data-testid="printable-brew-sheet"
-			class="brew-sheet-canvas mx-auto max-w-5xl space-y-5 rounded-2xl border border-zinc-300 bg-white p-6 text-zinc-950 shadow-md print:max-w-none print:space-y-3 print:rounded-none print:border-0 print:p-0 print:shadow-none"
+			class="brew-sheet-canvas mx-auto max-w-5xl space-y-5 rounded-2xl border border-zinc-300 bg-white p-6 text-zinc-950 shadow-md print:max-w-none print:space-y-1 print:rounded-none print:border-0 print:p-0 print:shadow-none"
 		>
 			<!-- Sheet Header -->
-			<section class="sheet-section border-b-2 border-zinc-900 pb-3">
-				<div class="flex flex-wrap items-start justify-between gap-4">
+			<section class="sheet-section border-b-2 border-zinc-900 pb-3 print:pb-1.5">
+				<div class="flex flex-wrap items-start justify-between gap-4 print:gap-2">
 					<div>
 						<div class="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">
 							BrewYou — {t('recipes.print_sheet.title')}
 						</div>
-						<h2 class="mt-0.5 text-2xl font-extrabold text-zinc-950">{recipe.name}</h2>
-						<div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-700">
+						<h2 class="mt-0.5 text-2xl font-extrabold text-zinc-950 print:text-lg">
+							{recipe.name}
+						</h2>
+						<div
+							class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-700 print:mt-0.5 print:text-[10px]"
+						>
 							<span><strong>{recipe.beerStyle}</strong></span>
 							{#if recipe.authorName}
 								<span>{t('recipes.by_author', { author: recipe.authorName })}</span>
@@ -481,11 +469,13 @@
 							</span>
 						</div>
 					</div>
-					<div class="rounded-lg border-2 border-zinc-900 px-3 py-1.5 text-right">
+					<div
+						class="rounded-lg border-2 border-zinc-900 px-3 py-1.5 text-right print:px-2 print:py-0.5"
+					>
 						<div class="text-[10px] font-bold tracking-wider text-zinc-600 uppercase">
 							{t('recipes.print_sheet.batch_size_label')}
 						</div>
-						<div class="font-mono text-lg font-extrabold text-zinc-950">
+						<div class="font-mono text-lg font-extrabold text-zinc-950 print:text-sm">
 							{settings.formatVolume(waterSchedule.targetFermenterVolumeLiters, 1)}
 						</div>
 						{#if targetVolumeBasis === 'packaged'}
@@ -500,31 +490,33 @@
 				<!-- Write-in Batch Identity Fields -->
 				<div
 					data-testid="print-identity-grid"
-					class="mt-3 grid grid-cols-2 gap-3 border-t border-zinc-300 pt-3 text-xs sm:grid-cols-4"
+					class="mt-3 grid grid-cols-2 gap-3 border-t border-zinc-300 pt-3 text-xs sm:grid-cols-4 print:mt-1.5 print:grid-cols-4 print:gap-2 print:pt-1.5"
 				>
 					<div>
 						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
 							{t('recipes.print_sheet.brew_date_label')}
 						</span>
-						<div class="mt-1 h-6 border-b border-dashed border-zinc-500"></div>
+						<div class="writein-line mt-1 h-6 border-b border-dashed border-zinc-500"></div>
 					</div>
 					<div>
 						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
 							{t('recipes.print_sheet.batch_code_label')}
 						</span>
-						<div class="mt-1 h-6 border-b border-dashed border-zinc-500"></div>
+						<div class="writein-line mt-1 h-6 border-b border-dashed border-zinc-500"></div>
 					</div>
 					<div>
 						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
 							{t('recipes.print_sheet.brewer_label')}
 						</span>
-						<div class="mt-1 h-6 border-b border-dashed border-zinc-500"></div>
+						<div class="writein-line mt-1 h-6 border-b border-dashed border-zinc-500"></div>
 					</div>
 					<div>
 						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
 							{t('recipes.print_sheet.equipment_used_label')}
 						</span>
-						<div class="mt-1 flex h-6 items-end border-b border-dashed border-zinc-500 text-xs">
+						<div
+							class="writein-line mt-1 flex h-6 items-end border-b border-dashed border-zinc-500 text-xs"
+						>
 							{selectedBoiler ? selectedBoiler.name : ''}
 						</div>
 					</div>
@@ -532,11 +524,13 @@
 			</section>
 
 			<!-- Vitals + Water & Volume Milestones Side-by-Side -->
-			<section class="sheet-section grid grid-cols-1 gap-4 md:grid-cols-2">
+			<section
+				class="sheet-section grid grid-cols-1 gap-4 md:grid-cols-2 print:grid-cols-2 print:gap-2"
+			>
 				<!-- Vital Targets vs Measured -->
 				<div
 					data-testid="print-vitals-section"
-					class="rounded-xl border border-zinc-300 p-3 print:rounded-none"
+					class="rounded-xl border border-zinc-300 p-3 print:rounded-none print:p-1.5"
 				>
 					<h3 class="mb-2 border-b border-zinc-200 pb-1 text-xs font-bold tracking-wider uppercase">
 						{t('recipes.print_sheet.vital_targets_title')}
@@ -611,7 +605,7 @@
 				<!-- Water & Volume Schedule -->
 				<div
 					data-testid="print-volumes-section"
-					class="rounded-xl border border-zinc-300 p-3 print:rounded-none"
+					class="rounded-xl border border-zinc-300 p-3 print:rounded-none print:p-1.5"
 				>
 					<h3 class="mb-2 border-b border-zinc-200 pb-1 text-xs font-bold tracking-wider uppercase">
 						{t('recipes.print_sheet.water_volumes_title')}
@@ -697,44 +691,87 @@
 			<!-- Stage 1: Mash Schedule & Grain Bill -->
 			<section
 				data-testid="print-mash-section"
-				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none"
+				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none print:p-1.5"
 			>
 				<h3 class="mb-2 border-b border-zinc-200 pb-1 text-xs font-bold tracking-wider uppercase">
 					{t('recipes.print_sheet.mash_section_title')}
 				</h3>
 
-				<!-- Mash Ingredients Checklist -->
+				<!-- Fermentables & Grain Bill Checklist (includes Mash Grains, Boil Sugars, Extracts & Priming) -->
 				<h4 class="mb-1 text-[11px] font-bold text-zinc-700">
-					{t('recipes.print_sheet.mash_ingredients_title')}
+					{t('recipes.print_sheet.fermentables_bill_title')}
 				</h4>
-				{#if mashIngredients.length === 0}
+				{#if fermentableIngredients.length === 0 && mashNonFermentableIngredients.length === 0}
 					<p class="mb-3 text-xs text-zinc-500 italic">{t('recipes.print_sheet.no_ingredients')}</p>
 				{:else}
-					<table class="mb-3 w-full border-collapse text-xs">
-						<thead>
-							<tr
-								class="border-b border-zinc-300 bg-zinc-50 text-left text-[10px] text-zinc-600 uppercase"
-							>
-								<th class="w-8 py-1 text-center">{t('recipes.print_sheet.done_col')}</th>
-								<th class="py-1">{t('recipes.print_sheet.ingredient_col')}</th>
-								<th class="py-1">{t('recipes.print_sheet.amount_col')}</th>
-								<th class="py-1">{t('recipes.print_sheet.stage_col')}</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-zinc-200">
-							{#each mashIngredients as item (item.id)}
-								<tr>
-									<td class="py-1.5 text-center">
-										<span class="inline-block h-3.5 w-3.5 border border-zinc-700 align-middle"
-										></span>
-									</td>
-									<td class="py-1.5 font-medium">{formatIngredientLabel(item)}</td>
-									<td class="py-1.5 font-mono font-bold">{formatScaledAmount(item)}</td>
-									<td class="py-1.5 text-zinc-600">{item.usage}</td>
+					{#if fermentableIngredients.length > 0}
+						<table
+							data-testid="print-fermentables-table"
+							class="mb-3 w-full border-collapse text-xs"
+						>
+							<thead>
+								<tr
+									class="border-b border-zinc-300 bg-zinc-50 text-left text-[10px] text-zinc-600 uppercase"
+								>
+									<th class="w-8 py-1 text-center">{t('recipes.print_sheet.done_col')}</th>
+									<th class="py-1">{t('recipes.print_sheet.ingredient_col')}</th>
+									<th class="py-1">{t('recipes.print_sheet.amount_col')}</th>
+									<th class="py-1">{t('recipes.print_sheet.stage_col')}</th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
+							</thead>
+							<tbody class="divide-y divide-zinc-200">
+								{#each fermentableIngredients as item (item.id)}
+									<tr>
+										<td class="py-1.5 text-center">
+											<span class="inline-block h-3.5 w-3.5 border border-zinc-700 align-middle"
+											></span>
+										</td>
+										<td class="py-1.5 font-medium">{formatIngredientLabel(item)}</td>
+										<td class="py-1.5 font-mono font-bold">{formatScaledAmount(item)}</td>
+										<td class="py-1.5 text-zinc-600">
+											{formatPrintableStageTiming(item, timingLabels)}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+
+					{#if mashNonFermentableIngredients.length > 0}
+						<h4 class="mb-1 text-[11px] font-bold text-zinc-700">
+							{t('recipes.print_sheet.mash_additions_title')}
+						</h4>
+						<table
+							data-testid="print-mash-additions-table"
+							class="mb-3 w-full border-collapse text-xs"
+						>
+							<thead>
+								<tr
+									class="border-b border-zinc-300 bg-zinc-50 text-left text-[10px] text-zinc-600 uppercase"
+								>
+									<th class="w-8 py-1 text-center">{t('recipes.print_sheet.done_col')}</th>
+									<th class="py-1">{t('recipes.print_sheet.ingredient_col')}</th>
+									<th class="py-1">{t('recipes.print_sheet.amount_col')}</th>
+									<th class="py-1">{t('recipes.print_sheet.stage_col')}</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-zinc-200">
+								{#each mashNonFermentableIngredients as item (item.id)}
+									<tr>
+										<td class="py-1.5 text-center">
+											<span class="inline-block h-3.5 w-3.5 border border-zinc-700 align-middle"
+											></span>
+										</td>
+										<td class="py-1.5 font-medium">{formatIngredientLabel(item)}</td>
+										<td class="py-1.5 font-mono font-bold">{formatScaledAmount(item)}</td>
+										<td class="py-1.5 text-zinc-600">
+											{formatPrintableStageTiming(item, timingLabels)}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
 				{/if}
 
 				<!-- Mash Steps Table -->
@@ -820,7 +857,7 @@
 			<!-- Stage 2: Boil Schedule & Additions -->
 			<section
 				data-testid="print-boil-section"
-				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none"
+				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none print:p-1.5"
 			>
 				<h3 class="mb-2 border-b border-zinc-200 pb-1 text-xs font-bold tracking-wider uppercase">
 					{t('recipes.print_sheet.boil_section_title')}
@@ -871,7 +908,7 @@
 			<!-- Stage 3 & 4: Fermentation, Conditioning & Gravity Log -->
 			<section
 				data-testid="print-fermentation-section"
-				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none"
+				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none print:p-1.5"
 			>
 				<h3 class="mb-2 border-b border-zinc-200 pb-1 text-xs font-bold tracking-wider uppercase">
 					{t('recipes.print_sheet.fermentation_section_title')}
@@ -989,8 +1026,8 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-zinc-200">
-						{#each gravityLogRows as rowNum (rowNum)}
-							<tr>
+						{#each gravityLogRows as rowNum, idx (rowNum)}
+							<tr class={idx >= 4 ? 'print:hidden' : ''}>
 								<td class="py-2.5"
 									><div class="h-4 border-b border-dashed border-zinc-300"></div></td
 								>
@@ -1017,65 +1054,6 @@
 					</tbody>
 				</table>
 			</section>
-
-			<!-- Stage 5: Packaging & Notes -->
-			<section
-				data-testid="print-packaging-section"
-				class="sheet-section rounded-xl border border-zinc-300 p-3 print:rounded-none"
-			>
-				<h3 class="mb-2 border-b border-zinc-200 pb-1 text-xs font-bold tracking-wider uppercase">
-					{t('recipes.print_sheet.packaging_section_title')}
-				</h3>
-
-				{#if packagingIngredients.length > 0}
-					<ul class="mb-3 space-y-1 text-xs">
-						{#each packagingIngredients as item (item.id)}
-							<li class="flex items-center gap-2">
-								<span class="inline-block h-3.5 w-3.5 border border-zinc-700"></span>
-								<span class="font-mono font-bold">{formatScaledAmount(item)}</span>
-								<span>{formatIngredientLabel(item)}</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-
-				<div class="grid grid-cols-1 gap-4 text-xs sm:grid-cols-3">
-					<div>
-						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
-							{t('recipes.print_sheet.packaging_vessel_label')}
-						</span>
-						<div class="mt-1 h-6 border-b border-dashed border-zinc-400"></div>
-					</div>
-					<div>
-						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
-							{t('recipes.print_sheet.packaged_volume')}
-						</span>
-						<div
-							class="mt-1 flex h-6 items-end border-b border-dashed border-zinc-400 text-[11px] text-zinc-500"
-						>
-							Target: {settings.formatVolume(waterSchedule.targetPackagedVolumeLiters, 1)}
-						</div>
-					</div>
-					<div>
-						<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
-							{t('recipes.print_sheet.carbonation_target_label')}
-						</span>
-						<div class="mt-1 h-6 border-b border-dashed border-zinc-400"></div>
-					</div>
-				</div>
-
-				<div class="mt-4">
-					<span class="block text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
-						{t('recipes.print_sheet.brew_notes_title')}
-					</span>
-					{#if recipe.description}
-						<p class="mt-1 text-xs text-zinc-700">{recipe.description}</p>
-					{/if}
-					<div class="mt-2 h-6 border-b border-dashed border-zinc-300"></div>
-					<div class="mt-2 h-6 border-b border-dashed border-zinc-300"></div>
-					<div class="mt-2 h-6 border-b border-dashed border-zinc-300"></div>
-				</div>
-			</section>
 		</main>
 	{/if}
 </div>
@@ -1083,8 +1061,8 @@
 <style>
 	@media print {
 		:global(body) {
-			background: white !important;
-			color: black !important;
+			background: #ffffff !important;
+			color: #09090b !important;
 			margin: 0 !important;
 			padding: 0 !important;
 		}
@@ -1094,26 +1072,72 @@
 		}
 
 		.print-container {
-			background: white !important;
+			background: #ffffff !important;
 			padding: 0 !important;
-			min-height: auto !important;
+			min-height: 0 !important;
 		}
 
 		.brew-sheet-canvas {
-			background: white !important;
-			color: black !important;
+			background: #ffffff !important;
+			color: #09090b !important;
 			box-shadow: none !important;
 			padding: 0 !important;
+			font-size: 9px !important;
+			line-height: 1.15 !important;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+
+		.brew-sheet-canvas :global(h3) {
+			font-size: 9.5px !important;
+			margin-bottom: 2px !important;
+			padding-bottom: 1px !important;
+			break-after: avoid;
+			page-break-after: avoid;
+		}
+
+		.brew-sheet-canvas :global(h4) {
+			font-size: 9px !important;
+			margin-bottom: 1px !important;
+			break-after: avoid;
+			page-break-after: avoid;
+		}
+
+		.brew-sheet-canvas :global(table) {
+			font-size: 9px !important;
+			margin-bottom: 3px !important;
+		}
+
+		.brew-sheet-canvas :global(th),
+		.brew-sheet-canvas :global(td) {
+			padding-top: 1.5px !important;
+			padding-bottom: 1.5px !important;
+			line-height: 1.15 !important;
+		}
+
+		.brew-sheet-canvas :global(tr) {
+			break-inside: avoid;
+			page-break-inside: avoid;
+		}
+
+		.brew-sheet-canvas :global(.writein-line),
+		.brew-sheet-canvas :global(td > div.border-b) {
+			height: 9px !important;
+			margin-top: 1px !important;
+		}
+
+		.brew-sheet-canvas :global(td span.border) {
+			height: 9px !important;
+			width: 9px !important;
 		}
 
 		.sheet-section {
-			page-break-inside: avoid;
-			break-inside: avoid;
+			padding: 4px 6px !important;
 		}
 
 		@page {
 			size: A4 portrait;
-			margin: 10mm;
+			margin: 5mm 7mm;
 		}
 	}
 </style>

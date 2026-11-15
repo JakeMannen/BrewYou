@@ -1,5 +1,5 @@
 import { t } from '$lib/i18n/index.svelte';
-import type { IngredientType } from '$lib/types/api';
+import type { FermentableCategory, IngredientType } from '$lib/types/api';
 
 export function normalizeIngredientKey(name: string): string {
 	return name
@@ -47,4 +47,14 @@ export function getLocalizedIngredientForm(form?: string | null): string {
 	const translationKey = `ingredients.forms.${key}`;
 	const translated = t(translationKey);
 	return translated !== translationKey ? translated : form;
+}
+
+export function getLocalizedFermentableCategory(
+	category?: FermentableCategory | string | null
+): string {
+	if (!category) return '';
+	const key = category.toLowerCase().trim();
+	const translationKey = `ingredients.fermentable_categories.${key}`;
+	const translated = t(translationKey);
+	return translated !== translationKey ? translated : category;
 }
