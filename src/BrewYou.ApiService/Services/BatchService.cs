@@ -1803,6 +1803,12 @@ public class BatchService : IBatchService
         return (decimal)Math.Max(1.0, totalPoints);
     }
 
+    internal static bool IsEligibleBatchTelemetrySensor(Equipment equipment)
+    {
+        return (equipment.Type is EquipmentType.Sensor or EquipmentType.Other) &&
+               equipment.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor;
+    }
+
     private async Task<(bool IsValid, List<BatchSensorAssignment> Assignments, string? ErrorMessage)> ValidateAndBuildSensorAssignmentsAsync(
         Batch batch,
         IEnumerable<BatchSensorAssignmentInput> inputs,
@@ -1828,6 +1834,14 @@ public class BatchService : IBatchService
             var sensorEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == sa.EquipmentId);
             if (sensorEq != null)
             {
+                if (!IsEligibleBatchTelemetrySensor(sensorEq))
+                {
+                    var message = sensorEq.Subtype == EquipmentSubtype.BrewLink
+                        ? "BrewLink gateway equipment cannot be assigned as a batch telemetry sensor."
+                        : $"Equipment '{sensorEq.Name}' is not a valid telemetry sensor. Only iSpindel, Tilt, and Generic Sensor equipment can be assigned.";
+                    return (false, [], message);
+                }
+
                 assignments.Add(new BatchSensorAssignment
                 {
                     BatchId = batch.Id,

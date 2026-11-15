@@ -877,6 +877,8 @@ public class TelemetryService : ITelemetryService
 
         var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
 
+        var isEligibleTelemetrySensor = BatchService.IsEligibleBatchTelemetrySensor(equipment);
+
         // Check if this equipment is currently in use for the active stage of an in-progress batch
         var activeBatch = await _db.Batches
             .Include(b => b.MashSteps)
@@ -891,14 +893,14 @@ public class TelemetryService : ITelemetryService
                     (equipment.Id == b.BoilerId && b.CurrentStage == BrewStage.Boil && b.BrewDate >= todayUtc) ||
                     (equipment.Id == b.FermenterId && (b.CurrentStage == BrewStage.Ferment || b.CurrentStage == BrewStage.Condition)) ||
                     (equipment.Id == b.PackagingVesselId && b.CurrentStage == BrewStage.Package) ||
-                    ((equipment.Type == EquipmentType.Sensor || equipment.Type == EquipmentType.Other) && b.SensorAssignments.Any(sa =>
+                    (isEligibleTelemetrySensor && b.SensorAssignments.Any(sa =>
                         sa.EquipmentId == equipment.Id &&
                         (sa.Stage == null || sa.Stage == b.CurrentStage)))
                 ));
 
         if (activeBatch != null)
         {
-            if (equipment.Type == EquipmentType.Sensor || equipment.Type == EquipmentType.Other)
+            if (isEligibleTelemetrySensor)
             {
                 // Find matching sensor assignment for this batch
                 var assignment = activeBatch.SensorAssignments

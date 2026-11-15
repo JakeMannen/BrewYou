@@ -2357,4 +2357,63 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         delRes.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadEquipmentSnapshotAsync()).Should().Be(baseline);
     }
+
+    [Fact]
+    public async Task BatchSensorAssignments_RejectBrewLinkGatewayAndTap_ViaHttpEndpoints()
+    {
+        var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var setupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!.First(s => s.IsDefault).Id;
+
+        var gwRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, "Garage BrewLink", EquipmentType.Sensor, 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            ConnectionType: EquipmentConnectionType.BrewLink));
+        gwRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var gw = (await gwRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var tapRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, "Bar Tap #1", EquipmentType.Tap, 0m,
+            Subtype: EquipmentSubtype.StandardTap));
+        tapRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var tap = (await tapRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var tiltRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, "Green Tilt", EquipmentType.Sensor, 0m,
+            Subtype: EquipmentSubtype.Tilt));
+        tiltRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var tilt = (await tiltRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        // 1. POST /api/v1/batches with BrewLink gateway sensor -> 400 BadRequest
+        var createBadRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-{Guid.NewGuid():N}"[..16], "Gateway Sensor Batch", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m,
+            boilerId, fermenterId,
+            SensorAssignments: [new BatchSensorAssignmentInput(gw.Id, BrewStage.Ferment, null)]));
+        createBadRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 2. Create valid batch with Tilt sensor -> 201 Created
+        var createOkRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-{Guid.NewGuid():N}"[..16], "Tilt Sensor Batch", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m,
+            boilerId, fermenterId,
+            SensorAssignments: [new BatchSensorAssignmentInput(tilt.Id, BrewStage.Ferment, null)]));
+        createOkRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await createOkRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 3. PUT /api/v1/batches/{id}/sensors with BrewLink gateway or Tap -> 400 BadRequest
+        var putGwRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(gw.Id, BrewStage.Ferment, null) });
+        putGwRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var putTapRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(tap.Id, BrewStage.Ferment, null) });
+        putTapRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 4. PUT /api/v1/batches/{id} with BrewLink gateway -> 400 BadRequest
+        var updGwRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}",
+            new UpdateBatchRequest(SensorAssignments: [new(gw.Id, BrewStage.Ferment, null)]));
+        updGwRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 }

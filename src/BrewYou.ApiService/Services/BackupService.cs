@@ -1483,6 +1483,11 @@ public class BackupService : IBackupService
 
                 await _db.SaveChangesAsync();
 
+                var eligibleSensorEquipmentIds = existingUserEquipment
+                    .Where(BatchService.IsEligibleBatchTelemetrySensor)
+                    .Select(e => e.Id)
+                    .ToHashSet();
+
                 // 8. Restore Batches
                 var existingUserBatches = await _db.Batches
                     .Include(b => b.VolumeProfile)
@@ -1577,7 +1582,7 @@ public class BackupService : IBackupService
                             _db.BatchSensorAssignments.RemoveRange(existingBatch.SensorAssignments);
                             await _db.SaveChangesAsync();
 
-                            PopulateBatchChildren(existingBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap);
+                            PopulateBatchChildren(existingBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap, eligibleSensorEquipmentIds);
                             if (existingBatch.VolumeProfile != null)
                             {
                                 _db.BatchVolumeProfiles.Add(existingBatch.VolumeProfile);
@@ -1646,7 +1651,7 @@ public class BackupService : IBackupService
                             CompletedAt = batchDto.CompletedAt
                         };
 
-                        PopulateBatchChildren(newBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap);
+                        PopulateBatchChildren(newBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap, eligibleSensorEquipmentIds);
                         _db.Batches.Add(newBatch);
                         existingUserBatches.Add(newBatch);
                         batchIdMap[batchDto.Id] = newBatch.Id;
@@ -2567,7 +2572,8 @@ public class BackupService : IBackupService
         BatchBackupDto dto,
         Dictionary<Guid, Guid> ingredientIdMap,
         Dictionary<Guid, Guid> equipmentIdMap,
-        Dictionary<Guid, Guid> batchMashStepIdMap)
+        Dictionary<Guid, Guid> batchMashStepIdMap,
+        HashSet<Guid> eligibleSensorEquipmentIds)
     {
         if (dto.VolumeProfile != null)
         {
@@ -2700,6 +2706,10 @@ public class BackupService : IBackupService
         foreach (var sa in dto.SensorAssignments ?? [])
         {
             if (!equipmentIdMap.TryGetValue(sa.EquipmentId, out var targetEqId))
+            {
+                continue;
+            }
+            if (!eligibleSensorEquipmentIds.Contains(targetEqId))
             {
                 continue;
             }

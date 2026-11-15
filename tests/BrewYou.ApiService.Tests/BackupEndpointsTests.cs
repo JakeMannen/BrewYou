@@ -8,6 +8,7 @@ using BrewYou.ApiService.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Headers;
@@ -1357,6 +1358,75 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             var parsedFermConfig = JsonSerializer.Deserialize<JsonElement>(restoredFerm.ConnectionConfigJson!);
             parsedFermConfig.GetProperty("brewLinkGatewayId").GetString().Should().Be(targetGateway.Id.ToString());
             parsedFermConfig.GetProperty("targetName").GetString().Should().Be("Rapt Fermenter");
+        }
+    }
+
+    [Fact]
+    public async Task Restore_SanitizesLegacyBatchSensorAssignmentPointingToBrewLinkGateway()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Legacy Sensor Cleanup Brewer");
+
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var setups = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var defaultSetupId = setups.First(s => s.IsDefault).Id;
+
+        var gwEqRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            defaultSetupId, "Legacy BrewLink", EquipmentType.Sensor, 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            ConnectionType: EquipmentConnectionType.BrewLink));
+        gwEqRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var gwEq = (await gwEqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var tiltRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            defaultSetupId, "Valid Tilt", EquipmentType.Sensor, 0m,
+            Subtype: EquipmentSubtype.Tilt));
+        tiltRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var tilt = (await tiltRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-{Guid.NewGuid():N}"[..16], "Legacy Cleanup Batch", "Pale Ale",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m,
+            null, null,
+            SensorAssignments: [new BatchSensorAssignmentInput(tilt.Id, BrewStage.Ferment, null)]));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // Simulate legacy DB state where a BrewLink gateway was previously attached to the batch
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            db.BatchSensorAssignments.Add(new BatchSensorAssignment
+            {
+                Id = Guid.NewGuid(),
+                BatchId = batch.Id,
+                EquipmentId = gwEq.Id,
+                Stage = BrewStage.Ferment,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var exportRes = await client.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        var (targetClient, targetUserId, _) = await CreateAuthenticatedUserAsync("Target Restore Cleanup Brewer");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(
+            envelope,
+            new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var restoredBatch = db.Batches
+                .Include(b => b.SensorAssignments)
+                    .ThenInclude(sa => sa.Equipment)
+                .FirstOrDefault(b => b.UserId == targetUserId && b.Name == "Legacy Cleanup Batch");
+
+            restoredBatch.Should().NotBeNull();
+            restoredBatch!.SensorAssignments.Should().ContainSingle();
+            restoredBatch.SensorAssignments.First().Equipment!.Subtype.Should().Be(EquipmentSubtype.Tilt);
         }
     }
 }

@@ -1,4 +1,4 @@
-import type { EquipmentSubtype } from '$lib/types/api';
+import type { EquipmentSubtype, EquipmentType } from '$lib/types/api';
 
 /**
  * Chamber coordinate boundaries for liquid fill calculations (y: 0 to 48).
@@ -44,6 +44,26 @@ export const SENSOR_SUBTYPES: EquipmentSubtype[] = [
 	'ISpindel',
 	'BrewLink'
 ];
+
+/**
+ * Sensor subtypes that actually ingest SG/temperature batch telemetry.
+ * Excludes gateway/interface placeholders like BrewLink.
+ */
+export const TELEMETRY_SENSOR_SUBTYPES: EquipmentSubtype[] = ['GenericSensor', 'Tilt', 'ISpindel'];
+
+/**
+ * Checks whether an equipment item is an eligible telemetry sensor for batch telemetry
+ * assignment (e.g. iSpindel, Tilt, GenericSensor), excluding BrewLink gateways, taps, and vessels.
+ */
+export function isBatchTelemetrySensor(equipment: {
+	type: EquipmentType | string;
+	subtype: EquipmentSubtype | string;
+}): boolean {
+	return (
+		(equipment.type === 'Sensor' || equipment.type === 'Other') &&
+		TELEMETRY_SENSOR_SUBTYPES.includes(equipment.subtype as EquipmentSubtype)
+	);
+}
 
 /**
  * Subtypes that are not liquid-bearing vessels (sensors, taps).

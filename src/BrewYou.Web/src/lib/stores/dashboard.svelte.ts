@@ -182,10 +182,12 @@ class DashboardStore {
 	probeStats = $derived.by(() => {
 		const totalProbes = this.equipment.filter(
 			(e) =>
-				e.subtype === 'ISpindel' ||
-				e.subtype === 'Tilt' ||
-				e.subtype === 'GenericSensor' ||
-				e.connectionType !== 'None'
+				e.subtype !== 'BrewLink' &&
+				e.type !== 'Tap' &&
+				(e.subtype === 'ISpindel' ||
+					e.subtype === 'Tilt' ||
+					e.subtype === 'GenericSensor' ||
+					e.connectionType !== 'None')
 		);
 		const onlineProbes = totalProbes.filter(
 			(e) => e.currentTemperatureC !== null && e.currentTemperatureC !== undefined
