@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
@@ -75,7 +76,7 @@
 	let currentVolume = $state<number | ''>('');
 	let unit = $state<VolumeUnit>('Liters');
 	let description = $state('');
-	let notes = $state('');
+	let legacyNotes = $state<string | null>(null);
 
 	let boilOffRatePerHour = $state<number | ''>('');
 	let trubLossLiters = $state<number | ''>('');
@@ -211,6 +212,9 @@
 
 	let isSubmitting = $state(false);
 	let errorMessage = $state<string | null>(null);
+	let dialogPanel = $state<HTMLDivElement | null>(null);
+	let previousActiveElement: HTMLElement | null = null;
+	let subtypeCount = $derived((EQUIPMENT_SUBTYPES_BY_TYPE[type] || ['Other']).length);
 
 	let isDuplicateName = $derived.by(() => {
 		const trimmed = name.trim().toLowerCase();
@@ -342,8 +346,16 @@
 					capacity = parseFloat(equipment.capacityLiters.toFixed(1));
 					currentVolume = parseFloat(equipment.currentVolumeLiters.toFixed(1));
 				}
-				description = equipment.description ?? '';
-				notes = equipment.notes ?? '';
+				const existingDesc = equipment.description?.trim() ?? '';
+				const existingNotes = equipment.notes?.trim() ?? '';
+				const combinedDesc = [existingDesc, existingNotes].filter(Boolean).join('\n');
+				if (combinedDesc.length <= 500) {
+					description = combinedDesc;
+					legacyNotes = null;
+				} else {
+					description = existingDesc;
+					legacyNotes = existingNotes || null;
+				}
 				boilOffRatePerHour = equipment.boilOffRatePerHour ?? '';
 				trubLossLiters = equipment.trubLossLiters ?? '';
 				mashTunDeadSpaceLiters = equipment.mashTunDeadSpaceLiters ?? '';
@@ -454,7 +466,7 @@
 						: defLiters;
 				currentVolume = 0;
 				description = '';
-				notes = '';
+				legacyNotes = null;
 				const defLosses = DEFAULT_LOSSES_BY_TYPE[initialCategory];
 				boilOffRatePerHour = defLosses.boilOffRatePerHour;
 				trubLossLiters = defLosses.trubLossLiters;
@@ -493,8 +505,25 @@
 	});
 
 	$effect(() => {
-		if (!open) return;
+		if (!open) {
+			if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+				previousActiveElement.focus();
+			}
+			previousActiveElement = null;
+			return;
+		}
+		if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+			previousActiveElement = document.activeElement;
+		}
+		void tick().then(() => {
+			const nameInput = dialogPanel?.querySelector<HTMLElement>('#equipment-name');
+			nameInput?.focus();
+		});
 		void loadBrewLinkGateways();
+	});
+
+	$effect(() => {
+		if (!open) return;
 		const currentName = name;
 		const prefix = settings.mqttTopicPrefix;
 		if (!isTopicCustomized) {
@@ -881,7 +910,7 @@
 					currentVolume: numCurrent,
 					unit,
 					description: description.trim() || null,
-					notes: notes.trim() || null,
+					notes: legacyNotes,
 					boilOffRatePerHour:
 						type === 'Sensor' || type === 'Tap' || boilOffRatePerHour === ''
 							? null
@@ -931,7 +960,7 @@
 					currentVolume: numCurrent,
 					unit,
 					description: description.trim() || null,
-					notes: notes.trim() || null,
+					notes: null,
 					boilOffRatePerHour:
 						type === 'Sensor' || type === 'Tap' || boilOffRatePerHour === ''
 							? null
@@ -997,8 +1026,34 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && open) {
+		if (!open || showRegenerateTokenModal) return;
+
+		if (e.key === 'Escape') {
 			onClose();
+			return;
+		}
+
+		if (e.key === 'Tab' && dialogPanel) {
+			const focusable = Array.from(
+				dialogPanel.querySelectorAll<HTMLElement>(
+					'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+				)
+			).filter((el) => el.offsetParent !== null);
+
+			if (focusable.length === 0) return;
+
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+
+			if (e.shiftKey) {
+				if (document.activeElement === first || !dialogPanel.contains(document.activeElement)) {
+					e.preventDefault();
+					last.focus();
+				}
+			} else if (document.activeElement === last || !dialogPanel.contains(document.activeElement)) {
+				e.preventDefault();
+				first.focus();
+			}
 		}
 	}
 </script>
@@ -1007,7 +1062,7 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center p-4"
+		class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="equipment-modal-title"
@@ -1021,10 +1076,11 @@
 
 		<!-- Dialog Panel -->
 		<div
-			class="relative z-10 max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl transition-all dark:border-zinc-800 dark:bg-zinc-950"
+			bind:this={dialogPanel}
+			class="relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl transition-all dark:border-zinc-800 dark:bg-zinc-950"
 		>
 			<div
-				class="flex items-start justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800"
+				class="flex shrink-0 items-start justify-between border-b border-zinc-200 px-5 py-4 sm:px-6 dark:border-zinc-800"
 			>
 				<div>
 					<h2 id="equipment-modal-title" class="text-lg font-bold text-zinc-900 dark:text-zinc-100">
@@ -1050,1092 +1106,1154 @@
 				</button>
 			</div>
 
-			<form onsubmit={handleSubmit} class="mt-4 space-y-4">
-				{#if errorMessage}
-					<div
-						data-testid="equipment-error-banner"
-						class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
-					>
-						{errorMessage}
-					</div>
-				{/if}
-
-				<!-- Name -->
-				<div>
-					<label
-						for="equipment-name"
-						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('equipment.name')} <span class="text-amber-500">*</span>
-					</label>
-					<input
-						id="equipment-name"
-						type="text"
-						bind:value={name}
-						placeholder={t('equipment.name_placeholder')}
-						maxlength="100"
-						required
-						aria-invalid={isDuplicateName}
-						aria-errormessage={isDuplicateName ? 'equipment-name-error' : undefined}
-						class="mt-1 h-10 w-full rounded-xl border bg-white px-3 text-sm text-zinc-900 placeholder-zinc-400 transition-colors focus:outline-none dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600 {isDuplicateName
-							? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/30 dark:border-red-500'
-							: 'border-zinc-300 focus:border-amber-500 dark:border-zinc-800'}"
-					/>
-					{#if isDuplicateName}
-						<p
-							id="equipment-name-error"
-							class="mt-1 text-xs text-red-600 dark:text-red-400"
+			<form onsubmit={handleSubmit} class="flex min-h-0 flex-1 flex-col">
+				<div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
+					{#if errorMessage}
+						<div
+							data-testid="equipment-error-banner"
 							role="alert"
-							aria-live="polite"
+							aria-live="assertive"
+							class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
 						>
-							{t('equipment.err_duplicate_name')}
-						</p>
+							{errorMessage}
+						</div>
 					{/if}
-				</div>
 
-				<!-- Category Tabs -->
-				<div>
-					<span class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-						{t('equipment.category')} <span class="text-amber-500">*</span>
-					</span>
-					<div class="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-6 sm:gap-2">
-						{#each ['Boiler', 'Fermenter', 'Keg', 'Tap', 'Sensor', 'Other'] as const as opt}
-							<button
-								type="button"
-								data-testid={`category-tab-${opt.toLowerCase()}`}
-								onclick={() => handleCategoryChange(opt)}
-								class="rounded-xl border py-2 text-xs font-medium transition-colors {type === opt
-									? 'border-amber-500 bg-amber-500/10 font-bold text-amber-600 dark:text-amber-400'
-									: 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
-							>
-								{getCategoryName(opt)}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Selectable Thematic Vessel Styles -->
-				<div>
-					<span
-						id="vessel-selector-label"
-						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('equipment.vessel_type_label')} <span class="text-amber-500">*</span>
-					</span>
-					<div
-						role="radiogroup"
-						aria-labelledby="vessel-selector-label"
-						class="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-3"
-					>
-						{#each EQUIPMENT_SUBTYPES_BY_TYPE[type] || ['Other'] as subOpt}
-							{@const isSelected = subtype === subOpt}
-							<button
-								type="button"
-								role="radio"
-								aria-checked={isSelected}
-								onclick={() => handleSubtypeSelect(subOpt)}
-								class="group relative flex flex-col items-center justify-between rounded-xl border p-2.5 text-center transition-all duration-200 {isSelected
-									? 'border-amber-500 bg-amber-500/10 shadow-[0_0_14px_rgba(245,158,11,0.18)] ring-1 ring-amber-500/40'
-									: 'border-zinc-200 bg-zinc-50/50 hover:border-zinc-300 hover:bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/80'}"
-							>
-								{#if isSelected}
-									<span
-										class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-zinc-950 shadow-sm"
-									>
-										<Check class="h-2.5 w-2.5 stroke-[3]" />
-									</span>
-								{/if}
-
-								<div class="my-1 flex h-11 w-11 items-center justify-center">
-									<VesselIcon
-										subtype={subOpt}
-										size={40}
-										fillPercent={isSelected ? fillPercent : 0}
-										active={isSelected}
-										showMeter={false}
-										class={isSelected
-											? 'text-amber-500'
-											: 'text-zinc-500 group-hover:text-zinc-700 dark:text-zinc-400 dark:group-hover:text-zinc-200'}
-									/>
-								</div>
-
-								<div class="mt-1 flex flex-col items-center">
-									<span
-										class="text-xs font-bold {isSelected
-											? 'text-amber-600 dark:text-amber-400'
-											: 'text-zinc-800 dark:text-zinc-200'}"
-									>
-										{getSubtypeName(subOpt)}
-									</span>
-									<span
-										class="mt-0.5 line-clamp-1 text-[10px] text-zinc-500 dark:text-zinc-400"
-										title={getSubtypeDescription(subOpt)}
-									>
-										{getSubtypeDescription(subOpt)}
-									</span>
-								</div>
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- All-In-One Model Preset Selector -->
-				{#if type === 'Boiler' && subtype === 'AllInOne'}
-					<div
-						data-testid="aio-preset-container"
-						class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
-					>
-						<label
-							for="aio-preset-select"
-							class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
-						>
-							{t('equipment.preset_select_label')}
-						</label>
-						<select
-							id="aio-preset-select"
-							data-testid="aio-preset-select"
-							value={selectedAioPreset}
-							onchange={(e) => handleAioPresetSelect(e.currentTarget.value)}
-							class="mt-1.5 h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-						>
-							<option value="">{t('equipment.preset_select_placeholder')}</option>
-							{#each ALL_IN_ONE_PRESETS as preset}
-								<option value={preset.name}>
-									{preset.name} ({preset.capacityLiters}L)
-								</option>
-							{/each}
-						</select>
-						<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-							{t('equipment.preset_select_help')}
-						</p>
-					</div>
-				{/if}
-
-				{#if isFillable}
-					<!-- Capacity & Unit -->
+					<!-- Name -->
 					<div>
 						<label
-							for="equipment-capacity"
+							for="equipment-name"
 							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 						>
-							{t('equipment.capacity')} <span class="text-amber-500">*</span>
+							{t('equipment.name')} <span class="text-amber-500">*</span>
 						</label>
-						<div class="mt-1 flex items-center gap-2">
-							<input
-								id="equipment-capacity"
-								type="number"
-								step="0.1"
-								min="0.1"
-								max="100000"
-								bind:value={capacity}
-								placeholder={t('equipment.capacity_placeholder')}
-								required
-								class="h-10 flex-1 rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-							/>
-							<span
-								class="inline-flex h-10 items-center rounded-xl border border-zinc-300 bg-zinc-100 px-3.5 text-xs font-bold text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300"
-								title={t('equipment.unit')}
+						<input
+							id="equipment-name"
+							type="text"
+							bind:value={name}
+							placeholder={t('equipment.name_placeholder')}
+							maxlength="100"
+							required
+							aria-invalid={isDuplicateName}
+							aria-errormessage={isDuplicateName ? 'equipment-name-error' : undefined}
+							class="mt-1 h-10 w-full rounded-xl border bg-white px-3 text-sm text-zinc-900 placeholder-zinc-400 transition-colors focus:outline-none dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600 {isDuplicateName
+								? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/30 dark:border-red-500'
+								: 'border-zinc-300 focus:border-amber-500 dark:border-zinc-800'}"
+						/>
+						{#if isDuplicateName}
+							<p
+								id="equipment-name-error"
+								class="mt-1 text-xs text-red-600 dark:text-red-400"
+								role="alert"
+								aria-live="polite"
 							>
-								{unit === 'Liters' ? t('equipment.liters') : t('equipment.gallons')}
-							</span>
-						</div>
-						{#if convertedPreview}
-							<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-								{convertedPreview}
+								{t('equipment.err_duplicate_name')}
 							</p>
 						{/if}
 					</div>
 
-					<!-- Fill Level Section (Visual Slider + Live Preview) -->
-					<div
-						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
-					>
-						<div class="flex items-center justify-between">
-							<label for="fill-slider" class="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-								{t('equipment.fill_level')}
-							</label>
-							<span
-								class="inline-flex items-center rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
-							>
-								{t('equipment.filled_pct', { pct: fillPercent })}
-							</span>
+					<!-- Category Tabs -->
+					<div>
+						<span
+							id="equipment-category-label"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('equipment.category')} <span class="text-amber-500">*</span>
+						</span>
+						<div
+							role="group"
+							aria-labelledby="equipment-category-label"
+							class="mt-1 grid grid-cols-3 gap-1.5 sm:grid-cols-6 sm:gap-2"
+						>
+							{#each ['Boiler', 'Fermenter', 'Keg', 'Tap', 'Sensor', 'Other'] as const as opt}
+								<button
+									type="button"
+									data-testid={`category-tab-${opt.toLowerCase()}`}
+									aria-pressed={type === opt}
+									onclick={() => handleCategoryChange(opt)}
+									class="rounded-xl border py-2 text-xs font-medium transition-colors {type === opt
+										? 'border-amber-500 bg-amber-500/10 font-bold text-amber-600 dark:text-amber-400'
+										: 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+								>
+									{getCategoryName(opt)}
+								</button>
+							{/each}
 						</div>
+					</div>
 
-						<div class="mt-2.5 flex items-center gap-3">
-							<!-- Real-time Animated Vessel Graphic Feedback -->
+					<!-- Selectable Thematic Vessel Styles -->
+					<div>
+						<span
+							id="vessel-selector-label"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('equipment.vessel_type_label')} <span class="text-amber-500">*</span>
+						</span>
+						<div
+							role="radiogroup"
+							aria-labelledby="vessel-selector-label"
+							class="mt-1.5 grid grid-cols-2 gap-2.5 {subtypeCount === 4
+								? 'sm:grid-cols-2 md:grid-cols-4'
+								: 'sm:grid-cols-3'}"
+						>
+							{#each EQUIPMENT_SUBTYPES_BY_TYPE[type] || ['Other'] as subOpt}
+								{@const isSelected = subtype === subOpt}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={isSelected}
+									onclick={() => handleSubtypeSelect(subOpt)}
+									class="group relative flex flex-col items-center justify-between rounded-xl border p-2.5 text-center transition-all duration-200 {isSelected
+										? 'border-amber-500 bg-amber-500/10 shadow-[0_0_14px_rgba(245,158,11,0.18)] ring-1 ring-amber-500/40'
+										: 'border-zinc-200 bg-zinc-50/50 hover:border-zinc-300 hover:bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/80'}"
+								>
+									{#if isSelected}
+										<span
+											class="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-zinc-950 shadow-sm"
+										>
+											<Check class="h-2.5 w-2.5 stroke-[3]" />
+										</span>
+									{/if}
+
+									<div class="my-1 flex h-11 w-11 items-center justify-center">
+										<VesselIcon
+											subtype={subOpt}
+											size={40}
+											fillPercent={isSelected ? fillPercent : 0}
+											active={isSelected}
+											showMeter={false}
+											class={isSelected
+												? 'text-amber-500'
+												: 'text-zinc-500 group-hover:text-zinc-700 dark:text-zinc-400 dark:group-hover:text-zinc-200'}
+										/>
+									</div>
+
+									<div class="mt-1 flex flex-col items-center">
+										<span
+											class="text-xs font-bold {isSelected
+												? 'text-amber-600 dark:text-amber-400'
+												: 'text-zinc-800 dark:text-zinc-200'}"
+										>
+											{getSubtypeName(subOpt)}
+										</span>
+										<span
+											class="mt-0.5 line-clamp-1 text-[10px] text-zinc-500 dark:text-zinc-400"
+											title={getSubtypeDescription(subOpt)}
+										>
+											{getSubtypeDescription(subOpt)}
+										</span>
+									</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<!-- All-In-One Model Preset Selector -->
+					{#if type === 'Boiler' && subtype === 'AllInOne'}
+						<div
+							data-testid="aio-preset-container"
+							class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
+						>
+							<div class="grid grid-cols-1 gap-2.5 md:grid-cols-12 md:items-center md:gap-4">
+								<div class="md:col-span-6">
+									<label
+										for="aio-preset-select"
+										class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+									>
+										{t('equipment.preset_select_label')}
+									</label>
+									<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+										{t('equipment.preset_select_help')}
+									</p>
+								</div>
+								<div class="md:col-span-6">
+									<select
+										id="aio-preset-select"
+										data-testid="aio-preset-select"
+										value={selectedAioPreset}
+										onchange={(e) => handleAioPresetSelect(e.currentTarget.value)}
+										class="h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+									>
+										<option value="">{t('equipment.preset_select_placeholder')}</option>
+										{#each ALL_IN_ONE_PRESETS as preset}
+											<option value={preset.name}>
+												{preset.name} ({preset.capacityLiters}L)
+											</option>
+										{/each}
+									</select>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					{#if isFillable}
+						<!-- Capacity & Current Fill Level (Side-by-Side on md+) -->
+						<div class="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-stretch">
+							<!-- Capacity & Unit -->
+							<div
+								class="flex flex-col justify-between rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 md:col-span-5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+							>
+								<div>
+									<label
+										for="equipment-capacity"
+										class="block text-xs font-bold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('equipment.capacity')} <span class="text-amber-500">*</span>
+									</label>
+									<div class="mt-2 flex items-center gap-2">
+										<input
+											id="equipment-capacity"
+											type="number"
+											step="0.1"
+											min="0.1"
+											max="100000"
+											bind:value={capacity}
+											placeholder={t('equipment.capacity_placeholder')}
+											required
+											class="h-10 min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+										<span
+											class="inline-flex h-10 shrink-0 items-center rounded-xl border border-zinc-300 bg-zinc-100 px-3 text-xs font-bold text-zinc-700 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300"
+											title={t('equipment.unit')}
+										>
+											{unit === 'Liters' ? t('equipment.liters') : t('equipment.gallons')}
+										</span>
+									</div>
+								</div>
+								{#if convertedPreview}
+									<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+										{convertedPreview}
+									</p>
+								{/if}
+							</div>
+
+							<!-- Fill Level Section (Visual Slider + Live Preview) -->
+							<div
+								class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 md:col-span-7 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+							>
+								<div class="flex items-center justify-between gap-2">
+									<label
+										for="fill-slider"
+										class="text-xs font-bold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('equipment.fill_level')}
+									</label>
+									<span
+										class="inline-flex items-center rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-bold text-amber-600 dark:text-amber-400"
+									>
+										{t('equipment.filled_pct', { pct: fillPercent })}
+									</span>
+								</div>
+
+								<div class="mt-2.5 flex items-center gap-3">
+									<!-- Real-time Animated Vessel Graphic Feedback -->
+									<div
+										class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white p-1 shadow-inner dark:border-zinc-800 dark:bg-zinc-950"
+									>
+										<VesselIcon
+											{subtype}
+											size={42}
+											{fillPercent}
+											active={true}
+											class="text-zinc-800 dark:text-zinc-200"
+										/>
+									</div>
+
+									<!-- Slider & Numeric Input Controls -->
+									<div class="flex min-w-0 flex-1 flex-col gap-2">
+										<div class="flex items-center gap-2">
+											<input
+												id="fill-slider"
+												type="range"
+												min="0"
+												max={Number(capacity) || 100}
+												step="0.5"
+												bind:value={currentVolume}
+												aria-label={t('equipment.fill_level')}
+												aria-valuemin="0"
+												aria-valuemax={Number(capacity) || 100}
+												aria-valuenow={Number(currentVolume) || 0}
+												aria-valuetext="{currentVolume || 0} {unit === 'Liters'
+													? 'L'
+													: 'gal'}, {fillPercent}% full"
+												class="h-2 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-amber-500 dark:bg-zinc-800"
+											/>
+											<div class="flex shrink-0 items-center gap-1">
+												<input
+													id="equipment-current-volume"
+													type="number"
+													min="0"
+													max={Number(capacity) || 100000}
+													step="0.1"
+													bind:value={currentVolume}
+													aria-label={t('equipment.fill_level')}
+													placeholder="0"
+													class="h-8 w-16 rounded-lg border border-zinc-300 bg-white px-2 text-right font-mono text-xs font-bold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+												/>
+												<span class="text-xs font-semibold text-zinc-500">
+													{unit === 'Liters' ? 'L' : 'gal'}
+												</span>
+											</div>
+										</div>
+
+										<!-- Quick Preset Buttons -->
+										<div class="flex flex-wrap items-center justify-between gap-1 pt-0.5">
+											{#each [{ label: t('equipment.preset_empty'), pct: 0 }, { label: '25%', pct: 25 }, { label: '50%', pct: 50 }, { label: '75%', pct: 75 }, { label: t('equipment.preset_full'), pct: 100 }] as preset}
+												<button
+													type="button"
+													onclick={() => setPreset(preset.pct)}
+													class="rounded-lg border px-2 py-0.5 text-[10px] font-bold transition-colors {fillPercent ===
+													preset.pct
+														? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
+														: 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'}"
+												>
+													{preset.label}
+												</button>
+											{/each}
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					{:else}
+						<!-- Sensor / Probe Device Graphic Preview -->
+						<div
+							class="flex items-center gap-3.5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
+						>
 							<div
 								class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white p-1 shadow-inner dark:border-zinc-800 dark:bg-zinc-950"
 							>
 								<VesselIcon
 									{subtype}
 									size={42}
-									{fillPercent}
 									active={true}
 									class="text-zinc-800 dark:text-zinc-200"
 								/>
 							</div>
-
-							<!-- Slider & Numeric Input Controls -->
-							<div class="flex flex-1 flex-col gap-2">
-								<div class="flex items-center gap-2">
-									<input
-										id="fill-slider"
-										type="range"
-										min="0"
-										max={Number(capacity) || 100}
-										step="0.5"
-										bind:value={currentVolume}
-										aria-label={t('equipment.fill_level')}
-										aria-valuemin="0"
-										aria-valuemax={Number(capacity) || 100}
-										aria-valuenow={Number(currentVolume) || 0}
-										aria-valuetext="{currentVolume || 0} {unit === 'Liters'
-											? 'L'
-											: 'gal'}, {fillPercent}% full"
-										class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-amber-500 dark:bg-zinc-800"
-									/>
-									<div class="flex items-center gap-1">
-										<input
-											type="number"
-											min="0"
-											max={Number(capacity) || 100000}
-											step="0.1"
-											bind:value={currentVolume}
-											placeholder="0"
-											class="h-8 w-16 rounded-lg border border-zinc-300 bg-white px-2 text-right font-mono text-xs font-bold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-										/>
-										<span class="text-xs font-semibold text-zinc-500">
-											{unit === 'Liters' ? 'L' : 'gal'}
-										</span>
-									</div>
+							<div>
+								<div class="font-bold text-zinc-900 dark:text-zinc-100">
+									{getSubtypeName(subtype)}
 								</div>
-
-								<!-- Quick Preset Buttons -->
-								<div class="flex items-center justify-between gap-1 pt-0.5">
-									{#each [{ label: t('equipment.preset_empty'), pct: 0 }, { label: '25%', pct: 25 }, { label: '50%', pct: 50 }, { label: '75%', pct: 75 }, { label: t('equipment.preset_full'), pct: 100 }] as preset}
-										<button
-											type="button"
-											onclick={() => setPreset(preset.pct)}
-											class="rounded-lg border px-2 py-0.5 text-[10px] font-bold transition-colors {fillPercent ===
-											preset.pct
-												? 'border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-400'
-												: 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'}"
-										>
-											{preset.label}
-										</button>
-									{/each}
-								</div>
+								<p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+									{getSubtypeDescription(subtype)}
+								</p>
 							</div>
 						</div>
-					</div>
-				{:else}
-					<!-- Sensor / Probe Device Graphic Preview -->
-					<div
-						class="flex items-center gap-3.5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 dark:border-amber-500/20 dark:bg-amber-500/10"
-					>
+					{/if}
+
+					<!-- Digital Display Parameters -->
+					{#if type === 'Tap' && (subtype === 'RoundDisplayTap' || subtype === 'RectDisplayTap')}
 						<div
-							class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white p-1 shadow-inner dark:border-zinc-800 dark:bg-zinc-950"
+							class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
 						>
-							<VesselIcon
-								{subtype}
-								size={42}
-								active={true}
-								class="text-zinc-800 dark:text-zinc-200"
-							/>
-						</div>
-						<div>
-							<div class="font-bold text-zinc-900 dark:text-zinc-100">
-								{getSubtypeName(subtype)}
-							</div>
-							<p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-								{getSubtypeDescription(subtype)}
-							</p>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Digital Display Parameters -->
-				{#if type === 'Tap' && (subtype === 'RoundDisplayTap' || subtype === 'RectDisplayTap')}
-					<div
-						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
-					>
-						<div class="mb-2">
-							<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-								{t('equipment.tap_display_settings')}
-							</span>
-							<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('equipment.tap_display_settings_desc')}
-							</p>
-						</div>
-
-						<div class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-3">
-							<div>
-								<label
-									for="display-width"
-									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-								>
-									{t('equipment.display_width_px')}
-								</label>
-								<input
-									id="display-width"
-									type="number"
-									min="1"
-									max="7680"
-									bind:value={displayWidthPx}
-									placeholder={subtype === 'RoundDisplayTap' ? '480' : '1920'}
-									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-								/>
-							</div>
-
-							<div>
-								<label
-									for="display-height"
-									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-								>
-									{t('equipment.display_height_px')}
-								</label>
-								<input
-									id="display-height"
-									type="number"
-									min="1"
-									max="7680"
-									bind:value={displayHeightPx}
-									placeholder={subtype === 'RoundDisplayTap' ? '480' : '1080'}
-									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-								/>
-							</div>
-
-							<div>
-								<label
-									for="display-orientation"
-									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-								>
-									{t('equipment.display_orientation')}
-								</label>
-								<select
-									id="display-orientation"
-									bind:value={displayOrientation}
-									class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-								>
-									<option value="Landscape">{t('equipment.orientation_landscape')}</option>
-									<option value="Portrait">{t('equipment.orientation_portrait')}</option>
-								</select>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Loss & Calibration Parameters -->
-				{#if type !== 'Sensor' && type !== 'Tap'}
-					<div
-						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
-					>
-						<div class="mb-2">
-							<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-								{t('equipment.loss_parameters')}
-							</span>
-							<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('equipment.loss_parameters_desc')}
-							</p>
-						</div>
-
-						<div class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2">
-							{#if type === 'Boiler'}
-								<div>
-									<label
-										for="boil-off-rate"
-										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.boil_off_rate')} ({t('equipment.boil_off_rate_unit')})
-									</label>
-									<input
-										id="boil-off-rate"
-										type="number"
-										step="0.1"
-										min="0"
-										max="50"
-										bind:value={boilOffRatePerHour}
-										placeholder={t('equipment.boil_off_rate_placeholder')}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-									/>
-								</div>
-								<div>
-									<label
-										for="boiler-trub-loss"
-										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.trub_loss')} (L)
-									</label>
-									<input
-										id="boiler-trub-loss"
-										type="number"
-										step="0.1"
-										min="0"
-										max="100"
-										bind:value={trubLossLiters}
-										placeholder={t('equipment.trub_loss_placeholder')}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-									/>
-								</div>
-								<div>
-									<label
-										for="mash-dead-space"
-										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.mash_tun_dead_space')} (L)
-									</label>
-									<input
-										id="mash-dead-space"
-										type="number"
-										step="0.1"
-										min="0"
-										max="50"
-										bind:value={mashTunDeadSpaceLiters}
-										placeholder={t('equipment.mash_tun_dead_space_placeholder')}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-									/>
-								</div>
-							{:else if type === 'Fermenter'}
-								<div class="sm:col-span-2">
-									<label
-										for="fermenter-trub-loss"
-										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.trub_loss_fermenter')} (L)
-									</label>
-									<input
-										id="fermenter-trub-loss"
-										type="number"
-										step="0.1"
-										min="0"
-										max="100"
-										bind:value={trubLossLiters}
-										placeholder={t('equipment.trub_loss_placeholder')}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-									/>
-								</div>
-							{:else}
-								<div class="sm:col-span-2">
-									<label
-										for="packaging-loss"
-										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-									>
-										{t('equipment.packaging_loss')} (L)
-									</label>
-									<input
-										id="packaging-loss"
-										type="number"
-										step="0.1"
-										min="0"
-										max="50"
-										bind:value={packagingLossLiters}
-										placeholder={t('equipment.packaging_loss_placeholder')}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-									/>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/if}
-
-				{#if type !== 'Tap'}
-					<!-- External Connectivity & Temperature Section -->
-					<div
-						class={subtype === 'BrewLink'
-							? ''
-							: 'rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40'}
-					>
-						{#if subtype !== 'BrewLink'}
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-1.5">
-									<Thermometer class="h-4 w-4 text-amber-500" />
-									<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-										{t('equipment.telemetry_title')}
-									</span>
-								</div>
-								<span
-									class="rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
-								>
-									{t('equipment.telemetry_badge')}
+							<div class="mb-2">
+								<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+									{t('equipment.tap_display_settings')}
 								</span>
+								<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('equipment.tap_display_settings_desc')}
+								</p>
 							</div>
-							<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-								{t('equipment.telemetry_desc')}
-							</p>
 
-							<!-- Current Temperature & Connection Protocol -->
-							<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-3 sm:items-end">
 								<div>
 									<label
-										for="equipment-current-temp"
+										for="display-width"
 										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 									>
-										{t('equipment.temperature_label')} ({settings.tempShort})
+										{t('equipment.display_width_px')}
 									</label>
-									<div class="mt-1 flex items-center gap-2">
-										<input
-											id="equipment-current-temp"
-											type="number"
-											step="0.1"
-											min="-20"
-											max="120"
-											bind:value={currentTemperature}
-											placeholder={t('equipment.temperature_placeholder')}
-											class="h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-										/>
-										{#if currentTemperature !== ''}
-											<button
-												type="button"
-												onclick={() => (currentTemperature = '')}
-												class="rounded-lg p-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-												title={t('equipment.clear_temperature')}
-											>
-												<X class="h-4 w-4" />
-											</button>
-										{/if}
-									</div>
+									<input
+										id="display-width"
+										type="number"
+										min="1"
+										max="7680"
+										bind:value={displayWidthPx}
+										placeholder={subtype === 'RoundDisplayTap' ? '480' : '1920'}
+										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+									/>
 								</div>
 
-								<!-- Connection Protocol Selector -->
 								<div>
 									<label
-										for="equipment-connection-type"
+										for="display-height"
 										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 									>
-										{t('equipment.connection_type_label')}
+										{t('equipment.display_height_px')}
+									</label>
+									<input
+										id="display-height"
+										type="number"
+										min="1"
+										max="7680"
+										bind:value={displayHeightPx}
+										placeholder={subtype === 'RoundDisplayTap' ? '480' : '1080'}
+										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+									/>
+								</div>
+
+								<div>
+									<label
+										for="display-orientation"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('equipment.display_orientation')}
 									</label>
 									<select
-										id="equipment-connection-type"
-										bind:value={connectionType}
-										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+										id="display-orientation"
+										bind:value={displayOrientation}
+										class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 									>
-										<option value="None">{t('equipment.conn_none')}</option>
-										{#if type === 'Boiler' || type === 'Fermenter'}
-											<option value="BrewLink">{t('equipment.conn_brewlink')}</option>
-										{/if}
-										<option value="HttpPush">{t('equipment.conn_http_push')}</option>
-										<option value="HttpPoll">{t('equipment.conn_http_poll')}</option>
-										<option value="Mqtt">{t('equipment.conn_mqtt')}</option>
+										<option value="Landscape">{t('equipment.orientation_landscape')}</option>
+										<option value="Portrait">{t('equipment.orientation_portrait')}</option>
 									</select>
 								</div>
 							</div>
-						{/if}
+						</div>
+					{/if}
 
-						<!-- HttpPush (Inbound Webhook) View -->
-						{#if connectionType === 'HttpPush'}
+					<!-- Loss & Calibration Parameters -->
+					{#if type !== 'Sensor' && type !== 'Tap'}
+						<div
+							class="rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+						>
+							<div class="mb-2">
+								<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+									{t('equipment.loss_parameters')}
+								</span>
+								<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('equipment.loss_parameters_desc')}
+								</p>
+							</div>
+
 							<div
-								class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 dark:border-amber-500/20 dark:bg-amber-500/10"
+								class="grid grid-cols-1 gap-3 pt-1 {type === 'Boiler'
+									? 'sm:grid-cols-3 sm:items-end'
+									: 'sm:grid-cols-2'}"
 							>
-								<div class="flex items-center justify-between">
-									<div
-										class="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400"
-									>
-										<Wifi class="h-3.5 w-3.5" />
-										<span>{t('equipment.webhook_instructions_title')}</span>
-									</div>
-									{#if equipment}
-										<button
-											type="button"
-											onclick={() => (showRegenerateTokenModal = true)}
-											disabled={isRegeneratingToken}
-											class="flex items-center gap-1 text-[11px] font-semibold text-zinc-500 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
+								{#if type === 'Boiler'}
+									<div>
+										<label
+											for="boil-off-rate"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 										>
-											<RefreshCw class="h-3 w-3 {isRegeneratingToken ? 'animate-spin' : ''}" />
-											<span>{t('equipment.regenerate_token')}</span>
-										</button>
-									{/if}
+											{t('equipment.boil_off_rate')} ({t('equipment.boil_off_rate_unit')})
+										</label>
+										<input
+											id="boil-off-rate"
+											type="number"
+											step="0.1"
+											min="0"
+											max="50"
+											bind:value={boilOffRatePerHour}
+											placeholder={t('equipment.boil_off_rate_placeholder')}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+									</div>
+									<div>
+										<label
+											for="boiler-trub-loss"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('equipment.trub_loss')} (L)
+										</label>
+										<input
+											id="boiler-trub-loss"
+											type="number"
+											step="0.1"
+											min="0"
+											max="100"
+											bind:value={trubLossLiters}
+											placeholder={t('equipment.trub_loss_placeholder')}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+									</div>
+									<div>
+										<label
+											for="mash-dead-space"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('equipment.mash_tun_dead_space')} (L)
+										</label>
+										<input
+											id="mash-dead-space"
+											type="number"
+											step="0.1"
+											min="0"
+											max="50"
+											bind:value={mashTunDeadSpaceLiters}
+											placeholder={t('equipment.mash_tun_dead_space_placeholder')}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+									</div>
+								{:else if type === 'Fermenter'}
+									<div>
+										<label
+											for="fermenter-trub-loss"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('equipment.trub_loss_fermenter')} (L)
+										</label>
+										<input
+											id="fermenter-trub-loss"
+											type="number"
+											step="0.1"
+											min="0"
+											max="100"
+											bind:value={trubLossLiters}
+											placeholder={t('equipment.trub_loss_placeholder')}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+									</div>
+								{:else}
+									<div>
+										<label
+											for="packaging-loss"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('equipment.packaging_loss')} (L)
+										</label>
+										<input
+											id="packaging-loss"
+											type="number"
+											step="0.1"
+											min="0"
+											max="50"
+											bind:value={packagingLossLiters}
+											placeholder={t('equipment.packaging_loss_placeholder')}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+
+					{#if type !== 'Tap'}
+						<!-- External Connectivity & Temperature Section -->
+						<div
+							class={subtype === 'BrewLink'
+								? ''
+								: 'rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-zinc-800/80 dark:bg-zinc-900/40'}
+						>
+							{#if subtype !== 'BrewLink'}
+								<div class="flex items-center justify-between">
+									<div class="flex items-center gap-1.5">
+										<Thermometer class="h-4 w-4 text-amber-500" />
+										<span class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+											{t('equipment.telemetry_title')}
+										</span>
+									</div>
+									<span
+										class="rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+									>
+										{t('equipment.telemetry_badge')}
+									</span>
 								</div>
-								<p class="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-									{t('equipment.webhook_instructions_desc')}
+								<p class="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+									{t('equipment.telemetry_desc')}
 								</p>
 
-								{#if connectionToken}
-									{#if isWebhookLocalhost}
-										<div
-											class="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200"
-											role="alert"
-											data-testid="webhook-localhost-warning"
+								<!-- Current Temperature & Connection Protocol -->
+								<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
+									<div>
+										<label
+											for="equipment-current-temp"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 										>
-											<div class="flex items-start gap-2">
-												<AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-												<div class="flex-1 space-y-1">
-													<p class="text-[11px] leading-relaxed font-medium">
-														{t('equipment.webhook_localhost_warning')}
-													</p>
-													<div class="flex flex-wrap items-center gap-2 pt-0.5 text-[10px]">
-														<button
-															type="button"
-															onclick={() => (showWebhookOverride = !showWebhookOverride)}
-															class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
-														>
-															{t('equipment.override_webhook_host')}
-														</button>
-														<span>•</span>
-														<a
-															href="/settings#connectivity"
-															class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
-														>
-															{t('equipment.open_settings')}
-														</a>
+											{t('equipment.temperature_label')} ({settings.tempShort})
+										</label>
+										<div class="mt-1 flex items-center gap-2">
+											<input
+												id="equipment-current-temp"
+												type="number"
+												step="0.1"
+												min="-20"
+												max="120"
+												bind:value={currentTemperature}
+												placeholder={t('equipment.temperature_placeholder')}
+												class="h-9 min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+											/>
+											{#if currentTemperature !== ''}
+												<button
+													type="button"
+													onclick={() => (currentTemperature = '')}
+													class="rounded-lg p-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+													title={t('equipment.clear_temperature')}
+													aria-label={t('equipment.clear_temperature')}
+												>
+													<X class="h-4 w-4" />
+												</button>
+											{/if}
+										</div>
+									</div>
+
+									<!-- Connection Protocol Selector -->
+									<div>
+										<label
+											for="equipment-connection-type"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('equipment.connection_type_label')}
+										</label>
+										<select
+											id="equipment-connection-type"
+											bind:value={connectionType}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+										>
+											<option value="None">{t('equipment.conn_none')}</option>
+											{#if type === 'Boiler' || type === 'Fermenter'}
+												<option value="BrewLink">{t('equipment.conn_brewlink')}</option>
+											{/if}
+											<option value="HttpPush">{t('equipment.conn_http_push')}</option>
+											<option value="HttpPoll">{t('equipment.conn_http_poll')}</option>
+											<option value="Mqtt">{t('equipment.conn_mqtt')}</option>
+										</select>
+									</div>
+								</div>
+							{/if}
+
+							<!-- HttpPush (Inbound Webhook) View -->
+							{#if connectionType === 'HttpPush'}
+								<div
+									class="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 dark:border-amber-500/20 dark:bg-amber-500/10"
+								>
+									<div class="flex items-center justify-between">
+										<div
+											class="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400"
+										>
+											<Wifi class="h-3.5 w-3.5" />
+											<span>{t('equipment.webhook_instructions_title')}</span>
+										</div>
+										{#if equipment}
+											<button
+												type="button"
+												onclick={() => (showRegenerateTokenModal = true)}
+												disabled={isRegeneratingToken}
+												class="flex items-center gap-1 text-[11px] font-semibold text-zinc-500 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
+											>
+												<RefreshCw class="h-3 w-3 {isRegeneratingToken ? 'animate-spin' : ''}" />
+												<span>{t('equipment.regenerate_token')}</span>
+											</button>
+										{/if}
+									</div>
+									<p class="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+										{t('equipment.webhook_instructions_desc')}
+									</p>
+
+									{#if connectionToken}
+										{#if isWebhookLocalhost}
+											<div
+												class="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200"
+												role="alert"
+												data-testid="webhook-localhost-warning"
+											>
+												<div class="flex items-start gap-2">
+													<AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+													<div class="flex-1 space-y-1">
+														<p class="text-[11px] leading-relaxed font-medium">
+															{t('equipment.webhook_localhost_warning')}
+														</p>
+														<div class="flex flex-wrap items-center gap-2 pt-0.5 text-[10px]">
+															<button
+																type="button"
+																onclick={() => (showWebhookOverride = !showWebhookOverride)}
+																class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+															>
+																{t('equipment.override_webhook_host')}
+															</button>
+															<span>•</span>
+															<a
+																href="/settings#connectivity"
+																class="font-semibold text-amber-700 underline hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+															>
+																{t('equipment.open_settings')}
+															</a>
+														</div>
 													</div>
 												</div>
 											</div>
+										{/if}
+
+										{#if showWebhookOverride}
+											<div class="mt-2 space-y-1" data-testid="webhook-override-section">
+												<label
+													for="webhook-override-host"
+													class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+												>
+													{t('equipment.override_webhook_label')}
+												</label>
+												<div class="flex items-center gap-2">
+													<div class="relative flex-1">
+														<Globe
+															class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+														/>
+														<input
+															id="webhook-override-host"
+															data-testid="webhook-override-input"
+															type="text"
+															bind:value={customWebhookBase}
+															placeholder={settings.resolvedWebhookBaseUrl}
+															class="w-full rounded-lg border border-zinc-200 bg-white py-1 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
+														/>
+													</div>
+													{#if customWebhookBase}
+														<button
+															type="button"
+															onclick={() => (customWebhookBase = '')}
+															class="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+														>
+															Reset
+														</button>
+													{/if}
+												</div>
+											</div>
+										{/if}
+
+										<div class="mt-2 flex items-center gap-2">
+											<input
+												type="text"
+												readonly
+												value={webhookUrl}
+												class="h-8 min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+											/>
+											<button
+												type="button"
+												onclick={copyWebhookUrl}
+												class="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+											>
+												{#if copiedWebhook}
+													<CheckCheck class="h-3.5 w-3.5 text-emerald-500" />
+													<span class="text-emerald-600 dark:text-emerald-400"
+														>{t('equipment.copied')}</span
+													>
+												{:else}
+													<Copy class="h-3.5 w-3.5" />
+													<span>{t('equipment.copy_url')}</span>
+												{/if}
+											</button>
 										</div>
+									{:else}
+										<p class="mt-2 text-xs text-amber-600 italic dark:text-amber-400">
+											{t('equipment.webhook_token_on_save')}
+										</p>
 									{/if}
 
-									{#if showWebhookOverride}
-										<div class="mt-2 space-y-1" data-testid="webhook-override-section">
+									<div class="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+										<span>
+											{t('equipment.supported_formats')}: <code>Tilt</code>, <code>iSpindel</code>,
+											<code>Generic JSON</code>
+										</span>
+									</div>
+								</div>
+							{/if}
+
+							<!-- HttpPoll View -->
+							{#if connectionType === 'HttpPoll'}
+								<div
+									class="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-white/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
+								>
+									<div
+										class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
+									>
+										<Globe class="h-3.5 w-3.5 text-amber-500" />
+										<span>{t('equipment.poll_config_title')}</span>
+									</div>
+
+									<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-12 sm:items-end">
+										<div class="sm:col-span-6">
 											<label
-												for="webhook-override-host"
+												for="poll-url"
 												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
 											>
-												{t('equipment.override_webhook_label')}
+												{t('equipment.poll_url_label')}
 											</label>
-											<div class="flex items-center gap-2">
-												<div class="relative flex-1">
-													<Globe
-														class="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
-													/>
-													<input
-														id="webhook-override-host"
-														data-testid="webhook-override-input"
-														type="text"
-														bind:value={customWebhookBase}
-														placeholder={settings.resolvedWebhookBaseUrl}
-														class="w-full rounded-lg border border-zinc-200 bg-white py-1 pr-3 pl-8 font-mono text-xs text-zinc-900 shadow-xs placeholder:text-zinc-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 dark:border-white/10 dark:bg-zinc-800 dark:text-white"
-													/>
+											<input
+												id="poll-url"
+												type="url"
+												bind:value={pollUrl}
+												placeholder="http://192.168.1.120/status"
+												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											/>
+										</div>
+										<div class="sm:col-span-3">
+											<label
+												for="poll-interval"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.poll_interval_label')}
+											</label>
+											<select
+												id="poll-interval"
+												bind:value={pollIntervalSeconds}
+												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											>
+												<option value={30}>30 {t('equipment.seconds')}</option>
+												<option value={60}>60 {t('equipment.seconds')}</option>
+												<option value={120}>2 {t('equipment.minutes')}</option>
+												<option value={300}>5 {t('equipment.minutes')}</option>
+												<option value={900}>15 {t('equipment.minutes')}</option>
+											</select>
+										</div>
+										<div class="sm:col-span-3">
+											<label
+												for="poll-json-path"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.poll_json_path_label')}
+											</label>
+											<input
+												id="poll-json-path"
+												type="text"
+												bind:value={pollJsonPath}
+												placeholder="temperature"
+												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											/>
+										</div>
+									</div>
+
+									<div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+										<button
+											type="button"
+											onclick={handleTestPoll}
+											disabled={isTestingPoll || !pollUrl.trim()}
+											class="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+										>
+											{#if isTestingPoll}
+												<Loader2 class="h-3 w-3 animate-spin text-amber-500" />
+											{/if}
+											<span>{t('equipment.poll_test_btn')}</span>
+										</button>
+										{#if testPollMessage}
+											<span
+												class="text-[11px] {testPollMessage.type === 'success'
+													? 'text-emerald-600 dark:text-emerald-400'
+													: 'text-red-600 dark:text-red-400'}"
+											>
+												{testPollMessage.text}
+											</span>
+										{/if}
+									</div>
+								</div>
+							{/if}
+
+							<!-- Mqtt View -->
+							{#if connectionType === 'Mqtt'}
+								<div
+									class="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-white/60 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+								>
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<div
+											class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
+										>
+											<Radio class="h-3.5 w-3.5 text-amber-500" />
+											<span>{t('equipment.mqtt_config_title')}</span>
+										</div>
+
+										<!-- Configuration Source Selector (User Settings vs Custom) -->
+										<div
+											class="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 text-[11px] dark:border-zinc-700 dark:bg-zinc-800"
+										>
+											<button
+												type="button"
+												data-testid="mqtt-source-settings-btn"
+												aria-pressed={mqttSource === 'userSettings'}
+												onclick={() => (mqttSource = 'userSettings')}
+												class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
+												'userSettings'
+													? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
+													: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+											>
+												{t('equipment.mqtt_source_settings')}
+											</button>
+											<button
+												type="button"
+												data-testid="mqtt-source-custom-btn"
+												aria-pressed={mqttSource === 'custom'}
+												onclick={() => (mqttSource = 'custom')}
+												class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
+												'custom'
+													? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
+													: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
+											>
+												{t('equipment.mqtt_source_custom')}
+											</button>
+										</div>
+									</div>
+
+									{#if mqttSource === 'userSettings'}
+										{#if settings.hasMqttConfigured}
+											<!-- Display configured user settings broker summary -->
+											<div
+												data-testid="mqtt-user-settings-summary"
+												class="rounded-lg border p-3 {settings.mqttConnected === false
+													? 'border-red-500/20 bg-red-500/5 dark:border-red-500/20 dark:bg-red-500/10'
+													: 'border-amber-500/20 bg-amber-500/5 dark:border-amber-500/20 dark:bg-amber-500/10'}"
+											>
+												<div class="flex flex-wrap items-center justify-between gap-2">
+													<div class="flex items-center gap-2">
+														<span
+															class="h-2 w-2 rounded-full {settings.mqttConnected === false
+																? 'bg-red-500'
+																: 'animate-pulse bg-emerald-500'}"
+														></span>
+														<span class="font-mono text-xs font-bold text-zinc-900 dark:text-white">
+															{settings.mqttHost}:{settings.mqttPort}
+														</span>
+														<span
+															class="rounded px-1.5 py-0.5 text-[10px] font-semibold {settings.mqttConnected ===
+															false
+																? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+																: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}"
+														>
+															{settings.mqttConnected === false
+																? t('equipment.mqtt_disconnected')
+																: t('equipment.mqtt_connected')}
+														</span>
+													</div>
+													<div class="flex items-center gap-2">
+														{#if settings.mqttUsername}
+															<span
+																class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+															>
+																{t('equipment.mqtt_auth_configured')}
+															</span>
+														{/if}
+														{#if settings.mqttCertificate}
+															<span
+																class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+															>
+																{t('equipment.mqtt_cert_configured')}
+															</span>
+														{/if}
+														<a
+															href="/settings#connectivity"
+															target="_blank"
+															class="text-[11px] font-semibold text-amber-600 hover:underline dark:text-amber-400"
+														>
+															{t('equipment.mqtt_configure_in_settings')}
+														</a>
+													</div>
 												</div>
-												{#if customWebhookBase}
+												<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+													{t('equipment.mqtt_using_settings')}
+												</p>
+											</div>
+										{:else}
+											<!-- Alert: No settings configured yet -->
+											<div
+												data-testid="mqtt-no-settings-alert"
+												class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
+											>
+												<div class="text-[11px] text-amber-900 dark:text-amber-200">
+													{t('equipment.mqtt_settings_not_configured')}
+												</div>
+												<a
+													href="/settings#connectivity"
+													target="_blank"
+													class="rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-zinc-950 hover:bg-amber-400"
+												>
+													{t('equipment.mqtt_configure_in_settings')}
+												</a>
+											</div>
+										{/if}
+									{:else}
+										<!-- Custom Broker Fields -->
+										<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-4">
+											<div class="sm:col-span-3">
+												<label
+													for="mqtt-host"
+													class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+												>
+													{t('equipment.mqtt_host')}
+												</label>
+												<input
+													id="mqtt-host"
+													data-testid="mqtt-custom-host-input"
+													type="text"
+													bind:value={mqttBrokerHost}
+													placeholder="192.168.1.50"
+													class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+												/>
+											</div>
+											<div class="sm:col-span-1">
+												<label
+													for="mqtt-port"
+													class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+												>
+													{t('equipment.mqtt_port')}
+												</label>
+												<input
+													id="mqtt-port"
+													data-testid="mqtt-custom-port-input"
+													type="number"
+													bind:value={mqttBrokerPort}
+													placeholder="1883"
+													class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+												/>
+											</div>
+										</div>
+
+										<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+											<div>
+												<label
+													for="mqtt-custom-username"
+													class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+												>
+													{t('equipment.mqtt_username')}
+												</label>
+												<input
+													id="mqtt-custom-username"
+													data-testid="mqtt-custom-username-input"
+													type="text"
+													bind:value={mqttUsername}
+													placeholder="sensor_user"
+													class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+												/>
+											</div>
+											<div>
+												<label
+													for="mqtt-custom-password"
+													class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+												>
+													{t('equipment.mqtt_password')}
+												</label>
+												<div class="relative mt-1">
+													<input
+														id="mqtt-custom-password"
+														data-testid="mqtt-custom-password-input"
+														type={showMqttCustomPassword ? 'text' : 'password'}
+														bind:value={mqttPassword}
+														placeholder="••••••••"
+														class="h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 pr-8 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+													/>
 													<button
 														type="button"
-														onclick={() => (customWebhookBase = '')}
-														class="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+														onclick={() => (showMqttCustomPassword = !showMqttCustomPassword)}
+														aria-label={showMqttCustomPassword
+															? t('settings.connectivity.hide_password')
+															: t('settings.connectivity.show_password')}
+														class="absolute inset-y-0 right-0 flex items-center pr-2 text-zinc-400 hover:text-zinc-600"
 													>
-														Reset
+														{#if showMqttCustomPassword}
+															<EyeOff class="h-3.5 w-3.5" />
+														{:else}
+															<Eye class="h-3.5 w-3.5" />
+														{/if}
 													</button>
-												{/if}
+												</div>
 											</div>
+										</div>
+
+										<div>
+											<label
+												for="mqtt-custom-cert"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.mqtt_certificate')}
+											</label>
+											<textarea
+												id="mqtt-custom-cert"
+												data-testid="mqtt-custom-cert-input"
+												rows="2"
+												bind:value={mqttCertificate}
+												placeholder="-----BEGIN CERTIFICATE-----..."
+												class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-2 font-mono text-[11px] text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											></textarea>
 										</div>
 									{/if}
 
-									<div class="mt-2 flex items-center gap-2">
-										<input
-											type="text"
-											readonly
-											value={webhookUrl}
-											class="h-8 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-										/>
-										<button
-											type="button"
-											onclick={copyWebhookUrl}
-											class="flex h-8 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-										>
-											{#if copiedWebhook}
-												<CheckCheck class="h-3.5 w-3.5 text-emerald-500" />
-												<span class="text-emerald-600 dark:text-emerald-400"
-													>{t('equipment.copied')}</span
-												>
-											{:else}
-												<Copy class="h-3.5 w-3.5" />
-												<span>{t('equipment.copy_url')}</span>
-											{/if}
-										</button>
-									</div>
-								{:else}
-									<p class="mt-2 text-xs text-amber-600 italic dark:text-amber-400">
-										{t('equipment.webhook_token_on_save')}
-									</p>
-								{/if}
-
-								<div class="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-									<span>
-										{t('equipment.supported_formats')}: <code>Tilt</code>, <code>iSpindel</code>,
-										<code>Generic JSON</code>
-									</span>
-								</div>
-							</div>
-						{/if}
-
-						<!-- HttpPoll View -->
-						{#if connectionType === 'HttpPoll'}
-							<div
-								class="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-white/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
-							>
-								<div
-									class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
-								>
-									<Globe class="h-3.5 w-3.5 text-amber-500" />
-									<span>{t('equipment.poll_config_title')}</span>
-								</div>
-
-								<div>
-									<label
-										for="poll-url"
-										class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-									>
-										{t('equipment.poll_url_label')}
-									</label>
-									<input
-										id="poll-url"
-										type="url"
-										bind:value={pollUrl}
-										placeholder="http://192.168.1.120/status"
-										class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-									/>
-								</div>
-
-								<div class="grid grid-cols-2 gap-2">
+									<!-- Sensor Specific Topic (Always Required) -->
 									<div>
-										<label
-											for="poll-interval"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.poll_interval_label')}
-										</label>
-										<select
-											id="poll-interval"
-											bind:value={pollIntervalSeconds}
-											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-										>
-											<option value={30}>30 {t('equipment.seconds')}</option>
-											<option value={60}>60 {t('equipment.seconds')}</option>
-											<option value={120}>2 {t('equipment.minutes')}</option>
-											<option value={300}>5 {t('equipment.minutes')}</option>
-											<option value={900}>15 {t('equipment.minutes')}</option>
-										</select>
-									</div>
-									<div>
-										<label
-											for="poll-json-path"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.poll_json_path_label')}
-										</label>
+										<div class="flex items-center justify-between">
+											<label
+												for="mqtt-topic"
+												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
+											>
+												{t('equipment.mqtt_topic')}
+											</label>
+											<button
+												type="button"
+												data-testid="auto-generate-topic-btn"
+												class="text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+												onclick={() => {
+													isTopicCustomized = false;
+													mqttTopic = generateEquipmentTopic(settings.mqttTopicPrefix, name);
+												}}
+											>
+												{t('equipment.mqtt_topic_auto_slug')}
+											</button>
+										</div>
 										<input
-											id="poll-json-path"
+											id="mqtt-topic"
+											data-testid="mqtt-topic-input"
 											type="text"
-											bind:value={pollJsonPath}
-											placeholder="temperature"
+											bind:value={mqttTopic}
+											oninput={() => {
+												isTopicCustomized = true;
+											}}
+											placeholder={generateEquipmentTopic(settings.mqttTopicPrefix, 'kettle') ||
+												'brewyou/equipment/kettle/telemetry'}
 											class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
 										/>
 									</div>
 								</div>
+							{/if}
 
-								<div class="flex items-center justify-between pt-1">
-									<button
-										type="button"
-										onclick={handleTestPoll}
-										disabled={isTestingPoll || !pollUrl.trim()}
-										class="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-									>
-										{#if isTestingPoll}
-											<Loader2 class="h-3 w-3 animate-spin text-amber-500" />
-										{/if}
-										<span>{t('equipment.poll_test_btn')}</span>
-									</button>
-									{#if testPollMessage}
-										<span
-											class="text-[11px] {testPollMessage.type === 'success'
-												? 'text-emerald-600 dark:text-emerald-400'
-												: 'text-red-600 dark:text-red-400'}"
-										>
-											{testPollMessage.text}
-										</span>
-									{/if}
-								</div>
-							</div>
-						{/if}
-
-						<!-- Mqtt View -->
-						{#if connectionType === 'Mqtt'}
-							<div
-								class="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-white/60 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
-							>
-								<div class="flex flex-wrap items-center justify-between gap-2">
-									<div
-										class="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200"
-									>
-										<Radio class="h-3.5 w-3.5 text-amber-500" />
-										<span>{t('equipment.mqtt_config_title')}</span>
+							<!-- BrewLink View -->
+							{#if connectionType === 'BrewLink'}
+								<div
+									class="mt-3 space-y-4 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3.5 dark:border-sky-500/20 dark:bg-sky-500/10"
+								>
+									<div class="flex items-center justify-between gap-2">
+										<div class="flex items-center gap-2">
+											<Radio class="h-4 w-4 text-sky-500" />
+											<span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+												{t('equipment.brewlink_config_title')}
+											</span>
+										</div>
 									</div>
 
-									<!-- Configuration Source Selector (User Settings vs Custom) -->
-									<div
-										class="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 text-[11px] dark:border-zinc-700 dark:bg-zinc-800"
-									>
-										<button
-											type="button"
-											data-testid="mqtt-source-settings-btn"
-											onclick={() => (mqttSource = 'userSettings')}
-											class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
-											'userSettings'
-												? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
-												: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
-										>
-											{t('equipment.mqtt_source_settings')}
-										</button>
-										<button
-											type="button"
-											data-testid="mqtt-source-custom-btn"
-											onclick={() => (mqttSource = 'custom')}
-											class="rounded-md px-2.5 py-0.5 font-semibold transition-all {mqttSource ===
-											'custom'
-												? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-900 dark:text-white'
-												: 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}"
-										>
-											{t('equipment.mqtt_source_custom')}
-										</button>
-									</div>
-								</div>
-
-								{#if mqttSource === 'userSettings'}
-									{#if settings.hasMqttConfigured}
-										<!-- Display configured user settings broker summary -->
+									{#if subtype === 'BrewLink'}
+										<!-- Sensor: Gateway setup & management only -->
 										<div
-											data-testid="mqtt-user-settings-summary"
-											class="rounded-lg border p-3 {settings.mqttConnected === false
-												? 'border-red-500/20 bg-red-500/5 dark:border-red-500/20 dark:bg-red-500/10'
-												: 'border-amber-500/20 bg-amber-500/5 dark:border-amber-500/20 dark:bg-amber-500/10'}"
+											class="rounded-xl border border-sky-500/20 bg-white/70 p-3 sm:p-4 dark:border-white/5 dark:bg-zinc-900/70"
 										>
-											<div class="flex flex-wrap items-center justify-between gap-2">
-												<div class="flex items-center gap-2">
-													<span
-														class="h-2 w-2 rounded-full {settings.mqttConnected === false
-															? 'bg-red-500'
-															: 'animate-pulse bg-emerald-500'}"
-													></span>
-													<span class="font-mono text-xs font-bold text-zinc-900 dark:text-white">
-														{settings.mqttHost}:{settings.mqttPort}
-													</span>
-													<span
-														class="rounded px-1.5 py-0.5 text-[10px] font-semibold {settings.mqttConnected ===
-														false
-															? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-															: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}"
-													>
-														{settings.mqttConnected === false
-															? t('equipment.mqtt_disconnected')
-															: t('equipment.mqtt_connected')}
-													</span>
-												</div>
-												<div class="flex items-center gap-2">
-													{#if settings.mqttUsername}
-														<span
-															class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-														>
-															{t('equipment.mqtt_auth_configured')}
-														</span>
-													{/if}
-													{#if settings.mqttCertificate}
-														<span
-															class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-														>
-															{t('equipment.mqtt_cert_configured')}
-														</span>
-													{/if}
-													<a
-														href="/settings#connectivity"
-														target="_blank"
-														class="text-[11px] font-semibold text-amber-600 hover:underline dark:text-amber-400"
-													>
-														{t('equipment.mqtt_configure_in_settings')}
-													</a>
-												</div>
-											</div>
-											<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-												{t('equipment.mqtt_using_settings')}
-											</p>
-										</div>
-									{:else}
-										<!-- Alert: No settings configured yet -->
-										<div
-											data-testid="mqtt-no-settings-alert"
-											class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
-										>
-											<div class="text-[11px] text-amber-900 dark:text-amber-200">
-												{t('equipment.mqtt_settings_not_configured')}
-											</div>
-											<a
-												href="/settings#connectivity"
-												target="_blank"
-												class="rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-zinc-950 hover:bg-amber-400"
-											>
-												{t('equipment.mqtt_configure_in_settings')}
-											</a>
-										</div>
-									{/if}
-								{:else}
-									<!-- Custom Broker Fields -->
-									<div class="grid grid-cols-3 gap-2">
-										<div class="col-span-2">
-											<label
-												for="mqtt-host"
-												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-											>
-												{t('equipment.mqtt_host')}
-											</label>
-											<input
-												id="mqtt-host"
-												data-testid="mqtt-custom-host-input"
-												type="text"
-												bind:value={mqttBrokerHost}
-												placeholder="192.168.1.50"
-												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+											<BrewLinkGatewayManager
+												onGatewaysChanged={handleGatewaysChanged}
+												onGatewayPaired={handleGatewayPaired}
+												onCheckEquipment={onCheckBrewLinkEquipment
+													? (gw) => {
+															onClose();
+															onCheckBrewLinkEquipment?.(gw);
+														}
+													: undefined}
 											/>
 										</div>
-										<div>
-											<label
-												for="mqtt-port"
-												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-											>
-												{t('equipment.mqtt_port')}
-											</label>
-											<input
-												id="mqtt-port"
-												data-testid="mqtt-custom-port-input"
-												type="number"
-												bind:value={mqttBrokerPort}
-												placeholder="1883"
-												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-											/>
-										</div>
-									</div>
 
-									<div class="grid grid-cols-2 gap-2">
-										<div>
-											<label
-												for="mqtt-custom-username"
-												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-											>
-												{t('equipment.mqtt_username')}
-											</label>
-											<input
-												id="mqtt-custom-username"
-												data-testid="mqtt-custom-username-input"
-												type="text"
-												bind:value={mqttUsername}
-												placeholder="sensor_user"
-												class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-											/>
-										</div>
-										<div>
-											<label
-												for="mqtt-custom-password"
-												class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-											>
-												{t('equipment.mqtt_password')}
-											</label>
-											<div class="relative mt-1">
-												<input
-													id="mqtt-custom-password"
-													data-testid="mqtt-custom-password-input"
-													type={showMqttCustomPassword ? 'text' : 'password'}
-													bind:value={mqttPassword}
-													placeholder="••••••••"
-													class="h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 pr-8 text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-												/>
-												<button
-													type="button"
-													onclick={() => (showMqttCustomPassword = !showMqttCustomPassword)}
-													class="absolute inset-y-0 right-0 flex items-center pr-2 text-zinc-400 hover:text-zinc-600"
+										{#if gateways.length > 0}
+											<div>
+												<label
+													for="equipment-brewlink-gateway"
+													class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
 												>
-													{#if showMqttCustomPassword}
-														<EyeOff class="h-3.5 w-3.5" />
-													{:else}
-														<Eye class="h-3.5 w-3.5" />
-													{/if}
-												</button>
+													{t('equipment.brewlink_gateway_label')} *
+												</label>
+												<select
+													id="equipment-brewlink-gateway"
+													data-testid="equipment-brewlink-gateway"
+													bind:value={brewLinkGatewayId}
+													class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+												>
+													<option value="">{t('equipment.brewlink_select_gateway')}</option>
+													{#each gateways as gw (gw.id)}
+														<option value={gw.id}>{gw.name} ({gw.host})</option>
+													{/each}
+												</select>
 											</div>
-										</div>
-									</div>
-
-									<div>
-										<label
-											for="mqtt-custom-cert"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.mqtt_certificate')}
-										</label>
-										<textarea
-											id="mqtt-custom-cert"
-											data-testid="mqtt-custom-cert-input"
-											rows="2"
-											bind:value={mqttCertificate}
-											placeholder="-----BEGIN CERTIFICATE-----..."
-											class="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-2 font-mono text-[11px] text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-										></textarea>
-									</div>
-								{/if}
-
-								<!-- Sensor Specific Topic (Always Required) -->
-								<div>
-									<div class="flex items-center justify-between">
-										<label
-											for="mqtt-topic"
-											class="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
-										>
-											{t('equipment.mqtt_topic')}
-										</label>
-										<button
-											type="button"
-											data-testid="auto-generate-topic-btn"
-											class="text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-											onclick={() => {
-												isTopicCustomized = false;
-												mqttTopic = generateEquipmentTopic(settings.mqttTopicPrefix, name);
-											}}
-										>
-											{t('equipment.mqtt_topic_auto_slug')}
-										</button>
-									</div>
-									<input
-										id="mqtt-topic"
-										data-testid="mqtt-topic-input"
-										type="text"
-										bind:value={mqttTopic}
-										oninput={() => {
-											isTopicCustomized = true;
-										}}
-										placeholder={generateEquipmentTopic(settings.mqttTopicPrefix, 'kettle') ||
-											'brewyou/equipment/kettle/telemetry'}
-										class="mt-1 h-8 w-full rounded-lg border border-zinc-300 bg-white px-2.5 font-mono text-xs text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-									/>
-								</div>
-							</div>
-						{/if}
-
-						<!-- BrewLink View -->
-						{#if connectionType === 'BrewLink'}
-							<div
-								class="mt-3 space-y-4 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3.5 dark:border-sky-500/20 dark:bg-sky-500/10"
-							>
-								<div class="flex items-center justify-between gap-2">
-									<div class="flex items-center gap-2">
-										<Radio class="h-4 w-4 text-sky-500" />
-										<span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-											{t('equipment.brewlink_config_title')}
-										</span>
-									</div>
-								</div>
-
-								{#if subtype === 'BrewLink'}
-									<!-- Sensor: Gateway setup & management only -->
-									<div
-										class="rounded-xl border border-sky-500/20 bg-white/70 p-3 sm:p-4 dark:border-white/5 dark:bg-zinc-900/70"
-									>
-										<BrewLinkGatewayManager
-											onGatewaysChanged={handleGatewaysChanged}
-											onGatewayPaired={handleGatewayPaired}
-											onCheckEquipment={onCheckBrewLinkEquipment
-												? (gw) => {
-														onClose();
-														onCheckBrewLinkEquipment?.(gw);
-													}
-												: undefined}
-										/>
-									</div>
-
-									{#if gateways.length > 0}
+										{/if}
+									{:else}
+										<!-- Boiler / Fermenter: Use existing gateway only, select equipment match -->
 										<div>
 											<label
 												for="equipment-brewlink-gateway"
@@ -2143,228 +2261,191 @@
 											>
 												{t('equipment.brewlink_gateway_label')} *
 											</label>
-											<select
-												id="equipment-brewlink-gateway"
-												data-testid="equipment-brewlink-gateway"
-												bind:value={brewLinkGatewayId}
-												class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-											>
-												<option value="">{t('equipment.brewlink_select_gateway')}</option>
-												{#each gateways as gw (gw.id)}
-													<option value={gw.id}>{gw.name} ({gw.host})</option>
-												{/each}
-											</select>
-										</div>
-									{/if}
-								{:else}
-									<!-- Boiler / Fermenter: Use existing gateway only, select equipment match -->
-									<div>
-										<label
-											for="equipment-brewlink-gateway"
-											class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
-										>
-											{t('equipment.brewlink_gateway_label')} *
-										</label>
-										{#if gateways.length === 0}
-											<div
-												class="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300"
-											>
-												<p class="font-semibold">{t('equipment.brewlink_no_gateways')}</p>
-												<p class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-													{t('equipment.brewlink_pair_in_settings')}
-												</p>
-											</div>
-										{:else}
-											<select
-												id="equipment-brewlink-gateway"
-												data-testid="equipment-brewlink-gateway"
-												bind:value={brewLinkGatewayId}
-												class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-											>
-												<option value="">{t('equipment.brewlink_select_gateway')}</option>
-												{#each gateways as gw (gw.id)}
-													<option value={gw.id}>{gw.name} ({gw.host})</option>
-												{/each}
-											</select>
-										{/if}
-									</div>
-
-									<!-- Paired Equipment on Selected Gateway (Only for Boilers & Fermenters) -->
-									{#if brewLinkGatewayId}
-										<div class="space-y-2 pt-1">
-											<div class="flex items-center justify-between">
-												<span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
-													{t('equipment.brewlink_devices_label')}
-												</span>
-												<button
-													type="button"
-													data-testid="refresh-brewlink-devices-btn"
-													disabled={isLoadingGatewayDevices}
-													onclick={() => loadGatewayEquipment(brewLinkGatewayId)}
-													class="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:bg-zinc-900 dark:text-sky-300"
-												>
-													<RefreshCw
-														class="h-3 w-3 {isLoadingGatewayDevices ? 'animate-spin' : ''}"
-													/>
-													<span>{t('equipment.brewlink_refresh_devices')}</span>
-												</button>
-											</div>
-
-											{#if isLoadingGatewayDevices}
+											{#if gateways.length === 0}
 												<div
-													class="flex items-center gap-2 rounded-lg border border-zinc-200/80 bg-white/70 p-2.5 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60"
+													class="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300"
 												>
-													<Loader2 class="h-3.5 w-3.5 animate-spin text-sky-500" />
-													<span>{t('equipment.brewlink_loading_devices')}</span>
-												</div>
-											{:else if gatewayDevicesError}
-												<div
-													class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300"
-												>
-													{gatewayDevicesError}
-												</div>
-											{:else if gatewayDevices.filter((d) => d.paired).length === 0}
-												<div
-													class="rounded-lg border border-dashed border-zinc-300 p-2.5 text-[11px] text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
-												>
-													{t('equipment.brewlink_no_devices')}
+													<p class="font-semibold">{t('equipment.brewlink_no_gateways')}</p>
+													<p class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+														{t('equipment.brewlink_pair_in_settings')}
+													</p>
 												</div>
 											{:else}
-												<p class="text-[10px] text-zinc-500 dark:text-zinc-400">
-													{t('equipment.brewlink_select_device')}
-												</p>
-												<div class="space-y-1.5">
-													{#each gatewayDevices.filter((d) => d.paired) as dev (dev.slot)}
-														{@const normalizedDevMac = (dev.mac || '')
-															.replace(/[:-]/g, '')
-															.toUpperCase()}
-														{@const normalizedSelectedMac = brewLinkTargetMac
-															.replace(/[:-]/g, '')
-															.toUpperCase()}
-														{@const isMatched =
-															(normalizedDevMac && normalizedDevMac === normalizedSelectedMac) ||
-															(brewLinkSlot === dev.slot && !normalizedSelectedMac)}
-														<button
-															type="button"
-															data-testid="brewlink-device-slot-{dev.slot}"
-															onclick={() => selectBrewLinkDevice(dev)}
-															class="flex w-full items-center justify-between gap-2 rounded-xl border p-2.5 text-left transition-all {isMatched
-																? 'border-sky-500 bg-sky-500/15 ring-1 ring-sky-500/50 dark:bg-sky-500/20'
-																: 'border-zinc-200 bg-white hover:border-sky-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-sky-500/50'}"
-														>
-															<div class="min-w-0 space-y-0.5">
-																<div class="flex flex-wrap items-center gap-1.5">
-																	<span class="text-xs font-bold text-zinc-900 dark:text-white">
-																		{dev.name || dev.model || `Device #${dev.slot}`}
-																	</span>
-																	<span
-																		class="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-																	>
-																		{t('equipment.brewlink_device_slot', { slot: dev.slot })}
-																	</span>
-																	<span
-																		class="rounded px-1.5 py-0.5 text-[10px] font-semibold {dev.connected
-																			? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-																			: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}"
-																	>
-																		{dev.connected
-																			? t('equipment.brewlink_device_connected')
-																			: t('equipment.brewlink_device_offline')}
-																	</span>
-																</div>
-																<div
-																	class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
-																>
-																	{#if dev.mac}
-																		<span>{dev.mac}</span>
-																	{/if}
-																	{#if dev.model}
-																		<span>• {dev.model}</span>
-																	{/if}
-																	{#if dev.state?.tempC != null}
-																		<span>• {dev.state.tempC.toFixed(1)} °C</span>
-																	{/if}
-																</div>
-															</div>
-															{#if isMatched}
-																<span
-																	class="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white"
-																>
-																	<Check class="h-3 w-3" />
-																	{t('equipment.brewlink_matched_badge')}
-																</span>
-															{/if}
-														</button>
+												<select
+													id="equipment-brewlink-gateway"
+													data-testid="equipment-brewlink-gateway"
+													bind:value={brewLinkGatewayId}
+													class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+												>
+													<option value="">{t('equipment.brewlink_select_gateway')}</option>
+													{#each gateways as gw (gw.id)}
+														<option value={gw.id}>{gw.name} ({gw.host})</option>
 													{/each}
-												</div>
+												</select>
 											{/if}
 										</div>
 
-										<!-- Target BLE MAC (Only for Boilers & Fermenters) -->
-										<div>
-											<label
-												for="equipment-brewlink-mac"
-												class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
-											>
-												{t('equipment.brewlink_target_mac_label')} *
-											</label>
-											<input
-												id="equipment-brewlink-mac"
-												data-testid="equipment-brewlink-mac"
-												type="text"
-												bind:value={brewLinkTargetMac}
-												placeholder={t('equipment.brewlink_target_mac_placeholder')}
-												class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-xs text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-											/>
-											<span class="mt-1 block text-[10px] text-zinc-400 dark:text-zinc-500">
-												{t('equipment.brewlink_target_mac_help')}
-											</span>
-										</div>
+										<!-- Paired Equipment on Selected Gateway (Only for Boilers & Fermenters) -->
+										{#if brewLinkGatewayId}
+											<div class="space-y-2 pt-1">
+												<div class="flex items-center justify-between">
+													<span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+														{t('equipment.brewlink_devices_label')}
+													</span>
+													<button
+														type="button"
+														data-testid="refresh-brewlink-devices-btn"
+														disabled={isLoadingGatewayDevices}
+														onclick={() => loadGatewayEquipment(brewLinkGatewayId)}
+														class="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:bg-zinc-900 dark:text-sky-300"
+													>
+														<RefreshCw
+															class="h-3 w-3 {isLoadingGatewayDevices ? 'animate-spin' : ''}"
+														/>
+														<span>{t('equipment.brewlink_refresh_devices')}</span>
+													</button>
+												</div>
+
+												{#if isLoadingGatewayDevices}
+													<div
+														class="flex items-center gap-2 rounded-lg border border-zinc-200/80 bg-white/70 p-2.5 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60"
+													>
+														<Loader2 class="h-3.5 w-3.5 animate-spin text-sky-500" />
+														<span>{t('equipment.brewlink_loading_devices')}</span>
+													</div>
+												{:else if gatewayDevicesError}
+													<div
+														class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300"
+													>
+														{gatewayDevicesError}
+													</div>
+												{:else if gatewayDevices.filter((d) => d.paired).length === 0}
+													<div
+														class="rounded-lg border border-dashed border-zinc-300 p-2.5 text-[11px] text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+													>
+														{t('equipment.brewlink_no_devices')}
+													</div>
+												{:else}
+													<p class="text-[10px] text-zinc-500 dark:text-zinc-400">
+														{t('equipment.brewlink_select_device')}
+													</p>
+													<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+														{#each gatewayDevices.filter((d) => d.paired) as dev (dev.slot)}
+															{@const normalizedDevMac = (dev.mac || '')
+																.replace(/[:-]/g, '')
+																.toUpperCase()}
+															{@const normalizedSelectedMac = brewLinkTargetMac
+																.replace(/[:-]/g, '')
+																.toUpperCase()}
+															{@const isMatched =
+																(normalizedDevMac && normalizedDevMac === normalizedSelectedMac) ||
+																(brewLinkSlot === dev.slot && !normalizedSelectedMac)}
+															<button
+																type="button"
+																data-testid="brewlink-device-slot-{dev.slot}"
+																onclick={() => selectBrewLinkDevice(dev)}
+																class="flex w-full items-center justify-between gap-2 rounded-xl border p-2.5 text-left transition-all {isMatched
+																	? 'border-sky-500 bg-sky-500/15 ring-1 ring-sky-500/50 dark:bg-sky-500/20'
+																	: 'border-zinc-200 bg-white hover:border-sky-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-sky-500/50'}"
+															>
+																<div class="min-w-0 space-y-0.5">
+																	<div class="flex flex-wrap items-center gap-1.5">
+																		<span class="text-xs font-bold text-zinc-900 dark:text-white">
+																			{dev.name || dev.model || `Device #${dev.slot}`}
+																		</span>
+																		<span
+																			class="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+																		>
+																			{t('equipment.brewlink_device_slot', { slot: dev.slot })}
+																		</span>
+																		<span
+																			class="rounded px-1.5 py-0.5 text-[10px] font-semibold {dev.connected
+																				? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+																				: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}"
+																		>
+																			{dev.connected
+																				? t('equipment.brewlink_device_connected')
+																				: t('equipment.brewlink_device_offline')}
+																		</span>
+																	</div>
+																	<div
+																		class="flex flex-wrap items-center gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
+																	>
+																		{#if dev.mac}
+																			<span>{dev.mac}</span>
+																		{/if}
+																		{#if dev.model}
+																			<span>• {dev.model}</span>
+																		{/if}
+																		{#if dev.state?.tempC != null}
+																			<span>• {dev.state.tempC.toFixed(1)} °C</span>
+																		{/if}
+																	</div>
+																</div>
+																{#if isMatched}
+																	<span
+																		class="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-white"
+																	>
+																		<Check class="h-3 w-3" />
+																		{t('equipment.brewlink_matched_badge')}
+																	</span>
+																{/if}
+															</button>
+														{/each}
+													</div>
+												{/if}
+											</div>
+
+											<!-- Target BLE MAC (Only for Boilers & Fermenters) -->
+											<div>
+												<label
+													for="equipment-brewlink-mac"
+													class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+												>
+													{t('equipment.brewlink_target_mac_label')} *
+												</label>
+												<input
+													id="equipment-brewlink-mac"
+													data-testid="equipment-brewlink-mac"
+													type="text"
+													bind:value={brewLinkTargetMac}
+													placeholder={t('equipment.brewlink_target_mac_placeholder')}
+													class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-xs text-zinc-900 focus:border-sky-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+												/>
+												<span class="mt-1 block text-[11px] text-zinc-500 dark:text-zinc-400">
+													{t('equipment.brewlink_target_mac_help')}
+												</span>
+											</div>
+										{/if}
 									{/if}
-								{/if}
-							</div>
-						{/if}
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Description -->
+					<div>
+						<label
+							for="equipment-description"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('equipment.desc_label')}
+						</label>
+						<textarea
+							id="equipment-description"
+							rows="2"
+							bind:value={description}
+							placeholder={t('equipment.desc_placeholder')}
+							maxlength="500"
+							class="mt-1 w-full rounded-xl border border-zinc-300 bg-white p-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+						></textarea>
 					</div>
-				{/if}
-
-				<!-- Description -->
-				<div>
-					<label
-						for="equipment-description"
-						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('equipment.desc_label')}
-					</label>
-					<input
-						id="equipment-description"
-						type="text"
-						bind:value={description}
-						placeholder={t('equipment.desc_placeholder')}
-						maxlength="500"
-						class="mt-1 h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-					/>
 				</div>
 
-				<!-- Notes -->
-				<div>
-					<label
-						for="equipment-notes"
-						class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('equipment.notes_label')}
-					</label>
-					<textarea
-						id="equipment-notes"
-						rows="2"
-						bind:value={notes}
-						placeholder={t('equipment.notes_placeholder')}
-						maxlength="2000"
-						class="mt-1 w-full rounded-xl border border-zinc-300 bg-white p-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
-					></textarea>
-				</div>
-
-				<!-- Actions -->
-				<div class="flex items-center justify-end gap-3 pt-3">
+				<!-- Pinned Footer Actions -->
+				<div
+					class="flex shrink-0 items-center justify-end gap-3 border-t border-zinc-200 bg-zinc-50/70 px-5 py-3.5 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900/50"
+				>
 					<button
 						type="button"
 						onclick={onClose}

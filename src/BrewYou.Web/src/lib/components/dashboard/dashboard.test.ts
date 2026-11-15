@@ -510,4 +510,72 @@ describe('Dashboard Operational Logic & Calculations', () => {
 			expect(sorted.map((t) => t.name)).toEqual(['Cider Tap', 'IPA Tap', 'lager tap', 'Stout Tap']);
 		});
 	});
+
+	describe('DashboardStore probeStats', () => {
+		it('excludes BrewLink gateway equipment and taps from telemetry probe counts', async () => {
+			const { dashboard } = await import('$lib/stores/dashboard.svelte');
+			const originalEquipment = dashboard.equipment;
+
+			try {
+				dashboard.equipment = [
+					{
+						id: 'gw-1',
+						brewerySetupId: 's1',
+						name: 'BrewLink Gateway',
+						type: 'Sensor',
+						subtype: 'BrewLink',
+						capacity: 0,
+						unit: 'Liters',
+						capacityLiters: 0,
+						currentVolume: 0,
+						currentVolumeLiters: 0,
+						fillPercentage: 0,
+						connectionType: 'BrewLink',
+						currentTemperatureC: null,
+						createdAt: '',
+						updatedAt: ''
+					},
+					{
+						id: 'tap-1',
+						brewerySetupId: 's1',
+						name: 'Draft Tap',
+						type: 'Tap',
+						subtype: 'StandardTap',
+						capacity: 0,
+						unit: 'Liters',
+						capacityLiters: 0,
+						currentVolume: 0,
+						currentVolumeLiters: 0,
+						fillPercentage: 0,
+						connectionType: 'None',
+						currentTemperatureC: null,
+						createdAt: '',
+						updatedAt: ''
+					},
+					{
+						id: 'tilt-1',
+						brewerySetupId: 's1',
+						name: 'Tilt Red',
+						type: 'Sensor',
+						subtype: 'Tilt',
+						capacity: 0,
+						unit: 'Liters',
+						capacityLiters: 0,
+						currentVolume: 0,
+						currentVolumeLiters: 0,
+						fillPercentage: 0,
+						connectionType: 'HttpPush',
+						currentTemperatureC: 20.5,
+						createdAt: '',
+						updatedAt: ''
+					}
+				];
+
+				expect(dashboard.probeStats.total).toBe(1);
+				expect(dashboard.probeStats.online).toBe(1);
+			} finally {
+				dashboard.equipment = originalEquipment;
+			}
+		});
+	});
 });

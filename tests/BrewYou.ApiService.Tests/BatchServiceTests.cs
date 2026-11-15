@@ -529,6 +529,7 @@ public class BatchServiceTests
             BrewerySetupId = setup.Id,
             Name = "Chamber Probe",
             Type = EquipmentType.Sensor,
+            Subtype = EquipmentSubtype.GenericSensor,
             ConnectionType = EquipmentConnectionType.HttpPush
         };
         _db.Equipment.Add(sensor);
@@ -1213,5 +1214,91 @@ public class BatchServiceTests
         delRes2.Should().Be(BatchAccessResult.Success);
         keg.AssignedBatchId.Should().BeNull();
         keg.CurrentVolumeLiters.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task SensorAssignments_RejectBrewLinkGatewayTapAndVessels_AcrossCreateUpdateAndUpdateSensors()
+    {
+        var userId = $"brewer_sensor_eligibility_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Setup", IsDefault = true };
+
+        var brewLinkGateway = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setup.Id,
+            BrewerySetup = setup,
+            Name = "Garage BrewLink",
+            Type = EquipmentType.Sensor,
+            Subtype = EquipmentSubtype.BrewLink,
+            ConnectionType = EquipmentConnectionType.BrewLink
+        };
+        var tap = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setup.Id,
+            BrewerySetup = setup,
+            Name = "Tap 1",
+            Type = EquipmentType.Tap,
+            Subtype = EquipmentSubtype.StandardTap
+        };
+        var vessel = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setup.Id,
+            BrewerySetup = setup,
+            Name = "Serving Vessel",
+            Type = EquipmentType.Other,
+            Subtype = EquipmentSubtype.Other,
+            Capacity = 20m,
+            CapacityLiters = 20m
+        };
+        var ispindel = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setup.Id,
+            BrewerySetup = setup,
+            Name = "iSpindel Blue",
+            Type = EquipmentType.Sensor,
+            Subtype = EquipmentSubtype.ISpindel
+        };
+
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.AddRange(brewLinkGateway, tap, vessel, ispindel);
+        await _db.SaveChangesAsync();
+
+        var (_, batch, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, $"B-{Guid.NewGuid():N}"[..16], "Valid Batch", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, null,
+            SensorAssignments: [new BatchSensorAssignmentInput(ispindel.Id, BrewStage.Ferment, null)]), userId);
+        batch.Should().NotBeNull();
+        batch!.SensorAssignments.Should().ContainSingle(sa => sa.EquipmentId == ispindel.Id);
+
+        foreach (var ineligible in new[] { brewLinkGateway, tap, vessel })
+        {
+            var (createRes, _, createErr) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+                null, $"B-{Guid.NewGuid():N}"[..16], "Invalid Sensor Batch", "IPA",
+                DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, null,
+                SensorAssignments: [new BatchSensorAssignmentInput(ineligible.Id, BrewStage.Ferment, null)]), userId);
+            createRes.Should().Be(BatchAccessResult.ValidationFailed);
+            createErr.Should().NotBeNullOrWhiteSpace();
+
+            var (updateRes, _, updateErr) = await _batchService.UpdateBatchAsync(
+                batch.Id,
+                new UpdateBatchRequest(SensorAssignments: [new BatchSensorAssignmentInput(ineligible.Id, BrewStage.Ferment, null)]),
+                userId);
+            updateRes.Should().Be(BatchAccessResult.ValidationFailed);
+            updateErr.Should().NotBeNullOrWhiteSpace();
+
+            var (sensorsRes, _, sensorsErr) = await _batchService.UpdateBatchSensorsAsync(
+                batch.Id,
+                [new BatchSensorAssignmentInput(ineligible.Id, BrewStage.Ferment, null)],
+                userId);
+            sensorsRes.Should().Be(BatchAccessResult.ValidationFailed);
+            sensorsErr.Should().NotBeNullOrWhiteSpace();
+        }
     }
 }

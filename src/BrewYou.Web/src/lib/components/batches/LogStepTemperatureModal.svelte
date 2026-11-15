@@ -317,7 +317,7 @@
 									class="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
 								>
 									<option value="">{t('batches.workspace.no_vessel_assigned')}</option>
-									{#each equipmentList as eq (eq.id)}
+									{#each equipmentList.filter((e) => e.subtype !== 'BrewLink' && e.type !== 'Tap') as eq (eq.id)}
 										<option value={eq.id}>{eq.name}</option>
 									{/each}
 								</select>

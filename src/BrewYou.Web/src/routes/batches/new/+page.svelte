@@ -15,7 +15,10 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { calculateWaterRequirements } from '$lib/calculators/volume';
 	import type { TargetVolumeBasis } from '$lib/calculators/volume';
-	import { isVesselFillable } from '$lib/components/inventory/vessel-geometry';
+	import {
+		isBatchTelemetrySensor,
+		isVesselFillable
+	} from '$lib/components/inventory/vessel-geometry';
 	import InsufficientStockModal from '$lib/components/batches/InsufficientStockModal.svelte';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import type { IngredientShortageDto } from '$lib/types/api';
@@ -123,9 +126,7 @@
 	let packagingVessels = $derived(
 		equipment.filter((e) => e.type === 'Keg' || (e.type === 'Other' && isVesselFillable(e.subtype)))
 	);
-	let sensors = $derived(
-		equipment.filter((e) => e.type === 'Sensor' || !isVesselFillable(e.subtype))
-	);
+	let sensors = $derived(equipment.filter((e) => isBatchTelemetrySensor(e)));
 
 	let selectedBoiler = $derived(boilers.find((b) => b.id === selectedBoilerId) || null);
 	let selectedHlt = $derived(boilers.find((b) => b.id === selectedHltId) || null);

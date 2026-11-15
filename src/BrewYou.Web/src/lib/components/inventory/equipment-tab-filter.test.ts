@@ -325,6 +325,37 @@ describe('Batch Equipment & Sensor Filtering', () => {
 			fillPercentage: 0,
 			createdAt: '2026-01-01T00:00:00Z',
 			updatedAt: '2026-01-01T00:00:00Z'
+		},
+		{
+			id: 'brewlink-gw-1',
+			brewerySetupId: 'setup-1',
+			name: 'Garage BrewLink',
+			type: 'Sensor',
+			subtype: 'BrewLink',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			connectionType: 'BrewLink',
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z'
+		},
+		{
+			id: 'tap-1',
+			brewerySetupId: 'setup-1',
+			name: 'Kegerator Tap 1',
+			type: 'Tap',
+			subtype: 'StandardTap',
+			capacity: 0,
+			unit: 'Liters',
+			capacityLiters: 0,
+			currentVolume: 0,
+			currentVolumeLiters: 0,
+			fillPercentage: 0,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z'
 		}
 	];
 
@@ -341,15 +372,19 @@ describe('Batch Equipment & Sensor Filtering', () => {
 		expect(ids).not.toContain('ispindel-1');
 		expect(ids).not.toContain('tilt-1');
 		expect(ids).not.toContain('generic-sensor-1');
+		expect(ids).not.toContain('brewlink-gw-1');
+		expect(ids).not.toContain('tap-1');
 	});
 
-	it('fermentation sensors filter captures only non-fillable sensors', async () => {
-		const { isVesselFillable } = await import('$lib/components/inventory/vessel-geometry');
+	it('fermentation sensors filter includes only eligible telemetry sensors and excludes BrewLink gateways, taps, and vessels', async () => {
+		const { isBatchTelemetrySensor } = await import('$lib/components/inventory/vessel-geometry');
 
-		const sensors = sampleEquipment.filter((e) => !isVesselFillable(e.subtype));
+		const sensors = sampleEquipment.filter((e) => isBatchTelemetrySensor(e));
 
 		const ids = sensors.map((s) => s.id);
 		expect(ids).toEqual(['ispindel-1', 'tilt-1', 'generic-sensor-1']);
+		expect(ids).not.toContain('brewlink-gw-1');
+		expect(ids).not.toContain('tap-1');
 		expect(ids).not.toContain('keg-1');
 		expect(ids).not.toContain('other-vessel-1');
 		expect(ids).not.toContain('fermenter-1');
