@@ -469,7 +469,9 @@
 			</div>
 			<div class="mt-1 flex items-baseline gap-2">
 				<span class="font-mono text-lg font-bold text-cyan-600 dark:text-cyan-400">
-					{currentTempC !== null ? `${displayTemp(currentTempC).toFixed(1)}${unitLabel}` : '—'}
+					{currentTempC !== null
+						? `${formatNumber(displayTemp(currentTempC), 1)}${unitLabel}`
+						: '—'}
 				</span>
 				{#if deltaFromTargetTemp !== null}
 					<span
@@ -479,13 +481,13 @@
 								? 'text-amber-500'
 								: 'text-blue-500'}"
 					>
-						{deltaFromTargetTemp > 0 ? '+' : ''}{displayTemp(deltaFromTargetTemp).toFixed(1)}°
+						{deltaFromTargetTemp > 0 ? '+' : ''}{formatNumber(displayTemp(deltaFromTargetTemp), 1)}°
 					</span>
 				{/if}
 			</div>
 			<div class="mt-0.5 text-[10px] text-zinc-400">
 				{t('batches.telemetry.target_temp')}: {convertedTargetTemp !== null
-					? `${convertedTargetTemp.toFixed(1)}${unitLabel}`
+					? `${formatNumber(convertedTargetTemp, 1)}${unitLabel}`
 					: '—'}
 			</div>
 		</div>
@@ -499,7 +501,7 @@
 			</div>
 			<div class="mt-1 flex items-baseline gap-2">
 				<span class="font-mono text-lg font-bold text-zinc-900 dark:text-white">
-					{apparentAttenuation !== null ? `${apparentAttenuation.toFixed(1)}%` : '—'}
+					{apparentAttenuation !== null ? `${formatNumber(apparentAttenuation, 1)}%` : '—'}
 				</span>
 			</div>
 			<div class="mt-0.5 text-[10px] text-zinc-400">
@@ -639,7 +641,7 @@
 						font-size="10"
 						class="fill-amber-600/80 font-mono dark:fill-amber-400/80"
 					>
-						{tickVal.toFixed(3)}
+						{formatNumber(tickVal, 3)}
 					</text>
 				{/each}
 

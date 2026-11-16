@@ -46,6 +46,38 @@ export function calculateStrikeWater(input: StrikeWaterInput): StrikeWaterResult
 	};
 }
 
+export interface EquipmentStrikeTempInput {
+	targetMashTempC: number;
+	liquorToGristRatio?: number;
+	mashVesselSubtype?: string | null;
+	grainTempC?: number;
+	tunLossC?: number;
+}
+
+/**
+ * Estimates strike water temperature for a mash vessel.
+ * Actively heated All-In-One systems (e.g. Grainfather G30, BrewZilla) heat and
+ * maintain water directly at the target mash setpoint, whereas passive mash tuns
+ * require overheating strike water to compensate for grain mass and tun heat loss.
+ */
+export function estimateEquipmentStrikeTempC(input: EquipmentStrikeTempInput): number {
+	const {
+		targetMashTempC,
+		liquorToGristRatio = 3.0,
+		mashVesselSubtype,
+		grainTempC = 20.0,
+		tunLossC = 1.0
+	} = input;
+
+	if (mashVesselSubtype === 'AllInOne') {
+		return Number(targetMashTempC.toFixed(1));
+	}
+
+	const ratio = Math.max(0.5, liquorToGristRatio);
+	const strikeC = targetMashTempC + (0.41 / ratio) * (targetMashTempC - grainTempC) + tunLossC;
+	return Number(strikeC.toFixed(1));
+}
+
 // ---------------------------------------------------------------------------
 // 2. Alcohol & Attenuation & Calories
 // ---------------------------------------------------------------------------

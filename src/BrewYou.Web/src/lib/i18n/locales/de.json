@@ -756,7 +756,8 @@
 			"brewlink_alert_title": "Kesselalarm",
 			"select_boil_step": "Kochschritt",
 			"all_boil_steps": "Alle Kochschritte",
-			"offline_equipment_notice": "Zugewiesenes Gerät ist offline — manueller Schrittfortschritt und Messwerterfassung sind aktiviert."
+			"offline_equipment_notice": "Zugewiesenes Gerät ist offline — manueller Schrittfortschritt und Messwerterfassung sind aktiviert.",
+			"example_prefix": "z. B."
 		},
 		"telemetry": {
 			"gravity_sg": "Dichte (SG)",

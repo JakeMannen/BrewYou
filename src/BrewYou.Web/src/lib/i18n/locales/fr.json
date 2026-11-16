@@ -756,7 +756,8 @@
 			"brewlink_alert_title": "Alerte de la chaudière",
 			"select_boil_step": "Étape d'ébullition",
 			"all_boil_steps": "Toutes les étapes d'ébullition",
-			"offline_equipment_notice": "L'équipement assigné est hors ligne — la progression manuelle des étapes et la saisie des mesures sont activées."
+			"offline_equipment_notice": "L'équipement assigné est hors ligne — la progression manuelle des étapes et la saisie des mesures sont activées.",
+			"example_prefix": "ex."
 		},
 		"telemetry": {
 			"gravity_sg": "Densité (SG)",

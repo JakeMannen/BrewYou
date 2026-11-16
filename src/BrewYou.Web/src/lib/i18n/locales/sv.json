@@ -1015,7 +1015,8 @@
 			"brewlink_alert_title": "Larm från bryggverk",
 			"select_boil_step": "Koksteg",
 			"all_boil_steps": "Alla koksteg",
-			"offline_equipment_notice": "Tilldelad utrustning är offline — manuell stegprogression och mätloggning är aktiverad."
+			"offline_equipment_notice": "Tilldelad utrustning är offline — manuell stegprogression och mätloggning är aktiverad.",
+			"example_prefix": "t.ex."
 		},
 		"telemetry": {
 			"gravity_sg": "Densitet (SG)",

@@ -752,7 +752,8 @@
 			"brewlink_alert_title": "Boiler Alert",
 			"select_boil_step": "Boil Step",
 			"all_boil_steps": "All Boil Steps",
-			"offline_equipment_notice": "Assigned equipment is offline — manual step progression and metric logging are enabled."
+			"offline_equipment_notice": "Assigned equipment is offline — manual step progression and metric logging are enabled.",
+			"example_prefix": "e.g."
 		},
 		"telemetry": {
 			"gravity_sg": "Specific Gravity (SG)",
