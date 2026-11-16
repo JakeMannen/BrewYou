@@ -1411,8 +1411,9 @@
 	});
 
 	let estimatedStrikeTempC = $derived.by(() => {
-		const mashVessel = batch
-			? equipmentList.find((e) => e.id === (batch.mashTunId ?? batch.boilerId))
+		const currentBatch = batch;
+		const mashVessel = currentBatch
+			? equipmentList.find((e) => e.id === (currentBatch.mashTunId ?? currentBatch.boilerId))
 			: undefined;
 		return estimateEquipmentStrikeTempC({
 			targetMashTempC: firstMashStepTargetTempC,
