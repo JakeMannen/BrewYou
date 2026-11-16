@@ -3708,7 +3708,9 @@
 			>
 				<div>
 					<h2 class="text-lg font-bold text-zinc-900 dark:text-white">
-						{t('batches.workspace.advance_modal_title', { stage: nextStage })}
+						{t('batches.workspace.advance_modal_title', {
+							stage: t(`batches.stages.${nextStage.toLowerCase()}`)
+						})}
 					</h2>
 					<p class="text-xs text-zinc-500">
 						{t('batches.workspace.advance_modal_desc')}

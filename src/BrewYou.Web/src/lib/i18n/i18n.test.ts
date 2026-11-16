@@ -415,6 +415,25 @@ describe('i18n Translation Engine', () => {
 		expect(missing).toEqual([]);
 	});
 
+	it('translates batch progression and stage measurement keys accurately in Swedish', () => {
+		i18n.setLocale('sv');
+		expect(t('batches.workspace.stage_nav_label')).toBe('Navigering för batchsteg');
+		expect(t('batches.workspace.stage_status_completed')).toBe('Slutförd');
+		expect(t('batches.workspace.stage_status_in_progress')).toBe('Pågår');
+		expect(t('batches.workspace.stage_status_pending')).toBe('Kommande');
+		expect(t('batches.workspace.stage_status_skipped')).toBe('Överhoppad');
+		expect(t('batches.workspace.stage_measurements_title')).toBe('Stegmätningar & manuella värden');
+		expect(t('batches.workspace.stage_measurements_desc')).toBe(
+			'Registrera och justera manuella mätvärden för detta steg.'
+		);
+		expect(t('batches.workspace.edit_stage_inputs')).toBe('Redigera registrerade värden');
+		expect(t('batches.workspace.save_stage_inputs')).toBe('Spara värden');
+		expect(t('batches.workspace.cancel_edit_stage_inputs')).toBe('Avbryt');
+		expect(t('batches.workspace.offline_equipment_notice')).toBe(
+			'Tilldelad utrustning är offline — manuell stegprogression och mätloggning är aktiverad.'
+		);
+	});
+
 	it('falls back to English when a key is absent', () => {
 		i18n.setLocale('de');
 		expect(t('nonexistent.key')).toBe('nonexistent.key');
