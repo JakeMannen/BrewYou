@@ -7,7 +7,8 @@ import {
 	calculateActualBoilOffRate,
 	calculateActualGrainAbsorption,
 	calculateMashEfficiency,
-	recalculatePostStepMilestones
+	recalculatePostStepMilestones,
+	scaleGrainWeightKg
 } from './volume';
 import type { BatchVolumeProfileDto } from '$lib/types/api';
 
@@ -384,5 +385,11 @@ describe('recalculatePostStepMilestones', () => {
 	it('calculates actual grain absorption correctly with recoverMashTunDeadSpace for All-In-One systems', () => {
 		const rate = calculateActualGrainAbsorption(29.43, 25.75, 3.5, 4.6, true);
 		expect(rate).toBe(0.8);
+	});
+
+	it('scales grain weight proportionally when scaling a 20L recipe to 10L', () => {
+		expect(scaleGrainWeightKg(4.6, 20, 10)).toBe(2.3);
+		expect(scaleGrainWeightKg(4.6, 20, 10, 'packaged', 1.5, 0.5)).toBe(2.76);
+		expect(scaleGrainWeightKg(0, 20, 10)).toBe(0);
 	});
 });

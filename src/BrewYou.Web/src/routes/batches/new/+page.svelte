@@ -14,7 +14,7 @@
 	} from '$lib/types/api';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
-	import { calculateWaterRequirements } from '$lib/calculators/volume';
+	import { calculateWaterRequirements, scaleGrainWeightKg } from '$lib/calculators/volume';
 	import type { TargetVolumeBasis } from '$lib/calculators/volume';
 	import {
 		isBatchTelemetrySensor,
@@ -99,7 +99,8 @@
 	let measuredOg = $state<number | null>(null);
 	let pitchTemperatureC = $state<number | null>(null);
 	let notes = $state('');
-	let totalGrainKg = $state(4.5);
+	let recipeBaseBatchSizeLiters = $state(20.0);
+	let baseRecipeGrainKg = $state(4.5);
 
 	// Derived values
 	let boilers = $derived(equipment.filter((e) => e.type === 'Boiler'));
@@ -272,6 +273,17 @@
 	);
 
 	let isAllInOne = $derived(isBoilerUsedForMashing);
+
+	let totalGrainKg = $derived(
+		scaleGrainWeightKg(
+			isAdHoc ? 4.5 : baseRecipeGrainKg,
+			isAdHoc ? 20.0 : recipeBaseBatchSizeLiters,
+			targetBatchSizeLiters,
+			targetVolumeBasis,
+			customFermenterLoss,
+			customPackagingLoss
+		)
+	);
 
 	let waterSchedule = $derived.by(() => {
 		return calculateWaterRequirements({
@@ -509,6 +521,7 @@
 			const r = await api.recipes.getById(id);
 			batchName = r.name;
 			beerStyle = r.beerStyle;
+			recipeBaseBatchSizeLiters = r.batchSizeLiters > 0 ? r.batchSizeLiters : 20.0;
 			targetBatchSizeLiters = r.batchSizeLiters;
 			targetOg = r.originalGravity;
 			targetFg = r.finalGravity;
@@ -524,7 +537,9 @@
 						isMashGrain(i.ingredientType, i.usage, i.fermentableCategory, i.ingredientName)
 					)
 					.reduce((sum, i) => sum + normalizeFermentableToKg(Number(i.amount), i.unit), 0);
-				totalGrainKg = grainSum > 0 ? Math.round(grainSum * 10) / 10 : 0;
+				baseRecipeGrainKg = grainSum > 0 ? grainSum : 0;
+			} else {
+				baseRecipeGrainKg = 0;
 			}
 
 			if (r.mashSteps && r.mashSteps.length > 0) {
