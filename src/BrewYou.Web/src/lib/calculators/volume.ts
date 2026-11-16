@@ -296,6 +296,27 @@ export function calculateActualGrainAbsorption(
 }
 
 /**
+ * Scales a recipe's base mash grain weight proportionally to the target fermenter volume.
+ */
+export function scaleGrainWeightKg(
+	baseGrainKg: number,
+	recipeBatchSizeLiters: number,
+	targetBatchSizeLiters: number,
+	targetBasis: TargetVolumeBasis = 'fermenter',
+	fermenterLossLiters: number = 1.5,
+	packagingLossLiters: number = 0.5
+): number {
+	if (baseGrainKg <= 0) return 0;
+	const baseBatch = recipeBatchSizeLiters > 0 ? recipeBatchSizeLiters : 20.0;
+	const targetFermenter =
+		targetBasis === 'packaged'
+			? targetBatchSizeLiters + fermenterLossLiters + packagingLossLiters
+			: targetBatchSizeLiters;
+	const scale = Math.max(0.05, targetFermenter / baseBatch);
+	return roundTo(baseGrainKg * scale, 2);
+}
+
+/**
  * Mash efficiency percentage.
  */
 export function calculateMashEfficiency(

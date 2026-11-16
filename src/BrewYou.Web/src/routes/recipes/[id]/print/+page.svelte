@@ -25,7 +25,11 @@
 		type PrintableBoilRow,
 		type PrintableTimingLabels
 	} from '$lib/utils/recipePrint';
-	import { calculateWaterRequirements, type TargetVolumeBasis } from '$lib/calculators/volume';
+	import {
+		calculateWaterRequirements,
+		scaleGrainWeightKg,
+		type TargetVolumeBasis
+	} from '$lib/calculators/volume';
 	import type { EquipmentDto, RecipeDetailDto, RecipeIngredientOutputDto } from '$lib/types/api';
 	import { Printer, ArrowLeft, Play, Loader2, Info } from '@lucide/svelte';
 
@@ -41,7 +45,9 @@
 	let selectedBoilerId = $state<string>('');
 
 	let boilers = $derived(equipment.filter((e) => e.type === 'Boiler'));
+	let fermenters = $derived(equipment.filter((e) => e.type === 'Fermenter'));
 	let selectedBoiler = $derived(boilers.find((b) => b.id === selectedBoilerId) ?? null);
+	let defaultFermenterLoss = $derived(fermenters[0]?.trubLossLiters ?? 1.5);
 
 	let volumePresetsLiters = $derived(
 		settings.volumeUnit === 'Gallons'
@@ -81,13 +87,17 @@
 			.reduce((sum, i) => sum + normalizeFermentableToKg(i.amount, i.unit), 0);
 	});
 
-	let initialScaleFactor = $derived.by(() => {
-		if (!recipe || recipe.batchSizeLiters <= 0) return 1;
-		return Math.max(0.05, targetBatchSizeLiters / recipe.batchSizeLiters);
-	});
-
-	// Estimate water schedule first with provisionally scaled grain so packaged basis derives target fermenter volume accurately
-	let provisionalGrainKg = $derived(baseRecipeGrainKg * initialScaleFactor);
+	// Scale grain weight proportionally to the target fermenter volume so grain absorption matches the batch size
+	let provisionalGrainKg = $derived(
+		scaleGrainWeightKg(
+			baseRecipeGrainKg,
+			recipe?.batchSizeLiters ?? 20.0,
+			targetBatchSizeLiters,
+			targetVolumeBasis,
+			defaultFermenterLoss,
+			selectedBoiler?.packagingLossLiters ?? 0.5
+		)
+	);
 
 	let isAllInOneBoiler = $derived(
 		selectedBoiler !== null &&
@@ -105,7 +115,7 @@
 			boilOffRatePerHour: selectedBoiler?.boilOffRatePerHour ?? 3.0,
 			kettleTrubLossLiters: selectedBoiler?.trubLossLiters ?? 1.5,
 			mashTunDeadSpaceLiters: selectedBoiler?.mashTunDeadSpaceLiters ?? 0.0,
-			fermenterLossLiters: 1.5,
+			fermenterLossLiters: defaultFermenterLoss,
 			packagingLossLiters: selectedBoiler?.packagingLossLiters ?? 0.5,
 			coolingShrinkagePercent: isAllInOneBoiler ? 0.0 : 4.0,
 			grainAbsorptionRate: isAllInOneBoiler ? 0.8 : 0.96,
@@ -253,6 +263,10 @@
 			recipe = loadedRecipe;
 			equipment = loadedEquipment;
 			targetBatchSizeLiters = loadedRecipe.batchSizeLiters || 20.0;
+			const loadedBoilers = loadedEquipment.filter((e) => e.type === 'Boiler');
+			if (loadedBoilers.length > 0 && !selectedBoilerId) {
+				selectedBoilerId = loadedBoilers[0].id;
+			}
 		} catch (err) {
 			if (err instanceof ApiClientError) {
 				errorMessage = err.message;
