@@ -41,6 +41,7 @@
 	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
+	import { estimateEquipmentStrikeTempC } from '$lib/calculators/calculators';
 	import {
 		ArrowRight,
 		CheckCircle2,
@@ -1410,11 +1411,15 @@
 	});
 
 	let estimatedStrikeTempC = $derived.by(() => {
-		const targetMash = firstMashStepTargetTempC;
-		const grainTemp = 20.0;
-		const ratio = Math.max(0.5, strikeRatio);
-		const tunLoss = 1.0;
-		return formatNumber(targetMash + (0.41 / ratio) * (targetMash - grainTemp) + tunLoss, 1);
+		const currentBatch = batch;
+		const mashVessel = currentBatch
+			? equipmentList.find((e) => e.id === (currentBatch.mashTunId ?? currentBatch.boilerId))
+			: undefined;
+		return estimateEquipmentStrikeTempC({
+			targetMashTempC: firstMashStepTargetTempC,
+			liquorToGristRatio: strikeRatio,
+			mashVesselSubtype: mashVessel?.subtype
+		});
 	});
 
 	let estimatedSpargeTempC = $derived.by(() => {
@@ -2477,7 +2482,7 @@
 									{t('batches.workspace.recommended_strike_temp')}
 								</span>
 								<span class="font-mono text-sm font-bold text-amber-600 dark:text-amber-400">
-									{settings.formatTemperature(parseFloat(estimatedStrikeTempC))}
+									{settings.formatTemperature(estimatedStrikeTempC)}
 								</span>
 							</div>
 							{#if estimatedSpargeVolumeL > 0}
@@ -3708,7 +3713,9 @@
 			>
 				<div>
 					<h2 class="text-lg font-bold text-zinc-900 dark:text-white">
-						{t('batches.workspace.advance_modal_title', { stage: nextStage })}
+						{t('batches.workspace.advance_modal_title', {
+							stage: t(`batches.stages.${nextStage.toLowerCase()}`)
+						})}
 					</h2>
 					<p class="text-xs text-zinc-500">
 						{t('batches.workspace.advance_modal_desc')}

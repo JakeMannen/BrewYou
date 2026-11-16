@@ -18,6 +18,7 @@
 		normalizeHopToGrams,
 		resolveFermentableCategory
 	} from '$lib/calculators/brewing';
+	import { estimateEquipmentStrikeTempC } from '$lib/calculators/calculators';
 	import {
 		buildPrintableBoilSchedule,
 		formatPrintableStageTiming,
@@ -156,11 +157,13 @@
 	let estimatedStrikeTempC = $derived.by(() => {
 		const ratio =
 			totalScaledGrainKg > 0 && waterSchedule.strikeWaterLiters > 0
-				? Math.max(0.5, waterSchedule.strikeWaterLiters / totalScaledGrainKg)
+				? waterSchedule.strikeWaterLiters / totalScaledGrainKg
 				: 3.0;
-		const grainTemp = 20.0;
-		const tunLoss = 1.0;
-		return targetMashTempC + (0.41 / ratio) * (targetMashTempC - grainTemp) + tunLoss;
+		return estimateEquipmentStrikeTempC({
+			targetMashTempC,
+			liquorToGristRatio: ratio,
+			mashVesselSubtype: selectedBoiler?.subtype
+		});
 	});
 
 	let buGuRatio = $derived(

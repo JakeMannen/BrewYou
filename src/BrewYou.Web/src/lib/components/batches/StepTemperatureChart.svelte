@@ -478,7 +478,7 @@
 						>
 							#{step.stepOrder}
 							{step.name}
-							{stepTarget.toFixed(1)}{unitLabel}
+							{formatNumber(stepTarget, 1)}{unitLabel}
 						</text>
 					{/each}
 				{:else if convertedTarget !== null}
@@ -499,7 +499,8 @@
 						font-size="10"
 						class="fill-emerald-600 font-mono font-semibold dark:fill-emerald-400"
 					>
-						Target {convertedTarget.toFixed(1)}{unitLabel}
+						{t('batches.telemetry.target_temp')}
+						{formatNumber(convertedTarget, 1)}{unitLabel}
 					</text>
 				{/if}
 

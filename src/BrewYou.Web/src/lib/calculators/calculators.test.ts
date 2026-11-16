@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	calculateStrikeWater,
+	estimateEquipmentStrikeTempC,
 	calculateAbv,
 	calculateHydrometerCorrection,
 	calculateRefractometerFg,
@@ -80,6 +81,26 @@ describe('Common Brewery Calculators', () => {
 			expect(biab.strikeTempC).toBeLessThan(traditional.strikeTempC);
 			expect(biab.strikeTempC).toBeGreaterThan(65);
 			expect(biab.totalWaterLiters).toBe(30.0);
+		});
+
+		it('returns target mash temperature directly for All-In-One systems (e.g. Grainfather G30)', () => {
+			const g30Strike = estimateEquipmentStrikeTempC({
+				targetMashTempC: 65,
+				liquorToGristRatio: 2.7,
+				mashVesselSubtype: 'AllInOne'
+			});
+
+			expect(g30Strike).toBe(65.0);
+		});
+
+		it('calculates strike overshoot for passive mash tuns', () => {
+			const passiveStrike = estimateEquipmentStrikeTempC({
+				targetMashTempC: 65,
+				liquorToGristRatio: 3.0,
+				mashVesselSubtype: 'MashTun'
+			});
+
+			expect(passiveStrike).toBeCloseTo(72.2, 1);
 		});
 	});
 

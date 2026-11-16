@@ -756,7 +756,8 @@
 			"brewlink_alert_title": "Alerta del hervidor",
 			"select_boil_step": "Paso de hervido",
 			"all_boil_steps": "Todos los pasos de hervido",
-			"offline_equipment_notice": "El equipo asignado está desconectado — la progresión manual de pasos y el registro de mediciones están habilitados."
+			"offline_equipment_notice": "El equipo asignado está desconectado — la progresión manual de pasos y el registro de mediciones están habilitados.",
+			"example_prefix": "p. ej."
 		},
 		"telemetry": {
 			"gravity_sg": "Densidad (SG)",

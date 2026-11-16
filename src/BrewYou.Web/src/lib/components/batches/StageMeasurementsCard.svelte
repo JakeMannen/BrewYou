@@ -459,7 +459,7 @@
 							type="number"
 							step="0.1"
 							bind:value={draftPreBoilVol}
-							placeholder="e.g. 28.5"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(28.5, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -476,7 +476,7 @@
 							type="number"
 							step="0.001"
 							bind:value={draftPreBoilGrav}
-							placeholder="e.g. 1.045"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.045, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -493,7 +493,7 @@
 							type="number"
 							step="0.1"
 							bind:value={draftPreBoilVol}
-							placeholder="e.g. 28.5"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(28.5, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -510,7 +510,7 @@
 							type="number"
 							step="0.001"
 							bind:value={draftPreBoilGrav}
-							placeholder="e.g. 1.045"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.045, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -527,7 +527,7 @@
 							type="number"
 							step="0.1"
 							bind:value={draftPostBoilVol}
-							placeholder="e.g. 23.0"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(23.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -544,7 +544,7 @@
 							type="number"
 							step="0.001"
 							bind:value={draftMeasuredOg}
-							placeholder="e.g. 1.055"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.055, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -561,7 +561,7 @@
 							type="number"
 							step="0.001"
 							bind:value={draftMeasuredOg}
-							placeholder="e.g. 1.055"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.055, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -578,7 +578,7 @@
 							type="number"
 							step="0.5"
 							bind:value={draftPitchTemp}
-							placeholder="e.g. 19.0"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(19.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -595,7 +595,7 @@
 							type="number"
 							step="0.1"
 							bind:value={draftMeasuredBatchSize}
-							placeholder="e.g. 20.0"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(20.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -612,7 +612,7 @@
 							type="number"
 							step="0.001"
 							bind:value={draftMeasuredFg}
-							placeholder="e.g. 1.010"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.01, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -629,7 +629,7 @@
 							type="number"
 							step="0.1"
 							bind:value={draftPackagedVol}
-							placeholder="e.g. 18.5"
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(18.5, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>

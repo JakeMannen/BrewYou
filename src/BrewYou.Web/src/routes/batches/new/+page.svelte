@@ -14,6 +14,7 @@
 	} from '$lib/types/api';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
+	import { estimateEquipmentStrikeTempC } from '$lib/calculators/calculators';
 	import { calculateWaterRequirements, scaleGrainWeightKg } from '$lib/calculators/volume';
 	import type { TargetVolumeBasis } from '$lib/calculators/volume';
 	import {
@@ -387,13 +388,14 @@
 		return 3.0;
 	});
 
-	// Strike water temp estimation: T_strike = T_mash + (0.41 / ratio) * (T_mash - T_grain) + T_tun_loss
+	// Strike water temp estimation: All-In-One systems mash at set temp; passive tuns overheat for grain & tun loss
 	let calculatedStrikeTempC = $derived.by(() => {
-		const targetMash = targetMashTempC;
-		const grainTemp = 20.0;
-		const ratio = Math.max(0.5, liquorToGristRatio);
-		const tunLoss = 1.0;
-		return formatNumber(targetMash + (0.41 / ratio) * (targetMash - grainTemp) + tunLoss, 1);
+		const mashVessel = isBoilerUsedForMashing ? selectedBoiler : selectedMashTun;
+		return estimateEquipmentStrikeTempC({
+			targetMashTempC,
+			liquorToGristRatio,
+			mashVesselSubtype: mashVessel?.subtype
+		});
 	});
 
 	// Validations
@@ -1759,7 +1761,7 @@
 								{formatNumber(waterSchedule.strikeWaterLiters, 1)} L
 							</span>
 							<span class="block text-[10px] font-medium text-amber-700/80 dark:text-amber-400/80">
-								@ {settings.formatTemperature(parseFloat(calculatedStrikeTempC))}
+								@ {settings.formatTemperature(calculatedStrikeTempC)}
 							</span>
 						</div>
 
@@ -2244,7 +2246,7 @@
 								{t('batches.wizard.strike_temp')}
 							</span>
 							<span class="font-mono text-base font-bold text-amber-600 dark:text-amber-400">
-								{settings.formatTemperature(parseFloat(calculatedStrikeTempC))}
+								{settings.formatTemperature(calculatedStrikeTempC)}
 							</span>
 							<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
 								{t('batches.wizard.strike_temp_help', {
