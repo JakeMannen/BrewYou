@@ -580,7 +580,7 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 | **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                                       |
 |                      | `GET /api/v1/inventory/equipment/telemetry-stream`                                         | Server-Sent Events (SSE) live telemetry stream for equipment and batch readings                    |
 | **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                                                |
-| **Batches**          | `GET/POST /api/v1/batches`, `PATCH /api/v1/batches/{id}/stage`                             | 5-stage brew lifecycle, per-step mash/fermentation execution, multi-vessel occupancy & attenuation |
+| **Batches**          | `GET/POST /api/v1/batches`, `PUT /api/v1/batches/{id}`, `PATCH /api/v1/batches/{id}/stage`, `POST /api/v1/batches/{id}/readings` | 5-stage brew lifecycle, post-finish editing & status transitions, consolidated manual telemetry (calibration, equipment linking & SSE), and target deviations |
 | **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore                   |
 
 ---

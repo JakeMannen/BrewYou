@@ -585,4 +585,19 @@ public class VolumeCalculatorTests
         result.SpargeWaterLiters.Should().BeGreaterThan(10.0m);
         result.TotalWaterLiters.Should().Be(result.StrikeWaterLiters + result.SpargeWaterLiters);
     }
+
+    [Fact]
+    public void VolumeCalculationInput_CoolingShrinkage_DefaultsToFourPercentUniformly()
+    {
+        var input = new VolumeCalculationInput(
+            TargetBatchSizeLiters: 20.0m,
+            BoilTimeMinutes: 60,
+            TotalGrainWeightKg: 5.0m
+        );
+
+        input.CoolingShrinkagePercent.Should().Be(4.0m);
+
+        var result = VolumeCalculator.CalculateWaterRequirements(input);
+        result.ShrinkageLossLiters.Should().BeGreaterThan(0m);
+    }
 }

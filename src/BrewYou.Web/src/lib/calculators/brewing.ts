@@ -391,21 +391,81 @@ export function calculateBuGuRatio(og: number, ibu: number): number {
  * Calculates Apparent Attenuation percentage (AA% = ((OG - FG) / (OG - 1.0)) * 100).
  */
 export function calculateApparentAttenuation(og: number, fg: number): number {
-	if (!og || og <= 1.0 || !fg || og <= fg) return 0;
-	return Math.round(((og - fg) / (og - 1.0)) * 1000) / 10;
+	if (!Number.isFinite(og) || !Number.isFinite(fg) || og <= 1.0 || fg <= 0 || og <= fg) {
+		return 0;
+	}
+	return Math.max(0, Math.round(((og - fg) / (og - 1.0)) * 1000) / 10);
 }
 
 /**
- * Calculates ABV using Linear or ASBC Advanced non-linear formula
+ * Calculates Real Degree of Fermentation (RDF%) from Apparent Degree of Fermentation (ADF%)
+ * or from Original Gravity and Final Gravity using the standard ASBC factor (0.8192).
+ */
+export function calculateRealAttenuation(apparentAttenuation: number): number;
+export function calculateRealAttenuation(og: number, fg: number): number;
+export function calculateRealAttenuation(ogOrApparent: number, fg?: number): number {
+	const apparent = fg !== undefined ? calculateApparentAttenuation(ogOrApparent, fg) : ogOrApparent;
+	if (!Number.isFinite(apparent) || apparent <= 0) {
+		return 0;
+	}
+	return Math.max(0, Math.round(apparent * 0.8192 * 10) / 10);
+}
+
+/**
+ * Calculates ABV using standard Linear formula for OG <= 1.060 (unless Advanced is selected),
+ * and automatically applies the ASBC non-linear equation for high-gravity worts (OG > 1.060).
  */
 export function calculateActualAbv(og: number, fg: number, formula: AbvFormula = 'Linear'): number {
-	if (og <= fg || og <= 1.0) return 0;
-	if (formula === 'Advanced') {
+	if (!Number.isFinite(og) || !Number.isFinite(fg) || og <= fg || og <= 1.0 || fg <= 0) {
+		return 0;
+	}
+	if (og > 1.06 || formula === 'Advanced') {
+		if (og >= 1.775) {
+			return 0;
+		}
 		const abw = (76.08 * (og - fg)) / (1.775 - og);
 		const abv = abw * (fg / 0.794);
-		return Math.max(0, abv);
+		return Math.max(0, Math.round(abv * 100) / 100);
 	}
-	return Math.max(0, (og - fg) * 131.25);
+	return Math.max(0, Math.round((og - fg) * 131.25 * 100) / 100);
+}
+
+/**
+ * Converts a hydrometer specific gravity reading taken at temperature tempC to the corrected reference
+ * specific gravity at calibration temperature calTempC (default 20.0°C) using the ASBC / Goldiner & Klemann equation.
+ * Edge cases (tempC <= 0°C, tempC > 100°C, rawSg <= 0, non-finite inputs) safely return rawSg.
+ */
+export function correctHydrometerReading(rawSg: number, tempC: number, calTempC = 20.0): number {
+	if (
+		!Number.isFinite(rawSg) ||
+		!Number.isFinite(tempC) ||
+		!Number.isFinite(calTempC) ||
+		rawSg <= 0 ||
+		tempC <= 0 ||
+		tempC > 100 ||
+		calTempC <= 0 ||
+		calTempC > 100
+	) {
+		return rawSg;
+	}
+
+	const tempF = tempC * 1.8 + 32.0;
+	const calF = calTempC * 1.8 + 32.0;
+
+	const densityPoly = (t: number): number =>
+		1.00130346 -
+		0.000134722124 * t +
+		0.00000204052596 * Math.pow(t, 2) -
+		0.00000000232820948 * Math.pow(t, 3);
+
+	const calDensity = densityPoly(calF);
+	if (calDensity <= 0.0) {
+		return rawSg;
+	}
+
+	const sampleDensity = densityPoly(tempF);
+	const corrected = rawSg * (sampleDensity / calDensity);
+	return Math.round(corrected * 10000) / 10000;
 }
 
 /**

@@ -1,5 +1,18 @@
+<script module lang="ts">
+	export function calculateTemperatureDelta(
+		deltaC: number | null | undefined,
+		unit: 'Celsius' | 'Fahrenheit' = 'Celsius'
+	): number {
+		if (deltaC === null || deltaC === undefined || !Number.isFinite(deltaC)) {
+			return 0;
+		}
+		return unit === 'Fahrenheit' ? (deltaC * 9) / 5 : deltaC;
+	}
+</script>
+
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
+	import { calculateActualAbv } from '$lib/calculators/brewing';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import type {
@@ -56,6 +69,10 @@
 	// Helper to display temperature in user preference
 	function displayTemp(tempC: number): number {
 		return settings.temperatureUnit === 'Fahrenheit' ? (tempC * 9) / 5 + 32 : tempC;
+	}
+
+	function displayTempDelta(deltaC: number): number {
+		return calculateTemperatureDelta(deltaC, settings.temperatureUnit);
 	}
 
 	let unitLabel = $derived(settings.temperatureUnit === 'Fahrenheit' ? '°F' : '°C');
@@ -481,7 +498,10 @@
 								? 'text-amber-500'
 								: 'text-blue-500'}"
 					>
-						{deltaFromTargetTemp > 0 ? '+' : ''}{formatNumber(displayTemp(deltaFromTargetTemp), 1)}°
+						{deltaFromTargetTemp > 0 ? '+' : ''}{formatNumber(
+							displayTempDelta(deltaFromTargetTemp),
+							1
+						)}°
 					</span>
 				{/if}
 			</div>
@@ -554,7 +574,7 @@
 			</span>
 			<span class="flex items-center gap-1.5 text-cyan-600 dark:text-cyan-400">
 				<span class="h-0.5 w-3.5 rounded-full bg-cyan-500"></span>
-				{t('batches.telemetry.temperature')}
+				{t('batches.telemetry.temperature', { unit: settings.tempShort })}
 			</span>
 			<span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
 				<span class="h-0.5 w-3 border-t border-dashed border-emerald-500"></span>
@@ -876,7 +896,7 @@
 							0,
 							Math.min(100, ((targetOg - activeSgPoint.sg) / (targetOg - 1.0)) * 100)
 						)}
-						{@const abv = (targetOg - activeSgPoint.sg) * 131.25}
+						{@const abv = calculateActualAbv(targetOg, activeSgPoint.sg, settings.abvFormula)}
 						<div class="mt-1 flex items-center gap-2 text-[10px] text-zinc-400">
 							<span>{formatNumber(att, 1)}% Atten</span>
 							<span>•</span>

@@ -82,7 +82,7 @@ export function calculateWaterRequirements(input: VolumeCalculationInput): Volum
 	} else {
 		// Brewer specifies volume into fermenter (legacy default)
 		targetFermenter = input.targetBatchSizeLiters;
-		targetPackaged = targetFermenter - fermenterLoss;
+		targetPackaged = Math.max(0, targetFermenter - fermenterLoss - packagingLoss);
 	}
 
 	// Post-boil cold volume needed in kettle (to yield targetFermenter after trub separation)

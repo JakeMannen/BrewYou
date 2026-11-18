@@ -1679,13 +1679,36 @@ public class BackupService : IBackupService
                         .Where(e => eqIds.Contains(e.Id))
                         .ToListAsync();
 
+                    var targetBatchIds = batchIdMap.Values.Distinct().ToList();
+                    var servableBatchIds = await _db.Batches
+                        .AsNoTracking()
+                        .Where(b => targetBatchIds.Contains(b.Id) &&
+                                    b.Status != BatchStatus.Archived &&
+                                    (b.Status == BatchStatus.Conditioning ||
+                                     b.Status == BatchStatus.Completed ||
+                                     b.CurrentStage == BrewStage.Condition ||
+                                     b.CurrentStage == BrewStage.Package))
+                        .Select(b => b.Id)
+                        .ToHashSetAsync();
+
                     foreach (var eq in eqEntities)
                     {
                         if (pendingEquipmentBatchAssignments.TryGetValue(eq.Id, out var archiveBatchId) &&
-                            batchIdMap.TryGetValue(archiveBatchId, out var targetBatchId))
+                            batchIdMap.TryGetValue(archiveBatchId, out var targetBatchId) &&
+                            servableBatchIds.Contains(targetBatchId))
                         {
                             eq.AssignedBatchId = targetBatchId;
                             eq.AssignedAt = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            eq.AssignedBatchId = null;
+                            eq.AssignedAt = null;
+                            if (eq.Type == EquipmentType.Keg)
+                            {
+                                eq.CurrentVolume = 0m;
+                                eq.CurrentVolumeLiters = 0m;
+                            }
                         }
                     }
 

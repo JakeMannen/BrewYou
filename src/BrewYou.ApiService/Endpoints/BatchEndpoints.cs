@@ -217,6 +217,8 @@ public static class BatchEndpoints
             {
                 BatchAccessResult.Success => Results.Created($"/api/v1/batches/{id}/readings/{reading!.Id}", ApiResponse<BatchReadingDto>.Ok(reading!)),
                 BatchAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Batch not found.")),
+                BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("CONFLICT", errorMsg ?? "Cannot add reading to batch.")),
+                BatchAccessResult.ValidationFailed => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", errorMsg ?? "Validation failed for batch reading.")),
                 BatchAccessResult.QuotaExceeded => Results.UnprocessableEntity(ApiResponse.Fail("QUOTA_EXCEEDED", errorMsg ?? "Reading limit reached.")),
                 _ => Results.BadRequest(ApiResponse.Fail("BAD_REQUEST", errorMsg ?? "Failed to add reading."))
             };
@@ -224,7 +226,9 @@ public static class BatchEndpoints
         .WithName($"AddBatchReading_{prefixTag}")
         .Produces<ApiResponse<BatchReadingDto>>(StatusCodes.Status201Created)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
-        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict)
+        .Produces<ApiResponse>(StatusCodes.Status422UnprocessableEntity);
 
         // 7. Toggle Ingredient
         group.MapPatch("/{id:guid}/ingredients/{ingredientId:guid}", async (

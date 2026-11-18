@@ -542,6 +542,11 @@ public static class BrewingCalculator
             // ASBC Advanced Equation for High-Gravity Beers
             // ABW = (76.08 * (OG - FG)) / (1.775 - OG)
             // ABV = ABW * (FG / 0.794)
+            if (measuredOg >= 1.775m)
+            {
+                return 0.0m;
+            }
+
             var abw = (76.08m * (measuredOg - currentGravity)) / (1.775m - measuredOg);
             var abv = abw * (currentGravity / 0.794m);
             return Math.Max(0.0m, Math.Round(abv, 2));
@@ -550,6 +555,41 @@ public static class BrewingCalculator
         // Standard Linear Equation
         var standardAbv = (measuredOg - currentGravity) * 131.25m;
         return Math.Max(0.0m, Math.Round(standardAbv, 2));
+    }
+
+    /// <summary>
+    /// Converts a hydrometer specific gravity reading taken at temperature tempC to the corrected reference
+    /// specific gravity at calibration temperature calTempC (default 20.0°C) using the ASBC / Goldiner & Klemann equation.
+    /// Edge cases (tempC &lt;= 0°C or tempC &gt; 100°C) are safely handled by returning rawSg.
+    /// </summary>
+    public static decimal CorrectHydrometerReading(decimal rawSg, decimal tempC, decimal calTempC = 20.0m)
+    {
+        if (rawSg <= 0m || tempC <= 0m || tempC > 100m || calTempC <= 0m || calTempC > 100m)
+        {
+            return rawSg;
+        }
+
+        // Convert Celsius to Fahrenheit: F = C * 1.8 + 32
+        var tempF = (double)tempC * 1.8 + 32.0;
+        var calF = (double)calTempC * 1.8 + 32.0;
+
+        // ASBC / Goldiner & Klemann polynomial for water/wort density vs temperature
+        static double DensityPoly(double t) =>
+            1.00130346
+            - 0.000134722124 * t
+            + 0.00000204052596 * Math.Pow(t, 2)
+            - 0.00000000232820948 * Math.Pow(t, 3);
+
+        var calDensity = DensityPoly(calF);
+        if (calDensity <= 0.0)
+        {
+            return rawSg;
+        }
+
+        var sampleDensity = DensityPoly(tempF);
+        var corrected = (double)rawSg * (sampleDensity / calDensity);
+
+        return Math.Round((decimal)corrected, 4);
     }
 
     /// <summary>
@@ -564,6 +604,30 @@ public static class BrewingCalculator
 
         var attenuation = ((measuredOg - currentGravity) / (measuredOg - 1.000m)) * 100.0m;
         return Math.Max(0.0m, Math.Round(attenuation, 1));
+    }
+
+    /// <summary>
+    /// Calculates Real Degree of Fermentation (RDF%) from Apparent Degree of Fermentation (ADF%)
+    /// using the standard ASBC equation: realAttenuation = apparentAttenuation * 0.8192m.
+    /// </summary>
+    public static decimal CalculateRealAttenuation(decimal apparentAttenuation)
+    {
+        if (apparentAttenuation <= 0m)
+        {
+            return 0.0m;
+        }
+
+        var realAttenuation = apparentAttenuation * 0.8192m;
+        return Math.Max(0.0m, Math.Round(realAttenuation, 1));
+    }
+
+    /// <summary>
+    /// Calculates Real Degree of Fermentation (RDF%) from Measured OG and Current Gravity.
+    /// </summary>
+    public static decimal CalculateRealAttenuation(decimal measuredOg, decimal currentGravity)
+    {
+        var apparentAttenuation = CalculateApparentAttenuation(measuredOg, currentGravity);
+        return CalculateRealAttenuation(apparentAttenuation);
     }
 
     /// <summary>

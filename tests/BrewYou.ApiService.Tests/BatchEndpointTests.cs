@@ -1707,11 +1707,18 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         completedBatch.StageHistory.First(h => h.Stage == BrewStage.Condition).Status.Should().Be(StageStatus.Skipped);
         completedBatch.StageHistory.First(h => h.Stage == BrewStage.Package).Status.Should().Be(StageStatus.Completed);
 
-        // 4. Attempting to toggle ingredient on completed batch -> 409 Conflict
+        // 4. Toggling ingredient on completed batch succeeds (F6), while archived batch returns 409 Conflict
         var ingId = completedBatch.Ingredients[0].Id;
         var toggleCompletedRes = await client.PatchAsync(
             $"/api/v1/batches/{batchA.Id}/ingredients/{ingId}?isChecked=false", null);
-        toggleCompletedRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        toggleCompletedRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var archiveRes = await client.PutAsJsonAsync($"/api/v1/batches/{batchA.Id}", new UpdateBatchRequest(Status: BatchStatus.Archived));
+        archiveRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var toggleArchivedRes = await client.PatchAsync(
+            $"/api/v1/batches/{batchA.Id}/ingredients/{ingId}?isChecked=true", null);
+        toggleArchivedRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -2415,5 +2422,86 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var updGwRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}",
             new UpdateBatchRequest(SensorAssignments: [new(gw.Id, BrewStage.Ferment, null)]));
         updGwRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task AddBatchReading_ConsolidatedPayload_CalibratesValidatesReturns409OnArchived_AndPopulatesReadingAbv()
+    {
+        var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var createRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-CONSOL-{Guid.NewGuid():N}"[..16], "Consolidated Reading Ale", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.060m, 1.012m, 6.3m, 45m, 6m, 60, 75m,
+            boilerId, fermenterId, MeasuredOg: 1.060m));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await createRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Out-of-bounds SG -> 400 VALIDATION_ERROR
+        var badSgRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/readings",
+            new AddBatchReadingRequest(DateTime.UtcNow, 0.899m, 20m, "Too low"));
+        badSgRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 2. Boundary SG 0.900 and 1.250 accepted, and calibrated reading works
+        var rawSg = 1.045m;
+        var tempC = 40.0m;
+        var expectedCorrected = BrewingCalculator.CorrectHydrometerReading(rawSg, tempC);
+
+        var okRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/readings",
+            new AddBatchReadingRequest(
+                DateTime.UtcNow.AddMinutes(-5),
+                rawSg,
+                tempC,
+                "Calibrated sample",
+                EquipmentId: fermenterId,
+                Stage: BrewStage.Ferment,
+                CalibrateHydrometerTemp: true));
+        okRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var createdReading = (await okRes.Content.ReadFromJsonAsync<ApiResponse<BatchReadingDto>>())!.Data!;
+        createdReading.SpecificGravity.Should().Be(expectedCorrected);
+        createdReading.AlcoholByVolume.Should().Be(BrewingCalculator.CalculateActualAbv(1.060m, expectedCorrected));
+
+        // 3. Detail endpoint populates AlcoholByVolume on every reading
+        var detail = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        detail.Readings.Should().ContainSingle(r => r.Id == createdReading.Id && r.AlcoholByVolume == createdReading.AlcoholByVolume);
+
+        // 4. Archive batch -> POST /readings returns 409 Conflict
+        var archRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(Status: BatchStatus.Archived));
+        archRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var archivedReadRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/readings",
+            new AddBatchReadingRequest(DateTime.UtcNow, 1.015m, 20m, "Blocked"));
+        archivedReadRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UpdateBatch_PostFinish_UpdatesBrewDateReopensToFermenting_AndArchivesCleanly()
+    {
+        var (client, _, boilerId, fermenterId, kegId) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var createRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-REOPEN-{Guid.NewGuid():N}"[..16], "Reopenable Stout", "Stout",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.055m, 1.014m, 5.4m, 35m, 30m, 60, 75m,
+            boilerId, fermenterId));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await createRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var pkgRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: kegId, MeasuredOg: 1.055m, MeasuredFg: 1.014m));
+        pkgRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var newDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var reopenRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}",
+            new UpdateBatchRequest(BrewDate: newDate, Status: BatchStatus.Fermenting));
+        reopenRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var reopened = (await reopenRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        reopened.BrewDate.Should().Be(newDate);
+        reopened.Status.Should().Be(BatchStatus.Fermenting);
+        reopened.CurrentStage.Should().Be(BrewStage.Ferment);
+        reopened.CompletedAt.Should().BeNull();
+
+        var kegAfterReopen = (await (await client.GetAsync($"/api/v1/inventory/equipment/{kegId}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        kegAfterReopen.AssignedBatchId.Should().BeNull();
     }
 }

@@ -1191,6 +1191,19 @@ export interface BatchSensorAssignmentInput {
 	batchMashStepId?: string | null;
 }
 
+export interface BatchDeviationsDto {
+	ogDeviation?: number | null;
+	ogPointsDeviation?: number | null;
+	fgDeviation?: number | null;
+	fgPointsDeviation?: number | null;
+	abvDeviation?: number | null;
+	batchSizeLitersDeviation?: number | null;
+	preBoilVolumeDeviation?: number | null;
+	postBoilVolumeDeviation?: number | null;
+	packagedVolumeDeviation?: number | null;
+	brewhouseEfficiencyDeviation?: number | null;
+}
+
 export interface BatchDetailDto {
 	id: string;
 	userId: string;
@@ -1244,6 +1257,9 @@ export interface BatchDetailDto {
 	stageHistory: BatchStageHistoryDto[];
 	sensorAssignments: BatchSensorAssignmentDto[];
 	volumeProfile?: BatchVolumeProfileDto | null;
+	deviations?: BatchDeviationsDto | null;
+	boilerSyncStatus?: string | null;
+	boilerSyncWarning?: string | null;
 }
 
 export interface BatchVolumeProfileDto {
@@ -1320,6 +1336,7 @@ export interface CreateBatchRequest {
 	targetVolumeBasis?: TargetVolumeBasis | null;
 	packagingLossLiters?: number | null;
 	sensorAssignments?: BatchSensorAssignmentInput[] | null;
+	sendRecipeToBoiler?: boolean;
 }
 
 export interface AdvanceBatchStageRequest {
@@ -1342,12 +1359,18 @@ export interface AddBatchReadingRequest {
 	specificGravity: number;
 	temperatureC?: number | null;
 	notes?: string | null;
+	equipmentId?: string | null;
+	stage?: BrewStage | null;
+	batchMashStepId?: string | null;
+	calibrateHydrometerTemp?: boolean;
 }
 
 export interface UpdateBatchRequest {
 	name?: string | null;
 	beerStyle?: string | null;
 	notes?: string | null;
+	brewDate?: string | null;
+	status?: BatchStatus | null;
 	measuredOg?: number | null;
 	measuredFg?: number | null;
 	measuredBatchSizeLiters?: number | null;

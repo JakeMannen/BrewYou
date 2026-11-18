@@ -220,7 +220,23 @@ public record BatchDetailDto(
     List<BatchFermentationStepDto> FermentationSteps,
     List<BatchStageHistoryDto> StageHistory,
     List<BatchSensorAssignmentDto> SensorAssignments,
-    BatchVolumeProfileDto? VolumeProfile
+    BatchVolumeProfileDto? VolumeProfile,
+    BatchDeviationsDto? Deviations = null,
+    string? BoilerSyncStatus = null,
+    string? BoilerSyncWarning = null
+);
+
+public record BatchDeviationsDto(
+    decimal? OgDeviation,
+    int? OgPointsDeviation,
+    decimal? FgDeviation,
+    int? FgPointsDeviation,
+    decimal? AbvDeviation,
+    decimal? BatchSizeLitersDeviation,
+    decimal? PreBoilVolumeDeviation,
+    decimal? PostBoilVolumeDeviation,
+    decimal? PackagedVolumeDeviation,
+    decimal? BrewhouseEfficiencyDeviation
 );
 
 public record CreateBatchRequest(
@@ -258,7 +274,8 @@ public record CreateBatchRequest(
     string? SpargeMethod = null,
     decimal? FermenterLossLiters = null,
     bool? SpargeEnabled = null,
-    List<BatchSensorAssignmentInput>? SensorAssignments = null
+    List<BatchSensorAssignmentInput>? SensorAssignments = null,
+    bool SendRecipeToBoiler = false
 );
 
 public record BatchMashStepInputDto(
@@ -329,7 +346,11 @@ public record AddBatchReadingRequest(
     DateTime? Timestamp,
     decimal SpecificGravity,
     decimal? TemperatureC,
-    string? Notes
+    string? Notes,
+    Guid? EquipmentId = null,
+    BrewStage? Stage = null,
+    Guid? BatchMashStepId = null,
+    bool CalibrateHydrometerTemp = false
 )
 {
     public AddBatchReadingRequest(decimal specificGravity, decimal? temperatureC = null, string? notes = null)
@@ -359,7 +380,9 @@ public record UpdateBatchRequest(
     decimal? MashTunDeadSpaceLiters = null,
     decimal? HltDeadSpaceLiters = null,
     decimal? PlumbingLossLiters = null,
-    string? SpargeMethod = null
+    string? SpargeMethod = null,
+    DateOnly? BrewDate = null,
+    BatchStatus? Status = null
 );
 
 public record NextBatchCodeResponse(string BatchCode);

@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { api, ApiClientError, resolveApiUrl } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
+	import { calculateActualAbv } from '$lib/calculators/brewing';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { type BatchDetailDto, type RecipeLabelDto, getLabelImageUrl } from '$lib/types/api';
 	import { Printer, ArrowLeft, Loader2 } from '@lucide/svelte';
 
@@ -26,7 +28,7 @@
 		const og = b.measuredOg ?? (b.targetOg > 1.0 ? b.targetOg : null);
 		const fg = b.measuredFg ?? b.currentGravity;
 		if (og != null && fg != null && og > fg) {
-			return Math.round((og - fg) * 131.25 * 10) / 10;
+			return Math.round(calculateActualAbv(og, fg, settings.abvFormula) * 10) / 10;
 		}
 		return b.targetAbv ?? null;
 	}

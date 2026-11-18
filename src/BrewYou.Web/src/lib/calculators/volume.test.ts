@@ -32,7 +32,7 @@ describe('calculateWaterRequirements', () => {
 		expect(result.strikeWaterLiters).toBe(13.5); // 4.5 * 3.0
 		expect(result.spargeWaterLiters).toBeCloseTo(result.totalWaterLiters - 13.5, 2);
 		expect(result.targetFermenterVolumeLiters).toBe(20.0);
-		expect(result.targetPackagedVolumeLiters).toBe(18.5); // 20 - 1.5
+		expect(result.targetPackagedVolumeLiters).toBe(18.0); // 20 - 1.5 - 0.5 = 18.0
 		expect(result.grainAbsorptionLossLiters).toBe(4.32); // 4.5 * 0.96
 		expect(result.boilOffLossLiters).toBe(3.0);
 	});
@@ -60,7 +60,21 @@ describe('calculateWaterRequirements', () => {
 
 		// Default: target is fermenter volume
 		expect(result.targetFermenterVolumeLiters).toBe(20.0);
-		expect(result.targetPackagedVolumeLiters).toBe(18.5); // 20 - 1.5
+		expect(result.targetPackagedVolumeLiters).toBe(18.0); // 20 - 1.5 - 0.5 = 18.0
+	});
+
+	it('subtracts packaging loss symmetrically when basis is fermenter', () => {
+		const result = calculateWaterRequirements({
+			targetBatchSizeLiters: 20.0,
+			targetBasis: 'fermenter',
+			boilTimeMinutes: 60,
+			totalGrainWeightKg: 4.5,
+			fermenterLossLiters: 1.2,
+			packagingLossLiters: 0.8
+		});
+
+		expect(result.targetFermenterVolumeLiters).toBe(20.0);
+		expect(result.targetPackagedVolumeLiters).toBe(18.0); // 20.0 - 1.2 - 0.8 = 18.0
 	});
 
 	it('calculates backwards from packaged volume when targetBasis is packaged', () => {
@@ -125,7 +139,7 @@ describe('calculateWaterRequirements', () => {
 			fermenterResult.targetFermenterVolumeLiters
 		);
 		expect(packagedResult.targetPackagedVolumeLiters).toBe(20.0);
-		expect(fermenterResult.targetPackagedVolumeLiters).toBe(18.5);
+		expect(fermenterResult.targetPackagedVolumeLiters).toBe(18.0);
 	});
 
 	it('sets sparge to 0 and all water as strike when spargeEnabled is false', () => {
@@ -391,5 +405,112 @@ describe('recalculatePostStepMilestones', () => {
 		expect(scaleGrainWeightKg(4.6, 20, 10)).toBe(2.3);
 		expect(scaleGrainWeightKg(4.6, 20, 10, 'packaged', 1.5, 0.5)).toBe(2.76);
 		expect(scaleGrainWeightKg(0, 20, 10)).toBe(0);
+	});
+
+	describe('Cooling Contraction & Symmetrical Packaging Loss (TC-T1-R1-06, TC-T1-R4-04, TC-T2-R1-06, TC-T2-R4-03)', () => {
+		it('TC-T1-R1-06: symmetrically accounts for packagingLoss when targetBasis is fermenter', () => {
+			const result = calculateWaterRequirements({
+				targetBatchSizeLiters: 20.0,
+				targetBasis: 'fermenter',
+				boilTimeMinutes: 60,
+				totalGrainWeightKg: 5.0,
+				boilOffRatePerHour: 3.0,
+				grainAbsorptionRate: 0.96,
+				kettleTrubLossLiters: 1.5,
+				fermenterLossLiters: 1.5,
+				packagingLossLiters: 0.5,
+				coolingShrinkagePercent: 4.0
+			});
+
+			expect(result.targetFermenterVolumeLiters).toBe(20.0);
+			// 20.0 - 1.5 (fermenterLoss) - 0.5 (packagingLoss) = 18.0L
+			expect(result.targetPackagedVolumeLiters).toBe(18.0);
+
+			// Post-step milestone recalculation must remain aligned without unexpected volume drop
+			const initialProfile: BatchVolumeProfileDto = {
+				totalWaterLiters: result.totalWaterLiters,
+				strikeWaterLiters: result.strikeWaterLiters,
+				spargeWaterLiters: result.spargeWaterLiters,
+				targetPreBoilVolumeLiters: result.targetPreBoilVolumeLiters,
+				measuredPreBoilVolumeLiters: null,
+				measuredPreBoilGravity: null,
+				targetPostBoilVolumeLiters: result.targetPostBoilVolumeLiters,
+				measuredPostBoilVolumeLiters: null,
+				targetFermenterVolumeLiters: result.targetFermenterVolumeLiters,
+				measuredFermenterVolumeLiters: 20.0,
+				targetPackagedVolumeLiters: result.targetPackagedVolumeLiters,
+				measuredPackagedVolumeLiters: null,
+				boilOffRatePerHour: 3.0,
+				grainAbsorptionRateLPerKg: 0.96,
+				kettleTrubLossLiters: 1.5,
+				fermenterTrubLossLiters: 1.5,
+				mashTunDeadSpaceLiters: 0.0,
+				hltDeadSpaceLiters: 0.0,
+				plumbingLossLiters: 0.0,
+				spargeMethod: 'Batch',
+				coolingShrinkagePercent: 4.0,
+				packagingLossLiters: 0.5
+			};
+
+			const postStep = recalculatePostStepMilestones(initialProfile, 60);
+			// Measured fermenter (20.0) - fermenterTrub (1.5) - packagingLoss (0.5) = 18.0L
+			expect(postStep.targetPackagedVolumeLiters).toBe(18.0);
+		});
+
+		it('TC-T1-R4-04: applies uniform 4% cooling contraction across all vessel setups including All-In-One', () => {
+			const waterSchedule4Pct = calculateWaterRequirements({
+				targetBatchSizeLiters: 20.0,
+				targetBasis: 'fermenter',
+				boilTimeMinutes: 60,
+				totalGrainWeightKg: 4.5,
+				kettleTrubLossLiters: 4.0, // postBoilCold = 24.0L
+				coolingShrinkagePercent: 4.0
+			});
+			// postBoilCold = 24.0L, shrinkageFactor = 0.96 -> postBoilHot = 25.0L -> shrinkageLoss = 1.0L
+			expect(waterSchedule4Pct.shrinkageLossLiters).toBe(1.0);
+
+			const waterSchedule0Pct = calculateWaterRequirements({
+				targetBatchSizeLiters: 20.0,
+				targetBasis: 'fermenter',
+				boilTimeMinutes: 60,
+				totalGrainWeightKg: 4.5,
+				kettleTrubLossLiters: 4.0,
+				coolingShrinkagePercent: 0.0
+			});
+			// At 0% shrinkage, shrinkageLoss = 0.0L
+			expect(waterSchedule0Pct.shrinkageLossLiters).toBe(0.0);
+		});
+
+		it('TC-T2-R1-06: clamps targetPackagedVolumeLiters to 0 when packaging loss exceeds fermenter volume', () => {
+			const normal = calculateWaterRequirements({
+				targetBatchSizeLiters: 20.0,
+				targetBasis: 'fermenter',
+				boilTimeMinutes: 60,
+				totalGrainWeightKg: 4.5,
+				fermenterLossLiters: 1.5,
+				packagingLossLiters: 0.0
+			});
+			// Zero packaging loss: 20 - 1.5 = 18.5
+			expect(normal.targetPackagedVolumeLiters).toBe(18.5);
+
+			const extreme = calculateWaterRequirements({
+				targetBatchSizeLiters: 20.0,
+				targetBasis: 'fermenter',
+				boilTimeMinutes: 60,
+				totalGrainWeightKg: 4.5,
+				fermenterLossLiters: 15.0,
+				packagingLossLiters: 20.0 // 15 + 20 = 35 > 20
+			});
+			// Clamps to 0, never negative
+			expect(extreme.targetPackagedVolumeLiters).toBe(0);
+		});
+
+		it('TC-T2-R4-03: handles edge cooling shrinkage percentages (0% and 4%) in post-boil prediction', () => {
+			// At 0% shrinkage: preBoil 29.0L - 4.0L boil-off = 25.0L cold
+			expect(calculateExpectedPostBoilVolume(29.0, 4.0, 60, 0.0)).toBe(25.0);
+
+			// At 4% shrinkage: preBoilHot = 29.0 / 0.96 = 30.208L, postBoilHot = 26.208L, postBoilCold = 25.16L
+			expect(calculateExpectedPostBoilVolume(29.0, 4.0, 60, 4.0)).toBe(25.16);
+		});
 	});
 });

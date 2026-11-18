@@ -5,7 +5,7 @@
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
-	import { formatNumber } from '$lib/utils/formatNumber';
+	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import type {
 		BatchDetailDto,
 		BrewStage,
@@ -32,6 +32,7 @@
 	import StepTemperatureChart from '$lib/components/batches/StepTemperatureChart.svelte';
 	import LogStepTemperatureModal from '$lib/components/batches/LogStepTemperatureModal.svelte';
 	import DeleteBatchModal from '$lib/components/batches/DeleteBatchModal.svelte';
+	import BatchEditModal from '$lib/components/batches/BatchEditModal.svelte';
 	import BatchQrModal from '$lib/components/batches/BatchQrModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
 	import BrewLinkInteractionModal from '$lib/components/brewery/BrewLinkInteractionModal.svelte';
@@ -66,7 +67,8 @@
 		Printer,
 		Radio,
 		ChevronDown,
-		ChevronUp
+		ChevronUp,
+		Edit3
 	} from '@lucide/svelte';
 
 	let batch = $state<BatchDetailDto | null>(null);
@@ -90,10 +92,72 @@
 		}
 		return batch.alcoholByVolume ?? null;
 	});
+
+	let abvDeviation = $derived.by<number | null>(() => {
+		if (!batch) return null;
+		if (batch.deviations?.abvDeviation !== null && batch.deviations?.abvDeviation !== undefined) {
+			return batch.deviations.abvDeviation;
+		}
+		if (currentAbv !== null && currentAbv !== undefined && currentAbv > 0 && batch.targetAbv > 0) {
+			return Number((currentAbv - batch.targetAbv).toFixed(2));
+		}
+		return null;
+	});
+
+	let fgDeviation = $derived.by<{ sg: number; points: number } | null>(() => {
+		if (!batch) return null;
+		if (batch.deviations?.fgDeviation !== null && batch.deviations?.fgDeviation !== undefined) {
+			return {
+				sg: batch.deviations.fgDeviation,
+				points:
+					batch.deviations.fgPointsDeviation ?? Math.round(batch.deviations.fgDeviation * 1000)
+			};
+		}
+		if (batch.measuredFg !== null && batch.measuredFg !== undefined && batch.targetFg > 0) {
+			const sg = Number((batch.measuredFg - batch.targetFg).toFixed(4));
+			return { sg, points: Math.round(sg * 1000) };
+		}
+		return null;
+	});
+
+	let ogDeviation = $derived.by<{ sg: number; points: number } | null>(() => {
+		if (!batch) return null;
+		if (batch.deviations?.ogDeviation !== null && batch.deviations?.ogDeviation !== undefined) {
+			return {
+				sg: batch.deviations.ogDeviation,
+				points:
+					batch.deviations.ogPointsDeviation ?? Math.round(batch.deviations.ogDeviation * 1000)
+			};
+		}
+		if (batch.measuredOg !== null && batch.measuredOg !== undefined && batch.targetOg > 0) {
+			const sg = Number((batch.measuredOg - batch.targetOg).toFixed(4));
+			return { sg, points: Math.round(sg * 1000) };
+		}
+		return null;
+	});
+
+	let volumeDeviation = $derived.by<{ liters: number; percent: number | null } | null>(() => {
+		if (!batch) return null;
+		const delta =
+			batch.deviations?.batchSizeLitersDeviation ??
+			(batch.measuredBatchSizeLiters !== null &&
+			batch.measuredBatchSizeLiters !== undefined &&
+			batch.targetBatchSizeLiters > 0
+				? Number((batch.measuredBatchSizeLiters - batch.targetBatchSizeLiters).toFixed(2))
+				: null);
+		if (delta === null) return null;
+		const pct =
+			batch.targetBatchSizeLiters > 0
+				? Number(((delta / batch.targetBatchSizeLiters) * 100).toFixed(1))
+				: null;
+		return { liters: delta, percent: pct };
+	});
+
 	let equipmentList = $state<EquipmentDto[]>([]);
 	let batchEquipmentReadings = $state<BatchEquipmentReadingDto[]>([]);
 	let showLogTempModal = $state(false);
 	let showDeleteBatchModal = $state(false);
+	let showBatchEditModal = $state(false);
 	let showQrModal = $state(false);
 	let showBrewStationHud = $state(false);
 	let logTempStage = $state<BrewStage>('Mash');
@@ -179,11 +243,11 @@
 
 	// Inspected Stage State (Decoupled from batch.currentStage)
 	let inspectedStage = $state<BrewStage>('Mash');
-	let isReadOnlyBatch = $derived(
-		batch ? batch.status === 'Completed' || batch.status === 'Archived' : false
-	);
+	let isArchivedBatch = $derived(batch ? batch.status === 'Archived' : false);
+	let isCompletedBatch = $derived(batch ? batch.status === 'Completed' : false);
+	let isReadOnlyBatch = $derived(isArchivedBatch);
 	let isInspectingActiveStage = $derived(batch ? inspectedStage === batch.currentStage : true);
-	let canLogInspectedStage = $derived(isInspectingActiveStage && !isReadOnlyBatch);
+	let canLogInspectedStage = $derived(!isReadOnlyBatch);
 	let inspectedStageStatus = $derived.by<'completed' | 'in_progress' | 'pending' | 'skipped'>(
 		() => {
 			if (!batch) return 'pending';
@@ -223,25 +287,37 @@
 	let advancing = $state(false);
 	let advanceError = $state<string | null>(null);
 	let nextStage = $state<BrewStage>('Boil');
-	let advanceMeasuredOg = $state<number | null>(null);
-	let advanceMeasuredFg = $state<number | null>(null);
-	let advanceVolume = $state<number | null>(null);
-	let advancePitchTemp = $state<number | null>(null);
+	let advanceMeasuredOgStr = $state('');
+	let advanceMeasuredFgStr = $state('');
+	let advanceVolumeStr = $state('');
+	let advancePitchTempStr = $state('');
+	let advanceMeasuredOg = $derived(parseDecimal(advanceMeasuredOgStr));
+	let advanceMeasuredFg = $derived(parseDecimal(advanceMeasuredFgStr));
+	let advanceVolume = $derived(parseDecimal(advanceVolumeStr));
+	let advancePitchTemp = $derived(parseDecimal(advancePitchTempStr));
 	let advancePackagingVesselId = $state<string>('');
 	let advanceNotes = $state('');
-	let advancePreBoilVolume = $state<number | null>(null);
-	let advancePreBoilGravity = $state<number | null>(null);
-	let advancePostBoilVolume = $state<number | null>(null);
-	let advancePackagedVolume = $state<number | null>(null);
+	let advancePreBoilVolumeStr = $state('');
+	let advancePreBoilGravityStr = $state('');
+	let advancePostBoilVolumeStr = $state('');
+	let advancePackagedVolumeStr = $state('');
+	let advancePreBoilVolume = $derived(parseDecimal(advancePreBoilVolumeStr));
+	let advancePreBoilGravity = $derived(parseDecimal(advancePreBoilGravityStr));
+	let advancePostBoilVolume = $derived(parseDecimal(advancePostBoilVolumeStr));
+	let advancePackagedVolume = $derived(parseDecimal(advancePackagedVolumeStr));
 
 	// Add Reading Modal
 	let showReadingModal = $state(false);
 	let savingReading = $state(false);
 	let readingError = $state<string | null>(null);
-	let newReadingSg = $state(1.02);
-	let newReadingTemp = $state<number | '' | null>('');
+	let newReadingSgStr = $state(formatNumber(1.02, 3));
+	let newReadingSg = $derived(parseDecimal(newReadingSgStr));
+	let newReadingTempStr = $state('');
 	let newReadingTimestamp = $state('');
 	let newReadingNotes = $state('');
+	let newReadingStage = $state<BrewStage>('Ferment');
+	let newReadingEquipmentId = $state<string>('');
+	let newReadingCalibrateTemp = $state(false);
 
 	let activeFermentorSensor = $derived.by(() => {
 		if (!batch?.sensorAssignments || batch.sensorAssignments.length === 0) return null;
@@ -1348,7 +1424,7 @@
 	});
 
 	let isAdvanceStageBlocked = $derived.by<boolean>(() => {
-		if (!batch || isReadOnlyBatch) return false;
+		if (!batch || isCompletedBatch || isArchivedBatch) return false;
 		if (batch.currentStage === 'Mash' && isMashControlledByBrewLink && isBrewLinkOnline) {
 			return !isMashComplete;
 		}
@@ -1652,27 +1728,43 @@
 		determineNextStage(batch.currentStage);
 
 		hasConfirmedActiveBoil = false;
-		advanceMeasuredOg = batch.measuredOg ?? batch.targetOg;
-		advanceMeasuredFg = batch.measuredFg ?? batch.targetFg;
-		advanceVolume =
+		advanceMeasuredOgStr = formatDecimalInput(batch.measuredOg ?? batch.targetOg, 3);
+		advanceMeasuredFgStr = formatDecimalInput(batch.measuredFg ?? batch.targetFg, 3);
+		const resolvedAdvanceVol =
+			(batch.measuredBatchSizeLiters && batch.measuredBatchSizeLiters > 0
+				? batch.measuredBatchSizeLiters
+				: null) ??
+			(batch.volumeProfile?.measuredFermenterVolumeLiters &&
+			batch.volumeProfile.measuredFermenterVolumeLiters > 0
+				? batch.volumeProfile.measuredFermenterVolumeLiters
+				: null) ??
 			batch.volumeProfile?.targetFermenterVolumeLiters ??
-			batch.measuredBatchSizeLiters ??
 			batch.targetBatchSizeLiters;
-		advancePitchTemp = batch.pitchTemperatureC ?? 20.0;
+		advanceVolumeStr = formatDecimalInput(resolvedAdvanceVol, 1);
+		advancePitchTempStr = formatDecimalInput(batch.pitchTemperatureC ?? 20.0, 1);
 		advancePackagingVesselId = batch.packagingVesselId ?? '';
-		advancePreBoilVolume =
+		advancePreBoilVolumeStr = formatDecimalInput(
 			batch.volumeProfile?.measuredPreBoilVolumeLiters ??
-			batch.volumeProfile?.targetPreBoilVolumeLiters ??
-			null;
-		advancePreBoilGravity = batch.volumeProfile?.measuredPreBoilGravity ?? null;
-		advancePostBoilVolume =
+				batch.volumeProfile?.targetPreBoilVolumeLiters ??
+				null,
+			1
+		);
+		advancePreBoilGravityStr = formatDecimalInput(
+			batch.volumeProfile?.measuredPreBoilGravity ?? null,
+			3
+		);
+		advancePostBoilVolumeStr = formatDecimalInput(
 			batch.volumeProfile?.measuredPostBoilVolumeLiters ??
-			batch.volumeProfile?.targetPostBoilVolumeLiters ??
-			null;
-		advancePackagedVolume =
+				batch.volumeProfile?.targetPostBoilVolumeLiters ??
+				null,
+			1
+		);
+		advancePackagedVolumeStr = formatDecimalInput(
 			batch.volumeProfile?.measuredPackagedVolumeLiters ??
-			batch.volumeProfile?.targetPackagedVolumeLiters ??
-			batch.targetBatchSizeLiters;
+				batch.volumeProfile?.targetPackagedVolumeLiters ??
+				batch.targetBatchSizeLiters,
+			1
+		);
 		advanceNotes = '';
 		advanceError = null;
 		showAdvanceModal = true;
@@ -1710,6 +1802,30 @@
 
 	async function executeAdvanceSubmit(force: boolean = false) {
 		if (!batch || isAdvanceStageBlocked) return;
+		const stageDecimalChecks: [string, number | null][] =
+			nextStage === 'Boil'
+				? [
+						[advancePreBoilVolumeStr, advancePreBoilVolume],
+						[advancePreBoilGravityStr, advancePreBoilGravity]
+					]
+				: nextStage === 'Ferment'
+					? [
+							[advancePostBoilVolumeStr, advancePostBoilVolume],
+							[advanceVolumeStr, advanceVolume],
+							[advanceMeasuredOgStr, advanceMeasuredOg],
+							[advancePitchTempStr, advancePitchTemp]
+						]
+					: nextStage === 'Package'
+						? [
+								[advanceMeasuredFgStr, advanceMeasuredFg],
+								[advancePackagedVolumeStr, advancePackagedVolume]
+							]
+						: [];
+		if (stageDecimalChecks.some(([raw, parsed]) => raw.trim() !== '' && parsed === null)) {
+			advanceError = t('batches.errors.advance_failed');
+			showAdvanceModal = true;
+			return;
+		}
 		advancing = true;
 		advanceError = null;
 		const effectiveForce =
@@ -1786,23 +1902,31 @@
 	}
 
 	function openReadingModal() {
-		newReadingSg = batch?.currentGravity ?? batch?.targetFg ?? 1.015;
-		newReadingTemp = '';
+		newReadingSgStr = formatNumber(batch?.currentGravity ?? batch?.targetFg ?? 1.015, 3);
+		newReadingTempStr = '';
 		newReadingTimestamp = '';
 		newReadingNotes = '';
+		newReadingStage = inspectedStage === 'Condition' ? 'Condition' : 'Ferment';
+		newReadingCalibrateTemp = false;
+		newReadingEquipmentId = activeFermentorSensor?.id ?? batch?.fermenterId ?? '';
 		readingError = null;
 		showReadingModal = true;
 	}
 
 	async function handleReadingSubmit() {
 		if (!batch) return;
+		if (newReadingSg === null || newReadingSg <= 0) {
+			readingError = t('batches.errors.save_reading_failed');
+			return;
+		}
+		const parsedTemp = parseDecimal(newReadingTempStr);
+		if (newReadingTempStr.trim() !== '' && parsedTemp === null) {
+			readingError = t('batches.telemetry.invalid_temp_error');
+			return;
+		}
 		savingReading = true;
 		readingError = null;
 		try {
-			const parsedTemp =
-				newReadingTemp !== null && newReadingTemp !== '' && !Number.isNaN(Number(newReadingTemp))
-					? Number(newReadingTemp)
-					: null;
 			const temperatureC =
 				parsedTemp !== null
 					? Number(
@@ -1816,15 +1940,38 @@
 				specificGravity: newReadingSg,
 				temperatureC,
 				notes: newReadingNotes.trim() || null,
-				timestamp: newReadingTimestamp ? new Date(newReadingTimestamp).toISOString() : null
+				timestamp: newReadingTimestamp ? new Date(newReadingTimestamp).toISOString() : null,
+				stage: newReadingStage,
+				equipmentId: newReadingEquipmentId || null,
+				calibrateHydrometerTemp: newReadingCalibrateTemp
 			};
 			const newReading = await api.batches.addReading(batch.id, req);
-			batch.readings = [...batch.readings, newReading];
-			batch.currentGravity = newReading.specificGravity;
-			if (newReading.alcoholByVolume !== undefined && newReading.alcoholByVolume !== null) {
-				batch.alcoholByVolume = newReading.alcoholByVolume;
+			const [refreshedBatch, refreshedEqReadings] = await Promise.all([
+				api.batches.getById(batch.id).catch(() => null),
+				api.batches.getEquipmentReadings(batch.id).catch(() => null)
+			]);
+			if (refreshedBatch) {
+				batch = refreshedBatch;
+				if (
+					(batch.alcoholByVolume === null || batch.alcoholByVolume === undefined) &&
+					newReading.alcoholByVolume !== undefined &&
+					newReading.alcoholByVolume !== null
+				) {
+					batch.alcoholByVolume = newReading.alcoholByVolume;
+				} else if (batch.alcoholByVolume === null || batch.alcoholByVolume === undefined) {
+					recalculateBatchAbv();
+				}
 			} else {
-				recalculateBatchAbv();
+				batch.readings = [...batch.readings, newReading];
+				batch.currentGravity = newReading.specificGravity;
+				if (newReading.alcoholByVolume !== undefined && newReading.alcoholByVolume !== null) {
+					batch.alcoholByVolume = newReading.alcoholByVolume;
+				} else {
+					recalculateBatchAbv();
+				}
+			}
+			if (refreshedEqReadings) {
+				batchEquipmentReadings = refreshedEqReadings;
 			}
 			showReadingModal = false;
 		} catch (err: unknown) {
@@ -2158,6 +2305,18 @@
 				{#if !isReadOnlyBatch}
 					<button
 						type="button"
+						data-testid="edit-batch-record-button"
+						onclick={() => (showBatchEditModal = true)}
+						class="flex min-h-[44px] items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-zinc-700 shadow-xs transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:text-amber-300"
+					>
+						<Edit3 class="h-4 w-4 text-amber-500" />
+						<span>{t('batches.workspace.edit_batch_record')}</span>
+					</button>
+				{/if}
+
+				{#if !isCompletedBatch && !isArchivedBatch}
+					<button
+						type="button"
 						data-testid="advance-stage-btn"
 						disabled={isAdvanceStageBlocked}
 						onclick={openAdvanceModal}
@@ -2293,6 +2452,18 @@
 					</span>
 					<span class="text-xs text-zinc-400">/ {formatNumber(batch.targetAbv, 1)}%</span>
 				</div>
+				{#if abvDeviation !== null}
+					<span
+						data-testid="hud-abv-deviation"
+						class="mt-1 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-bold {Math.abs(
+							abvDeviation
+						) <= 0.2
+							? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+							: 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}"
+					>
+						{abvDeviation > 0 ? '+' : ''}{formatNumber(abvDeviation, 2)}%
+					</span>
+				{/if}
 			</div>
 
 			<!-- Gravity (Current vs Target FG) -->
@@ -2320,6 +2491,21 @@
 						<span class="text-xs text-zinc-400">/ {formatNumber(batch.targetFg, 3)}</span>
 					{/if}
 				</div>
+				{#if fgDeviation !== null}
+					<span
+						data-testid="hud-fg-deviation"
+						class="mt-1 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-bold {Math.abs(
+							fgDeviation.points
+						) <= 2
+							? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+							: 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}"
+					>
+						{fgDeviation.sg > 0 ? '+' : ''}{formatNumber(fgDeviation.sg, 3)} ({fgDeviation.points >
+						0
+							? '+'
+							: ''}{fgDeviation.points} pts)
+					</span>
+				{/if}
 			</div>
 
 			<!-- Measured OG / Target OG -->
@@ -2335,7 +2521,25 @@
 					<span class="font-mono text-xl font-bold text-zinc-900 dark:text-white">
 						{formatNumber(batch.measuredOg ?? batch.targetOg, 3)}
 					</span>
+					{#if batch.measuredOg}
+						<span class="text-xs text-zinc-400">/ {formatNumber(batch.targetOg, 3)}</span>
+					{/if}
 				</div>
+				{#if ogDeviation !== null}
+					<span
+						data-testid="hud-og-deviation"
+						class="mt-1 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-bold {Math.abs(
+							ogDeviation.points
+						) <= 2
+							? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+							: 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}"
+					>
+						{ogDeviation.sg > 0 ? '+' : ''}{formatNumber(ogDeviation.sg, 3)} ({ogDeviation.points >
+						0
+							? '+'
+							: ''}{ogDeviation.points} pts)
+					</span>
+				{/if}
 			</div>
 
 			<!-- Volume -->
@@ -2349,9 +2553,33 @@
 				</span>
 				<div class="mt-1 flex items-baseline justify-center gap-1">
 					<span class="font-mono text-xl font-bold text-zinc-900 dark:text-white">
-						{batch.measuredBatchSizeLiters ?? batch.targetBatchSizeLiters}L
+						{formatNumber(batch.measuredBatchSizeLiters ?? batch.targetBatchSizeLiters, 1)}L
 					</span>
+					{#if batch.measuredBatchSizeLiters !== null && batch.measuredBatchSizeLiters !== undefined}
+						<span class="text-xs text-zinc-400"
+							>/ {formatNumber(batch.targetBatchSizeLiters, 1)}L</span
+						>
+					{/if}
 				</div>
+				{#if volumeDeviation !== null}
+					<span
+						data-testid="hud-volume-deviation"
+						class="mt-1 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-bold {Math.abs(
+							volumeDeviation.liters
+						) <= 0.5
+							? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+							: 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}"
+					>
+						{volumeDeviation.liters > 0 ? '+' : ''}{formatNumber(
+							volumeDeviation.liters,
+							1
+						)}L{#if volumeDeviation.percent !== null}
+							({volumeDeviation.percent > 0 ? '+' : ''}{formatNumber(
+								volumeDeviation.percent,
+								1
+							)}%){/if}
+					</span>
+				{/if}
 			</div>
 
 			<!-- SRM / Color -->
@@ -3499,7 +3727,7 @@
 								<CheckCircle2 class="h-5 w-5 text-emerald-500" />
 								<h2 class="text-base font-bold">
 									{filterCurrentStageOnly
-										? getStageChecklistTitle(batch.currentStage)
+										? getStageChecklistTitle(inspectedStage)
 										: t('batches.workspace.checklist_title')}
 								</h2>
 							</div>
@@ -3589,7 +3817,7 @@
 							{t('batches.workspace.packaging_desc')}
 						</p>
 
-						{#if batch.status !== 'Completed' && inspectedStage === batch.currentStage}
+						{#if !isCompletedBatch && !isArchivedBatch && inspectedStage === batch.currentStage}
 							<button
 								type="button"
 								onclick={openAdvanceModal}
@@ -3603,7 +3831,11 @@
 								class="mt-6 inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400"
 							>
 								<CheckCircle2 class="h-4 w-4" />
-								<span>{t('batches.status_completed')}</span>
+								<span
+									>{isArchivedBatch
+										? t('batches.status_archived')
+										: t('batches.status_completed')}</span
+								>
 							</div>
 						{/if}
 					</div>
@@ -3817,9 +4049,9 @@
 							</div>
 							<input
 								id="advance-preboil-vol-input"
-								type="number"
-								step="0.1"
-								bind:value={advancePreBoilVolume}
+								type="text"
+								inputmode="decimal"
+								bind:value={advancePreBoilVolumeStr}
 								class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 							/>
 							{#if batch?.volumeProfile?.targetPreBoilVolumeLiters}
@@ -3832,8 +4064,10 @@
 									<button
 										type="button"
 										onclick={() =>
-											(advancePreBoilVolume =
-												batch?.volumeProfile?.targetPreBoilVolumeLiters ?? null)}
+											(advancePreBoilVolumeStr = formatDecimalInput(
+												batch?.volumeProfile?.targetPreBoilVolumeLiters,
+												1
+											))}
 										class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 									>
 										{t('batches.workspace.reset_to_target')}
@@ -3852,10 +4086,10 @@
 							</div>
 							<input
 								id="advance-preboil-grav-input"
-								type="number"
-								step="0.001"
-								bind:value={advancePreBoilGravity}
-								placeholder="e.g. 1.045"
+								type="text"
+								inputmode="decimal"
+								bind:value={advancePreBoilGravityStr}
+								placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.045, 3)}`}
 								class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 							/>
 						</div>
@@ -3877,9 +4111,9 @@
 								</div>
 								<input
 									id="advance-postboil-vol-input"
-									type="number"
-									step="0.1"
-									bind:value={advancePostBoilVolume}
+									type="text"
+									inputmode="decimal"
+									bind:value={advancePostBoilVolumeStr}
 									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								{#if batch?.volumeProfile?.targetPostBoilVolumeLiters}
@@ -3892,8 +4126,10 @@
 										<button
 											type="button"
 											onclick={() =>
-												(advancePostBoilVolume =
-													batch?.volumeProfile?.targetPostBoilVolumeLiters ?? null)}
+												(advancePostBoilVolumeStr = formatDecimalInput(
+													batch?.volumeProfile?.targetPostBoilVolumeLiters,
+													1
+												))}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
@@ -3913,9 +4149,9 @@
 								</div>
 								<input
 									id="advance-volume-input"
-									type="number"
-									step="0.1"
-									bind:value={advanceVolume}
+									type="text"
+									inputmode="decimal"
+									bind:value={advanceVolumeStr}
 									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								{#if batch?.volumeProfile?.targetFermenterVolumeLiters || batch?.targetBatchSizeLiters}
@@ -3929,7 +4165,7 @@
 										</span>
 										<button
 											type="button"
-											onclick={() => (advanceVolume = targetVol)}
+											onclick={() => (advanceVolumeStr = formatDecimalInput(targetVol, 1))}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
@@ -3951,9 +4187,9 @@
 								</div>
 								<input
 									id="advance-measured-og-input"
-									type="number"
-									step="0.001"
-									bind:value={advanceMeasuredOg}
+									type="text"
+									inputmode="decimal"
+									bind:value={advanceMeasuredOgStr}
 									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								{#if batch?.targetOg}
@@ -3965,7 +4201,8 @@
 										</span>
 										<button
 											type="button"
-											onclick={() => (advanceMeasuredOg = batch?.targetOg ?? null)}
+											onclick={() =>
+												(advanceMeasuredOgStr = formatDecimalInput(batch?.targetOg, 3))}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
@@ -3979,14 +4216,14 @@
 										for="advance-pitch-temp-input"
 										class="block font-semibold text-zinc-700 dark:text-zinc-300"
 									>
-										{t('batches.workspace.pitch_temp_label')}
+										{t('batches.workspace.pitch_temp_label', { unit: settings.tempShort })}
 									</label>
 								</div>
 								<input
 									id="advance-pitch-temp-input"
-									type="number"
-									step="0.5"
-									bind:value={advancePitchTemp}
+									type="text"
+									inputmode="decimal"
+									bind:value={advancePitchTempStr}
 									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								{#if batch?.pitchTemperatureC}
@@ -3998,7 +4235,8 @@
 										</span>
 										<button
 											type="button"
-											onclick={() => (advancePitchTemp = batch?.pitchTemperatureC ?? null)}
+											onclick={() =>
+												(advancePitchTempStr = formatDecimalInput(batch?.pitchTemperatureC, 1))}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
@@ -4025,9 +4263,9 @@
 								</div>
 								<input
 									id="advance-measured-fg-input"
-									type="number"
-									step="0.001"
-									bind:value={advanceMeasuredFg}
+									type="text"
+									inputmode="decimal"
+									bind:value={advanceMeasuredFgStr}
 									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								{#if batch?.targetFg}
@@ -4039,7 +4277,8 @@
 										</span>
 										<button
 											type="button"
-											onclick={() => (advanceMeasuredFg = batch?.targetFg ?? null)}
+											onclick={() =>
+												(advanceMeasuredFgStr = formatDecimalInput(batch?.targetFg, 3))}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
@@ -4058,9 +4297,9 @@
 								</div>
 								<input
 									id="advance-packaged-vol-input"
-									type="number"
-									step="0.1"
-									bind:value={advancePackagedVolume}
+									type="text"
+									inputmode="decimal"
+									bind:value={advancePackagedVolumeStr}
 									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 								/>
 								{#if batch?.volumeProfile?.targetPackagedVolumeLiters}
@@ -4073,8 +4312,10 @@
 										<button
 											type="button"
 											onclick={() =>
-												(advancePackagedVolume =
-													batch?.volumeProfile?.targetPackagedVolumeLiters ?? null)}
+												(advancePackagedVolumeStr = formatDecimalInput(
+													batch?.volumeProfile?.targetPackagedVolumeLiters,
+													1
+												))}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
@@ -4193,100 +4434,157 @@
 				</div>
 			{/if}
 
-			<div class="mt-4 space-y-4 text-xs">
-				<div>
-					<label
-						for="reading-sg-input"
-						class="block font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('batches.workspace.reading_sg_label')}
-					</label>
-					<input
-						id="reading-sg-input"
-						type="number"
-						step="0.001"
-						bind:value={newReadingSg}
-						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-					/>
-				</div>
-
-				<div>
-					<label
-						for="reading-temp-input"
-						class="block font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('batches.workspace.reading_temp_unit_label', { unit: settings.tempShort })}
-					</label>
-					<input
-						id="reading-temp-input"
-						data-testid="reading-temp-input"
-						type="number"
-						step="0.1"
-						bind:value={newReadingTemp}
-						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-					/>
-				</div>
-
-				<div>
-					<label
-						for="reading-timestamp-input"
-						class="block font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('batches.workspace.reading_timestamp_label')}
-					</label>
-					<input
-						id="reading-timestamp-input"
-						data-testid="reading-timestamp-input"
-						type="datetime-local"
-						bind:value={newReadingTimestamp}
-						class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-					/>
-				</div>
-
-				<div>
-					<label
-						for="reading-notes-textarea"
-						class="block font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('batches.workspace.reading_notes_label')}
-					</label>
-					<textarea
-						id="reading-notes-textarea"
-						rows="3"
-						bind:value={newReadingNotes}
-						placeholder={t('batches.workspace.reading_notes_placeholder')}
-						class="mt-1 w-full rounded-xl border border-zinc-200/80 bg-white p-2.5 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-					></textarea>
-				</div>
-			</div>
-
-			<div
-				class="mt-6 flex items-center justify-end gap-3 border-t border-zinc-200/60 pt-4 dark:border-white/5"
+			<form
+				onsubmit={(e) => {
+					e.preventDefault();
+					handleReadingSubmit();
+				}}
 			>
-				<button
-					type="button"
-					onclick={() => (showReadingModal = false)}
-					class="min-h-[40px] rounded-xl border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400"
-				>
-					{t('brewery.cancel')}
-				</button>
+				<div class="mt-4 space-y-4 text-xs">
+					<!-- Locked Stage & Fermentation Equipment Context -->
+					<div
+						data-testid="reading-locked-context"
+						class="rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-3.5 dark:border-white/10 dark:bg-zinc-900/50"
+					>
+						<div class="grid grid-cols-2 gap-3 text-xs">
+							<div>
+								<span
+									class="block text-[10px] font-semibold tracking-wider text-zinc-400 uppercase"
+								>
+									{t('batches.workspace.stage_col')}
+								</span>
+								<span
+									data-testid="reading-stage-display"
+									class="mt-0.5 block font-bold text-zinc-800 dark:text-zinc-200"
+								>
+									{t(`batches.stages.${newReadingStage.toLowerCase()}`)}
+								</span>
+							</div>
 
-				<button
-					type="button"
-					data-testid="submit-reading-btn"
-					onclick={handleReadingSubmit}
-					disabled={savingReading}
-					class="flex min-h-[40px] items-center gap-2 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-zinc-950 shadow-md transition-all hover:bg-amber-400 disabled:opacity-50"
+							<div>
+								<span
+									class="block text-[10px] font-semibold tracking-wider text-zinc-400 uppercase"
+								>
+									{t('batches.telemetry.equipment')}
+								</span>
+								<span
+									data-testid="reading-equipment-display"
+									class="mt-0.5 block font-bold text-zinc-800 dark:text-zinc-200"
+								>
+									{fermentorSensorName ?? t('batches.workspace.no_vessel_assigned')}
+								</span>
+							</div>
+						</div>
+					</div>
+
+					<div>
+						<label
+							for="reading-sg-input"
+							class="block font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.workspace.reading_sg_label')}
+						</label>
+						<input
+							id="reading-sg-input"
+							name="specificGravity"
+							type="text"
+							inputmode="decimal"
+							bind:value={newReadingSgStr}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						/>
+					</div>
+
+					<div>
+						<label
+							for="reading-temp-input"
+							class="block font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.workspace.reading_temp_unit_label', { unit: settings.tempShort })}
+						</label>
+						<input
+							id="reading-temp-input"
+							name="temperatureC"
+							data-testid="reading-temp-input"
+							type="text"
+							inputmode="decimal"
+							bind:value={newReadingTempStr}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						/>
+					</div>
+
+					<label
+						class="flex cursor-pointer items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300"
+					>
+						<input
+							id="reading-calibrate-temp-checkbox"
+							data-testid="reading-calibrate-temp-checkbox"
+							type="checkbox"
+							bind:checked={newReadingCalibrateTemp}
+							class="h-4 w-4 rounded border-zinc-300 text-amber-500 focus:ring-amber-500 dark:border-zinc-700 dark:bg-zinc-800"
+						/>
+						<span>{t('batches.workspace.calibrate_hydrometer_temp')}</span>
+					</label>
+
+					<div>
+						<label
+							for="reading-timestamp-input"
+							class="block font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.workspace.reading_timestamp_label')}
+						</label>
+						<input
+							id="reading-timestamp-input"
+							data-testid="reading-timestamp-input"
+							type="datetime-local"
+							bind:value={newReadingTimestamp}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						/>
+					</div>
+
+					<div>
+						<label
+							for="reading-notes-textarea"
+							class="block font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.workspace.reading_notes_label')}
+						</label>
+						<textarea
+							id="reading-notes-textarea"
+							rows="3"
+							bind:value={newReadingNotes}
+							placeholder={t('batches.workspace.reading_notes_placeholder')}
+							class="mt-1 w-full rounded-xl border border-zinc-200/80 bg-white p-2.5 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						></textarea>
+					</div>
+				</div>
+
+				<div
+					class="mt-6 flex items-center justify-end gap-3 border-t border-zinc-200/60 pt-4 dark:border-white/5"
 				>
-					{#if savingReading}
-						<Loader2 class="h-3.5 w-3.5 animate-spin" />
-						<span>{t('batches.workspace.saving_reading')}</span>
-					{:else}
-						<CheckCircle2 class="h-3.5 w-3.5 stroke-[2.5]" />
-						<span>{t('batches.workspace.save_reading')}</span>
-					{/if}
-				</button>
-			</div>
+					<button
+						type="button"
+						onclick={() => (showReadingModal = false)}
+						class="min-h-[40px] rounded-xl border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400"
+					>
+						{t('brewery.cancel')}
+					</button>
+
+					<button
+						type="submit"
+						data-testid="submit-reading-btn"
+						disabled={savingReading}
+						class="flex min-h-[40px] items-center gap-2 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-zinc-950 shadow-md transition-all hover:bg-amber-400 disabled:opacity-50"
+					>
+						{#if savingReading}
+							<Loader2 class="h-3.5 w-3.5 animate-spin" />
+							<span>{t('batches.workspace.saving_reading')}</span>
+						{:else}
+							<CheckCircle2 class="h-3.5 w-3.5 stroke-[2.5]" />
+							<span>{t('batches.workspace.save_reading')}</span>
+						{/if}
+					</button>
+				</div>
+			</form>
 		</div>
 	</div>
 {/if}
@@ -4317,6 +4615,14 @@
 	{batch}
 	onClose={() => (showDeleteBatchModal = false)}
 	onDeleted={() => goto('/batches')}
+/>
+
+<BatchEditModal
+	open={showBatchEditModal}
+	{batch}
+	{equipmentList}
+	onClose={() => (showBatchEditModal = false)}
+	onSave={handleSaveStageMeasurements}
 />
 
 <BatchQrModal open={showQrModal} {batch} onClose={() => (showQrModal = false)} />

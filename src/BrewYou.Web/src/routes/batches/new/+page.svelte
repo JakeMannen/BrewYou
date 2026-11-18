@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import { formatNumber } from '$lib/utils/formatNumber';
+	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import type {
 		RecipeSummaryDto,
 		EquipmentDto,
@@ -91,14 +91,16 @@
 
 	// Targets & Settings
 	let targetOg = $state(1.05);
+	let targetOgStr = $state(formatNumber(1.05, 3));
 	let targetFg = $state(1.01);
+	let targetFgStr = $state(formatNumber(1.01, 3));
 	let targetAbv = $state(5.25);
 	let targetIbu = $state(35.0);
 	let targetColorSrm = $state(6.0);
 	let boilTimeMinutes = $state(60);
 	let efficiencyPercent = $state(72.0);
-	let measuredOg = $state<number | null>(null);
 	let pitchTemperatureC = $state<number | null>(null);
+	let pitchTempStr = $state('');
 	let notes = $state('');
 	let recipeBaseBatchSizeLiters = $state(20.0);
 	let baseRecipeGrainKg = $state(4.5);
@@ -229,6 +231,29 @@
 		return t(`equipment.types.${type}`) || type;
 	}
 
+	function isEquipmentOnline(eq: EquipmentDto | null): boolean {
+		if (!eq) return false;
+		if (eq.latestMetricsJson) {
+			try {
+				const parsed = JSON.parse(eq.latestMetricsJson);
+				if (typeof parsed?.connected === 'boolean') return parsed.connected;
+				if (typeof parsed?.isOnline === 'boolean') return parsed.isOnline;
+			} catch {
+				// ignore invalid json
+			}
+		}
+		if (eq.connectionConfigJson) {
+			try {
+				const parsed = JSON.parse(eq.connectionConfigJson);
+				if (typeof parsed?.isOnline === 'boolean') return parsed.isOnline;
+				if (typeof parsed?.connected === 'boolean') return parsed.connected;
+			} catch {
+				// ignore invalid json
+			}
+		}
+		return Boolean(eq.connectionToken && eq.currentTemperatureC !== null);
+	}
+
 	function resetEquipmentDefaults() {
 		if (selectedBoiler) {
 			customBoilOffRate = selectedBoiler.boilOffRatePerHour ?? 3.0;
@@ -301,7 +326,7 @@
 			spargeMethod,
 			fermenterLossLiters: customFermenterLoss,
 			packagingLossLiters: customPackagingLoss,
-			coolingShrinkagePercent: isAllInOne ? 0.0 : 4.0,
+			coolingShrinkagePercent: 4.0,
 			grainAbsorptionRate: isAllInOne ? 0.8 : 0.96,
 			mashThicknessLitersPerKg: isAllInOne ? 2.7 : 3.0,
 			recoverMashTunDeadSpace: isAllInOne
@@ -431,7 +456,10 @@
 	}
 
 	$effect(() => {
-		if (isPastBrewDate) {
+		if (
+			isPastBrewDate ||
+			(selectedBoiler?.connectionType === 'BrewLink' && !isEquipmentOnline(selectedBoiler))
+		) {
 			sendRecipeToBoiler = false;
 		}
 	});
@@ -526,7 +554,9 @@
 			recipeBaseBatchSizeLiters = r.batchSizeLiters > 0 ? r.batchSizeLiters : 20.0;
 			targetBatchSizeLiters = r.batchSizeLiters;
 			targetOg = r.originalGravity;
+			targetOgStr = formatNumber(r.originalGravity, 3);
 			targetFg = r.finalGravity;
+			targetFgStr = formatNumber(r.finalGravity, 3);
 			targetAbv = r.alcoholByVolume;
 			targetIbu = r.bitternessIbu;
 			targetColorSrm = r.colorSrm;
@@ -554,6 +584,7 @@
 				recipeFermentationSteps = r.fermentationSteps;
 				if (pitchTemperatureC === null || pitchTemperatureC === undefined) {
 					pitchTemperatureC = r.fermentationSteps[0].targetTemperatureC;
+					pitchTempStr = formatDecimalInput(pitchTemperatureC, 1);
 				}
 			} else {
 				recipeFermentationSteps = [];
@@ -609,7 +640,9 @@
 				!confirmedBrewLinkDispatch &&
 				sendRecipeToBoiler &&
 				selectedBoiler &&
-				selectedBoiler.connectionType === 'BrewLink'
+				selectedBoiler.connectionType === 'BrewLink' &&
+				!isPastBrewDate &&
+				isEquipmentOnline(selectedBoiler)
 			) {
 				brewLinkConfirmModalOpen = true;
 				submitting = false;
@@ -644,7 +677,6 @@
 				mashTunId: effectiveMashTunId,
 				hltId: effectiveHltId,
 				fermenterId: selectedFermenterId || null,
-				measuredOg: measuredOg,
 				pitchTemperatureC: pitchTemperatureC,
 				customMashSteps:
 					recipeMashSteps.length > 0
@@ -692,11 +724,25 @@
 								batchMashStepId: null
 							}
 						]
-					: null
+					: null,
+				sendRecipeToBoiler: Boolean(
+					sendRecipeToBoiler &&
+					selectedBoiler &&
+					selectedBoiler.connectionType === 'BrewLink' &&
+					!isPastBrewDate &&
+					isEquipmentOnline(selectedBoiler)
+				)
 			};
 
 			const created = await api.batches.create(req);
-			if (sendRecipeToBoiler && selectedBoiler && selectedBoiler.connectionType === 'BrewLink') {
+			if (
+				sendRecipeToBoiler &&
+				selectedBoiler &&
+				selectedBoiler.connectionType === 'BrewLink' &&
+				!created.boilerSyncStatus &&
+				!isPastBrewDate &&
+				isEquipmentOnline(selectedBoiler)
+			) {
 				try {
 					await api.equipment.sendBrewLinkRecipe(selectedBoiler.id, {
 						batchId: created.id
@@ -1339,6 +1385,23 @@
 									<span class="h-1.5 w-1.5 rounded-full bg-sky-500"></span>
 									{t('equipment.brewlink_tag')}
 								</span>
+								{#if isEquipmentOnline(selectedBoiler)}
+									<span
+										data-testid="boiler-connection-status-badge"
+										class="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400"
+									>
+										<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+										{t('equipment.brewlink_device_connected')}
+									</span>
+								{:else}
+									<span
+										data-testid="boiler-connection-status-badge"
+										class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
+									>
+										<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+										{t('equipment.brewlink_device_offline')}
+									</span>
+								{/if}
 							{/if}
 						</div>
 						{#if selectedBoiler.connectionType === 'BrewLink'}
@@ -1349,7 +1412,7 @@
 									id="brewlink-send-toggle"
 									data-testid="brewlink-send-toggle"
 									type="checkbox"
-									disabled={isPastBrewDate}
+									disabled={isPastBrewDate || !isEquipmentOnline(selectedBoiler)}
 									bind:checked={sendRecipeToBoiler}
 									class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800"
 								/>
@@ -1365,6 +1428,16 @@
 									</p>
 								</div>
 							</div>
+							{#if !isEquipmentOnline(selectedBoiler)}
+								<div
+									role="status"
+									data-testid="boiler-offline-notice"
+									class="mt-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+								>
+									<AlertTriangle class="h-4 w-4 shrink-0" />
+									<span>{t('batches.workspace.offline_equipment_notice')}</span>
+								</div>
+							{/if}
 						{/if}
 					{/if}
 					{#if selectedBoiler}
@@ -1842,56 +1915,6 @@
 							</span>
 						</div>
 					</div>
-
-					{#if selectedBoiler && (isBoilerMashOverCapacity || isBoilerOverCapacity || isBoiloverRisk)}
-						<div class="mt-3 space-y-2">
-							{#if isBoilerMashOverCapacity}
-								<div
-									role="alert"
-									data-testid="water-schedule-boiler-mash-warning"
-									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
-								>
-									<AlertTriangle class="h-4 w-4 shrink-0" />
-									<span>
-										{t('batches.wizard.boiler_mash_warning', {
-											mashVol: formatNumber(totalMashVolumeLiters, 1),
-											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
-										})}
-									</span>
-								</div>
-							{/if}
-							{#if isBoilerOverCapacity}
-								<div
-									role="alert"
-									data-testid="water-schedule-boiler-overcapacity-warning"
-									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
-								>
-									<AlertTriangle class="h-4 w-4 shrink-0" />
-									<span>
-										{t('batches.wizard.boiler_preboil_warning', {
-											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
-											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
-										})}
-									</span>
-								</div>
-							{:else if isBoiloverRisk}
-								<div
-									role="alert"
-									data-testid="water-schedule-boiler-boilover-warning"
-									class="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
-								>
-									<AlertTriangle class="h-4 w-4 shrink-0" />
-									<span>
-										{t('batches.wizard.boiler_boilover_warning', {
-											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
-											capacity: formatNumber(selectedBoiler.capacityLiters, 1),
-											headspace: boilerHeadspacePercent ?? 0
-										})}
-									</span>
-								</div>
-							{/if}
-						</div>
-					{/if}
 				</div>
 
 				<!-- Equipment Losses & Calibration Overrides Card -->
@@ -2182,28 +2205,50 @@
 					<div
 						class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 text-center dark:border-zinc-800/80 dark:bg-zinc-900/60"
 					>
-						<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+						<label
+							for="target-og"
+							class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
+						>
 							{t('batches.telemetry.target_og')}
-						</span>
+						</label>
 						<input
-							type="number"
-							step="0.001"
-							bind:value={targetOg}
-							class="w-full bg-transparent text-center font-mono font-bold text-amber-600 focus:outline-none dark:text-amber-400"
+							id="target-og"
+							type="text"
+							inputmode="decimal"
+							bind:value={targetOgStr}
+							oninput={() => {
+								const parsed = parseDecimal(targetOgStr);
+								if (parsed !== null) targetOg = parsed;
+							}}
+							onblur={() => {
+								targetOgStr = formatNumber(targetOg, 3);
+							}}
+							class="mt-1.5 h-9 w-full rounded-lg border border-zinc-200/80 bg-white px-2 text-center font-mono text-sm font-bold text-amber-600 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-amber-400"
 						/>
 					</div>
 
 					<div
 						class="rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 text-center dark:border-zinc-800/80 dark:bg-zinc-900/60"
 					>
-						<span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+						<label
+							for="target-fg"
+							class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400"
+						>
 							{t('batches.telemetry.target_fg')}
-						</span>
+						</label>
 						<input
-							type="number"
-							step="0.001"
-							bind:value={targetFg}
-							class="w-full bg-transparent text-center font-mono font-bold text-emerald-600 focus:outline-none dark:text-emerald-400"
+							id="target-fg"
+							type="text"
+							inputmode="decimal"
+							bind:value={targetFgStr}
+							oninput={() => {
+								const parsed = parseDecimal(targetFgStr);
+								if (parsed !== null) targetFg = parsed;
+							}}
+							onblur={() => {
+								targetFgStr = formatNumber(targetFg, 3);
+							}}
+							class="mt-1.5 h-9 w-full rounded-lg border border-zinc-200/80 bg-white px-2 text-center font-mono text-sm font-bold text-emerald-600 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-emerald-400"
 						/>
 					</div>
 
@@ -2291,90 +2336,34 @@
 							</div>
 						{/if}
 					</div>
-
-					{#if selectedBoiler && (isBoilerMashOverCapacity || isBoilerOverCapacity || isBoiloverRisk)}
-						<div class="mt-3 space-y-2">
-							{#if isBoilerMashOverCapacity}
-								<div
-									role="alert"
-									data-testid="step3-water-boiler-mash-warning"
-									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
-								>
-									<AlertTriangle class="h-4 w-4 shrink-0" />
-									<span>
-										{t('batches.wizard.boiler_mash_warning', {
-											mashVol: formatNumber(totalMashVolumeLiters, 1),
-											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
-										})}
-									</span>
-								</div>
-							{/if}
-							{#if isBoilerOverCapacity}
-								<div
-									role="alert"
-									data-testid="step3-water-boiler-overcapacity-warning"
-									class="flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
-								>
-									<AlertTriangle class="h-4 w-4 shrink-0" />
-									<span>
-										{t('batches.wizard.boiler_preboil_warning', {
-											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
-											capacity: formatNumber(selectedBoiler.capacityLiters, 1)
-										})}
-									</span>
-								</div>
-							{:else if isBoiloverRisk}
-								<div
-									role="alert"
-									data-testid="step3-water-boiler-boilover-warning"
-									class="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
-								>
-									<AlertTriangle class="h-4 w-4 shrink-0" />
-									<span>
-										{t('batches.wizard.boiler_boilover_warning', {
-											preBoil: formatNumber(waterSchedule.targetPreBoilVolumeLiters, 1),
-											capacity: formatNumber(selectedBoiler.capacityLiters, 1),
-											headspace: boilerHeadspacePercent ?? 0
-										})}
-									</span>
-								</div>
-							{/if}
-						</div>
-					{/if}
 				</div>
 
-				<!-- Initial Brew Day Optional Readings -->
+				<!-- Initial Pitch Temperature -->
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-					<div class="space-y-1.5">
-						<label
-							for="measured-og"
-							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-						>
-							{t('batches.wizard.measured_og_optional')}
-						</label>
-						<input
-							id="measured-og"
-							type="number"
-							step="0.001"
-							placeholder={formatNumber(targetOg, 3)}
-							bind:value={measuredOg}
-							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-						/>
-					</div>
-
 					<div class="space-y-1.5">
 						<label
 							for="pitch-temp"
 							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 						>
-							{t('batches.wizard.pitch_temp_optional')}
+							{t('batches.wizard.pitch_temp_optional', { unit: settings.tempShort })}
 						</label>
 						<input
 							id="pitch-temp"
-							type="number"
-							step="0.5"
-							placeholder="19.0"
-							bind:value={pitchTemperatureC}
+							type="text"
+							inputmode="decimal"
+							placeholder={formatNumber(19.0, 1)}
+							bind:value={pitchTempStr}
+							oninput={() => {
+								if (pitchTempStr.trim() === '') {
+									pitchTemperatureC = null;
+									return;
+								}
+								const parsed = parseDecimal(pitchTempStr);
+								if (parsed !== null) pitchTemperatureC = parsed;
+							}}
+							onblur={() => {
+								pitchTempStr = formatDecimalInput(pitchTemperatureC, 1);
+							}}
 							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>

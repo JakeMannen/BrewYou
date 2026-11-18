@@ -1526,4 +1526,124 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         migratedLactose.FermentableCategory.Should().Be(FermentableCategory.Sugar);
         migratedLactose.FermentabilityPercent.Should().Be(0m);
     }
+
+    [Fact]
+    public async Task BackupRoundTrip_PostFinishEditedAndReopenedRecompletedBatch_PreservesDataAndSanitizesArchivedKeg()
+    {
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("Post-Finish Backup Brewer");
+
+        var setups = (await (await sourceClient.GetAsync("/api/v1/brewery-setups"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!;
+        var setupId = setups[0].Id;
+
+        var boiler = (await (await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Backup Kettle", EquipmentType.Boiler, 30m))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var fermenter = (await (await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Backup FV", EquipmentType.Fermenter, 30m))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var keg = (await (await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(setupId, "Backup Keg", EquipmentType.Keg, 19m))).Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var created = (await (await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-BK-PF-01", "Post-Finish Roundtrip", "Porter", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.056m, 1.012m, 5.78m, 30m, 22m, 60, 75m, boiler.Id, fermenter.Id))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        await sourceClient.PatchAsJsonAsync($"/api/v1/batches/{created.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: keg.Id, MeasuredOg: 1.056m, MeasuredFg: 1.014m, MeasuredPackagedVolumeLiters: 18.5m));
+
+        // Post-finish edit + reopen + re-complete + consolidated reading
+        var editedDate = new DateOnly(2025, 10, 15);
+        await sourceClient.PutAsJsonAsync($"/api/v1/batches/{created.Id}", new UpdateBatchRequest(BrewDate: editedDate, Status: BatchStatus.Fermenting));
+        await sourceClient.PostAsJsonAsync($"/api/v1/batches/{created.Id}/readings",
+            new AddBatchReadingRequest(DateTime.UtcNow, 1.012m, 19.5m, "Reopened final reading", EquipmentId: fermenter.Id, Stage: BrewStage.Ferment));
+        await sourceClient.PatchAsJsonAsync($"/api/v1/batches/{created.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package, PackagingVesselId: keg.Id, MeasuredFg: 1.012m, MeasuredPackagedVolumeLiters: 18.8m));
+        await sourceClient.PutAsJsonAsync($"/api/v1/batches/{created.Id}",
+            new UpdateBatchRequest(Notes: "Re-completed with adjusted date and reading"));
+
+        // Export & restore into clean user
+        var envelope = (await (await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest()))
+            .Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("Post-Finish Restore Target");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoredSummaries = (await (await targetClient.GetAsync("/api/v1/batches"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        var restoredSummary = restoredSummaries.Should().ContainSingle(b => b.Name == "Post-Finish Roundtrip").Subject;
+        restoredSummary.BrewDate.Should().Be(editedDate);
+        restoredSummary.CurrentGravity.Should().Be(1.012m);
+
+        var restoredDetail = (await (await targetClient.GetAsync($"/api/v1/batches/{restoredSummary.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        restoredDetail.Status.Should().Be(BatchStatus.Completed);
+        restoredDetail.Notes.Should().Be("Re-completed with adjusted date and reading");
+        restoredDetail.Readings.Should().ContainSingle(r => r.SpecificGravity == 1.012m && r.AlcoholByVolume > 5.0m);
+        restoredDetail.Deviations.Should().NotBeNull();
+        restoredDetail.Deviations!.FgPointsDeviation.Should().Be(0);
+
+        // Verify BackupService sanitizes archived batch references on kegs/taps
+        var archivedBatchId = Guid.NewGuid();
+        var archivedKegId = Guid.NewGuid();
+        var archivedDataJson = $$"""
+        {
+          "equipment": [
+            {
+              "id": "{{archivedKegId}}",
+              "name": "Archived Keg",
+              "type": "Keg",
+              "subtype": "Other",
+              "capacity": 19.0,
+              "unit": "Liters",
+              "capacityLiters": 19.0,
+              "connectionType": "None",
+              "assignedBatchId": "{{archivedBatchId}}",
+              "currentVolume": 15.0,
+              "currentVolumeLiters": 15.0
+            }
+          ],
+          "batches": [
+            {
+              "id": "{{archivedBatchId}}",
+              "batchCode": "B-ARCH-01",
+              "name": "Archived Batch",
+              "beerStyle": "Stout",
+              "status": "Archived",
+              "currentStage": "Package",
+              "brewDate": "2025-01-10",
+              "targetOg": 1.050,
+              "targetFg": 1.012,
+              "targetAbv": 5.0,
+              "targetIbu": 30.0,
+              "targetColorSrm": 30.0,
+              "targetBatchSizeLiters": 19.0,
+              "boilTimeMinutes": 60,
+              "efficiencyPercent": 72.0,
+              "createdAt": "2025-01-10T10:00:00Z",
+              "updatedAt": "2025-01-15T10:00:00Z"
+            }
+          ]
+        }
+        """;
+        var archivedElem = JsonSerializer.Deserialize<JsonElement>(archivedDataJson);
+        var archivedEnv = new BrewYouBackupEnvelope(
+            BackupSchemaConstants.FormatIdentifier,
+            BackupSchemaConstants.CurrentSchemaVersion,
+            "1.6.1",
+            DateTime.UtcNow,
+            BackupMigrationPipeline.ComputeChecksumSha256(archivedElem),
+            archivedElem);
+
+        var (archClient, _, _) = await CreateAuthenticatedUserAsync("Archived Sanitization Target");
+        var archRestoreRes = await archClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(archivedEnv, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        archRestoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var archEquip = (await (await archClient.GetAsync("/api/v1/inventory/equipment"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        var restoredKeg = archEquip.Should().ContainSingle(e => e.Name == "Archived Keg").Subject;
+        restoredKeg.AssignedBatchId.Should().BeNull();
+        restoredKeg.CurrentVolumeLiters.Should().Be(0m);
+    }
 }

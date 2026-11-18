@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { i18n, t } from '$lib/i18n/index.svelte';
+import { calculateTemperatureDelta } from './AttenuationChart.svelte';
 import type { BatchReadingDto, BatchEquipmentReadingDto } from '$lib/types/api';
 
 interface GravityPoint {
@@ -301,5 +302,43 @@ describe('AttenuationChart Unified Fermentation Data & Math', () => {
 		expect(t('batches.telemetry.waiting_for_telemetry')).toBe(
 			'Väntar på hydrometer- eller temperaturmätningar.'
 		);
+	});
+
+	it('converts temperature deltas accurately without +32 baseline offset', () => {
+		// In Celsius: delta should remain identical
+		expect(calculateTemperatureDelta(1.0, 'Celsius')).toBe(1.0);
+		expect(calculateTemperatureDelta(-2.5, 'Celsius')).toBe(-2.5);
+
+		// In Fahrenheit: 1.0°C delta is exactly 1.8°F delta (without +32 offset)
+		expect(calculateTemperatureDelta(1.0, 'Fahrenheit')).toBeCloseTo(1.8, 4);
+		expect(calculateTemperatureDelta(2.0, 'Fahrenheit')).toBeCloseTo(3.6, 4);
+		expect(calculateTemperatureDelta(-1.5, 'Fahrenheit')).toBeCloseTo(-2.7, 4);
+		expect(calculateTemperatureDelta(0, 'Fahrenheit')).toBe(0);
+
+		// Null, undefined, and non-finite inputs safely return 0 in both units
+		expect(calculateTemperatureDelta(null, 'Celsius')).toBe(0);
+		expect(calculateTemperatureDelta(null, 'Fahrenheit')).toBe(0);
+		expect(calculateTemperatureDelta(undefined, 'Celsius')).toBe(0);
+		expect(calculateTemperatureDelta(undefined, 'Fahrenheit')).toBe(0);
+		expect(calculateTemperatureDelta(NaN, 'Celsius')).toBe(0);
+		expect(calculateTemperatureDelta(NaN, 'Fahrenheit')).toBe(0);
+		expect(calculateTemperatureDelta(Infinity, 'Fahrenheit')).toBe(0);
+	});
+
+	it('TC-T1-R4-07 & TC-T2-R1-05: formats delta badges with explicit sign in Fahrenheit without +32 distortion', () => {
+		const formatDeltaBadge = (deltaC: number, unit: 'Celsius' | 'Fahrenheit') => {
+			const delta = calculateTemperatureDelta(deltaC, unit);
+			const sign = delta > 0 ? '+' : '';
+			return `${sign}${delta.toFixed(1)}°`;
+		};
+
+		// 1.0°C delta in Fahrenheit must be +1.8°, NEVER +33.8°
+		expect(formatDeltaBadge(1.0, 'Fahrenheit')).toBe('+1.8°');
+		// 0.0°C delta in Fahrenheit must be 0.0°, NEVER +32.0°
+		expect(formatDeltaBadge(0.0, 'Fahrenheit')).toBe('0.0°');
+		// -2.0°C delta in Fahrenheit must be -3.6°
+		expect(formatDeltaBadge(-2.0, 'Fahrenheit')).toBe('-3.6°');
+		// 1.0°C delta in Celsius
+		expect(formatDeltaBadge(1.0, 'Celsius')).toBe('+1.0°');
 	});
 });
