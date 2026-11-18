@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [ main, next, beta, alpha ]
     types: [ opened, synchronize, reopened, edited ]
+    paths-ignore:
+      - '**.md'
+      - '.agents/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE'
 
 permissions:
   contents: read
