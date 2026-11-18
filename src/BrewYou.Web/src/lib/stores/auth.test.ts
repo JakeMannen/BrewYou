@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { auth } from './auth.svelte';
-import { api, ApiClientError } from '$lib/api/client';
+import { api, ApiClientError, setClientAuthToken } from '$lib/api/client';
 import type { AuthResponse, UserDto } from '$lib/types/api';
 
 class LocalStorageMock {
@@ -65,8 +65,9 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 		expect(auth.token).toBeNull();
 	});
 
-	it('hydrates to authenticated status on boot with valid token', async () => {
-		mockStorage.setItem('brewyou_token', 'valid-saved-jwt');
+	it('hydrates to authenticated status on boot with valid in-memory token and scrubs legacy storage', async () => {
+		mockStorage.setItem('brewyou_token', 'legacy-persisted-jwt');
+		setClientAuthToken('valid-saved-jwt');
 		vi.spyOn(api.auth, 'me').mockResolvedValue(mockUser);
 
 		await auth.init();
@@ -75,10 +76,11 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 		expect(auth.isAuthenticated).toBe(true);
 		expect(auth.user).toEqual(mockUser);
 		expect(auth.token).toBe('valid-saved-jwt');
+		expect(mockStorage.getItem('brewyou_token')).toBeNull();
 	});
 
-	it('attempts silent cookie refresh if saved token is expired', async () => {
-		mockStorage.setItem('brewyou_token', 'expired-jwt');
+	it('attempts silent cookie refresh on boot when no persistent token is kept', async () => {
+		setClientAuthToken('expired-jwt');
 		vi.spyOn(api.auth, 'me').mockRejectedValue(new ApiClientError('Token expired', 401));
 		vi.spyOn(api.auth, 'refresh').mockResolvedValue(mockAuthResponse);
 
@@ -87,11 +89,12 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 		expect(auth.status).toBe('authenticated');
 		expect(auth.isAuthenticated).toBe(true);
 		expect(auth.token).toBe('test-access-token-jwt');
-		expect(mockStorage.getItem('brewyou_token')).toBe('test-access-token-jwt');
+		expect(mockStorage.getItem('brewyou_token')).toBeNull();
 	});
 
 	it('falls back to unauthenticated when both token and refresh fail', async () => {
 		mockStorage.setItem('brewyou_token', 'corrupted-jwt');
+		setClientAuthToken('corrupted-jwt');
 		vi.spyOn(api.auth, 'me').mockRejectedValue(new ApiClientError('Token invalid', 401));
 		vi.spyOn(api.auth, 'refresh').mockRejectedValue(new ApiClientError('Refresh invalid', 401));
 
@@ -103,7 +106,7 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 		expect(mockStorage.getItem('brewyou_token')).toBeNull();
 	});
 
-	it('transitions to authenticated on successful login', async () => {
+	it('transitions to authenticated on successful login without persisting token to localStorage', async () => {
 		vi.spyOn(api.auth, 'login').mockResolvedValue(mockAuthResponse);
 
 		const success = await auth.login('brewer@example.com', 'ValidPass123!');
@@ -114,7 +117,7 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 		expect(auth.user).toEqual(mockUser);
 		expect(auth.token).toBe('test-access-token-jwt');
 		expect(auth.error).toBeNull();
-		expect(mockStorage.getItem('brewyou_token')).toBe('test-access-token-jwt');
+		expect(mockStorage.getItem('brewyou_token')).toBeNull();
 	});
 
 	it('records structured error and stays unauthenticated on login failure', async () => {
@@ -143,7 +146,7 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 	});
 
 	it('transitions to unauthenticated and wipes tokens on logout', async () => {
-		mockStorage.setItem('brewyou_token', 'active-token');
+		setClientAuthToken('active-token');
 		vi.spyOn(api.auth, 'me').mockResolvedValue(mockUser);
 		await auth.init();
 		expect(auth.isAuthenticated).toBe(true);
@@ -160,7 +163,7 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 	});
 
 	it('immediately revokes auth and populates session expired message on handleSessionExpired', () => {
-		mockStorage.setItem('brewyou_token', 'active-token');
+		setClientAuthToken('active-token');
 		auth.handleSessionExpired();
 
 		expect(auth.status).toBe('unauthenticated');
@@ -202,7 +205,7 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 	});
 
 	it('self-bootstraps init and returns authentication status on ready()', async () => {
-		mockStorage.setItem('brewyou_token', 'valid-jwt');
+		setClientAuthToken('valid-jwt');
 		vi.spyOn(api.auth, 'me').mockResolvedValue(mockUser);
 
 		const isAuth = await auth.ready();
@@ -213,7 +216,7 @@ describe('AuthState LifeCycle & Zero-Anonymous Gating', () => {
 	});
 
 	it('deduplicates concurrent calls to init() returning the same promise', async () => {
-		mockStorage.setItem('brewyou_token', 'valid-jwt');
+		setClientAuthToken('valid-jwt');
 		const meSpy = vi.spyOn(api.auth, 'me').mockResolvedValue(mockUser);
 
 		const [p1, p2] = [auth.init(), auth.init()];

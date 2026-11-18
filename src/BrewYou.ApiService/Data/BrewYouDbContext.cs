@@ -437,6 +437,8 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.Property(bi => bi.AdditionStage).HasConversion<string>().HasMaxLength(30).IsRequired();
             entity.Property(bi => bi.Amount).HasPrecision(8, 3).IsRequired();
             entity.Property(bi => bi.Unit).HasMaxLength(20).IsRequired();
+            entity.Property(bi => bi.DeductedAmount).HasPrecision(8, 3);
+            entity.Property(bi => bi.DeductedUnit).HasMaxLength(20);
             entity.Property(bi => bi.Form).HasMaxLength(50);
             entity.Property(bi => bi.Notes).HasMaxLength(1000);
 

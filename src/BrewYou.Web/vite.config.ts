@@ -12,6 +12,27 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
+			csp: {
+				mode: 'auto',
+				directives: {
+					'default-src': ['self'],
+					'script-src': ['self', 'https://accounts.google.com/gsi/client'],
+					'style-src': [
+						'self',
+						'unsafe-inline',
+						'https://fonts.googleapis.com',
+						'https://accounts.google.com/gsi/style'
+					],
+					'font-src': ['self', 'https://fonts.gstatic.com', 'data:'],
+					'img-src': ['self', 'data:', 'blob:', 'http:', 'https:'],
+					'connect-src': ['self', 'http:', 'https:', 'ws:', 'wss:'],
+					'frame-src': ['self', 'https://accounts.google.com'],
+					'object-src': ['none'],
+					'base-uri': ['self'],
+					'form-action': ['self'],
+					'frame-ancestors': ['none']
+				}
+			},
 
 			// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
 			// If your environment is not supported, or you settled on a specific environment, switch out the adapter.

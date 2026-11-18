@@ -520,11 +520,12 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             return RecipeAccessResult.Forbidden;
         }
 
-        // Active batch guard: Check if recipe is in use by active batches unless force flag is set
+        // Active batch guard: Check if recipe is in use by the owner's active batches unless force flag is set
         if (!force)
         {
             var hasActiveBatches = await db.Batches.AsNoTracking().AnyAsync(b =>
                 b.RecipeId == id &&
+                b.UserId == userId &&
                 b.Status != BatchStatus.Completed &&
                 b.Status != BatchStatus.Archived);
 
@@ -534,7 +535,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             }
         }
 
-        // Decouple linked batches explicitly and snapshot RecipeName
+        // Decouple linked batches owned by this user or any remaining references cleanly and snapshot RecipeName
         var linkedBatches = await db.Batches.Where(b => b.RecipeId == id).ToListAsync();
         foreach (var batch in linkedBatches)
         {
@@ -564,6 +565,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
 
         var activeBatches = await db.Batches.AsNoTracking()
             .Where(b => b.RecipeId == recipeId &&
+                        b.UserId == userId &&
                         b.Status != BatchStatus.Completed &&
                         b.Status != BatchStatus.Archived)
             .OrderByDescending(b => b.BrewDate)

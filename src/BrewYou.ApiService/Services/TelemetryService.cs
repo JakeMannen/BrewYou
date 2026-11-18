@@ -619,7 +619,7 @@ public class TelemetryService : ITelemetryService
             .Take(limit)
             .Select(r => new EquipmentReadingDto(
                 r.Id,
-                r.EquipmentId,
+                r.EquipmentId!.Value,
                 r.Timestamp,
                 r.TemperatureC,
                 r.Source,

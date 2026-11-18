@@ -52,8 +52,8 @@ public interface IBatchService
     Task<(BatchAccessResult Result, List<BatchSensorAssignmentDto>? Sensors, string? ErrorMessage)> UpdateBatchSensorsAsync(
         Guid batchId, List<BatchSensorAssignmentInput> sensorInputs, string userId);
 
-    Task<(BatchAccessResult Result, List<BatchEquipmentReadingDto>? Readings, string? ErrorMessage)> GetBatchEquipmentReadingsAsync(
-        Guid batchId, string userId, BrewStage? stage = null, Guid? stepId = null);
+    Task<(BatchAccessResult Result, List<BatchEquipmentReadingDto>? Readings, PaginationMeta? Pagination, string? ErrorMessage)> GetBatchEquipmentReadingsAsync(
+        Guid batchId, string userId, BrewStage? stage = null, Guid? stepId = null, int page = 1, int limit = 500);
 
     Task<(BatchAccessResult Result, BatchStockCheckResult? CheckResult, string? ErrorMessage)> CheckRecipeStockAsync(
         Guid recipeId,

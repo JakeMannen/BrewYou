@@ -69,6 +69,7 @@ public static class BatchEndpoints
         // 2.5 Check ingredient stock for recipe batch
         group.MapPost("/check-stock", async (
             [FromBody] CheckBatchStockRequest request,
+            IValidator<CheckBatchStockRequest> validator,
             ClaimsPrincipal principal,
             IBatchService batchService) =>
         {
@@ -76,6 +77,13 @@ public static class BatchEndpoints
             if (string.IsNullOrEmpty(userId))
             {
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Validation failed for stock check.", details));
             }
 
             var (result, checkResult, errorMsg) = await batchService.CheckRecipeStockAsync(
@@ -94,6 +102,7 @@ public static class BatchEndpoints
         })
         .WithName($"CheckBatchStock_{prefixTag}")
         .Produces<ApiResponse<BatchStockCheckResult>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
 
@@ -145,14 +154,17 @@ public static class BatchEndpoints
             {
                 BatchAccessResult.Success => Results.Created($"/api/v1/batches/{batch!.Id}", ApiResponse<BatchDetailDto>.Ok(batch!)),
                 BatchAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Resource not found.")),
+                BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("CONFLICT", errorMsg ?? "Resource conflict.")),
                 BatchAccessResult.QuotaExceeded => Results.UnprocessableEntity(ApiResponse.Fail("QUOTA_EXCEEDED", errorMsg ?? "Batch quota exceeded.")),
                 _ => Results.BadRequest(ApiResponse.Fail("BAD_REQUEST", errorMsg ?? "Failed to create batch."))
             };
         })
         .WithName($"CreateBatch_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchDetailDto>>(StatusCodes.Status201Created)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict)
         .Produces<ApiResponse>(StatusCodes.Status422UnprocessableEntity);
 
         // 5. Advance stage
@@ -186,6 +198,7 @@ public static class BatchEndpoints
             };
         })
         .WithName($"AdvanceBatchStage_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchDetailDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
@@ -224,6 +237,7 @@ public static class BatchEndpoints
             };
         })
         .WithName($"AddBatchReading_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchReadingDto>>(StatusCodes.Status201Created)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
@@ -253,6 +267,7 @@ public static class BatchEndpoints
             };
         })
         .WithName($"ToggleBatchIngredient_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchIngredientDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
         .Produces<ApiResponse>(StatusCodes.Status409Conflict);
@@ -288,6 +303,7 @@ public static class BatchEndpoints
             };
         })
         .WithName($"ToggleBatchMashStep_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchMashStepDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
@@ -324,6 +340,7 @@ public static class BatchEndpoints
             };
         })
         .WithName($"ToggleBatchFermentationStep_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchFermentationStepDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
@@ -356,14 +373,17 @@ public static class BatchEndpoints
                 BatchAccessResult.Success => Results.Ok(ApiResponse<BatchDetailDto>.Ok(batch!)),
                 BatchAccessResult.ValidationFailed => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", errorMsg ?? "Validation failed for batch update.")),
                 BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("CONFLICT", errorMsg ?? "Batch cannot be modified.")),
+                BatchAccessResult.QuotaExceeded => Results.UnprocessableEntity(ApiResponse.Fail("QUOTA_EXCEEDED", errorMsg ?? "Batch quota exceeded.")),
                 _ => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Batch not found."))
             };
         })
         .WithName($"UpdateBatch_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchDetailDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
-        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict)
+        .Produces<ApiResponse>(StatusCodes.Status422UnprocessableEntity);
 
         // 9. Delete Batch
         group.MapDelete("/{id:guid}", async (
@@ -385,16 +405,19 @@ public static class BatchEndpoints
             };
         })
         .WithName($"DeleteBatch_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
 
-        // 10. Get Batch Equipment Readings (Filterable by stage and step)
+        // 10. Get Batch Equipment Readings (Filterable by stage and step, paginated)
         group.MapGet("/{id:guid}/equipment-readings", async (
             Guid id,
             [FromQuery] BrewStage? stage,
             [FromQuery] Guid? stepId,
             ClaimsPrincipal principal,
-            IBatchService batchService) =>
+            IBatchService batchService,
+            [FromQuery] int page = 1,
+            [FromQuery] int limit = 500) =>
         {
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
@@ -402,10 +425,10 @@ public static class BatchEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var (result, readings, errorMsg) = await batchService.GetBatchEquipmentReadingsAsync(id, userId, stage, stepId);
+            var (result, readings, pagination, errorMsg) = await batchService.GetBatchEquipmentReadingsAsync(id, userId, stage, stepId, page, limit);
             return result switch
             {
-                BatchAccessResult.Success => Results.Ok(ApiResponse<List<BatchEquipmentReadingDto>>.Ok(readings!)),
+                BatchAccessResult.Success => Results.Ok(ApiResponse<List<BatchEquipmentReadingDto>>.Ok(readings!, pagination)),
                 _ => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Batch not found."))
             };
         })
@@ -438,15 +461,19 @@ public static class BatchEndpoints
             return result switch
             {
                 BatchAccessResult.Success => Results.Ok(ApiResponse<BatchEquipmentReadingDto>.Ok(reading!)),
+                BatchAccessResult.ValidationFailed => Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", errorMsg ?? "Validation failed for temperature reading.")),
                 BatchAccessResult.Conflict => Results.Conflict(ApiResponse.Fail("CONFLICT", errorMsg ?? "Cannot log temperature reading.")),
+                BatchAccessResult.QuotaExceeded => Results.UnprocessableEntity(ApiResponse.Fail("QUOTA_EXCEEDED", errorMsg ?? "Maximum readings per batch reached.")),
                 _ => Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMsg ?? "Batch not found."))
             };
         })
         .WithName($"LogBatchEquipmentReading_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BatchEquipmentReadingDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)
-        .Produces<ApiResponse>(StatusCodes.Status409Conflict);
+        .Produces<ApiResponse>(StatusCodes.Status409Conflict)
+        .Produces<ApiResponse>(StatusCodes.Status422UnprocessableEntity);
 
         // 12. Stream Live Batch Equipment Readings (SSE)
         group.MapGet("/{id:guid}/telemetry-stream", async (
@@ -463,6 +490,12 @@ public static class BatchEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
+            var maxStreamLifetime = SseStreamHelper.ComputeMaxStreamLifetime(principal);
+            if (maxStreamLifetime <= TimeSpan.Zero)
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Access token has expired."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
             // BOLA / IDOR Verification: Ensure user owns batch before starting stream
             var (batchResult, _) = await batchService.GetBatchByIdAsync(id, userId);
             if (batchResult != BatchAccessResult.Success)
@@ -470,11 +503,11 @@ public static class BatchEndpoints
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", "Batch not found."));
             }
 
-            using var subscription = broadcastService.Subscribe(id);
+            using var subscription = broadcastService.Subscribe(id, userId);
             if (subscription is null)
             {
                 return Results.Json(
-                    ApiResponse.Fail("TOO_MANY_SUBSCRIBERS", "Maximum concurrent telemetry streams reached for this batch."),
+                    ApiResponse.Fail("TOO_MANY_SUBSCRIBERS", "Maximum concurrent telemetry streams reached."),
                     statusCode: StatusCodes.Status429TooManyRequests);
             }
 
@@ -486,8 +519,8 @@ public static class BatchEndpoints
 
             var cancellationToken = httpContext.RequestAborted;
 
-            // Maximum connection lifetime (15 minutes) as advised by Cybersecurity Expert
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            // Maximum connection lifetime capped at min(15 minutes, token exp)
+            using var timeoutCts = new CancellationTokenSource(maxStreamLifetime);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             var streamToken = linkedCts.Token;
 
@@ -590,6 +623,7 @@ public static class BatchEndpoints
             };
         })
         .WithName($"UpdateBatchSensors_{prefixTag}")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<List<BatchSensorAssignmentDto>>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)

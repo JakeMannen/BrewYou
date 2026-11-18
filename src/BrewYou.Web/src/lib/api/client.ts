@@ -129,8 +129,7 @@ export class ApiClientError extends Error {
 	}
 }
 
-let authToken: string | null =
-	typeof window !== 'undefined' ? localStorage.getItem('brewyou_token') : null;
+let authToken: string | null = null;
 
 export function setClientAuthToken(token: string | null) {
 	authToken = token;
@@ -188,9 +187,6 @@ async function attemptTokenRefresh(): Promise<string | null> {
 
 			if (data?.accessToken) {
 				setClientAuthToken(data.accessToken);
-				if (typeof window !== 'undefined') {
-					localStorage.setItem('brewyou_token', data.accessToken);
-				}
 				tokenRefreshedHandler?.(data);
 				return data.accessToken;
 			}
@@ -217,8 +213,7 @@ async function request<T>(path: string, options: RequestInit = {}, isRetry = fal
 		headers.set('Content-Type', 'application/json');
 	}
 
-	const token =
-		authToken ?? (typeof window !== 'undefined' ? localStorage.getItem('brewyou_token') : null);
+	const token = authToken;
 	if (token) {
 		headers.set('Authorization', `Bearer ${token}`);
 	}
@@ -519,8 +514,7 @@ export const api = {
 			const headers: Record<string, string> = {
 				Accept: 'text/event-stream'
 			};
-			const token =
-				authToken ?? (typeof window !== 'undefined' ? localStorage.getItem('brewyou_token') : null);
+			const token = authToken;
 			if (token) {
 				headers.Authorization = `Bearer ${token}`;
 			}
@@ -1011,11 +1005,13 @@ export const api = {
 
 		async getEquipmentReadings(
 			id: string,
-			params?: { stage?: string; stepId?: string }
+			params?: { stage?: string; stepId?: string; page?: number; limit?: number }
 		): Promise<BatchEquipmentReadingDto[]> {
 			const query = new URLSearchParams();
 			if (params?.stage) query.set('stage', params.stage);
 			if (params?.stepId) query.set('stepId', params.stepId);
+			if (params?.page) query.set('page', String(params.page));
+			if (params?.limit) query.set('limit', String(params.limit));
 			const qs = query.toString() ? `?${query.toString()}` : '';
 			return request<BatchEquipmentReadingDto[]>(`/api/v1/batches/${id}/equipment-readings${qs}`);
 		},

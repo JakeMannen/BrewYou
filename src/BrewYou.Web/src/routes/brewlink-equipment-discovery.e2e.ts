@@ -166,7 +166,6 @@ test.describe('BrewLink Gateway Card Equipment Search', () => {
 		});
 
 		await page.addInitScript((setupId) => {
-			localStorage.setItem('brewyou_token', 'test-token-value');
 			localStorage.setItem(
 				'brewyou_setups',
 				JSON.stringify([

@@ -4,7 +4,7 @@ public class EquipmentReading
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    public Guid EquipmentId { get; set; }
+    public Guid? EquipmentId { get; set; }
     public Equipment? Equipment { get; set; }
 
     /// <summary>

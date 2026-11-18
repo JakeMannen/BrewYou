@@ -71,7 +71,7 @@ describe('Google OAuth Frontend Store & Utilities', () => {
 		expect(auth.user).toEqual(mockResponse.user);
 		expect(auth.token).toBe('google-jwt-access-token');
 		expect(auth.error).toBeNull();
-		expect(mockStorage.getItem('brewyou_token')).toBe('google-jwt-access-token');
+		expect(mockStorage.getItem('brewyou_token')).toBeNull();
 	});
 
 	it('handles failure from Google login API cleanly and records error', async () => {

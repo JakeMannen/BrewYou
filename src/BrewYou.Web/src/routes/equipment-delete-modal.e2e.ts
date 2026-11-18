@@ -115,9 +115,8 @@ test.describe('Equipment Single-Unit Display & Delete Confirmation Modal', () =>
 			});
 		});
 
-		// Prime localStorage token so auth store initializes before page loads
+		// Prime brewery setups before page loads (auth rehydrates via /auth/refresh)
 		await page.addInitScript((setupId) => {
-			localStorage.setItem('brewyou_token', 'test-token-value');
 			localStorage.setItem(
 				'brewyou_setups',
 				JSON.stringify([

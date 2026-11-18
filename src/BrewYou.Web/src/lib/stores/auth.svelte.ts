@@ -2,6 +2,7 @@ import {
 	api,
 	onUnauthorized,
 	onTokenRefreshed,
+	getClientAuthToken,
 	setClientAuthToken,
 	ApiClientError
 } from '$lib/api/client';
@@ -25,9 +26,7 @@ export function onAuthCleared(cb: AuthClearedCallback) {
 
 class AuthState {
 	user = $state<UserDto | null>(null);
-	token = $state<string | null>(
-		typeof window !== 'undefined' ? localStorage.getItem('brewyou_token') : null
-	);
+	token = $state<string | null>(null);
 	isLoading = $state<boolean>(true);
 	error = $state<string | null>(null);
 	errorCode = $state<string | null>(null);
@@ -74,10 +73,12 @@ class AuthState {
 
 			if (typeof window !== 'undefined') {
 				const pendingOnboarding = localStorage.getItem('brewyou_pending_onboarding') === 'true';
-				const savedToken = localStorage.getItem('brewyou_token');
-				if (savedToken) {
-					this.token = savedToken;
-					setClientAuthToken(savedToken);
+				// Security: Purge any legacy persistent access token so JWTs remain strictly in-memory
+				localStorage.removeItem('brewyou_token');
+				const inMemoryToken = this.token ?? getClientAuthToken();
+				if (inMemoryToken) {
+					this.token = inMemoryToken;
+					setClientAuthToken(inMemoryToken);
 					try {
 						this.user = await api.auth.me();
 						if (this.user.preferredLanguage) {
@@ -118,10 +119,7 @@ class AuthState {
 	}
 
 	handleSessionExpired() {
-		const hadSession =
-			this.user !== null ||
-			this.token !== null ||
-			(typeof window !== 'undefined' && localStorage.getItem('brewyou_token') !== null);
+		const hadSession = this.user !== null || this.token !== null || getClientAuthToken() !== null;
 		this.clearAuth();
 		if (hadSession) {
 			this.error = t('auth.session_expired');
@@ -255,9 +253,6 @@ class AuthState {
 			if (typeof window !== 'undefined') {
 				localStorage.setItem('brewyou_pending_onboarding', 'true');
 			}
-		}
-		if (typeof window !== 'undefined') {
-			localStorage.setItem('brewyou_token', token);
 		}
 	}
 

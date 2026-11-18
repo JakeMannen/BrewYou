@@ -1,5 +1,5 @@
 import type { BrewerySetup } from '$lib/types/brewery';
-import { api } from '$lib/api/client';
+import { api, getClientAuthToken } from '$lib/api/client';
 
 export const DEFAULT_BREWERY_ID = 'default-1';
 export const DEFAULT_BREWERY_NAME = 'My brewery';
@@ -72,7 +72,7 @@ class BreweryState {
 			this.resetToDefault();
 		}
 
-		if (typeof window !== 'undefined' && localStorage.getItem('brewyou_token')) {
+		if (getClientAuthToken()) {
 			await this.syncFromBackend();
 		}
 	}
@@ -181,7 +181,7 @@ class BreweryState {
 			finalName = finalName.slice(0, 50);
 		}
 
-		if (typeof window !== 'undefined' && localStorage.getItem('brewyou_token')) {
+		if (getClientAuthToken()) {
 			try {
 				const remote = await api.brewerySetups.create({ name: finalName });
 				if (remote && typeof remote.id === 'string' && typeof remote.name === 'string') {
@@ -230,7 +230,7 @@ class BreweryState {
 		const index = this.setups.findIndex((s) => s.id === id);
 		if (index === -1) return false;
 
-		if (typeof window !== 'undefined' && localStorage.getItem('brewyou_token')) {
+		if (getClientAuthToken()) {
 			try {
 				await api.brewerySetups.update(id, { name: trimmed });
 			} catch (err) {
@@ -256,7 +256,7 @@ class BreweryState {
 		const targetExists = this.setups.some((s) => s.id === id);
 		if (!targetExists) return false;
 
-		if (typeof window !== 'undefined' && localStorage.getItem('brewyou_token')) {
+		if (getClientAuthToken()) {
 			try {
 				await api.brewerySetups.delete(id);
 			} catch (err) {
