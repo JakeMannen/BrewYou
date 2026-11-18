@@ -7,6 +7,12 @@ on:
       - next
       - beta
       - alpha
+    paths-ignore:
+      - '**.md'
+      - '.agents/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:

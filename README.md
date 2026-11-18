@@ -1,700 +1,136 @@
-# BrewYou — Craft Brewing Management Platform
+# BrewYou
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/)
 [![SvelteKit 2](https://img.shields.io/badge/SvelteKit-2.0-ff3e00.svg)](https://kit.svelte.dev/)
 [![Svelte 5](<https://img.shields.io/badge/Svelte-5.0_(Runes)-ff3e00.svg>)](https://svelte.dev/)
-[![Tailwind CSS v4](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8.svg)](https://tailwindcss.com/)
 [![.NET Aspire](https://img.shields.io/badge/.NET_Aspire-13.5-512bd4.svg)](https://learn.microsoft.com/dotnet/aspire/)
 [![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18.6-336791.svg)](https://www.postgresql.org/)
-[![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066.svg)](https://mosquitto.org/)
 
-**BrewYou** is a modern, 100% free and open-source fullstack craft brewing platform built for homebrewers and craft breweries. It provides an end-to-end brewing experience — from multi-rig brewery configuration and recipe formulation to live brew day execution, IoT fermentation telemetry monitoring, and inventory tracking.
+**BrewYou** is a 100% free and open-source fullstack craft brewing platform for homebrewers and small breweries — covering recipe formulation, multi-rig brew day execution, IoT fermentation telemetry, and taproom dispensing. All features are universally accessible with no paywalls, tiers, or subscriptions.
 
-BrewYou is strictly open-source craft brewing software: **all features are universally accessible to every user with no paywalls, tiers, or subscriptions.**
+## Core Capabilities
 
----
+- **Dashboard & Cellar Operations**: Live overview of active batches, fermenters, serving taps, schedule milestones, and quick gravity/temperature logging.
+- **Multi-Rig Setups & Collaboration**: Calibrated equipment profiles (BIAB, All-in-One, 2-vessel, 3-vessel) with shared brewery RBAC (`Owner`/`Co-Owner`, `Brewer`, `Viewer`).
+- **Recipe Formulator & Labels**: Real-time OG, FG, ABV, IBU, and SRM calculations, BJCP style targets, BeerXML 1.0 & BeerJSON import/export, printable brew sheets, and custom bottle/tap artwork.
+- **Live Brew Day & HUD**: 5-stage lifecycle (`Mash -> Boil -> Ferment -> Condition -> Package`), full-screen Brew Station HUD, offline/retroactive batch logging, and QR cellar labels.
+- **Equipment, Kegs & Digital Taps**: Vessel and keg fill tracking plus standalone kiosk, rendered image, and JSON manifest displays (`/tap/{token}`).
+- **BrewLink & IoT Telemetry**: ESP32 Wi-Fi/BLE gateway pairing and hardware control, iSpindle/Tilt/HTTP webhooks, Mosquitto MQTT, and real-time Server-Sent Events (SSE).
+- **Pantry, Calculators & Portability**: Ingredient stock alerts, water chemistry/carbonation/hydrometer/refractometer calculators, encrypted `.brewyou.json` backup/restore, and 5 locales (`en`, `sv`, `de`, `fr`, `es`).
 
-## Table of Contents
+## Tech Stack
 
-1. [Features](#features)
-   - [Interactive Dashboard & Cellar Operations](#interactive-dashboard--cellar-operations)
-   - [Multi-Rig Brewery Setup & Loss Profiles](#multi-rig-brewery-setup--loss-profiles)
-   - [Brewery Collaboration & Shared Setups](#brewery-collaboration--shared-setups)
-   - [Recipe Management & Recipe Formulator](#recipe-management--recipe-formulator)
-   - [Recipe Labels & Digital Tap Screen Graphics](#recipe-labels--digital-tap-screen-graphics)
-   - [Batch Tracking & Live Brew Day Execution](#batch-tracking--live-brew-day-execution)
-   - [Batch QR Code Tracking & Cellar Labels](#batch-qr-code-tracking--cellar-labels)
-   - [Equipment & Tap Dispenser Inventory](#equipment--tap-dispenser-inventory)
-   - [BrewLink Integration & Smart Boiler Dispatch](#brewlink-integration--smart-boiler-dispatch)
-   - [Ingredient Stock & Inventory](#ingredient-stock--inventory)
-   - [IoT Telemetry & Real-Time Monitoring](#iot-telemetry--real-time-monitoring)
-   - [Brewing Calculators Suite](#brewing-calculators-suite)
-   - [Security & Authentication](#security--authentication)
-   - [User Backup & Restore](#user-backup--restore)
-   - [Internationalization (i18n) & Personalization](#internationalization-i18n--personalization)
-2. [Technology Stack](#technology-stack)
-3. [Prerequisites](#prerequisites)
-4. [Getting Started & How to Run](#getting-started--how-to-run)
-   - [Option A: With .NET Aspire (Recommended for Development)](#option-a-with-net-aspire-recommended-for-development)
-   - [Option B: With Docker Compose](#option-b-with-docker-compose)
-   - [Option C: Manual / Standalone Development](#option-c-manual--standalone-development)
-5. [Configuration & Environment Variables](#configuration--environment-variables)
-6. [API Documentation](#api-documentation)
-7. [Testing & Quality Assurance](#testing--quality-assurance)
-8. [Project Structure](#project-structure)
-9. [Development & Agent Conventions](#development--agent-conventions)
-10. [License](#license)
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | SvelteKit 2, Svelte 5 (Runes), TypeScript, Tailwind CSS v4, Vite |
+| **Backend API** | .NET 10, ASP.NET Core Minimal APIs, FluentValidation, Scalar OpenAPI |
+| **Data & IoT** | Entity Framework Core 10, PostgreSQL 18.6, Eclipse Mosquitto MQTT |
+| **Orchestration** | .NET Aspire 13.5 (`src/BrewYou.AppHost`), Docker Compose |
 
----
+## Getting Started
 
-## Features
+### Prerequisites
 
-### Interactive Dashboard & Cellar Operations
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- [Node.js 20 or 22 LTS](https://nodejs.org/) & `npm`
+- [Docker](https://www.docker.com/products/docker-desktop/) (for PostgreSQL, Mosquitto, or full container stack)
 
-The Interactive Dashboard serves as the central command center for your brewery. It provides a real-time overview of your entire operation, aggregating key performance indicators such as active batches, currently fermenting vessels, upcoming schedule milestones, and equipment readiness in one place. Fermenting batches are displayed as active cellar cards showing their current stage, gravity, temperature, and days in vessel. A full-width Taps overview card displays all serving taps side by side with batch artwork/labels, live serving temperatures, keg volume/fill levels, and quick-action batch assignment. Live telemetry streams from connected IoT sensors feed directly into the dashboard widgets, and modal shortcuts allow quick stage advancements or gravity and temperature logging without navigating away.
+### Option A: .NET Aspire (Recommended for Development)
 
-#### How to Use
-
-1. **View Brewery KPIs**: Navigate to the **Dashboard** (`/`) to check active batch counts, fermenter utilization, and system status at a glance.
-2. **Monitor Active Fermentations**: Inspect cellar cards to see fermentation stages, wort temperature, specific gravity, and days in vessel.
-3. **Inspect Serving Taps**: Review the full-width **Taps Overview** card placed below the cellar cards to see all taps side by side with beer style badges, ABV, batch artwork, keg fill levels, and serving temperatures. Click **Assign Batch** to swap or hook up a keg directly from the dashboard.
-4. **Log Measurements Quickly**: Click **Quick Log** (or the hydrometer icon) on any cellar card to record a new gravity or temperature reading.
-5. **Advance Batch Stages**: Use the stage quick-action button on a cellar card to advance a batch (e.g., from _Fermenting_ to _Conditioning_) with a single click.
-6. **Follow the Operations Schedule**: Review the calendar feed for upcoming brew days, dry hopping windows, and packaging milestones.
-
-### Multi-Rig Brewery Setup & Loss Profiles
-
-BrewYou allows brewers to configure multiple distinct brewing rigs (such as a 5-liter stovetop BIAB pot, a 20-liter electric all-in-one system, or a traditional 3-vessel HERMS/RIMS setup). Each setup maintains its own physical loss profile—calibrating grain absorption, boil-off rate, kettle dead space, trub losses, and wort contraction during cooling. When you switch active rigs, recipes and brew sessions automatically recalculate water requirements, strike temperatures, and gravity targets to match the selected equipment profile.
-
-#### How to Use
-
-1. **Access Brewery Settings**: Navigate to **Settings** (`/settings`) and select **Brewery Profiles**.
-2. **Configure a Brewing Rig**: Click **Add Brewery Setup** (or edit an existing profile) and enter your kettle type, boil capacity, and calibrated physical parameters (boil-off L/hr, grain absorption L/kg, kettle trub loss, and cooling shrinkage %).
-3. **Switch the Active Rig**: Select a rig and set it as **Active** using the brewery switcher in the application header or settings view.
-4. **Apply to Recipes**: When designing a recipe or scheduling a brew, your active rig's parameters automatically calculate strike water volumes, sparge requirements, and target boil volumes.
-
-### Brewery Collaboration & Shared Setups
-
-BrewYou enables brewers to share, co-own, and collaborate on brewing setups with other team members. Any brewery setup (`BrewerySetup`) can be configured as a shared group. Brewery owners can invite other brewers by email with specific role permissions (_Co-Owner_, _Brewer_, or _Viewer_), share secure 32-byte cryptographically random invitation links, revoke pending invitations, modify collaborator roles, and remove members at any time. Non-owner members can inspect team members and choose to leave a shared setup at will.
-
-- **Role-Based Access Control (RBAC)**:
-  - **Owner / Co-Owner**: Full administrative control over brewery setups, equipment, members, invitations, and hardware secrets.
-  - **Brewer**: Can add, update, and manage shared equipment vessels, brew batches, and log telemetry readings.
-  - **Viewer**: Read-only access to recipes, shared equipment, batch progress, and telemetry charts.
-- **Hardware & IoT Security**: Sensitive credentials (such as IoT ingestion connection tokens and MQTT broker passwords) are strictly redacted on the server from non-owners to prevent sensor spoofing and credential exfiltration. Equipment deletion is strictly restricted to owners, co-owners, or the equipment's creator.
-- **Privacy & Previews**: Unauthenticated invite validation endpoints mask recipient email addresses (e.g., `j***e@domain.com`) to prevent privacy leakage and user enumeration.
-- **Collaborative Brewing & Telemetry**: Collaborators with the Brewer or Owner role can schedule batches using shared setup equipment, and live sensor telemetry (SSE) is broadcast concurrently to all active members of the setup.
-- **Universal Access Invariant**: 100% free and open craft brewing software for all users with no paywalls or tier restrictions.
-
-#### How to Use
-
-1. **Open Collaborators Dialog**: Open the Brewery Switcher in the navigation bar and click the **Collaborators** button (users icon) next to any brewery setup.
-2. **Invite a Brewer**: Enter the collaborator's email address, select their role (_Brewer_, _Co-Owner_, or _Viewer_), and click **Send Invitation**.
-3. **Share the Invite Link**: Copy the generated invite link (e.g., `/invites/<invite-code>`) and send it directly to your partner.
-4. **Accepting an Invitation**: The recipient visits the invite link, previews the brewery details and assigned role, and clicks **Accept Invitation & Join** to gain immediate access to the shared setup and its equipment inventory.
-5. **Manage Team Members**: Setup owners can change member roles, revoke unused invites, or remove collaborators directly from the modal.
-
-### Recipe Management & Recipe Formulator
-
-The Recipe Atelier and Formulator is an interactive brewing formulation workspace designed with a warm, bespoke **Artisanal Craft Taproom & Editorial** aesthetic. It pairs modern geometric display typography (`Outfit`) with crisp telemetry badges (`JetBrains Mono`) and calculates Original Gravity (OG), Final Gravity (FG), ABV (_Linear_ or ASBC _Advanced_), Bitterness (_Tinseth_, _Rager_, or _Daniels_ IBU), Color (_Morey_, _Mosher_, or _Daniels_ SRM/EBC), BU:GU balance, and Apparent Attenuation (%) in real time—with 100% calculation parity between the SvelteKit Formulator and the ASP.NET Core persistence engine honoring each brewer's saved formula preferences. Brewing physics accurately model fermentable categories (_Grain_, _Adjunct_, _Sugar_, _Extract_, _DryExtract_) with optional custom `Fermentability (%)` overrides: mash grains and adjuncts drive strike water, sparge water, and grain absorption calculations, soluble sugars/extracts bypass mash efficiency with 100% kettle dissolution (100% fermentable default for sugars, 0% for lactose/maltodextrin), and bottling/priming sugars are excluded from pre-fermentation OG/FG/ABV/SRM calculations. It also models multi-yeast co-pitch attenuation, hop form utilization (_Pellet_, _Plug_, _Leaf_), and stage-specific isomerization (_Mash_, _First Wort_, _Boil_, _Whirlpool_, _Primary_, _Secondary_, _Bottling_, and _Dry Hop_ measured in days). New and imported recipes default to **Private** visibility until explicitly shared with the community. Built-in BJCP style guidelines provide visual gauges comparing your recipe against target ranges, alongside dedicated staged mash and fermentation schedules with full bidirectional BeerXML 1.0 (`<TYPE>`, `<ADD_AFTER_BOIL>`, `<RECOMMEND_MASH>`, `<USE>`) and BeerJSON (`type`, `timing.use`) import/export support.
-
-#### How to Use
-
-1. **Browse Recipes**: Open **Recipes** (`/recipes`) to view your saved recipes, explore community formulations, or search by beer style.
-2. **Create or Edit a Recipe**: Click **New Recipe** to open the formulator cockpit (defaulting to private visibility for your brewery).
-3. **Target a Style**: Pick a BJCP style from the dropdown to display reference parameter gauges for OG, FG, IBU, SRM, and ABV.
-4. **Build the Grain Bill & Hop Schedule**: Add fermentables, hops (including _First Wort_ kettle additions and _Dry Hop_ durations in days), yeasts, and water salts/fining additions. Watch the glass graphic, BU:GU ratio, apparent attenuation, and recipe metrics update in real time.
-5. **Configure Mash & Fermentation Profiles**: Set up single-infusion or multi-step mash schedules, and configure staged fermentation temperature targets and durations. BrewYou computes strike water temperatures, infusion volumes, and schedule milestones automatically.
-6. **Import & Export**:
-   - Click **Import** to load existing `.xml` (BeerXML) or `.json` (BeerJSON) recipe files directly into your catalog (private by default, with an optional community-sharing toggle). Unmatched ingredients prompt an interactive reconciliation dialog that highlights suggested close matches from your catalog, lets you pick any existing catalog ingredient of the same type, or creates a new custom ingredient—after validating recipe name conflicts upfront.
-   - Click **Export** on any recipe to download standard BeerXML or BeerJSON files preserving `First Wort` hops, Dry Hop day durations, miscellaneous weight/volume additions, and complete mash/fermentation profiles.
-7. **Print a Scaled Brew Sheet**: Click **Print Brew Sheet** on any recipe (`/recipes/[id]`) to open `/recipes/[id]/print`, select your target batch size, volume basis (_Fermenter_ or _Packaged_), and optional boiler profile, then print a complete brew-day record sheet with scaled water calculations, mash/boil/fermentation checklists, and blank gravity/temperature tables to fill in on paper. Click **Start Batch with These Settings** to launch a matching batch with those scaled targets.
-8. **Start a Brew**: Click **Brew This Recipe** to turn the formulation into an active brew day batch.
-
-### Recipe Labels & Digital Tap Screen Graphics
-
-BrewYou bridges physical packaging and digital taproom displays through integrated recipe artwork management and server-side graphic generation:
-
-- **Custom Artwork Upload & Artisan Default Fallback**: Upload high-resolution PNG, JPEG, or WebP images (up to 8 MB). Artwork is sanitized, normalized with EXIF orientation correction, Lanczos-filtered, and cached server-side. When no custom artwork is provided, BrewYou automatically falls back to an artisan craft brewing illustration stored directly in PostgreSQL (`SystemAssets`) and seeded on initialization.
-- **Multiformat Viewport Cropping**: Tailor separate normalized crops for each output medium:
-  - **Bottle Labels**: Standard 4:5 portrait ratio (default 90×120 mm, customizable in mm).
-  - **Round Tap Displays**: 1:1 circular crop with true alpha-channel circular masking for digital tap handles and round bezel screens.
-  - **Rectangular Tap Displays**: 16:9 widescreen landscape or 9:16 vertical portrait crops for wall-mounted kiosks, tablets, and digital menu boards.
-- **Master Brewer Compliance (Strict Actual ABV)**: In strict accordance with BJCP standards, only actual measured alcohol by volume from an assigned batch (`Batch.AlcoholByVolume`) is rendered onto badges and overlays—never theoretical recipe target estimations.
-- **Printable Bottle Label Sheets**: Generate print-ready sheets formatted for standard A4 and Letter paper (`/recipes/[id]/labels/print` and `/batches/[id]/labels/print`), featuring adjustable presets, configurable labels-per-sheet counts, dashed cutting guidelines, batch selection dropdown for actual vs. theoretical recipe ABV with user callout notices, toggleable ABV bottom label inclusion, and direct one-click printing from batch cards. Even when a recipe is retired or decoupled from a batch, the printable label route renders artisan fallback labels dynamically using snapshot batch metadata.
-- **Historical Batch Identity & Label Persistence**: Deleting a recipe from the atelier persistently snapshots its `RecipeName` onto all linked batches, guaranteeing batch cards, cellar logs, and label printing routes retain historical identity without null pointer crashes or blank screens.
-- **Recipe Gallery Integration**: Recipe cards across `/recipes` prominently feature your customized label artwork banner with seamless fallback to the artisan craft graphic.
-- **Full User Backup & Restore Coverage**: Recipe label metadata and crop configurations are seamlessly serialized into schema v2 of `.brewyou.json` backups with optional embedded image asset portability.
-
-#### How to Use
-
-1. **Manage Label Artwork**: Open any recipe (`/recipes/[id]`) and scroll to the **Recipe Labels & Screen Graphics** panel.
-2. **Upload Custom Art**: Click **Upload Image** to select a PNG, JPEG, or WebP graphic.
-3. **Fine-Tune Viewport Crops**: Click **Adjust Crops** to open the modal and adjust horizontal offset, vertical offset, zoom, and orientation across Bottle, Round Display, and Rectangular Display tabs.
-4. **Print Bottle Labels**: Click **Print Bottle Labels** (from the recipe card, directly from any batch card in the batches list, or from a batch workspace) to generate a printable sheet with cut guidelines and optional ABV display.
-5. **Reset to Default**: Click the trash icon to revert the recipe back to the default artisan craft graphic at any time.
-
-### Batch Tracking & Live Brew Day Execution
-
-Batch Tracking guides you through a forward-only 5-stage brewing lifecycle: _Mash_ ➔ _Boil_ ➔ _Ferment_ ➔ _Condition_ ➔ _Package_ (with clean support for skipping optional stages such as _Condition_ while preserving stage history and automatic pantry stock deduction). The live Brew Day Cockpit provides independent per-step mash rest timers (allowing non-destructive inspection across steps), boil countdowns with `0:00` flameout whirlpool milestones, real-time multi-vessel temperature tracking, and a pre-boil correction calculator that automatically adjusts boil times or water additions if gravity or volume drifts from targets. During fermentation, batches inherit the recipe's staged fermentation profile with automatic step start timestamps, `TriggerGravity` readiness badges when live specific gravity reaches a step's transition threshold, and interactive attenuation curves that dynamically plot live density and temperature readings against active step temperature targets.
-
-- **Past-Date Batch Creation & Offline Equipment Progression**: Log a completed or in-progress paper brew day retroactively by picking a historical brew date in `/batches/new` (auto-generating a date-matched batch code via `/api/v1/batches/next-code?date=YYYY-MM-DD` and disabling hardware auto-dispatch). When assigned BrewLink hardware is offline—or even without configured vessels—BrewYou preserves full manual control over mash/boil step advancement, forced stage transitions, local fallback timers, step temperature logging, and gravity samples with optional historical timestamps and vessel temperatures.
-
-#### Multi-Vessel & All-in-One Brewhouse Topologies
-
-BrewYou natively accommodates any brewhouse architecture via polymorphic vessel roles:
-
-- **1-Vessel (All-in-One / BIAB)**: Single kettle handles both mashing and boiling (e.g. Grainfather, BrewZilla, Speidel Braumeister, or BIAB stovetop pots).
-- **2-Vessel (All-in-One + Sparge Water Heater / HLT)**: The global homebrew standard pairing an All-in-One electric brewing system with a dedicated Hot Liquor Tank for sparge water.
-- **2-Vessel (Mash Tun + Boil Kettle)**: Traditional infusion cooler or dedicated mash tun separated from the boil kettle.
-- **3-Vessel System (HLT + Mash Tun + Boil Kettle)**: Classic 3-tier gravity or pumped HERMS/RIMS setup with dedicated vessels for hot liquor, mash infusion, and boil.
-
-When configuring multi-vessel batches:
-
-- **Comprehensive Water Budgeting**: Factored calculations incorporate HLT dead space loss, pump/transfer plumbing losses, grain absorption, and sparge methods (_Batch Sparge_, _Fly / Continuous Sparge_, or _No Sparge_).
-- **Live HLT Status Card**: Displays target sparge temperatures (~76°C) and real-time telemetry from connected HLT temperature probes alongside strike water guidance.
-- **Runoff Tannin & Astringency Protection**: Aligned with BJCP guidelines, if pre-boil runoff gravity drops below 1.010 SG (2.5°P), a prominent alert warns the brewer to halt sparging and prevent grain husk polyphenol extraction.
-
-#### Brew Station HUD Mode
-
-For real-time brewhouse execution in high-steam or wet-hands environments, the **Brew Station HUD** modal transforms the cockpit into a high-visibility, full-screen tactical interface:
-
-- **Oversized Countdown Timer & Stage Progress Bar**: Gigantic typography legible from across the brewhouse paired with a live-filling progress bar (0% ➔ 100%) tracking elapsed stage duration with elastic scaling for quick time adjustments (+5m / -5m).
-- **Interactive Boil Addition Milestones**: Visual timeline pins positioned along the progress bar for scheduled hop and kettle additions, grouping simultaneous additions with rich quick-action inspection popovers and tap-to-complete checkboxes.
-- **Wet-Hands Touch Targets**: Generously sized (64px+) action buttons for Play, Pause, Reset, and Step Advance, plus keyboard shortcuts (`Space` to toggle, `R` to reset, `Esc` to close).
-- **Target & Live Sensor Instrumentation**: At-a-glance target mash/boil temperatures alongside live IoT probe readings.
-- **Hardware-Controlled Boil Execution & Step Matching**: When connected to BrewLink equipment, boil steps (Pre-Boil Ramp, scheduled hop/fining additions, Flameout, and Whirlpool / Hop Stand) match physical kettle execution (`stage.step_index`, `stage.step_name`, and ramp state). Timers bind directly to hardware telemetry, and critical timer adjustments trigger explicit YES/NO confirmation dialogs to prevent accidental disruption.
-- **Hardware-Controlled Mash Execution**: The Mash stage uses the same BrewLink hardware timer integration. Starting the mash timer sends `set_timer`, `set_target_temp` and `set_heat` for the active step, pausing/resetting asks for confirmation before sending `pause_timer` / `cancel_timer`, and a **BrewLink Hardware Controlled** badge shows when the countdown mirrors the controller. The active mash step shows the live **Hardware Temp** next to its target and offers a **Sync Setpoint to Hardware** button. **Complete & Next Step** asks for confirmation, then sends `press_set`, the next step's target temperature and (if the timer was running) its duration, before completing the step in BrewYou. Batches without BrewLink equipment keep using the local timer with no extra dialogs.
-- **Automatic Temperature Logging & Zero Manual Overhead**: Live controller temperatures are automatically logged to batch reading history on every update during the Mash and Boil stages (eliminating any need for manual "Log Live Temp" clicks). Creating a batch whose mash vessel already reports a temperature logs an initial baseline reading against mash step 1, so every step's chart starts plotting right away.
-- **Process-Guarded Stage Progression & Automated Boil Transition**: When BrewLink controls the mash or boil process, stage transitions are strictly guarded: advancing from Mash to Boil is locked until all mash steps are completed on the controller, and when the final mash step completes, the batch automatically transitions from Mash to Boil without requiring manual confirmation. Advancing from Boil to Ferment while a BrewLink boil timer is still active triggers an explicit warning confirmation dialog before stopping the boil timer and transitioning to fermentation. Prominent hardware interaction alerts feature YES/NO buttons for prompt acknowledgment.
-
-#### How to Use
-
-1. **Create a Batch**: Navigate to **Batches** (`/batches`), click **New Batch**, select a recipe, choose your **Brewhouse Topology** (_1V_, _2V AIO+HLT_, _2V MLT+BK_, or _3V_), and assign vessels.
-2. **Run Brew Day & Launch Brew Station HUD**:
-   - Open the batch to launch the **Brew Day Cockpit** (`/batches/[id]`).
-   - Click the **Brew Station HUD** button in the header (or the expand icon on mash/boil timers) to enter full-screen high-contrast mode for hands-on brewing.
-   - Follow the stage pipeline, starting timers for mash rests and boil additions.
-   - Record pre-boil gravity and volume; if discrepancies occur, use the dynamic boil calculator to adjust boil duration or water additions.
-3. **Track Fermentation & Staged Profile**:
-   - Once wort is transferred and chilled, advance the batch to **Fermenting**.
-   - Assign physical hydrometers or IoT sensors to the fermenting vessel for automatic telemetry, or manually record gravity and temperature samples.
-   - Follow the fermentation schedule checklist, marking steps (e.g. Primary, Diacetyl Rest, Cold Crash) as completed to track progress and automatically update target temperature reference lines on the Attenuation Chart.
-4. **Package & Complete**:
-   - Transition through **Conditioning** to **Bottling / Kegging**.
-   - Log packaged bottle counts, keg volumes, and priming sugar amounts to calculate final yield efficiency, then mark the batch **Completed**.
-
-### Batch QR Code Tracking & Cellar Labels
-
-Physical cellar tracking bridges the gap between digital batch logs and physical fermenters, kegs, and packaging. Every batch is assigned a unique, immutable deep-link encoded into a high-contrast QR code label:
-
-- **Instant Mobile Navigation**: Scan the QR code with any standard smartphone camera to jump directly to the live batch cockpit (`/batches/[id]`). Sign-in is preserved and prompted automatically without exposing unauthenticated endpoints.
-- **Dual-Layer Identification**: Labels prominently feature the canonical batch code (e.g. `B-2026-10-30-01`), recipe name, beer style, and brew date underneath the QR code for instant human readability in the cellar.
-- **High-Contrast Optical Rendering**: Rendered as crisp vector SVG with standard quiet zones to ensure reliable scans under poor cellar lighting conditions and cold condensation.
-- **One-Click Export & Print**: Export labels as vector SVGs, high-resolution PNG images (720×980) for digital records, copy canonical deep links, or trigger browser print preview styled exclusively for sticker printing.
-- **Configurable Hostnames & Mobile LAN Access**: Configure your server's LAN IP (e.g. `http://192.168.1.50:3000`) or public domain in **Settings ➔ Network ➔ Network & External Access** (or override directly in the QR modal), ensuring smartphone cameras scan and open your batch cockpit seamlessly on your Wi-Fi network without `localhost` connection errors.
-- **Accessible Everywhere**: Available from the **QR** button to the left of _Batchöversikt_ on `/batches` cards, as well as in the **Brew Day Cockpit** (`/batches/[id]`) action bar.
-
-### Equipment & Tap Dispenser Inventory
-
-The Equipment Inventory provides digital twin management for your brewery's hardware, organized into Boilers (HLTs, electric all-in-one kettles, mash tuns, and lauter tuns), Fermenters (carboys, conical fermenters, unitanks), Kegs (Cornelius, minikegs), Sensors, and **Taps**:
-
-- **Dispensing Taps & Digital Screen Integration**:
-  - **Standard Tap**: Traditional mechanical bar tap faucet and dispensing tower.
-  - **Round Display Tap**: Dispensing tower equipped with a circular LCD/OLED digital display screen.
-  - **Rectangular Display Tap**: Dispensing tower equipped with a high-resolution widescreen or portrait digital display screen.
-- **Dual-Mode Tap Serving & Keg Flow**:
-  - **Keg Flow (Recommended)**: Fill keg containers (Cornelius, minikegs, etc.) with batches in the Conditioning or Packaging stages, specifying the filled volume. Assign the filled keg to a tap faucet to track real-time keg depletion and display exact fill percentages (`XX% · 14.5 / 19.0 L`).
-  - **Direct Batch Flow (Quick Mode)**: Quickly assign any servable batch directly to a tap faucet without a keg container. The tap manifest and kiosk display `Fill: N/A`.
-  - **Keg Temperature Inheritance**: Taps do not hold independent IoT sensors; instead, serving temperature is automatically inherited from the connected keg and rendered on equipment cards, digital kiosk displays, and JSON manifests.
-  - Both flows strictly honor the Master Brewer rule: only actual measured ABV from the active batch is displayed.
-- **Encrypted Display Tokens**: Display tokens are encrypted at rest using ASP.NET Core `IDataProtectionKeyContext` stored in PostgreSQL. Brewers can inspect and copy existing display links at any time without having to regenerate tokens or disrupt active screens.
-- **Multi-Protocol Screen Connectivity**:
-  - **Interactive Kiosk Web App (`/tap/{token}`)**: Standalone full-bleed display screen designed for smart TVs, iPads, and Raspberry Pi kiosk browsers. Runs outside authentication curtains and polls every 60 seconds to automatically update beer metadata and keg fill levels when taps change.
-  - **Pre-Rendered Image Endpoint (`/api/v1/tap/{token}/image`)**: High-performance HTTP endpoint serving pre-rendered, pre-cropped WebP/JPEG graphics with circular alpha masking and measured ABV typography overlay. Ideal for low-memory microcontrollers or direct framebuffers.
-  - **JSON Manifest API (`/api/v1/tap/{token}`)**: Public lightweight JSON payload delivering shape, dimensions, status, beer name, measured ABV, keg fill level (`XX%` or `N/A`), keg name, keg capacity, and remaining volume for custom ESP32/e-paper implementations.
-  - **Network Settings Integration & Host Customization**: Tap dialog links (kiosk web view, rendered image, and JSON manifest) dynamically take advantage of user-configured network hostnames (**Settings ➔ Network ➔ Network & External Access**), flag localhost loopback addresses with actionable warnings, and provide inline host overrides with quick settings access for seamless Wi-Fi kiosk and IoT microcontroller deployments.
-- **Cascading Equipment Integrity & Sensor Decoupling**: Decommissioning or deleting equipment cleanly decouples all 5 vessel roles (`HLT`, `Mash Tun`, `Boiler`, `Fermenter`, and `Packaging Vessel`), pre-cleans associated temperature probe sensor assignments without foreign key restrict exceptions, and decouples tap-to-keg links. Active batch guards protect in-use hardware and require explicit force confirmation.
-- **Factory All-In-One System Profiles & In-Modal Model Selector**:
-  - Provides factory-calibrated profiles for the 8 most common All-In-One brewing rigs via an on-demand model selector in the All-In-One equipment configuration dialog (in both Create and Edit modes):
-    - **Grainfather G30** (30 L, 3.5 L dead space, 2.5 L/hr boil-off, 2.0 L trub loss)
-    - **Grainfather G40** (40 L, 4.5 L dead space, 3.5 L/hr boil-off, 2.5 L trub loss)
-    - **Grainfather G70** (70 L, 8.0 L dead space, 4.0 L/hr boil-off, 3.5 L trub loss)
-    - **BrewZilla 35L Gen 4** (35 L, 3.5 L dead space, 3.0 L/hr boil-off, 2.0 L trub loss)
-    - **BrewZilla 65L Gen 4** (65 L, 6.0 L dead space, 4.5 L/hr boil-off, 3.5 L trub loss)
-    - **Speidel Braumeister 20L** (25 L, 2.5 L dead space, 2.5 L/hr boil-off, 1.5 L trub loss)
-    - **Brewtools B40pro** (46 L, 3.0 L dead space, 3.5 L/hr boil-off, 2.0 L trub loss)
-    - **Anvil Foundry 10.5** (40 L, 2.5 L dead space, 3.0 L/hr boil-off, 1.5 L trub loss)
-  - Selecting a model applies its factory loss profile and volume capacity while allowing brewers to fine-tune any individual value. Preserves a clean equipment inventory without cluttering the user's brewery with unowned hardware.
-- **Batch Vessel Overfilling & Boilover Headspace Protections**:
-  - **Mash Displacement Check**: Dynamically computes total mash volume ($V_{\text{strike}} + W_{\text{grain}} \times 0.67\text{ L/kg}$) and raises a prominent overflow alert if the grain and strike water exceed boiler/mash tun capacity.
-  - **Pre-Boil Capacity Warning**: Alerts brewers if target pre-boil wort volume exceeds the kettle's maximum liquid capacity.
-  - **Boilover Headroom Warning**: Warns whenever pre-boil wort volume occupies $>85\%$ of kettle capacity ($<15\%$ headspace), protecting brewers from hot break boilover events.
-
-#### How to Use
-
-1. **View Equipment & Taps**: Go to **Inventory ➔ Equipment** (`/inventory/equipment`) and use the category tabs to filter by **Taps**, **Boilers**, **Fermenters**, **Kegs**, or **Sensors**.
-2. **Add a Dispensing Tap**: Click **Add Equipment**, select **Tap**, choose your subtype (_Standard Tap_, _Round Display Tap_, or _Rectangular Display Tap_), and configure display resolution and orientation if equipped with a digital screen.
-3. **Fill a Keg**: On any keg in your inventory, click **Fill Keg** to assign an active batch in the Conditioning or Packaging stage and specify the filled volume (or kick/empty an active keg).
-4. **Assign to Tap**: On any tap card, click **Assign Tap** to choose between **Tap a Keg** (with fill level tracking) or **Direct Batch** (quick mode).
-5. **Configure Digital Display**: For display-equipped taps, click **Display Screen** to view and copy your Interactive Kiosk URL, Direct Image URL, or JSON Manifest endpoint. The modal automatically reflects your configured network hostnames, highlights localhost warnings with inline host customization, and lets you regenerate or revoke tokens with a single click.
-6. **Check Operational Status & Batch Locks**: See which vessels are currently assigned to active batches (preventing double-booking) and view liquid fill levels.
-7. **Inspect Telemetry**: For vessels linked to IoT sensors, view live metric badges and click the **Attributes Inspector** to inspect raw JSON payloads, battery levels, signal RSSI, and sensor tilt angles.
-
-### BrewLink Integration, Real-Time Telemetry & Hardware Control
-
-BrewLink bridges BrewYou to physical brewing hardware via dedicated ESP32 Wi-Fi & Bluetooth gateways. It enables real-time telemetry streaming, bidirectional hardware control, and seamless wireless recipe dispatch across Boilers and Fermenters (such as Grainfather G30 and compatible systems):
-
-- **Multi-Transport Real-Time Telemetry Ingestion**: Receives 1Hz temperature, heating status, pump status, countdown timers, and brewing stage updates from gateways via persistent WebSocket connections (`ws://<gateway-ip>/ws?token=<api_token>`), MQTT broker topics (`brewlink/{topicKey}/{gatewayId}/equipment/+/telemetry`), and HTTP REST polling fallback (`GET /api/equipment`). Live telemetry updates fan out instantly across SSE (`GET /api/v1/inventory/equipment/telemetry-stream`) while database persistence of `EquipmentReading` rows is throttled to 30-second windows or significant temperature/state changes to prevent storage bloat.
-- **Direct Hardware Control & State Synchronization**: Issue HMAC-SHA256 signed control commands (`POST /api/v1/inventory/equipment/{id}/brewlink/control`) to manipulate physical hardware with optimistic state updates and zero-latency SSE broadcast:
-  - **Actuator Controls**: Toggle pump (`set_pump`), toggle heater and regulate power percentage (`set_heat`), and adjust target temperature setpoints (`set_target_temp`). Dedicated popup modal dialog on equipment cards and in-batch workspace allows live control with state synchronization and sensor population.
-  - **Hardware Timer & Steps**: Set timer countdown (`set_timer`), pause/resume/cancel timers (`pause_timer`, `resume_timer`, `cancel_timer`), and advance heating stages (`press_set`).
-  - **Interactive Action Confirmation Popups**: When hardware prompts require confirmation ("Add water", "Add grain", "Sparge water", "Add hops"), prominent modal dialogs pop up with **YES / NO** buttons to acknowledge (`ack_interaction`) or dismiss (`dismiss_alert`). If the action is confirmed physically on the BrewLink / Grainfather hardware controller, the dialog automatically detects the telemetry transition and dismisses itself gracefully without requiring screen interaction.
-  - **Zero-Click Telemetry Synchronization**: Equipment cards (`/inventory/equipment`) and active batch cards (`/batches`) update their live temperatures, gravity, heating/pump actuators, and timers automatically in real time without needing to click the manual Sync button.
-  - **On-Demand Sync**: Pull ground-truth hardware state on demand (`POST /api/v1/inventory/equipment/{id}/brewlink/sync`).
-- **Broadcast Discovery & Code-Free Push-Button Pairing**: Hold the physical **BOOT** button on your ESP32 BrewLink for 3 seconds to open a 60-second pairing window and broadcast discovery beacons over UDP (`0.0.0.0:53540`) and MQTT (`brewlink/discovery/+`). BrewYou detects broadcasting gateways automatically for one-click code-free pairing (`POST /api/pair/claim` with `{"client_name": "BrewYou"}`), while also supporting manual IP/hostname entry and optional 6-digit PIN verification. Unpairing a gateway revokes the client token on the gateway via `POST /api/pair/delete`.
-- **Paired Equipment Auto-Discovery, Provisioning & Cascading Lifecycle**: BrewLink connectivity is supported across BrewLink's 3 BLE Central slots (`slot`, `name`, `model`, `mac`, connection status, Section 6.1.1 live state, and mapped BrewYou presets). Immediately after pairing a gateway—or at any time via **Check Equipment**—the provisioning modal displays paired hardware (such as **Grainfather G30 Connect** mapped to `Boiler` / `AllInOne`, `30 L` capacity, `3.5 L` mash dead space, `3.0 L/hr` boil-off, `2.0 L` trub loss, plus future `fermenter`/`cooler` devices), flags already-added items, and provisions selected devices idempotently via `POST /api/v1/brewlink/gateways/{id}/equipment/provision` with initial live telemetry. Deleting a BrewLink gateway sensor or unpairing a gateway warns about attached equipment, checks active batches across the entire gateway device group (`409 Conflict` guard), and performs full ancestral/relational cleanup (`Batches`, `BatchSensorAssignments`, `EquipmentReadings`) alongside cascading removal.
-- **Robust Security & Cryptographic Signing**: Gateway hosts are verified with strict anti-SSRF protections against loopback and cloud metadata spoofing via `NetworkSecurityValidator`. Authentication tokens and MQTT keys are encrypted at rest using ASP.NET Core `IDataProtectionProvider`. Outgoing dispatch payloads are signed with HMAC-SHA256 (`req_id:action:timestamp`) to guarantee command authenticity. Role-based authorization ensures only Owner and Brewer members can execute hardware control commands (Viewers are rejected with 403 Forbidden).
-- **Smart Water Budgeting & Volume Calculations**: Transmitted recipe profiles automatically compute exact strike water and sparge water requirements using the calibrated physical loss profile of the assigned boiler (boil-off, trub loss, grain absorption rate, and mash tun dead space).
-- **Direct & Automated Dispatch Flows**:
-  - **Direct Recipe Dispatch**: On any recipe page (`/recipes/[id]`), click **Send to Boiler** to inspect target temperatures, mash rest durations, and water volumes, then upload directly to the boiler.
-  - **Batch Start Auto-Dispatch**: When scheduling or launching a new batch (`/batches/new`), enable the **Send recipe to boiler on start** toggle to automatically transmit recipe profiles and water targets to the assigned All-in-One Boiler on batch creation.
-- **Fault-Tolerant Error Handling**: Detects gateway connectivity drops and handles equipment Bluetooth disconnections (error code 261 / 409 Conflict) with clear user feedback and recovery suggestions.
-- **Full Backup & Restore Support**: BrewLink gateways and equipment gateway associations are fully preserved, encrypted, and remapped across user backup exports and restores (`.brewyou.json`).
-
-#### How to Use
-
-1. **Pair a BrewLink Gateway & Auto-Provision Equipment**: Go to **Inventory ➔ Equipment** (`/inventory/equipment`), click **Add Equipment**, select **Sensors** ➔ **BrewLink**, hold the physical **BOOT** button on your ESP32 BrewLink for 3 seconds, click **Scan Network**, and click **Pair Now (Code-Free)** on the discovered gateway—or enter the gateway's IP/hostname manually (with or without a 6-digit PIN). After pairing, the equipment discovery dialog automatically lists any paired Bluetooth hardware on the gateway so you can create calibrated Boiler/Fermenter items in one click (or click **Check Equipment** on the gateway card later).
-2. **Manual Vessel Matching (Optional)**: Create or edit a Boiler or Fermenter (`EquipmentType.Boiler` or `EquipmentType.Fermenter`), select connection type **BrewLink**, choose from your paired gateways, and select a matched Bluetooth brewing device from the gateway list (or enter the BLE MAC address manually).
-3. **Control Hardware & Monitor Telemetry**: In Equipment Inventory or during brew day in the Batch Workspace / HUD, expand the **Hardware Controls** drawer to adjust temperature targets, toggle heater power or circulation pumps, manage hardware timers, and acknowledge boil or mash prompts.
-4. **Send Recipe Directly**: From any recipe details page (`/recipes/[id]`), click the **Send to Boiler** button, select the target boiler, and confirm dispatch via the YES/NO confirmation dialog.
-5. **Auto-Send on Batch Start**: In the **New Batch** wizard (`/batches/new`), choose an assigned BrewLink boiler and ensure the **Send recipe to boiler on start** switch is active. When starting the batch, confirm dispatch via the YES/NO confirmation dialog.
-
-### Ingredient Stock & Inventory
-
-Ingredient Inventory tracks on-hand brewery pantry supplies across fermentables (`Grain`, `Adjunct`, `Sugar`, `Extract`, `DryExtract`), hops, yeasts, and miscellaneous brewing additives. It keeps track of stock quantities, physical forms (such as hop pellets/leaf/plug and yeast dry/liquid/slant/culture), optional fermentable fermentability overrides (`FermentabilityPercent`), lot numbers, alpha acid percentages, and expiration dates. Fermentable grain colors display in both EBC and SRM (with EBC first, matching commercial maltster specifications) and support seamless dual-unit input and conversion in the ingredient modal. Threshold-based low-stock warnings alert you when ingredients are running low, and inventory levels can be filtered directly within the recipe designer (or by fermentable category via `GET /api/v1/ingredients?fermentableCategory=...`) to ensure you formulate recipes with on-hand ingredients. Custom ingredients can be edited and renamed (`PUT /api/v1/ingredients/{id}`) with automatic dependent recipe vital recalculations. Custom or imported ingredients can be deleted safely: deletion guards prevent accidental deletion of ingredients in active use by recipes or batches (returning conflict warnings), and when force-deleted, recipes automatically recalculate their metrics (ABV, IBU, SRM, OG, FG) to keep formulations mathematically sound. Default system catalog items are immutable and cannot be deleted or modified.
-
-#### How to Use
-
-1. **Manage Pantry Stock**: Navigate to **Ingredients** (`/ingredients`) and switch between the **Fermentables**, **Hops**, **Yeasts**, and **Additives** tabs, or filter by **In Stock** or **Custom / Imported** to quickly isolate user-defined and imported items.
-2. **Add New Inventory**: Click **Add Ingredient** to log received stock, setting the name, quantity (kg/g or lb/oz), purchase date, and ingredient-specific properties (such as hop alpha acids or grain potential).
-3. **Edit or Rename Custom Ingredients**: Update names, potential gravity, or alpha acid values on custom ingredients; dependent recipe metrics recalculate automatically to preserve calculation accuracy.
-4. **Delete Custom Ingredients**: Click the **Delete** icon on any custom or imported ingredient. Review usage warnings across recipes and active batches, and confirm deletion (or force deletion) to update dependent recipes. Default catalog ingredients do not show a delete button and cannot be deleted.
-5. **Configure Low-Stock Alerts**: Set a minimum threshold quantity on any ingredient to trigger visual badges and warnings when stock drops below safe limits.
-6. **Recipe Integration**: When designing recipes or preparing a batch, filter ingredients by "In Stock" to build brews exclusively from available inventory.
-
-### IoT Telemetry & Real-Time Monitoring
-
-BrewYou features an extensible IoT telemetry architecture that connects physical brewing sensors directly to your digital brewery. It natively supports iSpindle, Tilt hydrometers, generic HTTP webhooks, scheduled HTTP polling, and Mosquitto MQTT broker connections. The system normalizes physical metrics (temperature in °C/°F, gravity in SG/Plato/Brix, pressure in bar/psi, tilt angle, battery voltage, and RSSI) while storing arbitrary sensor attributes in an open JSON payload store. Telemetry streams in real time via Server-Sent Events (SSE) directly to equipment cards and batch fermentation graphs without page reloads.
-
-#### How to Use
-
-1. **Get Device Credentials**: In **Inventory ➔ Equipment**, open your equipment or sensor settings to view its unique device token and ingestion endpoints.
-2. **Set Up Ingestion**:
-   - **HTTP Push (iSpindle / Tilt / Webhooks)**: Configure your device to post JSON to `http://<host>:5000/api/v1/telemetry/equipment` with header `X-BrewYou-Device-Token: <token>`, or use the route `POST /api/v1/telemetry/equipment/<token>`. You can configure the external hostname/IP in **Settings ➔ Network ➔ Network & External Access** or override directly in the equipment modal.
-   - **MQTT Connection**: Navigate to **Settings ➔ Integrations / MQTT**, provide your MQTT broker host (e.g., `localhost` or container name) and port (`1883`), and configure your IoT device to publish to the auto-generated topic (e.g., `brewyou/equipment/<equipment-id>/telemetry`).
-3. **Verify Connection**: Check the live MQTT and device connection status badges in user settings and equipment cards.
-4. **Observe Real-Time Updates**: Watch live temperature, gravity, and pressure readings update automatically on your dashboard, equipment cards, and batch charts without manual page refreshes.
-
-### Brewing Calculators Suite
-
-The Brewing Calculators Suite provides dedicated, standalone utilities for quick calculations and recipe verification. It features calculators for Water Chemistry & Mash pH, Strike Water Volume & Temperature, ABV & Attenuation, Hydrometer Temperature Correction, Refractometer Brix Correction (with custom Wort Correction Factors), Dilution & Boil-Off adjustments, Carbonation & Priming Sugar calculations, and an interactive **Master Brewer Carbonation Cheat Sheet**. All calculators support instant bidirectional conversion between Metric and Imperial units as well as `vol` and `g/L` carbonation preferences.
-
-#### How to Use
-
-1. **Open Calculators**: Navigate to **Calculators** (`/calculations`) from the main navigation bar.
-2. **Select a Calculator**: Choose the appropriate tool tab for your brewing task:
-   - **Strike Water**: Enter grain weight, target mash temperature, grain temperature, and water-to-grain ratio to get required strike water volume and heating temperature.
-   - **Water Chemistry & Mash pH**: Input source water profile, target profile, and grain bill to calculate mineral salt additions (gypsum, calcium chloride, Epsom salt) and acid additions.
-   - **Hydrometer Correction**: Enter observed specific gravity and sample temperature to correct for hydrometer calibration offsets.
-   - **Refractometer Correction**: Input Original Gravity and current Brix reading (with Wort Correction Factor) to calculate accurate Final Gravity and ABV during or after fermentation.
-   - **Carbonation & Priming**: Select a BJCP style preset or target CO₂ (`vol` / `g/L`), peak post-fermentation temperature (before cold crash), and keg serving temperature to calculate priming sugar weights (sucrose, dextrose monohydrate, DME, honey, Belgian candi syrup) and equilibrium keg pressure (`PSI` / `bar`) with automatic glass bottle safety warnings.
-   - **Carbonation Cheat Sheet**: Browse BJCP 2021 style carbonation targets (click any style to apply to the calculator), inspect the interactive ASBC / Zahm & Nagel force-carbonation PSI/bar temperature matrix and Pressure → CO₂ check, review priming sugar multipliers and bottle pressure limits, or balance draft lines (`3/16"` vinyl, `4 mm` / `5 mm` EVAbarrier) and diagnose pour issues.
-3. **Toggle Units**: Switch between Metric and Imperial units at any time with instantaneous conversion of all inputs and results.
-
-### Security & Authentication
-
-BrewYou provides secure identity and session management built on ASP.NET Core security best practices. It supports standard email/password authentication with short-lived in-memory JWT access tokens rehydrated via `HttpOnly` refresh cookies, as well as one-click Google OAuth authentication with verified email association. Protected user actions use non-disruptive authentication modals, allowing unauthenticated or expired sessions to sign in or register without losing unsaved recipe formulations or current page contexts. Both the ASP.NET Core backend and SvelteKit frontend enforce strict Content Security Policies (CSP), security headers, HSTS, authenticated per-user rate limiting, SSRF protection on IoT polling endpoints, and CORS isolation.
-
-#### How to Use
-
-1. **Create an Account or Sign In**: Click **Sign In** or **Register** in the navigation header, or use **Continue with Google** for single-click OAuth.
-2. **In-Flow Authentication**: If you attempt to save a recipe, start a batch, or modify settings while signed out, the authentication modal appears automatically. Complete login to continue your action without losing draft data or navigating away.
-3. **Manage Security**: Under **Settings ➔ Security**, update your password, review active token sessions, or link external authentication providers.
-
-### User Backup & Restore
-
-BrewYou provides a complete, self-contained **User Backup & Restore** system (`brewyou.user-backup` `.brewyou.json`) designed for data portability, server migrations, and long-term archival:
-
-- **Comprehensive Domain Coverage**: Exports and restores personal and shared brewery setups, equipment vessels and sensors, custom user-defined ingredients, pantry stock, recipes (with full ingredient snapshots, mash steps, and fermentation schedules), batches (with volume profiles, stage history, gravity/temperature logs, and sensor assignments), and optional historical equipment telemetry readings.
-- **Granular Preferences & Connectivity**: Preserves theme, language (`en`, `sv`, `de`, `fr`, `es`), decoupled measurement units (volume, grain weight `kg`/`lb`, hop weight `g`/`oz`, color `SRM`/`EBC`, carbonation `Volumes`/`GramsPerLiter`, temperature, gravity), calculation formulas (IBU, SRM, ABV), default brewing parameters, and MQTT/IoT connectivity settings.
-- **Zero-Plaintext Secret Protection**: Sensitive credentials (MQTT broker passwords, HTTP webhook connection tokens, and polling passwords) are never exported in plaintext. Users can optionally provide a backup passphrase to encrypt secrets using **PBKDF2-SHA256 (600,000 iterations) + AES-256-GCM**, or omit secrets so clean tokens can be regenerated on restore.
-- **Collaboration & Shared Setups**: Exports collaborator memberships and pending invites on owned setups, as well as snapshots of shared setups where the user is a collaborator (`Owner`, `Brewer`, or `Viewer`) and external community recipes referenced by the user's batches. On restore, if a shared setup no longer exists on the target server, BrewYou can recreate it as a personal setup or fall back to the default rig; collaborators can be re-linked or issued fresh pending invitations.
-- **Backwards-Compatible Versioned Migration Pipeline**: Every backup file carries an explicit `schemaVersion` (currently `v3`, adding fermentable categories and fermentability overrides) and undergoes a deterministic sequential migration pipeline (`v0 ➔ v1 ➔ v2 ➔ v3`) with tolerant JSON deserialization before preview or restore, guaranteeing older backups always restore cleanly on newer versions of BrewYou.
-- **Two-Step Dry-Run Preview & Transactional Restore**: Before modifying any database records, the dry-run preview analyzer reports exact creation, update, and skip counts along with conflict resolution options (_Skip Existing_, _Overwrite Existing_, or _Replace All_).
-
-#### How to Use
-
-1. **Open Backup & Restore**: Navigate to **Settings ➔ Backup & Restore** (`/settings?tab=backup`).
-2. **Export a Backup**: Choose whether to include historical equipment telemetry readings and whether to encrypt MQTT/webhook secrets with a passphrase, then click **Download Backup (.brewyou.json)**.
-3. **Preview a Restore**: Upload a `.brewyou.json` file to run an automatic non-destructive dry-run preview showing the backup's schema version, migration notes, and item-by-item action counts.
-4. **Configure & Execute Restore**: Select your conflict resolution strategy (_Keep existing_, _Overwrite existing_, or _Replace all_) and collaboration handling mode, enter your backup passphrase if secrets were encrypted, and click **Execute Restore**.
-
-### Internationalization (i18n) & Personalization
-
-BrewYou offers comprehensive internationalization with 100% key parity across English (`en`), Swedish (`sv`), German (`de`), French (`fr`), and Spanish (`es`) across all UI views, notifications, and error envelopes. It also supports seamless switching between regional unit presets (**European Metric**, **US Craft / Imperial**, and **UK Traditional**) and custom unit scales across all calculations, batch logs, and equipment volumes, along with a rich persistent theme system featuring the default flagship **Imperial Stout**, **Chocolate Porter**, **Obsidian Ember**, **Modern Amber**, and **Pilsner Clean**.
-
-#### How to Use
-
-1. **First-Login Setup**: When creating an account or signing in for the first time, an onboarding popup prompts you to name your brewery and select your measurement standard preset (_European Metric_, _US Craft_, or _UK Traditional_).
-2. **Switch Language**: Click the language switcher in the header, login/onboarding modals, or navigate to **Settings ➔ Language & Region** to switch between English, Swedish, German, French, and Spanish instantly.
-3. **Switch Unit System & Presets**: Apply pre-configured regional presets (_European Metric_, _US Craft_, _UK Traditional_) or fine-tune individual units in **Settings ➔ Units**; all recipe formulator values, batch logs, and calculator displays convert dynamically.
-4. **Change Theme**: Select your preferred aesthetic in **Settings ➔ Appearance** between **Imperial Stout** (default), **Chocolate Porter**, **Obsidian Ember**, **Modern Amber**, or **Pilsner Clean**.
-
----
-
-## Technology Stack
-
-```
-                               ┌────────────────────────┐
-                               │  SvelteKit 2 Frontend  │
-                               │   (Svelte 5 + Tailwind)│
-                               └───────────┬────────────┘
-                                           │
-                        HTTP / JSON (REST) │ Server-Sent Events / Telemetry
-                                           ▼
-                               ┌────────────────────────┐
-                               │  ASP.NET Core Web API  │
-                               │   (.NET 10 Minimal)    │
-                               └─────┬────────────┬─────┘
-                                     │            │
-            PostgreSQL Provider (EF) │            │ MQTT Protocol
-                                     ▼            ▼
-                           ┌────────────┐   ┌────────────┐
-                           │ PostgreSQL │   │ Mosquitto  │
-                           │ 18.6 DB    │   │ MQTT Broker│
-                           └────────────┘   └────────────┘
+```bash
+cd src/BrewYou.Web && npm install && cd ../..
+dotnet run --project src/BrewYou.AppHost
 ```
 
-| Layer               | Technologies                                                                             |
-| :------------------ | :--------------------------------------------------------------------------------------- |
-| **Frontend**        | SvelteKit 2, Svelte 5 (Runes), TypeScript, Vite, Tailwind CSS v4, Lucide Svelte, Bits UI |
-| **Backend API**     | .NET 10.0, ASP.NET Core Minimal APIs, C# 14, FluentValidation, Scalar OpenAPI            |
-| **Data Layer**      | Entity Framework Core 10, Npgsql PostgreSQL Provider                                     |
-| **Database**        | PostgreSQL 18.6 (Alpine)                                                                 |
-| **Orchestration**   | .NET Aspire 13.5 AppHost, Docker Compose                                                 |
-| **Messaging & IoT** | Eclipse Mosquitto MQTT v2                                                                |
-| **Observability**   | OpenTelemetry, ASP.NET Core Health Checks, Scalar Interactive API UI                     |
+### Option B: Docker Compose
 
----
+```bash
+docker compose up --build
 
-## Prerequisites
+# Optional profiles: mqtt, pgadmin, tools
+docker compose --profile mqtt --profile tools up --build
+```
 
-Before running BrewYou locally, ensure you have the following installed:
+### Option C: Manual Local Run
 
-- [.NET 10.0 SDK](https://dotnet.microsoft.com/download)
-- [Node.js (v20.x or v22.x LTS)](https://nodejs.org/) & `npm`
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine (for PostgreSQL and container orchestration)
-- _Optional_: [.NET Aspire Workload / CLI](https://learn.microsoft.com/dotnet/aspire/fundamentals/setup-tooling) (`dotnet workload install aspire`)
+```bash
+# 1. Start PostgreSQL
+docker run --name brewyou-postgres -e POSTGRES_DB=brewyou-db -e POSTGRES_USER=brewyou -e POSTGRES_PASSWORD=brewyou_dev_password -p 5432:5432 -d postgres:18.6-alpine
 
----
+# 2. Start the API (auto-migrates & seeds on startup)
+cd src/BrewYou.ApiService && dotnet run
 
-## Getting Started & How to Run
+# 3. Start the frontend
+cd src/BrewYou.Web && npm install && npm run dev
+```
 
-### Option A: With .NET Aspire (Recommended for Development)
+### Local Service URLs
 
-Aspire automatically orchestrates the PostgreSQL database, Mosquitto MQTT broker, .NET API service, and SvelteKit frontend in a single development session.
+| Service | URL / Port |
+| :--- | :--- |
+| **Web App** | `http://localhost:3000` |
+| **Backend API** | `http://localhost:5000` |
+| **Scalar OpenAPI UI** | `http://localhost:5000/scalar/v1` |
+| **OpenAPI JSON** | `http://localhost:5000/openapi/v1.json` |
+| **PostgreSQL** | `127.0.0.1:5432` (`brewyou-db`) |
+| **Mosquitto MQTT** | `127.0.0.1:1883` *(when enabled)* |
+| **pgAdmin** | `http://localhost:5050` *(when enabled)* |
 
-1. **Clone the repository**:
+## Configuration
 
-   ```bash
-   git clone https://github.com/your-org/BrewYou.git
-   cd BrewYou
-   ```
+| Scope | Variable | Purpose / Default |
+| :--- | :--- | :--- |
+| **Backend** | `ConnectionStrings__brewyou-db` | PostgreSQL connection string |
+| **Backend** | `Jwt__SecretKey` | Signing key (>= 32 bytes; required outside `Development`) |
+| **Backend** | `Cors__AllowedOrigins__0` | Allowed frontend origin (`http://localhost:3000`) |
+| **Backend** | `Authentication__Google__ClientId` | Optional Google OAuth client ID |
+| **Frontend** | `PUBLIC_API_URL` | Browser API base URL (`http://localhost:5000`) |
+| **Frontend** | `PUBLIC_APP_URL` | Public app URL for QR cellar labels (`http://localhost:3000`) |
+| **Frontend** | `services__apiservice__http__0` | Internal SSR API URL (`http://apiservice:5000` in Docker) |
 
-2. **Install frontend dependencies**:
+For Docker Compose overrides, see the defaults in [docker-compose.yml](docker-compose.yml) (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`).
 
-   ```bash
-   cd src/BrewYou.Web
-   npm install
-   cd ../..
-   ```
+## API & Type Synchronization
 
-3. **Start the Aspire AppHost**:
-
-   ```bash
-   dotnet run --project src/BrewYou.AppHost
-   ```
-
-4. **Access the application**:
-   - **Aspire Dashboard**: URL displayed in the console (e.g., `https://localhost:17000`)
-   - **BrewYou Web Application**: [http://localhost:3000](http://localhost:3000)
-   - **Interactive API Documentation (Scalar)**: [http://localhost:5000/scalar/v1](http://localhost:5000/scalar/v1)
-   - **pgAdmin**: Direct link accessible from the Aspire Dashboard (`postgres-pgadmin`)
-   - **Mosquitto MQTT Broker**: `tcp://localhost:1883` (persisted via `brewyou_mqttdata` volume)
-
----
-
-### Option B: With Docker Compose
-
-You can spin up the full containerized stack using Docker Compose:
-
-1. **Build and start the services**:
-
-   ```bash
-   docker compose up --build
-   ```
-
-2. **Start with the optional MQTT broker and/or pgAdmin**:
-
-   ```bash
-   # Start with MQTT broker
-   docker compose --profile mqtt up --build
-
-   # Start with pgAdmin web dashboard
-   docker compose --profile pgadmin up --build
-
-   # Start with all optional tools
-   docker compose --profile tools --profile mqtt up --build
-   ```
-
-3. **Access the application**:
-   - **Web Application**: [http://localhost:3000](http://localhost:3000)
-   - **Backend API**: [http://localhost:5000](http://localhost:5000)
-   - **Database**: PostgreSQL exposed on `127.0.0.1:5432`
-   - **pgAdmin** _(if profile enabled)_: [http://localhost:5050](http://localhost:5050)
-   - **MQTT Broker** _(if profile enabled)_: Port `127.0.0.1:1883`
-
-4. **Shut down the stack**:
-   ```bash
-   docker compose down
-   # Or remove volumes as well:
-   docker compose down -v
-   ```
-
----
-
-### Option C: Manual / Standalone Development
-
-If you prefer to run services individually without Aspire or full Docker:
-
-1. **Start PostgreSQL**:
-
-   ```bash
-   docker run --name brewyou-postgres -e POSTGRES_DB=brewyou-db -e POSTGRES_USER=brewyou -e POSTGRES_PASSWORD=brewyou_dev_password -p 5432:5432 -d postgres:18.6-alpine
-   ```
-
-2. **Run the Backend API**:
-
-   ```bash
-   cd src/BrewYou.ApiService
-   dotnet run
-   ```
-
-   _The API will start on port 5000, automatically migrate, and seed reference ingredients._
-
-3. **Run the SvelteKit Frontend**:
-   ```bash
-   cd src/BrewYou.Web
-   npm install
-   npm run dev
-   ```
-   _The frontend will run on [http://localhost:3000](http://localhost:3000) and proxy requests to the API._
-
----
-
-## Configuration & Environment Variables
-
-### Backend (`src/BrewYou.ApiService`)
-
-Configured via `appsettings.json`, `appsettings.Development.json`, or environment variables:
-
-| Variable                        | Description                                                    | Default / Development Value                                                  |
-| :------------------------------ | :------------------------------------------------------------- | :--------------------------------------------------------------------------- |
-| `ASPNETCORE_ENVIRONMENT`        | Hosting environment (`Development` / `Production`)             | `Development`                                                                |
-| `ASPNETCORE_HTTP_PORTS`         | Listening HTTP port                                            | `5000`                                                                       |
-| `ConnectionStrings__brewyou-db` | Npgsql PostgreSQL connection string                            | `Host=localhost;Port=5432;Database=brewyou-db;Username=brewyou;Password=...` |
-| `Jwt__SecretKey`                | Cryptographic secret key for signing JWT tokens (min 32 chars) | Configured in dev secrets                                                    |
-| `Jwt__Issuer`                   | Token issuer identifier                                        | `BrewYou`                                                                    |
-| `Jwt__Audience`                 | Token audience identifier                                      | `BrewYouApp`                                                                 |
-| `GoogleAuth__ClientId`          | Google OAuth client ID (optional)                              | `""`                                                                         |
-| `Cors__AllowedOrigins__0`       | Allowed CORS origins for the frontend client                   | `http://localhost:3000`                                                      |
-
-### Frontend (`src/BrewYou.Web`)
-
-Configured via `.env` or container environment variables:
-
-| Variable                        | Description                                                                                     | Default Value            |
-| :------------------------------ | :---------------------------------------------------------------------------------------------- | :----------------------- |
-| `PUBLIC_API_URL`                | Default base URL for browser API calls and external IoT telemetry webhooks (customizable in UI) | `http://localhost:5000`  |
-| `PUBLIC_APP_URL`                | Default public base URL for mobile QR code cellar labels (customizable in UI)                   | `http://localhost:3000`  |
-| `services__apiservice__http__0` | Internal network URL used by SvelteKit SSR server                                               | `http://apiservice:5000` |
-| `PORT`                          | Listening port for the SvelteKit node server                                                    | `3000`                   |
-| `HOST`                          | Interface binding for SvelteKit server                                                          | `0.0.0.0`                |
-
----
-
-## API Documentation
-
-BrewYou features an integrated **Scalar** OpenAPI explorer available during development:
-
-- **Interactive Scalar UI**: [http://localhost:5000/scalar/v1](http://localhost:5000/scalar/v1)
-- **Raw OpenAPI JSON Spec**: [http://localhost:5000/openapi/v1.json](http://localhost:5000/openapi/v1.json)
-
-### Generating Frontend API Types
-
-To keep frontend TypeScript interfaces synchronized with backend DTOs:
+Interactive endpoint docs are served in development at `http://localhost:5000/scalar/v1`. To regenerate frontend TypeScript API types from the running backend:
 
 ```bash
 cd src/BrewYou.Web
 npm run api:sync
 ```
 
-This regenerates `src/lib/types/api.generated.ts` directly from the running backend OpenAPI contract.
-
-### Key API Endpoints Overview
-
-| Area                 | Method & Route                                                                             | Description                                                                                        |
-| :------------------- | :----------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
-| **Authentication**   | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`       | User registration, JWT login, and token refresh                                                    |
-| **Brewery Setups**   | `GET/POST /api/v1/brewery-setups`, `PUT/DELETE /api/v1/brewery-setups/{id}`                | Manage personal and shared brewery setups                                                          |
-| **Collaboration**    | `GET /api/v1/brewery-setups/{id}/members`                                                  | List brewery members and assigned roles                                                            |
-|                      | `POST /api/v1/brewery-setups/{id}/invites`                                                 | Invite brewer by email (Owner only)                                                                |
-|                      | `GET /api/v1/brewery-setups/{id}/invites`                                                  | List pending invitations (Owner only)                                                              |
-|                      | `DELETE /api/v1/brewery-setups/{id}/invites/{inviteId}`                                    | Revoke pending invitation (Owner only)                                                             |
-|                      | `PATCH /api/v1/brewery-setups/{id}/members/{userId}`                                       | Update member role (Owner only)                                                                    |
-|                      | `DELETE /api/v1/brewery-setups/{id}/members/{userId}`                                      | Remove member from setup (Owner only)                                                              |
-|                      | `POST /api/v1/brewery-setups/{id}/leave`                                                   | Leave shared brewery setup                                                                         |
-|                      | `GET /api/v1/invites/{code}/validate`                                                      | Validate invitation code (anonymous/authenticated)                                                 |
-|                      | `POST /api/v1/invites/accept`                                                              | Accept invitation and join brewery setup                                                           |
-| **Ingredients**      | `GET/POST /api/v1/ingredients`, `PUT/DELETE /api/v1/ingredients/{id}`                      | Calibrated ingredients catalog (filterable by `type` and `fermentableCategory`), stock tracking, and custom items |
-| **Equipment**        | `GET/POST /api/v1/inventory/equipment`, `PUT/DELETE /api/v1/inventory/equipment/{id}`      | Equipment digital twins & hardware calibrations                                                    |
-| **BrewLink**         | `GET/POST /api/v1/brewlink/gateways`, `PUT/DELETE /api/v1/brewlink/gateways/{id}`          | Multi-gateway ESP32 pairing, management, and unpairing                                             |
-|                      | `GET /api/v1/brewlink/gateways/discover`                                                   | Discover BrewLink gateways broadcasting 60s push-button pairing beacons over UDP (`53540`) / MQTT  |
-|                      | `POST /api/v1/brewlink/gateways/pair-start`                                                | Request pairing window & PIN on gateway                                                            |
-|                      | `GET /api/v1/brewlink/gateways/{id}/equipment`                                             | List paired Bluetooth equipment slots, capabilities, Section 6.1.1 state, and mapped presets       |
-|                      | `POST /api/v1/brewlink/gateways/{id}/equipment/provision`                                  | Auto-provision selected paired BrewLink hardware into the target brewery setup (idempotent)         |
-|                      | `POST /api/v1/inventory/equipment/{id}/brewlink/control`                                   | Send signed HMAC-SHA256 hardware control command (heat, pump, timer, setpoint, prompts)            |
-|                      | `POST /api/v1/inventory/equipment/{id}/brewlink/sync`                                      | Force live telemetry and state sync from paired BrewLink gateway                                   |
-|                      | `POST /api/v1/inventory/equipment/{id}/brewlink/send-recipe`                               | Dispatch recipe schedule and calculated water volumes to connected All-in-One Boiler via BrewLink  |
-| **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                                       |
-|                      | `GET /api/v1/inventory/equipment/telemetry-stream`                                         | Server-Sent Events (SSE) live telemetry stream for equipment and batch readings                    |
-| **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                                                |
-| **Batches**          | `GET/POST /api/v1/batches`, `PUT /api/v1/batches/{id}`, `PATCH /api/v1/batches/{id}/stage`, `POST /api/v1/batches/{id}/readings`, `GET/POST /api/v1/batches/{id}/equipment-readings` | 5-stage brew lifecycle, post-finish editing & status transitions, consolidated manual telemetry (calibration, equipment linking, paginated readings & SSE), equipment occupancy protection, and target deviations |
-| **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore                   |
-
----
-
-## Testing & Quality Assurance
-
-BrewYou maintains comprehensive test coverage across both frontend and backend layers:
-
-### Backend Tests
+## Testing & Linting
 
 ```bash
-# Run all .NET unit and integration tests
-dotnet test
-```
-
-### Frontend Tests
-
-```bash
-cd src/BrewYou.Web
-
-# Run Vitest unit tests
-npm run test:unit
-
-# Run full Vitest suite once
-npm run test:unit -- --run
-
-# Run unit tests with V8 code coverage report and quality gates
-npm run test:coverage
-
-# Run Playwright End-to-End (E2E) tests
-npm run test:e2e
-
-# Run all frontend tests (unit + e2e)
-npm test
-```
-
-### Linting & Formatting
-
-```bash
-# Backend code format check
+# Backend
 dotnet format --verify-no-changes
+dotnet test
 
-# Frontend Prettier and ESLint verification
-cd src/BrewYou.Web
+# Frontend (from src/BrewYou.Web)
 npm run lint
-
-# Auto-format frontend files
-npm run format
-
-# Svelte TypeScript type check
 npm run check
+npm run test:unit -- --run
+npm run test:e2e
 ```
-
----
 
 ## Project Structure
 
-```
+```text
 BrewYou/
-├── .agents/                      # Specialized agent definitions, rules, and skills
-│   ├── rules/                    # Architecture, security, QA, and git workflow rules
-│   └── skills/                   # Workspace automation skills
-├── .editorconfig                 # Strict formatting and style enforcement rules
-├── AGENTS.md                     # Central instructions and invariants for AI agents
-├── docker/                       # Supporting container configurations (e.g. Mosquitto)
-├── docker-compose.yml            # Multi-container local stack definition
 ├── src/
-│   ├── BrewYou.AppHost/          # .NET Aspire 13.5 AppHost orchestration project
-│   ├── BrewYou.ApiService/       # ASP.NET Core Minimal API backend & domain logic
-│   │   ├── Auth/                 # JWT & Google OAuth authentication services
-│   │   ├── Backup/               # User backup DTOs, versioned migration pipeline, and AES-GCM secret protection
-│   │   ├── Common/               # Uniform API envelopes & pagination models
-│   │   ├── Data/                 # EF Core DbContext, entities, and DB seed catalog
-│   │   ├── Endpoints/            # Route groups (Auth, Batch, Equipment, Recipe, etc.)
-│   │   ├── Middleware/           # Security headers, rate limiters, global exception handler
-│   │   ├── Services/             # Domain services (Batch, Recipe, Telemetry, etc.)
-│   │   └── Validation/           # FluentValidation request validators
-│   ├── BrewYou.ServiceDefaults/  # Shared Aspire service defaults, metrics, and health checks
-│   └── BrewYou.Web/              # SvelteKit 2 + Svelte 5 frontend application
-│       └── src/
-│           ├── lib/
-│           │   ├── api/          # Strongly-typed API client wrapper
-│           │   ├── calculators/  # Pure brewing math (Tinseth IBU, SRM, strike water, etc.)
-│           │   ├── components/   # Modular Svelte 5 UI components (runes-based)
-│           │   ├── exporters/    # BeerXML & BeerJSON export engines
-│           │   ├── i18n/         # Internationalization dictionary (en.json, sv.json, de.json, fr.json, es.json)
-│           │   ├── parsers/      # BeerXML & BeerJSON import parsers
-│           │   ├── stores/       # Reactive Svelte stores (auth, brewery, theme, settings)
-│           │   └── types/        # API DTO contracts and domain types
-│           └── routes/           # Application pages (dashboard, batches, recipes, inventory)
-└── tests/
-    └── BrewYou.ApiService.Tests/ # Backend unit and integration test suite
+│   ├── BrewYou.AppHost/          # .NET Aspire orchestration
+│   ├── BrewYou.ApiService/       # ASP.NET Core Minimal API, EF Core, services, MQTT/SSE
+│   ├── BrewYou.ServiceDefaults/  # Shared OpenTelemetry & health checks
+│   └── BrewYou.Web/              # SvelteKit 2 + Svelte 5 frontend
+├── tests/
+│   └── BrewYou.ApiService.Tests/ # Backend unit & integration tests
+├── docker/                       # Mosquitto container config
+├── docker-compose.yml            # Local container stack
+├── AGENTS.md                     # AI agent rules & architectural invariants
+└── CONTRIBUTING.md               # Contribution & PR workflow
 ```
 
----
+## Contributing & License
 
-## Development & Agent Conventions
-
-This repository adheres to strict architectural and engineering standards detailed in [AGENTS.md](AGENTS.md):
-
-1. **Zero Paywalls or Gating**: BrewYou is permanently 100% free and open software. No paid or subscription tiers.
-2. **Tier Separation**: Frontend handles presentation and client UI state; backend enforces domain rules, transactions, and data access.
-3. **Strict Formatting Compliance**: Zero warnings or errors on `dotnet format --verify-no-changes` and `npm run lint`.
-4. **Mandatory Test Coverage**: All new features and endpoints must include automated tests.
-5. **Full i18n Key Parity**: User-visible strings must be localized using `t(...)` with identical keys across all dictionaries (`en.json`, `sv.json`, `de.json`, `fr.json`, `es.json`).
-6. **Backup & Restore Backwards Compatibility**: Any new feature that introduces or modifies user-scoped entities, child collections, preferences, or collaboration settings must update User Backup & Restore (`BackupContracts.cs`, `BackupMigrationPipeline.cs`, `BackupService.cs`) and maintain full backwards compatibility with backups created on older versions.
-7. **Cascading Relational & Ancestral Ripple Integrity**: All new database-affecting features, schema changes, or bug fixes must explicitly handle cascading ripple effects across the entire entity hierarchy. Lifecycle mutations (such as deleting, renaming, moving, or reassigning an equipment instance) must cleanly reconcile parent/ancestral objects (e.g. multi-vessel setups, vessel role slots, tap-keg linkages, and sensor assignments) without leaving orphaned records or triggering foreign key constraint violations.
-8. **Documentation Synchronization**: This [README.md](README.md) must be updated whenever new features, endpoints, or setup instructions are introduced.
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE) — free and open for personal and commercial craft brewing use.
-
-We welcome community contributions! Please review our [Contributing Guidelines](CONTRIBUTING.md) for details on development workflows, architectural invariants, code quality standards, and inbound licensing terms.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow and code standards, and [AGENTS.md](AGENTS.md) for architectural invariants. Licensed under the [MIT License](LICENSE).
