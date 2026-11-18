@@ -7,12 +7,29 @@
 	import RefractometerCard from '$lib/components/calculators/RefractometerCard.svelte';
 	import DilutionBoiloffCard from '$lib/components/calculators/DilutionBoiloffCard.svelte';
 	import CarbonationCard from '$lib/components/calculators/CarbonationCard.svelte';
+	import CarbonationCheatSheetCard from '$lib/components/calculators/CarbonationCheatSheetCard.svelte';
 	import { Calculator, Search } from '@lucide/svelte';
 
 	type Category = 'all' | 'water' | 'gravity' | 'finishing';
 
 	let activeCategory = $state<Category>('all');
 	let searchQuery = $state('');
+	let sharedTargetCo2 = $state<number>(2.4);
+	let sharedKegTempC = $state<number>(4.0);
+
+	function handleSelectTargetFromCheatSheet(volumes: number, kegTempC?: number) {
+		sharedTargetCo2 = volumes;
+		if (kegTempC !== undefined) {
+			sharedKegTempC = kegTempC;
+		}
+	}
+
+	function scrollToCheatSheet() {
+		document.getElementById('carbonation-cheat-sheet')?.scrollIntoView({
+			behavior: 'smooth',
+			block: 'start'
+		});
+	}
 
 	const calculators = [
 		{
@@ -63,6 +80,13 @@
 			titleKey: 'calculations.carbonation.title',
 			descKey: 'calculations.carbonation.description',
 			component: CarbonationCard
+		},
+		{
+			id: 'carbonation-cheat-sheet',
+			category: 'finishing' as Category,
+			titleKey: 'calculations.carbonation_cheat_sheet.title',
+			descKey: 'calculations.carbonation_cheat_sheet.description',
+			component: CarbonationCheatSheetCard
 		}
 	];
 
@@ -166,8 +190,24 @@
 	<!-- Calculators Cards Grid -->
 	<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 		{#each filteredCalculators as calc (calc.id)}
-			{@const Component = calc.component}
-			<Component />
+			{#if calc.id === 'carbonation-priming'}
+				<CarbonationCard
+					bind:targetCo2Volumes={sharedTargetCo2}
+					bind:kegTempC={sharedKegTempC}
+					onJumpToCheatSheet={scrollToCheatSheet}
+					class="lg:col-span-2"
+				/>
+			{:else if calc.id === 'carbonation-cheat-sheet'}
+				<CarbonationCheatSheetCard
+					selectedCo2Volumes={sharedTargetCo2}
+					selectedKegTempC={sharedKegTempC}
+					onSelectTargetCo2={handleSelectTargetFromCheatSheet}
+					class="lg:col-span-2"
+				/>
+			{:else}
+				{@const Component = calc.component}
+				<Component />
+			{/if}
 		{/each}
 	</div>
 </div>

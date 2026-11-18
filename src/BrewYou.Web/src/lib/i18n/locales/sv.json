@@ -2134,13 +2134,278 @@
 			"title": "Kolsyresättning & Primärsocker",
 			"description": "Beräkna primärsocker för flaskor eller fatregulatortryck (PSI)",
 			"beer_volume": "Ölvolym",
-			"target_co2": "Önskad kolsyrenivå (vol CO₂)",
+			"target_co2": "Mål-CO₂",
 			"beer_temp": "Max jästemp / vilotemperatur",
+			"keg_temp": "Fat- / serveringstemp",
+			"residual_co2": "Rest-CO₂",
 			"table_sugar": "Strösocker (Sackaros)",
-			"corn_sugar": "Bryggsocker (Dextros)",
+			"corn_sugar": "Bryggsocker (Dextrosmono.)",
 			"dme": "Torkat maltextrakt (DME)",
 			"honey": "Honung",
-			"keg_psi": "Fattryck PSI (vid 4°C / 39°F)"
+			"candi_syrup": "Belgisk kandissirap",
+			"keg_psi": "Fattryck PSI (vid 4°C / 39°F)",
+			"keg_pressure": "Fatjämvikt ({temp})",
+			"style_preset": "BJCP-stilförval",
+			"style_preset_custom": "Eget mål",
+			"peak_temp_hint": "Ange högsta temp efter jäsning (före kallkrasch)",
+			"bottle_caution": "Varning: 3,0–3,2 vol är övre gränsen för vanliga 330/500 ml-flaskor. Undvik tunt glas.",
+			"bottle_heavy_glass": "Säkerhetsvarning: >3,2 vol CO₂ kräver tjockväggiga belgiska eller champagneflaskor.",
+			"jump_to_cheat_sheet": "Öppna lathund"
+		},
+		"carbonation_cheat_sheet": {
+			"title": "Bryggmästarens kolsyrelathund",
+			"description": "BJCP 2021-stilmål, ASBC tryck/temp-matris (PSI/bar), primningsfaktorer & fatlinjebalansering",
+			"tabs": {
+				"styles": "Efter ölstil",
+				"matrix": "Tvångskolsyra (PSI / bar)",
+				"priming": "Primning & flasktryck",
+				"draft": "Fatlinje & felsökning"
+			},
+			"zones": {
+				"all": "Alla zoner",
+				"low": "Låg / Cask",
+				"standard": "Standard ale & lager",
+				"high": "Frisk / Hög",
+				"effervescent": "Mycket hög / Pärlande"
+			},
+			"styles_filter_placeholder": "Filtrera BJCP-stilar eller kategorier...",
+			"styles_bjcp_note": "BJCP 2021 anger kolsyra kvalitativt under munkänsla; intervallen nedan speglar bryggarpraxis (1 vol = 1,96 g/L).",
+			"apply_target": "Använd {value}",
+			"applied_badge": "Aktiv",
+			"nitro_badge": "Nitro",
+			"heavy_glass_badge": "Tjockt glas >3,2",
+			"col_style": "Stilgrupp",
+			"col_target_co2": "Mål-CO₂",
+			"col_notes": "BJCP munkänsla & serveringstips",
+			"no_matching_styles": "Inga ölstilar matchar filtret.",
+			"styles": {
+				"cask_british": {
+					"name": "Cask / Brittisk Real Ale",
+					"examples": "11A–C Ordinary/Best/Strong Bitter (Cask), 13A Dark Mild (Cask), 17A British Strong Ale",
+					"notes": "Låg, mjuk källarkolsyra; serveras via handpump eller självtryck vid 10–13 °C."
+				},
+				"irish_stout_nitro": {
+					"name": "Irländsk Dry Stout (Nitro)",
+					"examples": "15B Irish Stout (75% N₂ / 25% CO₂ blandgas)",
+					"notes": "Måste ligga ≤1,5 vol CO₂ före servering vid 30–35 PSI genom restriktormunstycke för att undvika skumbomb."
+				},
+				"irish_stout_co2": {
+					"name": "Irländsk Dry Stout (Ren CO₂)",
+					"examples": "15B Irish Stout (Vanlig CO₂ på fat eller flaska)",
+					"notes": "Krämig, medellåg kolsyra vid servering med ren CO₂ utan nitrokran."
+				},
+				"british_porter_stout": {
+					"name": "Engelsk Mild, Bitter (flaska/fat), Porter & Stout",
+					"examples": "11A–C Bitter (Förpackad), 13B–C British Brown/Porter, 16A–B Sweet/Oatmeal Stout, 20A–B American Porter/Stout",
+					"notes": "Låg till måttlig kolsyra bevarar maltfyllighet och mjuk rostad munkänsla."
+				},
+				"imperial_barleywine": {
+					"name": "Imperial Stout & Barleywine",
+					"examples": "17D English Barleywine, 20C Imperial Stout, 22C American Barleywine",
+					"notes": "Lägre kolsyra balanserar hög alkoholvärme och tät restsötma."
+				},
+				"american_ale_ipa": {
+					"name": "Amerikansk Ale, Pale Ale & IPA",
+					"examples": "18B American Pale Ale, 21A American IPA, 22A Double IPA, 19A–C Amber / Cal Common / Brown",
+					"notes": "Måttlig till medelhög; lyfter humlearom och ger ett friskt, rent avslut."
+				},
+				"neipa_hazy": {
+					"name": "Hazy / New England IPA",
+					"examples": "21C Hazy IPA",
+					"notes": "Något mjukare än West Coast IPA för att framhäva silkeslen havre- och vetekänsla."
+				},
+				"german_amber_bock": {
+					"name": "Tysk bärnsten, dunkel, Bock & Märzen",
+					"examples": "6A Märzen, 6B Rauchbier, 6C Dunkels Bock, 7A–B Vienna/Altbier, 8A–B Dunkel/Schwarzbier, 9A Doppelbock",
+					"notes": "Måttlig kolsyra lyfter brödig/rostad München- och Wienermalt utan kolsyrastick."
+				},
+				"czech_pilsner": {
+					"name": "Tjeckisk Pilsner",
+					"examples": "3A Czech Pale Lager, 3B Czech Premium Pale Lager",
+					"notes": "Mjukare och krämigare än tysk pils; stöder tät, våt skumkrona (hladinka)."
+				},
+				"helles_kolsch": {
+					"name": "Münchener Helles & Kölsch",
+					"examples": "4A Munich Helles, 5B Kölsch",
+					"notes": "Måttlig till medelhög; frisk, lättdrucken och finstämd maltbalans."
+				},
+				"german_intl_pilsner": {
+					"name": "Tysk & internationell Pilsner",
+					"examples": "5D German Pils, 2A International Pale Lager, 2C International Amber/Pilsner",
+					"notes": "Medelhög till hög; ger krispigt kolsyrebett och hög, fast vit skumkrona."
+				},
+				"belgian_blond_dubbel": {
+					"name": "Belgisk Blond & Dubbel",
+					"examples": "25A Belgian Blond Ale, 26A Trappist Single, 26B Belgian Dubbel",
+					"notes": "Medelhög kolsyra lyfter estrar och fenoler samt lättar upp munkänslan."
+				},
+				"belgian_wit_tripel_quad": {
+					"name": "Belgisk Witbier, Tripel & Quad",
+					"examples": "24A Witbier, 26C Belgian Tripel, 26D Belgian Dark Strong Ale",
+					"notes": "Hög pärlande kolsyra är avgörande för torr, lättdrucken balans i starka klosteröl."
+				},
+				"saison": {
+					"name": "Saison",
+					"examples": "25B Saison",
+					"notes": "Hög till sprudlande; ger klassisk belgisk spets och knastertorr gårdsfräschör."
+				},
+				"hefeweizen": {
+					"name": "Tysk Hefeweizen / Weissbier",
+					"examples": "10A Weissbier, 10B Dunkels Weissbier, 10C Weizenbock",
+					"notes": "Mycket hög (klassisk bayersk Weissbier ~3,0–3,5 vol); bär den höga, fluffiga kronan."
+				},
+				"flanders_oud_bruin": {
+					"name": "Flanders Red & Oud Bruin",
+					"examples": "23B Flanders Red Ale, 23C Oud Bruin",
+					"notes": "Låg till måttlig kolsyra hindrar att syrligheten upplevs vass."
+				},
+				"straight_lambic": {
+					"name": "Oblandad / Straight Lambic",
+					"examples": "23D Lambic (Traditionellt fat/cask)",
+					"notes": "Nästan helt stilla till mycket låg naturlig källarkolsyra."
+				},
+				"berliner_gueuze": {
+					"name": "Berliner Weisse, Gueuze & Fruktlambic",
+					"examples": "23A Berliner Weisse, 23E Gueuze, 23F Fruit Lambic",
+					"notes": "Champagneliknande pärling; >3,2 vol kräver tjockväggiga belgiska eller champagneflaskor."
+				}
+			},
+			"matrix": {
+				"subtitle": "ASBC / Zahm & Nagel jämviktstryck vid havsnivå. Klicka på en cell för att tillämpa temperatur och mål-CO₂ i kalkylatorn.",
+				"temp_header": "Temp",
+				"selected_cell_hint": "Markerad cell motsvarar dina aktiva kalkylatorvärden",
+				"altitude_note": "Höjdkorrigering: Lägg till ~0,5 PSI per 1 000 ft (+0,011 bar per 100 m) över havet.",
+				"inverse_title": "Snabbkoll Tryck → CO₂",
+				"inverse_psi": "Manometer PSI",
+				"inverse_temp": "Öltemp",
+				"inverse_result": "Jämvikts-CO₂"
+			},
+			"methods_title": "Metoder för tvångskolsyra & spundning",
+			"methods": {
+				"set_and_forget": {
+					"title": "Set-and-Forget",
+					"timing": "7–14 dagar",
+					"summary": "Kyl fatet till serveringstemp, blås ut syre med CO₂ och ställ regulatorn på exakt jämvikts-PSI. Ingen risk för överkolsyring."
+				},
+				"burst": {
+					"title": "Snabbkolsyra (Burst)",
+					"timing": "24–36 h @ 25–30 PSI",
+					"summary": "Kyl till 0–4 °C, ställ 25–30 PSI (1,7–2,1 bar) i 24–36 h, koppla loss, pys övertryck, sänk till serverings-PSI och låt stabilisera 24 h.",
+					"caution": "Halvfulla fat kolsyresätts mycket snabbare; för lång tid på 30 PSI ger kraftig överkolsyring."
+				},
+				"gentle_roll": {
+					"title": "Varsam rullning",
+					"timing": "10–15 min (säker) / 60–90 s (snabb)",
+					"summary": "Kyl till 0–4 °C, lägg fatet ned med jämvikts-PSI och gunga försiktigt 10–15 min tills gasflödet tystnar (eller 60–90 s vid 25–30 PSI + 24 h vila)."
+				},
+				"carb_stone": {
+					"title": "Sintrad kolsyresten",
+					"timing": "1–4 timmar",
+					"summary": "Ställ in jämvikts-PSI + stenens öppningstryck (~2–4 PSI) + vätskepelare (~1 PSI) via en 0,5–2,0 µm diffusor."
+				},
+				"spunding": {
+					"title": "Spundning (Naturligt jästryck)",
+					"timing": "2–4 °P före FG",
+					"summary": "Stäng med spundventil i slutet av jäsningen: ~16–18 PSI @ 10–12 °C, ~21–23 PSI @ 15–16 °C, ~26–28 PSI @ 20 °C för ~2,4–2,5 vol.",
+					"caution": "Överskrid aldrig kärlets säkerhetsventil (många PET-jäskärl maxar vid 15 PSI / 1,0 bar)."
+				}
+			},
+			"priming": {
+				"temp_rule_title": "Viktig regel: Ange högsta temperatur efter jäsning (före kallkrasch)",
+				"temp_rule_body": "Kallkrasch under jäsrör vid atmosfärstryck tillför knappt någon CO₂. Om du anger 2 °C kallkrasch i stället för 20 °C jäsningstopp antas ~1,60 vol rest-CO₂ i stället för ~0,86 vol, vilket ger ~0,74 vol för lite kolsyra (avslagen öl).",
+				"col_agent": "Primningsmedel",
+				"col_yield": "Utbyte",
+				"col_multiplier": "vs. Sackaros",
+				"col_rule_of_thumb": "Per +1,0 vol",
+				"col_notes": "Bryggarnoteringar",
+				"agents": {
+					"sucrose": {
+						"name": "Strösocker (Sackaros)",
+						"notes": "Renast och 100% konsekvent referens; ger inga bismaker vid primningsdoser."
+					},
+					"dextrose": {
+						"name": "Bryggsocker (Dextrosmonohydrat)",
+						"notes": "Innehåller ~9% kristallvatten (~0,91 utbyte). Vattenfri dextros motsvarar 1,00×."
+					},
+					"dme": {
+						"name": "Torkat maltextrakt (DME)",
+						"notes": "Varierande förjäsbarhet (65–72%); ger kraftigare jästfällning och tar något längre tid."
+					},
+					"honey": {
+						"name": "Honung",
+						"notes": "Fukthalten varierar (~17–20%); kontrollera kolhydratandel på burken för precision."
+					},
+					"candi_syrup": {
+						"name": "Belgisk kandissirap / Invertsirap",
+						"notes": "Beräkna från etikettens sockerhalt (~75–85% förjäsbarhet relativt sackaros)."
+					}
+				},
+				"conditioning_title": "Flaskmognad & kylning före servering",
+				"conditioning_body": "Förvara kapsylerade flaskor stående mörkt i 20–22 °C i 2–3 veckor (4–8 veckor för >8% ABV eller suröl). Kyl minst 48 timmar före öppning så att gasen löses.",
+				"safety_title": "Tryckgränser för glasflaskor",
+				"safety_standard": "Standardflaskor 330 / 500 ml: säkra upp till ~3,0 vol (3,2 vol max; undvik tunna engångsflaskor).",
+				"safety_heavy": "Tjockväggiga belgiska eller champagneflaskor: krävs över 3,2 vol CO₂ (Saison, Weissbier, Gueuze)."
+			},
+			"draft": {
+				"balancer_title": "Interaktiv fatlinjekalkylator",
+				"keg_psi": "Fattryck (PSI)",
+				"tubing_type": "Ölslang",
+				"vertical_rise": "Lyfthöjd (ft)",
+				"recommended_length": "Rekommenderad slanglängd",
+				"effective_pressure": "Nettotryck att bromsa",
+				"head_rule": "Statiskt tryck & kranmål: 1 ft stigning sänker trycket ~0,5 PSI (~0,10 bar/m); sikta på 1–2 PSI resttryck vid tappen.",
+				"col_tubing": "Slangtyp",
+				"col_resistance": "Motstånd",
+				"col_typical": "Typiskt @ 11–12 PSI",
+				"tubing": {
+					"vinyl_3_16": "3/16\" ID (4,76 mm) PVC-vinyl",
+					"evabarrier_4mm": "4 mm ID (5/32\") EVAbarrier",
+					"evabarrier_5mm": "5 mm ID (3/16\"+) EVAbarrier",
+					"vinyl_1_4": "1/4\" ID (6,35 mm) PVC-vinyl"
+				},
+				"typical": {
+					"vinyl_3_16": "1,2–1,8 m (4–6 ft)",
+					"evabarrier_4mm": "1,5–1,8 m (5–6 ft)",
+					"evabarrier_5mm": "3,0–3,7 m (10–12 ft)",
+					"vinyl_1_4": "3,7–4,9+ m (12–16+ ft)"
+				},
+				"troubleshooting_title": "Felsökningsguide för tappkran",
+				"col_symptom": "Symptom",
+				"col_cause": "Trolig orsak",
+				"col_fix": "Åtgärd",
+				"issues": {
+					"warm_tower": {
+						"symptom": "Första glaset är bara skum; nästa är klart",
+						"cause": "Varmt tapptorn / tappkran eller varma slangar gör att CO₂ frigörs",
+						"fix": "Montera tornfläkt och rulla slangarna i kegeratorns kallaste zon."
+					},
+					"breakout_in_line": {
+						"symptom": "Varje upphällning skummar + gasfickor i slangen",
+						"cause": "Serveringstrycket är lägre än jämvikts-PSI för öltemperaturen",
+						"fix": "Höj regulatortrycket enligt tabellen och balansera med längre slang."
+					},
+					"insufficient_resistance": {
+						"symptom": "Ölet skjuter snabbt och bildar bara skum i glaset",
+						"cause": "För kort / grov slang (t.ex. 5 mm EVAbarrier kapad för 4 mm) eller överkolsyrat fat",
+						"fix": "Förläng slangen eller byt till 4 mm ID; pys och balansera om fatet är överkolsyrat."
+					},
+					"dip_tube_oring": {
+						"symptom": "Stänkande och ryckigt skum",
+						"cause": "Sliten O-ring på stigröret, vikt slang eller humlerester i ventilen",
+						"fix": "Byt O-ring på stigröret, rengör poppetventil och räta ut slangen."
+					},
+					"flat_pour": {
+						"symptom": "Ölet blir avslaget med dåligt skum",
+						"cause": "För lågt PSI, gasläcka, <7 dagar set-and-forget eller diskmedelsrester i glaset",
+						"fix": "Kontrollera jämvikts-PSI, läcktesta med såpvatten, vänta 7–14 dagar, skölj glas."
+					},
+					"half_pull": {
+						"symptom": "Kranen fräser och skummar vid försiktig öppning",
+						"cause": "Halvöppnad kran stryper flödet och skapar kavitation",
+						"fix": "Öppna alltid tappkranen snabbt till 100% och stäng tvärt."
+					}
+				}
+			}
 		}
 	},
 	"dashboard": {

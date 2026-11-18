@@ -2134,13 +2134,278 @@
 			"title": "Carbonatation & Sucre de resucrage",
 			"description": "Calculez le sucre d'embouteillage ou la pression de régulateur en fût (PSI)",
 			"beer_volume": "Volume de bière",
-			"target_co2": "Volumes de CO₂ cibles",
+			"target_co2": "CO₂ cible",
 			"beer_temp": "Température max de fermentation",
+			"keg_temp": "Temp. de service / fût",
+			"residual_co2": "CO₂ résiduel",
 			"table_sugar": "Sucre de table (Saccharose)",
-			"corn_sugar": "Sucre de maïs (Dextrose)",
+			"corn_sugar": "Sucre de maïs (Dextrose mono.)",
 			"dme": "Extrait de malt en poudre (DME)",
 			"honey": "Miel",
-			"keg_psi": "Pression en fût PSI (à 4°C)"
+			"candi_syrup": "Sirop candi belge",
+			"keg_psi": "Pression en fût PSI (à 4°C)",
+			"keg_pressure": "Équilibre fût ({temp})",
+			"style_preset": "Style BJCP prédéfini",
+			"style_preset_custom": "Cible personnalisée",
+			"peak_temp_hint": "Saisir la temp. max post-fermentation (avant cold crash)",
+			"bottle_caution": "Attention : 3,0–3,2 vol est la limite pour des bouteilles standard 330/500 mL. Éviter le verre fin.",
+			"bottle_heavy_glass": "Alerte sécurité : >3,2 vol CO₂ exige des bouteilles belges épaisses ou champenoises.",
+			"jump_to_cheat_sheet": "Voir l'aide-mémoire"
+		},
+		"carbonation_cheat_sheet": {
+			"title": "Aide-mémoire carbonatation du maître brasseur",
+			"description": "Cibles BJCP 2021 par style, matrice pression/température ASBC (PSI/bar), facteurs de resucrage et lignes de tirage",
+			"tabs": {
+				"styles": "Par style de bière",
+				"matrix": "Carbonatation forcée (PSI / bar)",
+				"priming": "Resucrage & sécurité bouteilles",
+				"draft": "Lignes de tirage & dépannage"
+			},
+			"zones": {
+				"all": "Toutes les zones",
+				"low": "Faible / Cask",
+				"standard": "Ale & Lager standard",
+				"high": "Vif / Élevé",
+				"effervescent": "Très élevé / Effervescent"
+			},
+			"styles_filter_placeholder": "Filtrer les styles ou catégories BJCP...",
+			"styles_bjcp_note": "Le guide BJCP 2021 décrit la carbonatation qualitativement en bouche ; les plages ci-dessous reflètent le consensus brassicole (1 vol = 1,96 g/L).",
+			"apply_target": "Utiliser {value}",
+			"applied_badge": "Actif",
+			"nitro_badge": "Nitro",
+			"heavy_glass_badge": "Verre épais >3,2",
+			"col_style": "Famille de style",
+			"col_target_co2": "CO₂ cible",
+			"col_notes": "Notes BJCP & service",
+			"no_matching_styles": "Aucun style ne correspond au filtre.",
+			"styles": {
+				"cask_british": {
+					"name": "Cask / Real Ales britanniques",
+					"examples": "11A–C Ordinary/Best/Strong Bitter (Cask), 13A Dark Mild (Cask), 17A British Strong Ale",
+					"notes": "Carbonatation douce et basse ; servie à la pompe à main ou par gravité à 10–13 °C."
+				},
+				"irish_stout_nitro": {
+					"name": "Irish Dry Stout (Nitro)",
+					"examples": "15B Irish Stout (Gaz 75% N₂ / 25% CO₂)",
+					"notes": "Doit rester ≤1,5 vol CO₂ avant poussée à 30–35 PSI à travers un disque perforé."
+				},
+				"irish_stout_co2": {
+					"name": "Irish Dry Stout (CO₂ pur)",
+					"examples": "15B Irish Stout (Tirage CO₂ standard ou bouteille)",
+					"notes": "Carbonatation crémeuse modérée-basse sans robinet nitro."
+				},
+				"british_porter_stout": {
+					"name": "English Mild, Bitter (bouteille/fût), Porter & Stout",
+					"examples": "11A–C Bitter, 13B–C British Brown/Porter, 16A–B Sweet/Oatmeal Stout, 20A–B American Porter/Stout",
+					"notes": "Carbonatation faible à modérée préservant la rondeur maltée et les notes torréfiées."
+				},
+				"imperial_barleywine": {
+					"name": "Imperial Stout & Barleywine",
+					"examples": "17D English Barleywine, 20C Imperial Stout, 22C American Barleywine",
+					"notes": "Faible carbonatation équilibrant la chaleur alcoolique et le corps dense."
+				},
+				"american_ale_ipa": {
+					"name": "American Ales, Pale Ale & IPA",
+					"examples": "18B American Pale Ale, 21A American IPA, 22A Double IPA, 19A–C Amber / Cal Common / Brown",
+					"notes": "Modérée à moyenne-haute ; exalte les arômes de houblon et nettoie la finale."
+				},
+				"neipa_hazy": {
+					"name": "Hazy / New England IPA",
+					"examples": "21C Hazy IPA",
+					"notes": "Légèrement plus douce qu'une West Coast IPA pour souligner la texture soyeuse."
+				},
+				"german_amber_bock": {
+					"name": "Bières ambrées, brunes, Bock & Märzen",
+					"examples": "6A Märzen, 6B Rauchbier, 6C Dunkels Bock, 7A–B Vienna/Altbier, 8A–B Dunkel/Schwarzbier, 9A Doppelbock",
+					"notes": "Carbonatation modérée mettant en valeur le malt sans mordant carbonique."
+				},
+				"czech_pilsner": {
+					"name": "Pilsner tchèque",
+					"examples": "3A Czech Pale Lager, 3B Czech Premium Pale Lager",
+					"notes": "Plus douce et crémeuse que la Pils allemande ; idéale pour une mousse dense (hladinka)."
+				},
+				"helles_kolsch": {
+					"name": "Munich Helles & Kölsch",
+					"examples": "4A Munich Helles, 5B Kölsch",
+					"notes": "Modérée à moyenne-haute ; vive, rafraîchissante et délicatement maltée."
+				},
+				"german_intl_pilsner": {
+					"name": "Pilsner allemande & internationale",
+					"examples": "5D German Pils, 2A International Pale Lager, 2C International Amber/Pilsner",
+					"notes": "Moyenne-haute à élevée ; finale nette et mousse blanche persistante."
+				},
+				"belgian_blond_dubbel": {
+					"name": "Blonde belge & Dubbel",
+					"examples": "25A Belgian Blond Ale, 26A Trappist Single, 26B Belgian Dubbel",
+					"notes": "Carbonatation moyenne-haute rehaussant esters et phénols."
+				},
+				"belgian_wit_tripel_quad": {
+					"name": "Witbier, Tripel & Quad belge",
+					"examples": "24A Witbier, 26C Belgian Tripel, 26D Belgian Dark Strong Ale",
+					"notes": "Forte effervescence indispensable à la digestibilité des bières d'abbaye fortes."
+				},
+				"saison": {
+					"name": "Saison",
+					"examples": "25B Saison",
+					"notes": "Élevée à effervescente ; belle dentelle belge et finale très sèche."
+				},
+				"hefeweizen": {
+					"name": "Hefeweizen / Weissbier allemande",
+					"examples": "10A Weissbier, 10B Dunkels Weissbier, 10C Weizenbock",
+					"notes": "Très élevée (Weissbier classique ~3,0–3,5 vol) ; soutient l'épaisse mousse caractéristique."
+				},
+				"flanders_oud_bruin": {
+					"name": "Flanders Red & Oud Bruin",
+					"examples": "23B Flanders Red Ale, 23C Oud Bruin",
+					"notes": "Faible à modérée afin d'éviter que l'acidité ne devienne tranchante."
+				},
+				"straight_lambic": {
+					"name": "Lambic pur / Straight Lambic",
+					"examples": "23D Lambic (Traditionnel au fût)",
+					"notes": "Quasi plat à très faible carbonatation naturelle de cave."
+				},
+				"berliner_gueuze": {
+					"name": "Berliner Weisse, Gueuze & Lambic aux fruits",
+					"examples": "23A Berliner Weisse, 23E Gueuze, 23F Fruit Lambic",
+					"notes": "Effervescence champenoise ; >3,2 vol exige des bouteilles belges épaisses ou champenoises."
+				}
+			},
+			"matrix": {
+				"subtitle": "Pression d'équilibre ASBC / Zahm & Nagel au niveau de la mer. Cliquez sur une cellule pour l'appliquer au calculateur.",
+				"temp_header": "Temp",
+				"selected_cell_hint": "La cellule surlignée correspond aux réglages actifs du calculateur",
+				"altitude_note": "Correction d'altitude : Ajouter ~0,5 PSI par 1 000 ft (+0,011 bar par 100 m) au-dessus de la mer.",
+				"inverse_title": "Vérification rapide Pression → CO₂",
+				"inverse_psi": "Manomètre PSI",
+				"inverse_temp": "Temp. bière",
+				"inverse_result": "CO₂ d'équilibre"
+			},
+			"methods_title": "Méthodes de carbonatation forcée & sous pression",
+			"methods": {
+				"set_and_forget": {
+					"title": "Set-and-Forget",
+					"timing": "7–14 jours",
+					"summary": "Refroidir le fût, purger au CO₂ et régler le détendeur sur la pression d'équilibre exacte. Aucun risque de surcarbonatation."
+				},
+				"burst": {
+					"title": "Carbonatation rapide (Burst)",
+					"timing": "24–36 h @ 25–30 PSI",
+					"summary": "Refroidir à 0–4 °C, appliquer 25–30 PSI (1,7–2,1 bar) 24–36 h, débrancher, décompresser, régler à la pression de service et laisser stabiliser 24 h.",
+					"caution": "Un fût à moitié plein se carbonate bien plus vite ; dépasser 36–48 h à 30 PSI provoque une surcarbonatation."
+				},
+				"gentle_roll": {
+					"title": "Roulage doux",
+					"timing": "10–15 min (sûr) / 60–90 s (rapide)",
+					"summary": "Refroidir à 0–4 °C, coucher le fût à la pression d'équilibre et bercer 10–15 min jusqu'à l'arrêt du gaz (ou 60–90 s à 25–30 PSI puis 24 h de repos)."
+				},
+				"carb_stone": {
+					"title": "Pierre de carbonatation",
+					"timing": "1–4 heures",
+					"summary": "Pression d'équilibre + pression d'ouverture de la pierre (~2–4 PSI) + hauteur liquide (~1 PSI) via un diffuseur 0,5–2,0 µm."
+				},
+				"spunding": {
+					"title": "Spunding (Pression naturelle)",
+					"timing": "2–4 °P avant DF",
+					"summary": "Fermer avec soupape en fin de fermentation : ~16–18 PSI @ 10–12 °C, ~21–23 PSI @ 15–16 °C, ~26–28 PSI @ 20 °C pour ~2,4–2,5 vol.",
+					"caution": "Ne jamais dépasser la soupape du fermenteur (souvent 15 PSI / 1,0 bar sur cuves PET)."
+				}
+			},
+			"priming": {
+				"temp_rule_title": "Règle cruciale : Saisir le pic de température post-fermentation (avant cold crash)",
+				"temp_rule_body": "Un cold crash sous barboteur à pression atmosphérique n'ajoute quasiment aucun CO₂. Saisir 2 °C au lieu de 20 °C suppose ~1,60 vol résiduel au lieu de ~0,86 vol, produisant une bière plate (~0,74 vol manquant).",
+				"col_agent": "Sucre de resucrage",
+				"col_yield": "Rendement",
+				"col_multiplier": "vs. Saccharose",
+				"col_rule_of_thumb": "Par +1,0 vol",
+				"col_notes": "Notes du brasseur",
+				"agents": {
+					"sucrose": {
+						"name": "Sucre de table (Saccharose)",
+						"notes": "Référence la plus propre et 100% constante sans faux-goûts."
+					},
+					"dextrose": {
+						"name": "Sucre de maïs (Dextrose monohydraté)",
+						"notes": "Contient ~9% d'eau de cristallisation (rendement ~0,91). Le dextrose anhydre vaut 1,00×."
+					},
+					"dme": {
+						"name": "Extrait de malt sec (DME)",
+						"notes": "Fermentescibilité variable (65–72%) ; laisse davantage de dépôt."
+					},
+					"honey": {
+						"name": "Miel",
+						"notes": "Humidité variable (~17–20%) ; vérifier la teneur en glucides sur l'étiquette."
+					},
+					"candi_syrup": {
+						"name": "Sirop candi belge / Sucre inverti",
+						"notes": "Calculer selon l'extrait sec sucré indiqué (~75–85% par rapport au saccharose)."
+					}
+				},
+				"conditioning_title": "Refermentation & mise au frais",
+				"conditioning_body": "Conserver les bouteilles debout à l'abri de la lumière à 20–22 °C pendant 2–3 semaines (4–8 semaines si >8% ABV ou bière acide). Réfrigérer 48 h avant ouverture.",
+				"safety_title": "Limites de pression des bouteilles",
+				"safety_standard": "Bouteilles standard 330 / 500 mL : sûres jusqu'à ~3,0 vol (max 3,2 vol ; éviter le verre léger).",
+				"safety_heavy": "Bouteilles belges épaisses ou champenoises : obligatoires au-delà de 3,2 vol CO₂ (Saison, Weissbier, Gueuze)."
+			},
+			"draft": {
+				"balancer_title": "Calculateur d'équilibrage de ligne de tirage",
+				"keg_psi": "Pression fût (PSI)",
+				"tubing_type": "Tuyau boisson",
+				"vertical_rise": "Hauteur de levage (ft)",
+				"recommended_length": "Longueur recommandée",
+				"effective_pressure": "Pression nette à compenser",
+				"head_rule": "Pression statique & robinet : 1 ft de montée retranche ~0,5 PSI (~0,10 bar/m) ; viser 1–2 PSI au robinet.",
+				"col_tubing": "Type de tuyau",
+				"col_resistance": "Résistance",
+				"col_typical": "Typique @ 11–12 PSI",
+				"tubing": {
+					"vinyl_3_16": "3/16\" ID (4,76 mm) PVC vinyle",
+					"evabarrier_4mm": "4 mm ID (5/32\") EVAbarrier",
+					"evabarrier_5mm": "5 mm ID (3/16\"+) EVAbarrier",
+					"vinyl_1_4": "1/4\" ID (6,35 mm) PVC vinyle"
+				},
+				"typical": {
+					"vinyl_3_16": "1,2–1,8 m (4–6 ft)",
+					"evabarrier_4mm": "1,5–1,8 m (5–6 ft)",
+					"evabarrier_5mm": "3,0–3,7 m (10–12 ft)",
+					"vinyl_1_4": "3,7–4,9+ m (12–16+ ft)"
+				},
+				"troubleshooting_title": "Diagnostic rapide au tirage",
+				"col_symptom": "Symptôme",
+				"col_cause": "Cause probable",
+				"col_fix": "Solution",
+				"issues": {
+					"warm_tower": {
+						"symptom": "Premier verre mousseux ; le second est net",
+						"cause": "Colonne ou robinet chaud provoquant un dégazage du CO₂",
+						"fix": "Ajouter un ventilateur de colonne et placer les tuyaux au plus froid."
+					},
+					"breakout_in_line": {
+						"symptom": "Mousse à chaque tirage + bulles dans le tuyau",
+						"cause": "Pression de service inférieure à la pression d'équilibre à cette température",
+						"fix": "Monter le régulateur selon la matrice et allonger le tuyau."
+					},
+					"insufficient_resistance": {
+						"symptom": "Jet trop rapide produisant beaucoup de mousse",
+						"cause": "Tuyau trop court/large (ex. 5 mm EVAbarrier coupé à longueur 4 mm) ou fût surcarbonaté",
+						"fix": "Allonger la ligne ou passer en 4 mm ID ; dégazer si fût surcarbonaté."
+					},
+					"dip_tube_oring": {
+						"symptom": "Crachotements et mousse intermittente",
+						"cause": "Joint du tube plongeur sec/fendu, tuyau pincé ou débris de houblon",
+						"fix": "Remplacer le joint du tube plongeur, nettoyer le clapet, supprimer les plis."
+					},
+					"flat_pour": {
+						"symptom": "Bière plate avec peu de mousse",
+						"cause": "PSI trop bas, fuite de CO₂, <7 jours sur gaz ou résidus de détergent",
+						"fix": "Vérifier la pression d'équilibre, tester les fuites, patienter 7–14 j, rincer les verres."
+					},
+					"half_pull": {
+						"symptom": "Le robinet siffle et mousse à demi-ouverture",
+						"cause": "Ouvrir partiellement le robinet crée de la cavitation",
+						"fix": "Toujours ouvrir le robinet à 100% d'un coup sec et refermer franchement."
+					}
+				}
+			}
 		}
 	},
 	"dashboard": {

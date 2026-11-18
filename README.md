@@ -299,7 +299,7 @@ BrewYou features an extensible IoT telemetry architecture that connects physical
 
 ### Brewing Calculators Suite
 
-The Brewing Calculators Suite provides dedicated, standalone utilities for quick calculations and recipe verification. It features calculators for Water Chemistry & Mash pH, Strike Water Volume & Temperature, ABV & Attenuation, Hydrometer Temperature Correction, Refractometer Brix Correction (with custom Wort Correction Factors), Dilution & Boil-Off adjustments, and Carbonation & Priming Sugar calculations. All calculators support instant bidirectional conversion between Metric and Imperial units.
+The Brewing Calculators Suite provides dedicated, standalone utilities for quick calculations and recipe verification. It features calculators for Water Chemistry & Mash pH, Strike Water Volume & Temperature, ABV & Attenuation, Hydrometer Temperature Correction, Refractometer Brix Correction (with custom Wort Correction Factors), Dilution & Boil-Off adjustments, Carbonation & Priming Sugar calculations, and an interactive **Master Brewer Carbonation Cheat Sheet**. All calculators support instant bidirectional conversion between Metric and Imperial units as well as `vol` and `g/L` carbonation preferences.
 
 #### How to Use
 
@@ -309,7 +309,8 @@ The Brewing Calculators Suite provides dedicated, standalone utilities for quick
    - **Water Chemistry & Mash pH**: Input source water profile, target profile, and grain bill to calculate mineral salt additions (gypsum, calcium chloride, Epsom salt) and acid additions.
    - **Hydrometer Correction**: Enter observed specific gravity and sample temperature to correct for hydrometer calibration offsets.
    - **Refractometer Correction**: Input Original Gravity and current Brix reading (with Wort Correction Factor) to calculate accurate Final Gravity and ABV during or after fermentation.
-   - **Carbonation & Priming**: Select target CO₂ volumes and beer temperature to calculate priming sugar weights (table sugar, dextrose, DME) or regulator PSI for kegging.
+   - **Carbonation & Priming**: Select a BJCP style preset or target CO₂ (`vol` / `g/L`), peak post-fermentation temperature (before cold crash), and keg serving temperature to calculate priming sugar weights (sucrose, dextrose monohydrate, DME, honey, Belgian candi syrup) and equilibrium keg pressure (`PSI` / `bar`) with automatic glass bottle safety warnings.
+   - **Carbonation Cheat Sheet**: Browse BJCP 2021 style carbonation targets (click any style to apply to the calculator), inspect the interactive ASBC / Zahm & Nagel force-carbonation PSI/bar temperature matrix and Pressure → CO₂ check, review priming sugar multipliers and bottle pressure limits, or balance draft lines (`3/16"` vinyl, `4 mm` / `5 mm` EVAbarrier) and diagnose pour issues.
 3. **Toggle Units**: Switch between Metric and Imperial units at any time with instantaneous conversion of all inputs and results.
 
 ### Security & Authentication

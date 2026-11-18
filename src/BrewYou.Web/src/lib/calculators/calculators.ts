@@ -4,6 +4,17 @@
  * refractometer Brix conversion, dilution/boil-off, and carbonation.
  */
 
+import {
+	VOLUMES_TO_GRAMS_PER_LITER,
+	calculateKegEquilibriumPsi,
+	calculateResidualCo2,
+	getBottleSafetyLevel,
+	getCarbonationZone,
+	psiToBar,
+	type BottleSafetyLevel,
+	type CarbonationZone
+} from './carbonation-cheat-sheet';
+
 // ---------------------------------------------------------------------------
 // 1. Strike Water Temperature
 // ---------------------------------------------------------------------------
@@ -311,7 +322,8 @@ export function calculateDilutionBoiloff(input: DilutionInput): DilutionResult {
 export interface CarbonationInput {
 	beerVolumeLiters: number;
 	targetCo2Volumes: number; // e.g. 2.4 - 2.6
-	beerTempC: number; // temperature at end of fermentation for dissolved CO2
+	beerTempC: number; // peak post-fermentation temperature before cold crash
+	kegTempC?: number; // serving / force carbonation temperature (defaults to 4.0°C)
 }
 
 export interface CarbonationResult {
@@ -319,49 +331,55 @@ export interface CarbonationResult {
 	cornSugarGrams: number; // Dextrose / Glucose monohydrate
 	dmeGrams: number; // Dry Malt Extract
 	honeyGrams: number;
+	candiSyrupGrams: number;
 	residualCo2Volumes: number;
-	kegPsiAt4C: number; // draft dispensing PSI at 4C (39F)
+	residualCo2GramsPerLiter: number;
+	targetCo2GramsPerLiter: number;
+	kegPsiAt4C: number; // draft dispensing PSI at 4C (39.2F)
+	kegPsi: number; // draft equilibrium PSI at kegTempC
+	kegBar: number; // draft equilibrium bar at kegTempC
+	bottleSafetyLevel: BottleSafetyLevel;
+	carbonationZone: CarbonationZone;
 }
 
 /**
- * Calculates bottle priming sugar additions and draft keg regulator PSI
+ * Calculates bottle priming sugar additions and draft keg regulator PSI / bar
  */
 export function calculateCarbonation(input: CarbonationInput): CarbonationResult {
-	const volL = Math.max(0.1, input.beerVolumeLiters);
+	const volL = Math.max(0.1, Number.isFinite(input.beerVolumeLiters) ? input.beerVolumeLiters : 20);
 	const volGal = volL * 0.264172;
-	const tempF = (input.beerTempC * 9) / 5 + 32;
+	const targetV = Math.max(
+		0,
+		Number.isFinite(input.targetCo2Volumes) ? input.targetCo2Volumes : 2.4
+	);
+	const kegTempC = Number.isFinite(input.kegTempC) ? (input.kegTempC as number) : 4.0;
 
-	// Dissolved residual CO2 based on Henry's law approximation
-	// CO2_res = 3.0378 - 0.050062*T + 0.00026555*T^2
-	const residualCo2 = Math.max(0.5, 3.0378 - 0.050062 * tempF + 0.00026555 * Math.pow(tempF, 2));
+	const residualCo2 = calculateResidualCo2(input.beerTempC);
+	const netCo2Volumes = Math.max(0, targetV - residualCo2);
 
-	const netCo2Volumes = Math.max(0, input.targetCo2Volumes - residualCo2);
-
-	// 1 volume of CO2 requires ~4 grams of sucrose per gallon, or ~15.195 grams/gal
-	// Formula: grams sucrose = netCo2 * volGal * 15.195
+	// 1 volume of CO2 requires ~4.01 g/L sucrose (~15.195 g/US gal)
 	const sucroseGrams = netCo2Volumes * volGal * 15.195;
-	const dextroseGrams = sucroseGrams / 0.91; // Corn sugar is ~91% fermentable sugar by weight
-	const dmeGrams = sucroseGrams / 0.68; // DME is ~68% fermentable
-	const honeyGrams = sucroseGrams / 0.74; // Honey is ~74% fermentable sugars
+	const dextroseGrams = sucroseGrams / 0.91; // Corn sugar (dextrose monohydrate) ~91% yield
+	const dmeGrams = sucroseGrams / 0.68; // DME ~68% fermentable
+	const honeyGrams = sucroseGrams / 0.74; // Honey ~74% fermentable sugars
+	const candiSyrupGrams = sucroseGrams / 0.8; // Belgian candi syrup ~80% yield
 
-	// Keg PSI at 4°C (39.2°F):
-	// PSI = -16.6999 - (0.0101059 * T) + (0.00116512 * T^2) + (0.173354 * T * V) + (4.24267 * V) - (0.0684226 * V^2)
-	const tkF = 39.2;
-	const targetV = input.targetCo2Volumes;
-	const psi =
-		-16.6999 -
-		0.0101059 * tkF +
-		0.00116512 * Math.pow(tkF, 2) +
-		0.173354 * tkF * targetV +
-		4.24267 * targetV -
-		0.0684226 * Math.pow(targetV, 2);
+	const kegPsiAt4C = calculateKegEquilibriumPsi(4.0, targetV);
+	const kegPsi = calculateKegEquilibriumPsi(kegTempC, targetV);
 
 	return {
 		tableSugarGrams: Math.round(sucroseGrams),
 		cornSugarGrams: Math.round(dextroseGrams),
 		dmeGrams: Math.round(dmeGrams),
 		honeyGrams: Math.round(honeyGrams),
-		residualCo2Volumes: Number(residualCo2.toFixed(2)),
-		kegPsiAt4C: Number(Math.max(0, psi).toFixed(1))
+		candiSyrupGrams: Math.round(candiSyrupGrams),
+		residualCo2Volumes: residualCo2,
+		residualCo2GramsPerLiter: Number((residualCo2 * VOLUMES_TO_GRAMS_PER_LITER).toFixed(2)),
+		targetCo2GramsPerLiter: Number((targetV * VOLUMES_TO_GRAMS_PER_LITER).toFixed(2)),
+		kegPsiAt4C,
+		kegPsi,
+		kegBar: psiToBar(kegPsi),
+		bottleSafetyLevel: getBottleSafetyLevel(targetV),
+		carbonationZone: getCarbonationZone(targetV)
 	};
 }
