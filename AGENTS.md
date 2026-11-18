@@ -94,7 +94,12 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 
 ### I. Mandatory README Maintenance
 
-- **Strict Rule**: The root [README.md](README.md) must be kept up to date whenever new features, endpoints, configuration options, or architectural changes are introduced.
+- **Strict Rule**: Keep the root [README.md](README.md) accurate, compact, and human-readable — covering only project must-knows (overview, core capabilities, tech stack, quick start & local URLs, essential configuration, Scalar OpenAPI / type sync, test/lint commands, project structure, and contributing/license links).
+- **Compact Structure Guardrails**:
+  - **No Feature Essays or UI Manuals**: Summarize new capabilities concisely within the single-line bullets under `## Core Capabilities` instead of adding per-feature subsections, multi-paragraph descriptions, or step-by-step "How to Use" walkthroughs.
+  - **No Endpoint Tables or Internal Symbols**: Do not enumerate REST routes or internal class/component names in `README.md`; Scalar (`/scalar/v1`) and OpenAPI (`/openapi/v1.json`) are the source of truth for API endpoints.
+  - **No Rule Duplication**: Keep contributor workflows, coding standards, and agent invariants in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) rather than repeating them in `README.md`.
+  - **When to Update**: Update `README.md` only when introducing or changing a major capability, prerequisite, run command, local port/URL, environment variable, or top-level project directory.
 
 ### J. Mandatory User Backup & Restore Backwards Compatibility
 
@@ -142,5 +147,5 @@ To guarantee domain correctness and architectural integrity, the agent **MUST** 
 5. Verify cascading and relational integrity on ancestral and dependent objects (test deletions, renames, reassignments, and moves for zero orphaned data or foreign key violations).
 6. Verify full i18n key parity across `en.json` and `sv.json` (and all supported locales).
 7. Verify container configuration parity (`docker compose config`).
-8. Confirm that [README.md](README.md) reflects any new capabilities, endpoints, or setup instructions introduced.
+8. Confirm that [README.md](README.md) reflects any new major capabilities, configuration options, or setup instructions while preserving its compact must-know structure (no per-feature subsections, UI manuals, or endpoint tables).
 9. Present a concise summary of changes and verification results.
