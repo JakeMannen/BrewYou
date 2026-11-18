@@ -288,7 +288,7 @@ internal static partial class BrewLinkLifecycleHelper
 
             // 5. Remove telemetry readings explicitly (important for InMemory and relation parity)
             var readings = await db.EquipmentReadings
-                .Where(r => allIds.Contains(r.EquipmentId))
+                .Where(r => r.EquipmentId.HasValue && allIds.Contains(r.EquipmentId.Value))
                 .ToListAsync(ct);
             if (readings.Count > 0)
             {

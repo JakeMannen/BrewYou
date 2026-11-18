@@ -74,9 +74,11 @@ public interface ITelemetryBroadcastService
 {
     void BroadcastReading(BatchEquipmentReadingDto reading);
     TelemetrySubscription? Subscribe(Guid batchId);
+    TelemetrySubscription? Subscribe(Guid batchId, string userId);
     ChannelReader<BatchEquipmentReadingDto>? Subscribe(Guid batchId, out Guid subscriptionId);
     bool Unsubscribe(Guid batchId, Guid subscriptionId);
     int GetActiveSubscriberCount(Guid batchId);
+    int GetActiveBatchSubscriberCountForUser(string userId);
 
     void BroadcastEquipmentReading(string userId, EquipmentTelemetryUpdateDto update);
     EquipmentTelemetrySubscription? SubscribeEquipment(string userId);

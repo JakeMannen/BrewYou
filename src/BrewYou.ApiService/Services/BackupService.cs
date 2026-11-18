@@ -378,7 +378,8 @@ public class BackupService : IBackupService
         {
             var readingEntities = await _db.EquipmentReadings
                 .AsNoTracking()
-                .Where(er => ownedEquipmentIds.Contains(er.EquipmentId) || (er.BatchId.HasValue && batchIds.Contains(er.BatchId.Value)))
+                .Where(er => (er.EquipmentId.HasValue && ownedEquipmentIds.Contains(er.EquipmentId.Value)) ||
+                             (er.BatchId.HasValue && batchIds.Contains(er.BatchId.Value)))
                 .OrderByDescending(er => er.Timestamp)
                 .Take(MaxExportedTelemetryReadings)
                 .OrderBy(er => er.Timestamp)
@@ -386,7 +387,7 @@ public class BackupService : IBackupService
 
             equipmentReadings = readingEntities.Select(er => new EquipmentReadingBackupDto(
                 er.Id,
-                er.EquipmentId,
+                er.EquipmentId ?? Guid.Empty,
                 er.BatchId,
                 er.Stage,
                 er.BatchMashStepId,
@@ -1719,31 +1720,56 @@ public class BackupService : IBackupService
                 if (options.RestoreTelemetryReadings && payload.EquipmentReadings.Count > 0)
                 {
                     var targetEqIds = equipmentIdMap.Values.Distinct().ToList();
+                    var targetBatchIds = batchIdMap.Values.Distinct().ToList();
                     var existingReadingKeys = await _db.EquipmentReadings
                         .AsNoTracking()
-                        .Where(er => targetEqIds.Contains(er.EquipmentId))
-                        .Select(er => new { er.EquipmentId, er.Timestamp })
+                        .Where(er =>
+                            (er.EquipmentId.HasValue && targetEqIds.Contains(er.EquipmentId.Value)) ||
+                            (!er.EquipmentId.HasValue && er.BatchId.HasValue && targetBatchIds.Contains(er.BatchId.Value)))
+                        .Select(er => new { er.EquipmentId, er.BatchId, er.Timestamp })
                         .ToListAsync();
 
-                    var existingSet = existingReadingKeys
-                        .Select(k => (k.EquipmentId, k.Timestamp))
+                    var existingEqTimestampSet = existingReadingKeys
+                        .Where(k => k.EquipmentId.HasValue)
+                        .Select(k => (k.EquipmentId!.Value, k.Timestamp))
+                        .ToHashSet();
+
+                    var existingNullEqBatchSet = existingReadingKeys
+                        .Where(k => !k.EquipmentId.HasValue && k.BatchId.HasValue)
+                        .Select(k => (k.BatchId!.Value, k.Timestamp))
                         .ToHashSet();
 
                     foreach (var erDto in payload.EquipmentReadings)
                     {
-                        if (!equipmentIdMap.TryGetValue(erDto.EquipmentId, out var targetEqId))
-                        {
-                            continue;
-                        }
-
-                        if (existingSet.Contains((targetEqId, erDto.Timestamp)))
-                        {
-                            continue;
-                        }
-
                         Guid? targetBatchId = erDto.BatchId.HasValue && batchIdMap.TryGetValue(erDto.BatchId.Value, out var bId)
                             ? bId
                             : null;
+
+                        Guid? targetEqId = null;
+                        if (erDto.EquipmentId != Guid.Empty)
+                        {
+                            if (!equipmentIdMap.TryGetValue(erDto.EquipmentId, out var mappedEqId))
+                            {
+                                continue;
+                            }
+                            targetEqId = mappedEqId;
+                            if (!existingEqTimestampSet.Add((mappedEqId, erDto.Timestamp)))
+                            {
+                                continue;
+                            }
+                        }
+                        else if (targetBatchId.HasValue)
+                        {
+                            if (!existingNullEqBatchSet.Add((targetBatchId.Value, erDto.Timestamp)))
+                            {
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            continue;
+                        }
+
                         Guid? targetMashStepId = erDto.BatchMashStepId.HasValue && batchMashStepIdMap.TryGetValue(erDto.BatchMashStepId.Value, out var msId)
                             ? msId
                             : null;
@@ -1770,7 +1796,6 @@ public class BackupService : IBackupService
                             Notes = erDto.Notes,
                             CreatedAt = erDto.CreatedAt == default ? DateTime.UtcNow : erDto.CreatedAt
                         });
-                        existingSet.Add((targetEqId, erDto.Timestamp));
                         readingsRestored++;
                     }
 
@@ -2069,7 +2094,9 @@ public class BackupService : IBackupService
                 bi.Notes,
                 bi.Form,
                 bi.FermentableCategory,
-                bi.FermentabilityPercent
+                bi.FermentabilityPercent,
+                bi.DeductedAmount,
+                bi.DeductedUnit
             )).ToList(),
             b.MashSteps.OrderBy(ms => ms.StepOrder).Select(ms => new BatchMashStepBackupDto(
                 ms.Id,
@@ -2666,6 +2693,8 @@ public class BackupService : IBackupService
             IsChecked = bi.IsChecked,
             IsDeducted = bi.IsDeducted,
             DeductedAt = bi.DeductedAt,
+            DeductedAmount = bi.DeductedAmount,
+            DeductedUnit = bi.DeductedUnit,
             Notes = bi.Notes,
             Form = bi.Form
         }).ToList();

@@ -35,6 +35,12 @@ public static class EquipmentEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
+            var maxStreamLifetime = SseStreamHelper.ComputeMaxStreamLifetime(principal);
+            if (maxStreamLifetime <= TimeSpan.Zero)
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Access token has expired."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
             using var subscription = broadcastService.SubscribeEquipment(userId);
             if (subscription is null)
             {
@@ -51,8 +57,8 @@ public static class EquipmentEndpoints
 
             var cancellationToken = httpContext.RequestAborted;
 
-            // Maximum connection lifetime (15 minutes), matching batch telemetry stream
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            // Maximum connection lifetime capped at min(15 minutes, token exp)
+            using var timeoutCts = new CancellationTokenSource(maxStreamLifetime);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             var streamToken = linkedCts.Token;
 

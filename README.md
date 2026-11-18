@@ -315,7 +315,7 @@ The Brewing Calculators Suite provides dedicated, standalone utilities for quick
 
 ### Security & Authentication
 
-BrewYou provides secure identity and session management built on ASP.NET Core security best practices. It supports standard email/password authentication with JWT access and refresh token lifecycles, as well as one-click Google OAuth authentication with verified email association. Protected user actions use non-disruptive authentication modals, allowing unauthenticated or expired sessions to sign in or register without losing unsaved recipe formulations or current page contexts. The backend enforces strict Content Security Policies (CSP), HTTP Strict Transport Security (HSTS), rate limiting, SSRF protection on IoT polling endpoints, and CORS isolation.
+BrewYou provides secure identity and session management built on ASP.NET Core security best practices. It supports standard email/password authentication with short-lived in-memory JWT access tokens rehydrated via `HttpOnly` refresh cookies, as well as one-click Google OAuth authentication with verified email association. Protected user actions use non-disruptive authentication modals, allowing unauthenticated or expired sessions to sign in or register without losing unsaved recipe formulations or current page contexts. Both the ASP.NET Core backend and SvelteKit frontend enforce strict Content Security Policies (CSP), security headers, HSTS, authenticated per-user rate limiting, SSRF protection on IoT polling endpoints, and CORS isolation.
 
 #### How to Use
 
@@ -581,7 +581,7 @@ This regenerates `src/lib/types/api.generated.ts` directly from the running back
 | **Telemetry**        | `POST /api/v1/telemetry/equipment`, `GET /api/v1/telemetry/equipment/{id}/stream`          | IoT ingestion webhook & SSE telemetry stream                                                       |
 |                      | `GET /api/v1/inventory/equipment/telemetry-stream`                                         | Server-Sent Events (SSE) live telemetry stream for equipment and batch readings                    |
 | **Recipes**          | `GET/POST /api/v1/recipes`, `PUT/DELETE /api/v1/recipes/{id}`                              | Recipe formulations, BJCP metrics, BeerXML/BeerJSON                                                |
-| **Batches**          | `GET/POST /api/v1/batches`, `PUT /api/v1/batches/{id}`, `PATCH /api/v1/batches/{id}/stage`, `POST /api/v1/batches/{id}/readings` | 5-stage brew lifecycle, post-finish editing & status transitions, consolidated manual telemetry (calibration, equipment linking & SSE), and target deviations |
+| **Batches**          | `GET/POST /api/v1/batches`, `PUT /api/v1/batches/{id}`, `PATCH /api/v1/batches/{id}/stage`, `POST /api/v1/batches/{id}/readings`, `GET/POST /api/v1/batches/{id}/equipment-readings` | 5-stage brew lifecycle, post-finish editing & status transitions, consolidated manual telemetry (calibration, equipment linking, paginated readings & SSE), equipment occupancy protection, and target deviations |
 | **Backup & Restore** | `POST /api/v1/backup/export`, `POST /api/v1/backup/preview`, `POST /api/v1/backup/restore` | User-level `.brewyou.json` backup export, dry-run preview, and versioned restore                   |
 
 ---

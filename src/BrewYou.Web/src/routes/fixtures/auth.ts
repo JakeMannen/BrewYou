@@ -33,9 +33,6 @@ export async function setupAuthenticatedSession(page: Page, user = defaultE2EUse
 	];
 
 	await page.addInitScript(() => {
-		if (!localStorage.getItem('brewyou_token')) {
-			localStorage.setItem('brewyou_token', 'mock-token');
-		}
 		if (!localStorage.getItem('brewyou_brewery_setups')) {
 			localStorage.setItem(
 				'brewyou_brewery_setups',

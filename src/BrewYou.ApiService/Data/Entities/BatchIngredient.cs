@@ -21,6 +21,8 @@ public class BatchIngredient
     public bool IsChecked { get; set; } = false;
     public bool IsDeducted { get; set; } = false;
     public DateTime? DeductedAt { get; set; }
+    public decimal? DeductedAmount { get; set; }
+    public string? DeductedUnit { get; set; }
 
     public string? Notes { get; set; }
     public string? Form { get; set; }

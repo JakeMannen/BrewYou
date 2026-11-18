@@ -141,9 +141,8 @@ test.describe('Equipment Duplicate Name Prevention', () => {
 			});
 		});
 
-		// Prime localStorage token so auth store initializes before page loads
+		// Prime brewery setups before page loads (auth rehydrates via /auth/refresh)
 		await page.addInitScript((setupId) => {
-			localStorage.setItem('brewyou_token', 'test-token-value');
 			localStorage.setItem(
 				'brewyou_setups',
 				JSON.stringify([
@@ -215,19 +214,33 @@ test.describe('Equipment Duplicate Name Prevention', () => {
 	test('displays Swedish duplicate error message when Swedish locale is selected', async ({
 		page
 	}) => {
-		// Mock Swedish user language
+		// Mock Swedish user language on both /me and /refresh (for reload rehydration)
+		const swedishUser = {
+			id: 'user-test-1',
+			email: 'brewer@brewyou.test',
+			displayName: 'Test Brewer',
+			preferredLanguage: 'sv',
+			preferredVolumeUnit: 'Liters'
+		};
 		await page.route('**/api/v1/auth/me', async (route) => {
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify({
 					success: true,
+					data: swedishUser
+				})
+			});
+		});
+		await page.route('**/api/v1/auth/refresh', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					success: true,
 					data: {
-						id: 'user-test-1',
-						email: 'brewer@brewyou.test',
-						displayName: 'Test Brewer',
-						preferredLanguage: 'sv',
-						preferredVolumeUnit: 'Liters'
+						accessToken: 'test-token-value',
+						user: swedishUser
 					}
 				})
 			});

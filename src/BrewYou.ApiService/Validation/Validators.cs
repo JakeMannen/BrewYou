@@ -35,9 +35,19 @@ public class BatchIngredientInputDtoValidator : AbstractValidator<BatchIngredien
 {
     public BatchIngredientInputDtoValidator()
     {
-        RuleFor(x => x.Name).NotEmpty().MaximumLength(100).WithMessage("Ingredient name is required.");
-        RuleFor(x => x.Amount).GreaterThan(0).WithMessage("Ingredient amount must be greater than 0.");
+        RuleFor(x => x.Name)
+            .NotEmpty().WithMessage("Ingredient name is required.")
+            .MaximumLength(100).WithMessage("Ingredient name cannot exceed 100 characters.")
+            .Must(name => !name.Contains('<') && !name.Contains('>'))
+            .WithMessage("Ingredient name contains invalid characters.");
+        RuleFor(x => x.Amount)
+            .InclusiveBetween(0.0001m, 99999.999m)
+            .WithMessage("Ingredient amount must be between 0.0001 and 99,999.999.");
         RuleFor(x => x.Unit).NotEmpty().MaximumLength(20).WithMessage("Unit is required and cannot exceed 20 characters.");
+        RuleFor(x => x.FermentabilityPercent)
+            .InclusiveBetween(0m, 100m)
+            .When(x => x.FermentabilityPercent.HasValue)
+            .WithMessage("Fermentability percent must be between 0 and 100.");
         RuleFor(x => x.AdditionTimeMinutes)
             .GreaterThanOrEqualTo(0)
             .When(x => x.AdditionTimeMinutes.HasValue)
@@ -1089,6 +1099,34 @@ public class UpdateProfileRequestValidator : AbstractValidator<UpdateProfileRequ
     }
 }
 
+public class CheckBatchStockRequestValidator : AbstractValidator<CheckBatchStockRequest>
+{
+    public CheckBatchStockRequestValidator()
+    {
+        RuleFor(x => x.RecipeId)
+            .NotEmpty().WithMessage("Recipe ID is required.");
+
+        RuleFor(x => x.TargetBatchSizeLiters)
+            .InclusiveBetween(0.10m, 9_999.99m)
+            .WithMessage("Target batch size must be between 0.10 and 9,999.99 liters.");
+
+        RuleFor(x => x.TargetVolumeBasis)
+            .IsInEnum()
+            .When(x => x.TargetVolumeBasis.HasValue)
+            .WithMessage("Specified target volume basis is invalid.");
+
+        RuleFor(x => x.FermenterLossLiters)
+            .InclusiveBetween(0m, 1000m)
+            .When(x => x.FermenterLossLiters.HasValue)
+            .WithMessage("Fermenter loss must be between 0 and 1000 liters.");
+
+        RuleFor(x => x.PackagingLossLiters)
+            .InclusiveBetween(0m, 1000m)
+            .When(x => x.PackagingLossLiters.HasValue)
+            .WithMessage("Packaging loss must be between 0 and 1000 liters.");
+    }
+}
+
 public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
 {
     public CreateBatchRequestValidator()
@@ -1099,6 +1137,16 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .Must(name => !name.Contains('<') && !name.Contains('>'))
             .WithMessage("Batch name contains invalid characters.");
 
+        RuleFor(x => x.BeerStyle)
+            .MaximumLength(100).WithMessage("Beer style cannot exceed 100 characters.")
+            .Must(style => string.IsNullOrEmpty(style) || (!style.Contains('<') && !style.Contains('>')))
+            .WithMessage("Beer style contains invalid characters.");
+
+        RuleFor(x => x.BrewDate)
+            .InclusiveBetween(new DateOnly(1900, 1, 1), DateOnly.FromDateTime(DateTime.UtcNow.AddDays(365)))
+            .When(x => x.BrewDate.HasValue)
+            .WithMessage("Brew date must be between 1900-01-01 and 1 year from today.");
+
         RuleFor(x => x.BatchCode)
             .MaximumLength(30).WithMessage("Batch code cannot exceed 30 characters.")
             .Matches(@"^[a-zA-Z0-9\-_#]+$")
@@ -1106,9 +1154,9 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .WithMessage("Batch code contains invalid characters. Use alphanumeric, dash, underscore, or hash.");
 
         RuleFor(x => x.TargetBatchSizeLiters)
-            .InclusiveBetween(0.10m, 100_000.00m)
+            .InclusiveBetween(0.10m, 9_999.99m)
             .When(x => x.TargetBatchSizeLiters.HasValue)
-            .WithMessage("Batch size must be between 0.10 and 100,000 liters.");
+            .WithMessage("Batch size must be between 0.10 and 9,999.99 liters.");
 
         RuleFor(x => x.TargetOg)
             .InclusiveBetween(1.000m, 1.200m)
@@ -1119,6 +1167,31 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .InclusiveBetween(0.980m, 1.150m)
             .When(x => x.TargetFg.HasValue)
             .WithMessage("Target FG must be between 0.980 and 1.150.");
+
+        RuleFor(x => x.TargetAbv)
+            .InclusiveBetween(0m, 99.99m)
+            .When(x => x.TargetAbv.HasValue)
+            .WithMessage("Target ABV must be between 0 and 99.99%.");
+
+        RuleFor(x => x.TargetIbu)
+            .InclusiveBetween(0m, 9_999.99m)
+            .When(x => x.TargetIbu.HasValue)
+            .WithMessage("Target IBU must be between 0 and 9,999.99.");
+
+        RuleFor(x => x.TargetColorSrm)
+            .InclusiveBetween(0m, 999.99m)
+            .When(x => x.TargetColorSrm.HasValue)
+            .WithMessage("Target SRM must be between 0 and 999.99.");
+
+        RuleFor(x => x.BoilTimeMinutes)
+            .InclusiveBetween(0, 1440)
+            .When(x => x.BoilTimeMinutes.HasValue)
+            .WithMessage("Boil time must be between 0 and 1,440 minutes.");
+
+        RuleFor(x => x.EfficiencyPercent)
+            .InclusiveBetween(1m, 100m)
+            .When(x => x.EfficiencyPercent.HasValue)
+            .WithMessage("Efficiency percent must be between 1 and 100.");
 
         RuleFor(x => x.MeasuredOg)
             .InclusiveBetween(1.000m, 1.200m)
@@ -1131,9 +1204,9 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .WithMessage("Pitch temperature must be between -10°C and 110°C.");
 
         RuleFor(x => x.Notes)
-            .MaximumLength(2000)
-            .When(x => !string.IsNullOrEmpty(x.Notes))
-            .WithMessage("Notes cannot exceed 2000 characters.");
+            .MaximumLength(2000).WithMessage("Notes cannot exceed 2000 characters.")
+            .Must(notes => string.IsNullOrEmpty(notes) || (!notes.Contains('<') && !notes.Contains('>')))
+            .WithMessage("Notes contain forbidden characters.");
 
         RuleFor(x => x.BoilOffRatePerHour)
             .InclusiveBetween(0m, 50m)
@@ -1141,50 +1214,58 @@ public class CreateBatchRequestValidator : AbstractValidator<CreateBatchRequest>
             .WithMessage("Boil-off rate must be between 0 and 50 L/hr.");
 
         RuleFor(x => x.KettleTrubLossLiters)
-            .GreaterThanOrEqualTo(0m)
+            .InclusiveBetween(0m, 1000m)
             .When(x => x.KettleTrubLossLiters.HasValue)
-            .WithMessage("Kettle trub loss cannot be negative.");
+            .WithMessage("Kettle trub loss must be between 0 and 1,000 liters.");
 
         RuleFor(x => x.MashTunDeadSpaceLiters)
-            .GreaterThanOrEqualTo(0m)
+            .InclusiveBetween(0m, 1000m)
             .When(x => x.MashTunDeadSpaceLiters.HasValue)
-            .WithMessage("Mash tun dead space cannot be negative.");
+            .WithMessage("Mash tun dead space must be between 0 and 1,000 liters.");
 
         RuleFor(x => x.HltDeadSpaceLiters)
-            .GreaterThanOrEqualTo(0m)
+            .InclusiveBetween(0m, 1000m)
             .When(x => x.HltDeadSpaceLiters.HasValue)
-            .WithMessage("HLT dead space cannot be negative.");
+            .WithMessage("HLT dead space must be between 0 and 1,000 liters.");
 
         RuleFor(x => x.PlumbingLossLiters)
-            .GreaterThanOrEqualTo(0m)
+            .InclusiveBetween(0m, 1000m)
             .When(x => x.PlumbingLossLiters.HasValue)
-            .WithMessage("Plumbing transfer loss cannot be negative.");
+            .WithMessage("Plumbing transfer loss must be between 0 and 1,000 liters.");
 
         RuleFor(x => x.FermenterLossLiters)
-            .GreaterThanOrEqualTo(0m)
+            .InclusiveBetween(0m, 1000m)
             .When(x => x.FermenterLossLiters.HasValue)
-            .WithMessage("Fermenter loss cannot be negative.");
+            .WithMessage("Fermenter loss must be between 0 and 1,000 liters.");
 
         RuleFor(x => x.PackagingLossLiters)
-            .GreaterThanOrEqualTo(0m)
+            .InclusiveBetween(0m, 1000m)
             .When(x => x.PackagingLossLiters.HasValue)
-            .WithMessage("Packaging loss cannot be negative.");
+            .WithMessage("Packaging loss must be between 0 and 1,000 liters.");
 
         RuleFor(x => x.TargetVolumeBasis)
             .IsInEnum()
             .When(x => x.TargetVolumeBasis.HasValue)
             .WithMessage("Specified target volume basis is invalid.");
 
+        RuleFor(x => x.CustomIngredients)
+            .Must(ingredients => ingredients == null || ingredients.Count <= 100)
+            .WithMessage("Cannot add more than 100 custom ingredients per batch.");
         RuleForEach(x => x.CustomIngredients)
             .SetValidator(new BatchIngredientInputDtoValidator())
             .When(x => x.CustomIngredients != null);
 
+        RuleFor(x => x.CustomMashSteps)
+            .Must(steps => steps == null || steps.Count <= 15)
+            .WithMessage("Cannot add more than 15 mash steps per batch.");
         RuleForEach(x => x.CustomMashSteps).SetValidator(new BatchMashStepInputDtoValidator());
         RuleFor(x => x.CustomMashSteps)
             .Must(steps => steps == null || !steps.Any() || steps.Select(s => s.StepOrder).Distinct().Count() == steps.Count)
             .WithMessage("Mash step orders must be unique.");
 
-        RuleForEach(x => x.CustomFermentationSteps).SetValidator(new BatchFermentationStepInputDtoValidator());
+        RuleFor(x => x.CustomFermentationSteps)
+            .Must(steps => steps == null || steps.Count <= 20)
+            .WithMessage("Cannot add more than 20 fermentation steps per batch.");
         RuleFor(x => x.CustomFermentationSteps)
             .Must(steps => steps == null || !steps.Any() || steps.Select(s => s.StepOrder).Distinct().Count() == steps.Count)
             .WithMessage("Fermentation step orders must be unique.");
@@ -1351,6 +1432,16 @@ public class LogBatchTemperatureRequestValidator : AbstractValidator<LogBatchTem
             .InclusiveBetween(-20.0m, 120.0m)
             .WithMessage("Temperature must be between -20°C and 120°C.");
 
+        RuleFor(x => x.TargetTemperatureC)
+            .InclusiveBetween(-20.0m, 120.0m)
+            .When(x => x.TargetTemperatureC.HasValue)
+            .WithMessage("Target temperature must be between -20°C and 120°C.");
+
+        RuleFor(x => x.Timestamp)
+            .Must(ts => BatchService.NormalizeUtcTimestamp(ts!.Value) <= DateTime.UtcNow.AddMinutes(5))
+            .When(x => x.Timestamp.HasValue)
+            .WithMessage("Reading timestamp cannot be further than 5 minutes in the future.");
+
         RuleFor(x => x.StepName)
             .MaximumLength(100).WithMessage("Step name cannot exceed 100 characters.")
             .Must(name => string.IsNullOrEmpty(name) || (!name.Contains('<') && !name.Contains('>')))
@@ -1381,9 +1472,9 @@ public class AdvanceBatchStageRequestValidator : AbstractValidator<AdvanceBatchS
             .WithMessage("Measured FG must be between 0.980 and 1.200.");
 
         RuleFor(x => x.MeasuredBatchSizeLiters)
-            .InclusiveBetween(0.10m, 100_000.00m)
+            .InclusiveBetween(0.10m, 9_999.99m)
             .When(x => x.MeasuredBatchSizeLiters.HasValue)
-            .WithMessage("Batch volume must be between 0.10 and 100,000 liters.");
+            .WithMessage("Batch volume must be between 0.10 and 9,999.99 liters.");
 
         RuleFor(x => x.PitchTemperatureC)
             .InclusiveBetween(-10.0m, 110.0m)
@@ -1391,14 +1482,14 @@ public class AdvanceBatchStageRequestValidator : AbstractValidator<AdvanceBatchS
             .WithMessage("Pitch temperature must be between -10°C and 110°C.");
 
         RuleFor(x => x.Notes)
-            .MaximumLength(1000)
-            .When(x => !string.IsNullOrEmpty(x.Notes))
-            .WithMessage("Notes cannot exceed 1000 characters.");
+            .MaximumLength(1000).WithMessage("Notes cannot exceed 1000 characters.")
+            .Must(notes => string.IsNullOrEmpty(notes) || (!notes.Contains('<') && !notes.Contains('>')))
+            .WithMessage("Notes contain forbidden characters.");
 
         RuleFor(x => x.MeasuredPreBoilVolumeLiters)
-            .GreaterThan(0m)
+            .InclusiveBetween(0.01m, 9_999.99m)
             .When(x => x.MeasuredPreBoilVolumeLiters.HasValue)
-            .WithMessage("Pre-boil volume must be positive.");
+            .WithMessage("Pre-boil volume must be between 0.01 and 9,999.99 liters.");
 
         RuleFor(x => x.MeasuredPreBoilGravity)
             .InclusiveBetween(1.000m, 1.200m)
@@ -1406,14 +1497,14 @@ public class AdvanceBatchStageRequestValidator : AbstractValidator<AdvanceBatchS
             .WithMessage("Pre-boil gravity must be between 1.000 and 1.200.");
 
         RuleFor(x => x.MeasuredPostBoilVolumeLiters)
-            .GreaterThan(0m)
+            .InclusiveBetween(0.01m, 9_999.99m)
             .When(x => x.MeasuredPostBoilVolumeLiters.HasValue)
-            .WithMessage("Post-boil volume must be positive.");
+            .WithMessage("Post-boil volume must be between 0.01 and 9,999.99 liters.");
 
         RuleFor(x => x.MeasuredPackagedVolumeLiters)
-            .GreaterThan(0m)
+            .InclusiveBetween(0.01m, 9_999.99m)
             .When(x => x.MeasuredPackagedVolumeLiters.HasValue)
-            .WithMessage("Packaged volume must be positive.");
+            .WithMessage("Packaged volume must be between 0.01 and 9,999.99 liters.");
     }
 }
 
@@ -1430,10 +1521,15 @@ public class AddBatchReadingRequestValidator : AbstractValidator<AddBatchReading
             .When(x => x.TemperatureC.HasValue)
             .WithMessage("Temperature must be between -20°C and 120°C.");
 
+        RuleFor(x => x.Timestamp)
+            .Must(ts => BatchService.NormalizeUtcTimestamp(ts!.Value) <= DateTime.UtcNow.AddMinutes(5))
+            .When(x => x.Timestamp.HasValue)
+            .WithMessage("Reading timestamp cannot be further than 5 minutes in the future.");
+
         RuleFor(x => x.Notes)
-            .MaximumLength(500)
-            .When(x => !string.IsNullOrEmpty(x.Notes))
-            .WithMessage("Reading notes cannot exceed 500 characters.");
+            .MaximumLength(500).WithMessage("Reading notes cannot exceed 500 characters.")
+            .Must(notes => string.IsNullOrEmpty(notes) || (!notes.Contains('<') && !notes.Contains('>')))
+            .WithMessage("Reading notes contain forbidden characters.");
 
         RuleFor(x => x.Stage)
             .IsInEnum()
@@ -1490,14 +1586,14 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
             .WithMessage("Pitch temperature must be between -10°C and 110°C.");
 
         RuleFor(x => x.MeasuredBatchSizeLiters)
-            .InclusiveBetween(0.10m, 100_000.00m)
+            .InclusiveBetween(0.10m, 9_999.99m)
             .When(x => x.MeasuredBatchSizeLiters.HasValue)
-            .WithMessage("Batch volume must be between 0.10 and 100,000 liters.");
+            .WithMessage("Batch volume must be between 0.10 and 9,999.99 liters.");
 
         RuleFor(x => x.MeasuredPreBoilVolumeLiters)
-            .GreaterThan(0m)
+            .InclusiveBetween(0.01m, 9_999.99m)
             .When(x => x.MeasuredPreBoilVolumeLiters.HasValue)
-            .WithMessage("Pre-boil volume must be positive.");
+            .WithMessage("Pre-boil volume must be between 0.01 and 9,999.99 liters.");
 
         RuleFor(x => x.MeasuredPreBoilGravity)
             .InclusiveBetween(1.000m, 1.200m)
@@ -1505,14 +1601,14 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
             .WithMessage("Pre-boil gravity must be between 1.000 and 1.200.");
 
         RuleFor(x => x.MeasuredPostBoilVolumeLiters)
-            .GreaterThan(0m)
+            .InclusiveBetween(0.01m, 9_999.99m)
             .When(x => x.MeasuredPostBoilVolumeLiters.HasValue)
-            .WithMessage("Post-boil volume must be positive.");
+            .WithMessage("Post-boil volume must be between 0.01 and 9,999.99 liters.");
 
         RuleFor(x => x.MeasuredPackagedVolumeLiters)
-            .GreaterThan(0m)
+            .InclusiveBetween(0.01m, 9_999.99m)
             .When(x => x.MeasuredPackagedVolumeLiters.HasValue)
-            .WithMessage("Packaged volume must be positive.");
+            .WithMessage("Packaged volume must be between 0.01 and 9,999.99 liters.");
 
         RuleFor(x => x.MashTunDeadSpaceLiters)
             .InclusiveBetween(0m, 500m)
@@ -1547,9 +1643,9 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
             .WithMessage("Invalid batch status.");
 
         RuleFor(x => x.BrewDate)
-            .GreaterThanOrEqualTo(new DateOnly(1900, 1, 1))
+            .InclusiveBetween(new DateOnly(1900, 1, 1), DateOnly.FromDateTime(DateTime.UtcNow.AddDays(365)))
             .When(x => x.BrewDate.HasValue)
-            .WithMessage("Brew date must be on or after 1900-01-01.");
+            .WithMessage("Brew date must be between 1900-01-01 and 1 year from today.");
     }
 }
 

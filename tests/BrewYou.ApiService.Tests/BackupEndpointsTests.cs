@@ -1646,4 +1646,110 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         restoredKeg.AssignedBatchId.Should().BeNull();
         restoredKeg.CurrentVolumeLiters.Should().Be(0m);
     }
+
+    [Fact]
+    public async Task BackupRoundTrip_PreservesIngredientDeductedAmount_AndManualBatchReadings_BackwardsCompatibly()
+    {
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("Stock Deduction Backup Brewer");
+
+        var ingredients = (await (await sourceClient.GetAsync("/api/v1/ingredients"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<IngredientDto>>>())!.Data!;
+        var paleMalt = ingredients.First(i => i.Name.Contains("Pale", StringComparison.OrdinalIgnoreCase));
+
+        // 1 kg stock, batch requests 5 kg -> DeductedAmount must be clamped to 1m kg
+        var stockRes = await sourceClient.PutAsJsonAsync($"/api/v1/ingredients/{paleMalt.Id}/stock",
+            new UpdateIngredientStockRequest(1.0m, "kg"));
+        stockRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var batchRes = await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-DED-01", "Deducted Stock Batch", "Pale Ale", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.050m, 1.010m, 5.2m, 30m, 5m, 60, 75m, null, null,
+            CustomIngredients:
+            [
+                new BatchIngredientInputDto(paleMalt.Name, IngredientType.Fermentable, 5.0m, "kg", IngredientUsage.Mash, 60, null)
+            ]));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        var ingId = batch.Ingredients.Single().Id;
+
+        var deductRes = await sourceClient.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/ingredients/{ingId}?isChecked=true", new { });
+        deductRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Log a manual temperature reading with no equipment assigned (EquipmentId = null / Guid.Empty in DTO/Backup)
+        var manualTempRes = await sourceClient.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+            new LogBatchTemperatureRequest(66.5m, Notes: "Manual thermometer reading"));
+        manualTempRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Export backup and restore into a clean user
+        var envelope = (await (await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest()))
+            .Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("Stock Deduction Target");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Toggle ingredient OFF on restored user: should restore ONLY 1.0 kg (the tracked DeductedAmount), NOT 5.0 kg!
+        var restoredBatches = (await (await targetClient.GetAsync("/api/v1/batches"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        var restoredBatchId = restoredBatches.Single(b => b.BatchCode == "B-DED-01").Id;
+        var restoredDetail = (await (await targetClient.GetAsync($"/api/v1/batches/{restoredBatchId}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var refundRes = await targetClient.PatchAsJsonAsync(
+            $"/api/v1/batches/{restoredBatchId}/ingredients/{restoredDetail.Ingredients.Single().Id}?isChecked=false", new { });
+        refundRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoredIngredients = (await (await targetClient.GetAsync("/api/v1/ingredients"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<IngredientDto>>>())!.Data!;
+        var targetMalt = restoredIngredients.First(i => i.Id == paleMalt.Id);
+        targetMalt.StockAmount.Should().Be(1.0m);
+
+        // Manual equipment-free reading should also be restored and queryable
+        var restoredEqReadings = (await (await targetClient.GetAsync($"/api/v1/batches/{restoredBatchId}/equipment-readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        restoredEqReadings.Should().ContainSingle(r => r.TemperatureC == 66.5m && r.EquipmentId == Guid.Empty && r.EquipmentName == "Manual");
+
+        // Legacy compatibility: backup omitting deductedAmount/deductedUnit still restores cleanly
+        var legacyDataJson = $$"""
+        {
+          "batches": [
+            {
+              "id": "{{Guid.NewGuid()}}",
+              "batchCode": "B-LEG-01",
+              "name": "Legacy Ingredient Schema Batch",
+              "beerStyle": "Lager",
+              "status": "Brewing",
+              "currentStage": "Mash",
+              "brewDate": "2025-02-01",
+              "ingredients": [
+                {
+                  "id": "{{Guid.NewGuid()}}",
+                  "name": "Legacy Pilsner Malt",
+                  "type": "Fermentable",
+                  "amount": 4.0,
+                  "unit": "kg",
+                  "additionStage": "Mash",
+                  "isChecked": true,
+                  "isDeducted": true
+                }
+              ]
+            }
+          ]
+        }
+        """;
+        var legacyElem = JsonSerializer.Deserialize<JsonElement>(legacyDataJson);
+        var legacyEnv = new BrewYouBackupEnvelope(
+            BackupSchemaConstants.FormatIdentifier,
+            BackupSchemaConstants.CurrentSchemaVersion,
+            "1.6.1",
+            DateTime.UtcNow,
+            BackupMigrationPipeline.ComputeChecksumSha256(legacyElem),
+            legacyElem);
+
+        var (legacyClient, _, _) = await CreateAuthenticatedUserAsync("Legacy Compat User");
+        var legacyRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(legacyEnv, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.MergeSkipExisting)));
+        legacyRes.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }

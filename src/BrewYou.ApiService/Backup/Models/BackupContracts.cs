@@ -329,7 +329,9 @@ public record BatchIngredientBackupDto(
     string? Notes = null,
     string? Form = null,
     FermentableCategory? FermentableCategory = null,
-    decimal? FermentabilityPercent = null
+    decimal? FermentabilityPercent = null,
+    decimal? DeductedAmount = null,
+    string? DeductedUnit = null
 );
 
 public record BatchMashStepBackupDto(
