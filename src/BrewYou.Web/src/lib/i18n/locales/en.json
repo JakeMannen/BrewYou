@@ -2134,13 +2134,278 @@
 			"title": "Carbonation & Priming Sugar",
 			"description": "Calculate priming sugar for bottles or draft regulator PSI for kegs",
 			"beer_volume": "Beer Volume",
-			"target_co2": "Target CO₂ Volumes",
+			"target_co2": "Target CO₂",
 			"beer_temp": "Max Fermentation / Rest Temp",
+			"keg_temp": "Keg / Serving Temp",
+			"residual_co2": "Residual CO₂",
 			"table_sugar": "Table Sugar (Sucrose)",
-			"corn_sugar": "Corn Sugar (Dextrose)",
+			"corn_sugar": "Corn Sugar (Dextrose Mono.)",
 			"dme": "Dry Malt Extract (DME)",
 			"honey": "Honey",
-			"keg_psi": "Draft Keg PSI (at 4°C / 39°F)"
+			"candi_syrup": "Belgian Candi Syrup",
+			"keg_psi": "Draft Keg PSI (at 4°C / 39°F)",
+			"keg_pressure": "Keg Equilibrium ({temp})",
+			"style_preset": "BJCP Style Preset",
+			"style_preset_custom": "Custom Target",
+			"peak_temp_hint": "Enter peak post-fermentation temp (before cold crash)",
+			"bottle_caution": "Caution: 3.0–3.2 vol is the upper limit for standard 330/500 mL bottles. Avoid thin glass.",
+			"bottle_heavy_glass": "Bottle Safety Warning: >3.2 vol CO₂ requires heavy-wall Belgian or Champagne bottles.",
+			"jump_to_cheat_sheet": "Open Cheat Sheet"
+		},
+		"carbonation_cheat_sheet": {
+			"title": "Master Brewer Carbonation Cheat Sheet",
+			"description": "BJCP 2021 style carbonation targets, ASBC force-carb PSI/bar chart, priming multipliers & draft balancing",
+			"tabs": {
+				"styles": "By Beer Style",
+				"matrix": "Force Carb (PSI / bar)",
+				"priming": "Priming & Bottle Safety",
+				"draft": "Draft Lines & Troubleshooting"
+			},
+			"zones": {
+				"all": "All Zones",
+				"low": "Low / Cask",
+				"standard": "Standard Ale & Lager",
+				"high": "Crisp / High",
+				"effervescent": "Very High / Effervescent"
+			},
+			"styles_filter_placeholder": "Filter BJCP styles or categories...",
+			"styles_bjcp_note": "BJCP 2021 guidelines specify carbonation qualitatively in each style's mouthfeel; ranges below reflect craft-brewing consensus (1 vol = 1.96 g/L).",
+			"apply_target": "Use {value}",
+			"applied_badge": "Active",
+			"nitro_badge": "Nitro",
+			"heavy_glass_badge": "Heavy Glass >3.2",
+			"col_style": "Style Grouping",
+			"col_target_co2": "Target CO₂",
+			"col_notes": "BJCP Mouthfeel & Serving Notes",
+			"no_matching_styles": "No beer styles match your filter.",
+			"styles": {
+				"cask_british": {
+					"name": "Cask / British Real Ales",
+					"examples": "11A–C Ordinary/Best/Strong Bitter (Cask), 13A Dark Mild (Cask), 17A British Strong Ale",
+					"notes": "Low, soft cellar carbonation; served via beer engine or gravity at 10–13 °C (50–55 °F)."
+				},
+				"irish_stout_nitro": {
+					"name": "Irish Dry Stout (Nitro)",
+					"examples": "15B Irish Stout (75% N₂ / 25% CO₂ Beer Gas)",
+					"notes": "Must stay ≤1.5 vol CO₂ before pushing at 30–35 PSI through a restrictor plate to prevent excess foam."
+				},
+				"irish_stout_co2": {
+					"name": "Irish Dry Stout (Pure CO₂)",
+					"examples": "15B Irish Stout (Standard CO₂ draft or bottled)",
+					"notes": "Creamy, moderate-low carbonation when serving on pure CO₂ without a nitro faucet."
+				},
+				"british_porter_stout": {
+					"name": "English Mild, Packaged Bitter, Porter & Stout",
+					"examples": "11A–C Bitter (Packaged), 13B–C British Brown/Porter, 16A–B Sweet/Oatmeal Stout, 20A–B American Porter/Stout",
+					"notes": "Low-to-moderate carbonation preserves malt richness and smooth roasted mouthfeel."
+				},
+				"imperial_barleywine": {
+					"name": "Imperial Stout & Barleywine",
+					"examples": "17D English Barleywine, 20C Imperial Stout, 22C American Barleywine",
+					"notes": "Lower carbonation balances high alcohol warmth and dense residual body."
+				},
+				"american_ale_ipa": {
+					"name": "American Ales, Pale Ale & IPA",
+					"examples": "18B American Pale Ale, 21A American IPA, 22A Double IPA, 19A–C Amber / Cal Common / Brown",
+					"notes": "Moderate to medium-high; lifts hop aromatics and supports a crisp, clean finish."
+				},
+				"neipa_hazy": {
+					"name": "Hazy / New England IPA",
+					"examples": "21C Hazy IPA",
+					"notes": "Slightly softer than West Coast IPA to accentuate silky oat and wheat mouthfeel."
+				},
+				"german_amber_bock": {
+					"name": "German Amber, Brown, Bock & Märzen",
+					"examples": "6A Märzen, 6B Rauchbier, 6C Dunkels Bock, 7A–B Vienna/Altbier, 8A–B Dunkel/Schwarzbier, 9A Doppelbock",
+					"notes": "Moderate carbonation showcases bready/toasty Munich & Vienna malt without carbonic bite."
+				},
+				"czech_pilsner": {
+					"name": "Czech Pilsner",
+					"examples": "3A Czech Pale Lager, 3B Czech Premium Pale Lager",
+					"notes": "Softer and creamier than German Pils, supporting dense wet foam (hladinka pour)."
+				},
+				"helles_kolsch": {
+					"name": "Munich Helles & Kölsch",
+					"examples": "4A Munich Helles, 5B Kölsch",
+					"notes": "Moderate to medium-high; crisp, refreshing, delicate malt balance."
+				},
+				"german_intl_pilsner": {
+					"name": "German & International Pilsner",
+					"examples": "5D German Pils, 2A International Pale Lager, 2C International Amber/Pilsner",
+					"notes": "Medium-high to high; drives bright carbonic snap and rocky white head retention."
+				},
+				"belgian_blond_dubbel": {
+					"name": "Belgian Blond & Dubbel",
+					"examples": "25A Belgian Blond Ale, 26A Trappist Single, 26B Belgian Dubbel",
+					"notes": "Medium-high carbonation lifts phenolic/ester complexity and lightens perceived body."
+				},
+				"belgian_wit_tripel_quad": {
+					"name": "Belgian Witbier, Tripel & Quad",
+					"examples": "24A Witbier, 26C Belgian Tripel, 26D Belgian Dark Strong Ale",
+					"notes": "High effervescence essential for a dry, digestible finish in high-gravity Abbey ales."
+				},
+				"saison": {
+					"name": "Saison",
+					"examples": "25B Saison",
+					"notes": "High to effervescent; delivers classic Belgian lace and bone-dry farmhouse refreshment."
+				},
+				"hefeweizen": {
+					"name": "German Hefeweizen / Weissbier",
+					"examples": "10A Weissbier, 10B Dunkels Weissbier, 10C Weizenbock",
+					"notes": "Very high (classic Bavarian Weissbier ~3.0–3.5 vol); sustains the iconic tall fluffy head."
+				},
+				"flanders_oud_bruin": {
+					"name": "Flanders Red & Oud Bruin",
+					"examples": "23B Flanders Red Ale, 23C Oud Bruin",
+					"notes": "Low-to-moderate carbonation prevents lactic/acetic acidity from tasting sharp."
+				},
+				"straight_lambic": {
+					"name": "Unblended / Straight Lambic",
+					"examples": "23D Lambic (Traditional draft/cask)",
+					"notes": "Virtually flat to very low natural cellar carbonation."
+				},
+				"berliner_gueuze": {
+					"name": "Berliner Weisse, Gueuze & Fruit Lambic",
+					"examples": "23A Berliner Weisse, 23E Gueuze, 23F Fruit Lambic",
+					"notes": "Champagne-like effervescence; >3.2 vol requires heavy-wall Belgian or Champagne bottles."
+				}
+			},
+			"matrix": {
+				"subtitle": "ASBC / Zahm & Nagel equilibrium gauge pressure at sea level. Click any cell to apply temperature & target CO₂ to the calculator.",
+				"temp_header": "Temp",
+				"selected_cell_hint": "Highlighted cell matches your active calculator settings",
+				"altitude_note": "High-Altitude Calibration: Add ~0.5 PSI per 1,000 ft (+0.011 bar per 100 m) above sea level.",
+				"inverse_title": "Quick Pressure → CO₂ Check",
+				"inverse_psi": "Gauge PSI",
+				"inverse_temp": "Beer Temp",
+				"inverse_result": "Equilibrium CO₂"
+			},
+			"methods_title": "Force Carbonation & Spunding Methods",
+			"methods": {
+				"set_and_forget": {
+					"title": "Set-and-Forget",
+					"timing": "7–14 days",
+					"summary": "Chill keg to serving temp, purge headspace with CO₂, and set regulator to exact equilibrium PSI. Zero overcarbonation risk and preserves hop aromatics."
+				},
+				"burst": {
+					"title": "Burst Carbonation",
+					"timing": "24–36 h @ 25–30 PSI",
+					"summary": "Chill to 0–4 °C, set 25–30 PSI (1.7–2.1 bar) for 24–36 h, then disconnect, vent headspace, reset to serving PSI, and stabilize 24 h.",
+					"caution": "Half-full kegs carbonate much faster; leaving 30 PSI connected too long causes severe overcarbonation."
+				},
+				"gentle_roll": {
+					"title": "Gentle Roll / Crank-and-Shake",
+					"timing": "10–15 min (safe) / 60–90 s (fast)",
+					"summary": "Chill to 0–4 °C, lay keg on its side at equilibrium PSI, and rock gently 10–15 min until gas stops flowing (or 60–90 s at 25–30 PSI, then rest 24 h)."
+				},
+				"carb_stone": {
+					"title": "Sintered Carbonation Stone",
+					"timing": "1–4 hours",
+					"summary": "Add equilibrium PSI + stone wetting pressure (~2–4 PSI) + hydrostatic head (~1 PSI) via a 0.5–2.0 µm diffuser."
+				},
+				"spunding": {
+					"title": "Spunding (Natural Pressure)",
+					"timing": "2–4 °P before FG",
+					"summary": "Seal fermenter with a spunding valve near end of fermentation: ~16–18 PSI @ 10–12 °C, ~21–23 PSI @ 15–16 °C, ~26–28 PSI @ 20 °C for ~2.4–2.5 vol.",
+					"caution": "Never exceed vessel PRV rating (many PET fermenters cap at 15 PSI / 1.0 bar)."
+				}
+			},
+			"priming": {
+				"temp_rule_title": "Crucial Rule: Enter Peak Post-Fermentation Temp (Before Cold Crash)",
+				"temp_rule_body": "Cold crashing under an airlock at atmospheric pressure does not add meaningful CO₂. Entering a 2 °C cold-crash temp instead of a 20 °C fermentation peak falsely assumes ~1.60 vol residual CO₂ instead of ~0.86 vol, causing ~0.74 vol undercarbonation (flat beer).",
+				"col_agent": "Priming Agent",
+				"col_yield": "Yield",
+				"col_multiplier": "vs. Sucrose",
+				"col_rule_of_thumb": "Per +1.0 vol",
+				"col_notes": "Brewer Notes",
+				"agents": {
+					"sucrose": {
+						"name": "Table Sugar (Sucrose)",
+						"notes": "Cleanest, 100% consistent baseline; zero off-flavors at priming rates."
+					},
+					"dextrose": {
+						"name": "Corn Sugar (Dextrose Monohydrate)",
+						"notes": "Contains ~9% water of crystallization (~0.91 yield). Anhydrous dextrose is 1.00×."
+					},
+					"dme": {
+						"name": "Dry Malt Extract (DME)",
+						"notes": "Variable fermentability (65–72%); leaves heavier krausen ring and takes slightly longer."
+					},
+					"honey": {
+						"name": "Honey",
+						"notes": "Moisture varies (~17–20%); verify carbohydrate % on jar label for precision."
+					},
+					"candi_syrup": {
+						"name": "Belgian Candi Syrup / Liquid Invert",
+						"notes": "Calculate from label sugar solids % (~75–85% fermentable relative to sucrose)."
+					}
+				},
+				"conditioning_title": "Conditioning Timeline & Pre-Pour Chill",
+				"conditioning_body": "Store capped bottles upright in the dark at 20–22 °C (68–72 °F) for 2–3 weeks (4–8 weeks for >8% ABV or sours). Chill for 48 hours before opening so headspace CO₂ dissolves.",
+				"safety_title": "Glass Bottle Pressure Limits",
+				"safety_standard": "Standard 330 / 500 mL (12 oz) bottles: safe up to ~3.0 vol (3.2 vol upper limit; avoid thin glass).",
+				"safety_heavy": "Heavy-wall Belgian or Champagne bottles: mandatory above 3.2 vol CO₂ (Saison, Weissbier, Gueuze)."
+			},
+			"draft": {
+				"balancer_title": "Interactive Draft Line Length Balancer",
+				"keg_psi": "Keg Pressure (PSI)",
+				"tubing_type": "Beverage Tubing",
+				"vertical_rise": "Vertical Lift (ft)",
+				"recommended_length": "Recommended Line Length",
+				"effective_pressure": "Net Pressure to Balance",
+				"head_rule": "Static Head & Faucet Target: Rising 1 ft subtracts ~0.5 PSI (~0.10 bar/m); aim for 1–2 PSI residual at the faucet (~8 s pint pour).",
+				"col_tubing": "Tubing Type",
+				"col_resistance": "Resistance",
+				"col_typical": "Typical @ 11–12 PSI",
+				"tubing": {
+					"vinyl_3_16": "3/16\" ID (4.76 mm) PVC Vinyl",
+					"evabarrier_4mm": "4 mm ID (5/32\") EVAbarrier",
+					"evabarrier_5mm": "5 mm ID (3/16\"+) EVAbarrier",
+					"vinyl_1_4": "1/4\" ID (6.35 mm) PVC Vinyl"
+				},
+				"typical": {
+					"vinyl_3_16": "4–6 ft (1.2–1.8 m)",
+					"evabarrier_4mm": "5–6 ft (1.5–1.8 m)",
+					"evabarrier_5mm": "10–12 ft (3.0–3.7 m)",
+					"vinyl_1_4": "12–16+ ft (3.7–4.9+ m)"
+				},
+				"troubleshooting_title": "Draft Pour Diagnostic Cheat Sheet",
+				"col_symptom": "Symptom",
+				"col_cause": "Likely Cause",
+				"col_fix": "Cellar Fix",
+				"issues": {
+					"warm_tower": {
+						"symptom": "First pour is foam; second is clear",
+						"cause": "Warm draft tower / faucet or uncooled top lines causing CO₂ breakout",
+						"fix": "Add a tower cooling blower and coil lines inside the coldest fridge zone."
+					},
+					"breakout_in_line": {
+						"symptom": "Every pour foams + gas pockets in line",
+						"cause": "Serving PSI is below equilibrium PSI for current keg temperature",
+						"fix": "Raise regulator PSI to match the equilibrium chart and balance line length."
+					},
+					"insufficient_resistance": {
+						"symptom": "Fast blast of foam in the glass",
+						"cause": "Line too short / wide (e.g., 5 mm EVAbarrier cut to 4 mm length) or overcarbed keg",
+						"fix": "Lengthen line or switch to 4 mm ID; vent & re-equilibrate if overcarbonated."
+					},
+					"dip_tube_oring": {
+						"symptom": "Intermittent spitting / sputtering foam",
+						"cause": "Dry/cracked beer-out dip-tube O-ring, kinked line, or hop debris in poppet",
+						"fix": "Replace dip-tube O-ring, clear poppet debris, and remove tubing kinks."
+					},
+					"flat_pour": {
+						"symptom": "Beer pours flat with poor head",
+						"cause": "Low PSI, CO₂ leak, <7 days set-and-forget, or soap residue on glass",
+						"fix": "Verify equilibrium PSI, soap-test fittings, allow 7–14 days, rinse glassware."
+					},
+					"half_pull": {
+						"symptom": "Faucet sputters & foams on slow pour",
+						"cause": "Opening tap handle only partway chokes flow and causes cavitation",
+						"fix": "Always snap faucet handle 100% open immediately and snap cleanly shut."
+					}
+				}
+			}
 		}
 	},
 	"dashboard": {

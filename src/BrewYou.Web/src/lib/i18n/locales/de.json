@@ -2134,13 +2134,278 @@
 			"title": "Karbonisierung & Speisezucker",
 			"description": "Berechnen Sie Speisezucker für Flaschen oder Fassreglerdruck (PSI)",
 			"beer_volume": "Biervolumen",
-			"target_co2": "Ziel-CO₂-Gehalt (Vol.)",
+			"target_co2": "Ziel-CO₂",
 			"beer_temp": "Maximale Gärtemperatur",
+			"keg_temp": "Fass- / Ausschanktemp.",
+			"residual_co2": "Rest-CO₂",
 			"table_sugar": "Haushaltszucker (Saccharose)",
-			"corn_sugar": "Traubenzucker (Dextrose)",
+			"corn_sugar": "Traubenzucker (Dextrose-Mono.)",
 			"dme": "Trockenmalzextrakt (DME)",
 			"honey": "Honig",
-			"keg_psi": "Fassdruck PSI (bei 4°C)"
+			"candi_syrup": "Belgischer Kandissirup",
+			"keg_psi": "Fassdruck PSI (bei 4°C)",
+			"keg_pressure": "Fassgleichgewicht ({temp})",
+			"style_preset": "BJCP-Stilvorlage",
+			"style_preset_custom": "Benutzerdefiniert",
+			"peak_temp_hint": "Höchsttemp. nach Gärung eingeben (vor Cold Crash)",
+			"bottle_caution": "Hinweis: 3,0–3,2 Vol. sind die Obergrenze für normale 330/500-ml-Flaschen. Dünnes Glas meiden.",
+			"bottle_heavy_glass": "Sicherheitswarnung: >3,2 Vol. CO₂ erfordern dickwandige belgische oder Champagnerflaschen.",
+			"jump_to_cheat_sheet": "Spickzettel öffnen"
+		},
+		"carbonation_cheat_sheet": {
+			"title": "Braumeister-Karbonisierungsspickzettel",
+			"description": "BJCP-2021-Stilvorgaben, ASBC-Druck-Temperatur-Matrix (PSI/bar), Speisefaktoren & Schanklinienabgleich",
+			"tabs": {
+				"styles": "Nach Bierstil",
+				"matrix": "Zwangskarbonisierung (PSI / bar)",
+				"priming": "Speisezucker & Flaschensicherheit",
+				"draft": "Schankleitung & Fehlersuche"
+			},
+			"zones": {
+				"all": "Alle Zonen",
+				"low": "Niedrig / Cask",
+				"standard": "Standard Ale & Lager",
+				"high": "Spritzig / Hoch",
+				"effervescent": "Sehr hoch / Perlend"
+			},
+			"styles_filter_placeholder": "BJCP-Stile oder Kategorien filtern...",
+			"styles_bjcp_note": "Die BJCP-2021-Richtlinien beschreiben Karbonisierung qualitativ im Mundgefühl; diese Werte spiegeln den Braustandard wider (1 Vol. = 1,96 g/L).",
+			"apply_target": "{value} nutzen",
+			"applied_badge": "Aktiv",
+			"nitro_badge": "Nitro",
+			"heavy_glass_badge": "Dickglas >3,2",
+			"col_style": "Stilgruppe",
+			"col_target_co2": "Ziel-CO₂",
+			"col_notes": "BJCP-Mundgefühl & Ausschankhinweise",
+			"no_matching_styles": "Keine Bierstile entsprechen dem Filter.",
+			"styles": {
+				"cask_british": {
+					"name": "Cask / Britische Real Ales",
+					"examples": "11A–C Ordinary/Best/Strong Bitter (Cask), 13A Dark Mild (Cask), 17A British Strong Ale",
+					"notes": "Niedrige, weiche Fasskarbonisierung; Ausschank per Bierpumpe oder Schwerkraft bei 10–13 °C."
+				},
+				"irish_stout_nitro": {
+					"name": "Irish Dry Stout (Nitro)",
+					"examples": "15B Irish Stout (75% N₂ / 25% CO₂ Mischgas)",
+					"notes": "Muss ≤1,5 Vol. CO₂ bleiben, bevor es mit 30–35 PSI durch eine Lochplatte gezapft wird."
+				},
+				"irish_stout_co2": {
+					"name": "Irish Dry Stout (Reines CO₂)",
+					"examples": "15B Irish Stout (Standard-CO₂-Zapfung oder Flasche)",
+					"notes": "Cremige, mäßig-niedrige Karbonisierung beim Ausschank mit reinem CO₂ ohne Nitro-Zapfhahn."
+				},
+				"british_porter_stout": {
+					"name": "English Mild, Bitter (Flasche/Fass), Porter & Stout",
+					"examples": "11A–C Bitter (abgefüllt), 13B–C British Brown/Porter, 16A–B Sweet/Oatmeal Stout, 20A–B American Porter/Stout",
+					"notes": "Niedrige bis moderate Karbonisierung bewahrt Malzfülle und weiches Röstmalz-Mundgefühl."
+				},
+				"imperial_barleywine": {
+					"name": "Imperial Stout & Barleywine",
+					"examples": "17D English Barleywine, 20C Imperial Stout, 22C American Barleywine",
+					"notes": "Geringere Karbonisierung balanciert hohe Alkoholwärme und vollen Körper."
+				},
+				"american_ale_ipa": {
+					"name": "American Ales, Pale Ale & IPA",
+					"examples": "18B American Pale Ale, 21A American IPA, 22A Double IPA, 19A–C Amber / Cal Common / Brown",
+					"notes": "Moderat bis mittelhoch; hebt Hopfenaromen hervor und unterstützt einen klaren Abgang."
+				},
+				"neipa_hazy": {
+					"name": "Hazy / New England IPA",
+					"examples": "21C Hazy IPA",
+					"notes": "Etwas weicher als West Coast IPA für ein seidiges Hafer- und Weizenmundgefühl."
+				},
+				"german_amber_bock": {
+					"name": "Deutsches Bernstein, Dunkel, Bock & Märzen",
+					"examples": "6A Märzen, 6B Rauchbier, 6C Dunkels Bock, 7A–B Vienna/Altbier, 8A–B Dunkel/Schwarzbier, 9A Doppelbock",
+					"notes": "Moderate Karbonisierung betont brotig-malzige Noten ohne Kohlensäurebiss."
+				},
+				"czech_pilsner": {
+					"name": "Tschechisches Pilsner",
+					"examples": "3A Czech Pale Lager, 3B Czech Premium Pale Lager",
+					"notes": "Weicher und cremiger als deutsches Pils; ideal für dichten Nassschaum (Hladinka)."
+				},
+				"helles_kolsch": {
+					"name": "Münchner Helles & Kölsch",
+					"examples": "4A Munich Helles, 5B Kölsch",
+					"notes": "Moderat bis mittelhoch; frisch, süffig mit feiner Malzbalance."
+				},
+				"german_intl_pilsner": {
+					"name": "Deutsches & Internationales Pilsner",
+					"examples": "5D German Pils, 2A International Pale Lager, 2C International Amber/Pilsner",
+					"notes": "Mittelhoch bis hoch; sorgt für spritzigen Antrunk und stabile weiße Schaumkrone."
+				},
+				"belgian_blond_dubbel": {
+					"name": "Belgisches Blond & Dubbel",
+					"examples": "25A Belgian Blond Ale, 26A Trappist Single, 26B Belgian Dubbel",
+					"notes": "Mittelhohe Karbonisierung hebt Ester- und Phenolkomplexität hervor."
+				},
+				"belgian_wit_tripel_quad": {
+					"name": "Belgisches Witbier, Tripel & Quad",
+					"examples": "24A Witbier, 26C Belgian Tripel, 26D Belgian Dark Strong Ale",
+					"notes": "Hohe Spritzigkeit für einen trockenen, bekömmlichen Abgang bei starken Abteibieren."
+				},
+				"saison": {
+					"name": "Saison",
+					"examples": "25B Saison",
+					"notes": "Hoch bis stark perlend; klassischer belgischer Schaum und knochentrockene Frische."
+				},
+				"hefeweizen": {
+					"name": "Deutsches Hefeweizen / Weißbier",
+					"examples": "10A Weissbier, 10B Dunkels Weissbier, 10C Weizenbock",
+					"notes": "Sehr hoch (klassisches bayerisches Weißbier ~3,0–3,5 Vol.); trägt die hohe Schaumhaube."
+				},
+				"flanders_oud_bruin": {
+					"name": "Flanders Red & Oud Bruin",
+					"examples": "23B Flanders Red Ale, 23C Oud Bruin",
+					"notes": "Niedrig bis moderat; verhindert, dass Säure zu scharf wirkt."
+				},
+				"straight_lambic": {
+					"name": "Unverschnittenes / Straight Lambic",
+					"examples": "23D Lambic (Traditionell vom Fass)",
+					"notes": "Nahezu still bis sehr geringe natürliche Fasskarbonisierung."
+				},
+				"berliner_gueuze": {
+					"name": "Berliner Weisse, Gueuze & Frucht-Lambic",
+					"examples": "23A Berliner Weisse, 23E Gueuze, 23F Fruit Lambic",
+					"notes": "Champagnerartige Spritzigkeit; >3,2 Vol. erfordern dickwandige belgische oder Champagnerflaschen."
+				}
+			},
+			"matrix": {
+				"subtitle": "ASBC / Zahm-&-Nagel-Gleichgewichtsdruck auf Meereshöhe. Zelle anklicken, um Temperatur & Ziel-CO₂ zu übernehmen.",
+				"temp_header": "Temp",
+				"selected_cell_hint": "Markierte Zelle entspricht den aktiven Rechnerwerten",
+				"altitude_note": "Höhenkorrektur: Etwa +0,5 PSI pro 1.000 ft (+0,011 bar pro 100 m) über dem Meeresspiegel zugeben.",
+				"inverse_title": "Schnellcheck Druck → CO₂",
+				"inverse_psi": "Manometer PSI",
+				"inverse_temp": "Biertemp.",
+				"inverse_result": "Gleichgewichts-CO₂"
+			},
+			"methods_title": "Zwangskarbonisierung & Spundung",
+			"methods": {
+				"set_and_forget": {
+					"title": "Set-and-Forget",
+					"timing": "7–14 Tage",
+					"summary": "Fass auf Ausschanktemperatur kühlen, Kopfraum mit CO₂ spülen und exakten Gleichgewichts-PSI einstellen. Kein Überkarbonisierungsrisiko."
+				},
+				"burst": {
+					"title": "Schnellkarbonisierung (Burst)",
+					"timing": "24–36 h @ 25–30 PSI",
+					"summary": "Auf 0–4 °C kühlen, 24–36 h mit 25–30 PSI (1,7–2,1 bar) beaufschlagen, abklemmen, entlüften, Ausschank-PSI einstellen und 24 h ruhen lassen.",
+					"caution": "Halbvolle Fässer karbonisieren deutlich schneller; zu langes Stehen bei 30 PSI führt zu starker Überkarbonisierung."
+				},
+				"gentle_roll": {
+					"title": "Sanftes Rollen",
+					"timing": "10–15 Min. (sicher) / 60–90 s (schnell)",
+					"summary": "Auf 0–4 °C kühlen, Fass liegend bei Gleichgewichts-PSI 10–15 Min. sanft wiegen bis kein Gas mehr nachströmt (oder 60–90 s bei 25–30 PSI + 24 h Ruhe)."
+				},
+				"carb_stone": {
+					"title": "Karbonisierstein",
+					"timing": "1–4 Stunden",
+					"summary": "Gleichgewichts-PSI + Benetzungsdruck (~2–4 PSI) + hydrostatische Höhe (~1 PSI) über einen 0,5–2,0-µm-Diffusor anlegen."
+				},
+				"spunding": {
+					"title": "Spundung (Natürlicher Gärdruck)",
+					"timing": "2–4 °P vor Endvergärung",
+					"summary": "Mit Spundapparat am Gär-Ende verschließen: ~16–18 PSI @ 10–12 °C, ~21–23 PSI @ 15–16 °C, ~26–28 PSI @ 20 °C für ~2,4–2,5 Vol.",
+					"caution": "Niemals den maximalen Behälterdruck überschreiten (viele PET-Gärtanks max. 15 PSI / 1,0 bar)."
+				}
+			},
+			"priming": {
+				"temp_rule_title": "Wichtige Regel: Höchste Temperatur nach Gärung eingeben (vor Cold Crash)",
+				"temp_rule_body": "Cold Crash unter Gärröhrchen bei Umgebungsdruck löst kaum zusätzliches CO₂. Wer 2 °C statt 20 °C Gärspitze eingibt, rechnet fälschlich mit ~1,60 Vol. statt ~0,86 Vol. Rest-CO₂ und erhält ein schales Bier (~0,74 Vol. zu wenig).",
+				"col_agent": "Speisemittel",
+				"col_yield": "Ausbeute",
+				"col_multiplier": "vs. Saccharose",
+				"col_rule_of_thumb": "Je +1,0 Vol.",
+				"col_notes": "Brauerhinweise",
+				"agents": {
+					"sucrose": {
+						"name": "Haushaltszucker (Saccharose)",
+						"notes": "Sauberste und zu 100% reproduzierbare Basis ohne Fehlaromen bei Speisedosierung."
+					},
+					"dextrose": {
+						"name": "Traubenzucker (Dextrose-Monohydrat)",
+						"notes": "Enthält ~9% Kristallwasser (~0,91 Ausbeute). Wasserfreie Dextrose entspricht 1,00×."
+					},
+					"dme": {
+						"name": "Trockenmalzextrakt (DME)",
+						"notes": "Variable Vergärbarkeit (65–72%); erzeugt stärkeren Bodensatz und dauert etwas länger."
+					},
+					"honey": {
+						"name": "Honig",
+						"notes": "Wassergehalt schwankt (~17–20%); Kohlenhydratanteil auf dem Etikett prüfen."
+					},
+					"candi_syrup": {
+						"name": "Belgischer Kandissirup / Invertzucker",
+						"notes": "Nach Zuckergehalt laut Etikett berechnen (~75–85% vergärbar relativ zu Saccharose)."
+					}
+				},
+				"conditioning_title": "Flaschengärung & Vorkühlung",
+				"conditioning_body": "Verschlossene Flaschen stehend und dunkel bei 20–22 °C für 2–3 Wochen lagern (4–8 Wochen bei >8% ABV oder Sauerbieren). Vor dem Öffnen 48 h kaltstellen.",
+				"safety_title": "Druckgrenzen für Glasflaschen",
+				"safety_standard": "Standardflaschen 330 / 500 ml: sicher bis ~3,0 Vol. (max. 3,2 Vol.; dünnes Glas meiden).",
+				"safety_heavy": "Dickwandige belgische oder Champagnerflaschen: Pflicht über 3,2 Vol. CO₂ (Saison, Weißbier, Gueuze)."
+			},
+			"draft": {
+				"balancer_title": "Interaktiver Schankleitungs-Rechner",
+				"keg_psi": "Fassdruck (PSI)",
+				"tubing_type": "Bierleitung",
+				"vertical_rise": "Steighöhe (ft)",
+				"recommended_length": "Empfohlene Leitungslänge",
+				"effective_pressure": "Abzubauender Druck",
+				"head_rule": "Statischer Druck & Zapfhahn: 1 ft Steigung nimmt ~0,5 PSI (~0,10 bar/m); Ziel sind 1–2 PSI Restdruck am Zapfhahn.",
+				"col_tubing": "Leitungstyp",
+				"col_resistance": "Widerstand",
+				"col_typical": "Typisch @ 11–12 PSI",
+				"tubing": {
+					"vinyl_3_16": "3/16\" ID (4,76 mm) PVC-Vinyl",
+					"evabarrier_4mm": "4 mm ID (5/32\") EVAbarrier",
+					"evabarrier_5mm": "5 mm ID (3/16\"+) EVAbarrier",
+					"vinyl_1_4": "1/4\" ID (6,35 mm) PVC-Vinyl"
+				},
+				"typical": {
+					"vinyl_3_16": "1,2–1,8 m (4–6 ft)",
+					"evabarrier_4mm": "1,5–1,8 m (5–6 ft)",
+					"evabarrier_5mm": "3,0–3,7 m (10–12 ft)",
+					"vinyl_1_4": "3,7–4,9+ m (12–16+ ft)"
+				},
+				"troubleshooting_title": "Zapfanlagen-Fehlersuche",
+				"col_symptom": "Symptom",
+				"col_cause": "Wahrscheinliche Ursache",
+				"col_fix": "Lösung",
+				"issues": {
+					"warm_tower": {
+						"symptom": "Erstes Glas ist Schaum; zweites ist klar",
+						"cause": "Warmer Zapfturm / Zapfhahn lässt CO₂ ausperlen",
+						"fix": "Turmkühlung nachrüsten und Schläuche im kältesten Bereich verlegen."
+					},
+					"breakout_in_line": {
+						"symptom": "Jeder Zapfvorgang schäumt + Gasblasen in der Leitung",
+						"cause": "Zapfdruck liegt unter dem Gleichgewichtsdruck für die Biertemperatur",
+						"fix": "Druckminderer laut Tabelle erhöhen und Leitungslänge anpassen."
+					},
+					"insufficient_resistance": {
+						"symptom": "Bier schießt schnell und bildet viel Schaum",
+						"cause": "Leitung zu kurz/weit (z. B. 5 mm EVAbarrier auf 4-mm-Länge) oder Fass überkarbonisiert",
+						"fix": "Leitung verlängern oder 4 mm ID nutzen; überkarbonisiertes Fass entlüften."
+					},
+					"dip_tube_oring": {
+						"symptom": "Ruckartiges Spritzen und Schäumen",
+						"cause": "Defekter Steigrohr-O-Ring, geknickte Leitung oder Hopfenreste im Ventil",
+						"fix": "O-Ring ersetzen, Kegelventil reinigen, Knicke beseitigen."
+					},
+					"flat_pour": {
+						"symptom": "Bier läuft schal ohne stabilen Schaum",
+						"cause": "Zu geringer Druck, CO₂-Leck, <7 Tage Zeit oder Spülmittelreste im Glas",
+						"fix": "Gleichgewichtsdruck prüfen, Dichtungen testen, 7–14 Tage warten, Gläser klarspülen."
+					},
+					"half_pull": {
+						"symptom": "Zapfhahn sprudelt bei halber Öffnung",
+						"cause": "Teilweises Öffnen drosselt den Fluss und erzeugt Kavitation",
+						"fix": "Zapfhahn immer sofort zu 100% öffnen und zügig schließen."
+					}
+				}
+			}
 		}
 	},
 	"dashboard": {

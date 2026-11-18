@@ -242,7 +242,27 @@ describe('Common Brewery Calculators', () => {
 			expect(res.cornSugarGrams).toBeGreaterThan(res.tableSugarGrams);
 			// DME requires even more
 			expect(res.dmeGrams).toBeGreaterThan(res.cornSugarGrams);
-			expect(res.kegPsiAt4C).toBeGreaterThan(8);
+			expect(res.candiSyrupGrams).toBeGreaterThan(res.tableSugarGrams);
+			expect(res.kegPsiAt4C).toBeCloseTo(10.8, 1);
+			expect(res.kegPsi).toBeCloseTo(10.8, 1);
+			expect(res.kegBar).toBeCloseTo(0.74, 2);
+			expect(res.targetCo2GramsPerLiter).toBeCloseTo(4.7, 1);
+			expect(res.bottleSafetyLevel).toBe('standard');
+			expect(res.carbonationZone).toBe('standard');
+		});
+
+		it('computes dynamic keg PSI/bar for custom serving temperatures and flags heavy-glass bottle safety', () => {
+			const res = calculateCarbonation({
+				beerVolumeLiters: 20,
+				targetCo2Volumes: 3.4,
+				beerTempC: 20,
+				kegTempC: 8
+			});
+
+			expect(res.kegPsi).toBeGreaterThan(res.kegPsiAt4C);
+			expect(res.kegBar).toBeGreaterThan(1.5);
+			expect(res.bottleSafetyLevel).toBe('heavy_glass_required');
+			expect(res.carbonationZone).toBe('effervescent');
 		});
 	});
 

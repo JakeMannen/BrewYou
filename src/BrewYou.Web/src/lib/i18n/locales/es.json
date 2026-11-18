@@ -2134,13 +2134,278 @@
 			"title": "Carbonatación y azúcar de cebado",
 			"description": "Calcula el azúcar para botellas o presión de regulador para barril (PSI)",
 			"beer_volume": "Volumen de cerveza",
-			"target_co2": "Volúmenes de CO₂ objetivo",
+			"target_co2": "CO₂ objetivo",
 			"beer_temp": "Temperatura máx. de fermentación",
+			"keg_temp": "Temp. de barril / servicio",
+			"residual_co2": "CO₂ residual",
 			"table_sugar": "Azúcar de mesa (Sacarosa)",
-			"corn_sugar": "Azúcar de maíz (Dextrosa)",
+			"corn_sugar": "Azúcar de maíz (Dextrosa mono.)",
 			"dme": "Extracto de malta seco (DME)",
 			"honey": "Miel",
-			"keg_psi": "Presión en barril PSI (a 4°C)"
+			"candi_syrup": "Sirope candi belga",
+			"keg_psi": "Presión en barril PSI (a 4°C)",
+			"keg_pressure": "Equilibrio en barril ({temp})",
+			"style_preset": "Estilo BJCP predefinido",
+			"style_preset_custom": "Objetivo personalizado",
+			"peak_temp_hint": "Usa la temp. máx. posfermentación (antes del cold crash)",
+			"bottle_caution": "Precaución: 3,0–3,2 vol es el límite superior para botellas estándar de 330/500 mL. Evita vidrio fino.",
+			"bottle_heavy_glass": "Aviso de seguridad: >3,2 vol CO₂ requiere botellas belgas gruesas o de champán.",
+			"jump_to_cheat_sheet": "Abrir guía rápida"
+		},
+		"carbonation_cheat_sheet": {
+			"title": "Guía rápida de carbonatación del maestro cervecero",
+			"description": "Objetivos BJCP 2021 por estilo, matriz presión/temp ASBC (PSI/bar), factores de cebado y líneas de tiraje",
+			"tabs": {
+				"styles": "Por estilo de cerveza",
+				"matrix": "Carbonatación forzada (PSI / bar)",
+				"priming": "Cebado y seguridad",
+				"draft": "Líneas y solución de problemas"
+			},
+			"zones": {
+				"all": "Todas las zonas",
+				"low": "Baja / Cask",
+				"standard": "Ale y Lager estándar",
+				"high": "Viva / Alta",
+				"effervescent": "Muy alta / Efervescente"
+			},
+			"styles_filter_placeholder": "Filtrar estilos o categorías BJCP...",
+			"styles_bjcp_note": "Las guías BJCP 2021 definen la carbonatación cualitativamente en sensación en boca; los rangos reflejan el consenso cervecero (1 vol = 1,96 g/L).",
+			"apply_target": "Usar {value}",
+			"applied_badge": "Activo",
+			"nitro_badge": "Nitro",
+			"heavy_glass_badge": "Vidrio grueso >3,2",
+			"col_style": "Grupo de estilo",
+			"col_target_co2": "CO₂ objetivo",
+			"col_notes": "Notas BJCP y servicio",
+			"no_matching_styles": "Ningún estilo coincide con el filtro.",
+			"styles": {
+				"cask_british": {
+					"name": "Cask / Real Ales británicas",
+					"examples": "11A–C Ordinary/Best/Strong Bitter (Cask), 13A Dark Mild (Cask), 17A British Strong Ale",
+					"notes": "Carbonatación baja y suave de bodega; servida por bomba manual o gravedad a 10–13 °C."
+				},
+				"irish_stout_nitro": {
+					"name": "Irish Dry Stout (Nitro)",
+					"examples": "15B Irish Stout (Mezcla 75% N₂ / 25% CO₂)",
+					"notes": "Debe mantenerse ≤1,5 vol CO₂ antes de empujar a 30–35 PSI por placa restrictora."
+				},
+				"irish_stout_co2": {
+					"name": "Irish Dry Stout (CO₂ puro)",
+					"examples": "15B Irish Stout (Barril CO₂ estándar o botella)",
+					"notes": "Carbonatación cremosa moderada-baja al servir con CO₂ puro sin grifo nitro."
+				},
+				"british_porter_stout": {
+					"name": "English Mild, Bitter (envasada), Porter y Stout",
+					"examples": "11A–C Bitter, 13B–C British Brown/Porter, 16A–B Sweet/Oatmeal Stout, 20A–B American Porter/Stout",
+					"notes": "Carbonatación baja a moderada que preserva la riqueza maltosa y textura sedosa."
+				},
+				"imperial_barleywine": {
+					"name": "Imperial Stout y Barleywine",
+					"examples": "17D English Barleywine, 20C Imperial Stout, 22C American Barleywine",
+					"notes": "Menor carbonatación equilibra la calidez alcohólica y el cuerpo denso."
+				},
+				"american_ale_ipa": {
+					"name": "American Ales, Pale Ale e IPA",
+					"examples": "18B American Pale Ale, 21A American IPA, 22A Double IPA, 19A–C Amber / Cal Common / Brown",
+					"notes": "Moderada a media-alta; eleva aromas de lúpulo y da un final limpio."
+				},
+				"neipa_hazy": {
+					"name": "Hazy / New England IPA",
+					"examples": "21C Hazy IPA",
+					"notes": "Ligeramente más suave que West Coast IPA para resaltar la textura sedosa de avena y trigo."
+				},
+				"german_amber_bock": {
+					"name": "Ámbar alemana, Dunkel, Bock y Märzen",
+					"examples": "6A Märzen, 6B Rauchbier, 6C Dunkels Bock, 7A–B Vienna/Altbier, 8A–B Dunkel/Schwarzbier, 9A Doppelbock",
+					"notes": "Carbonatación moderada que luce maltas tostadas sin mordida carbónica."
+				},
+				"czech_pilsner": {
+					"name": "Pilsner checa",
+					"examples": "3A Czech Pale Lager, 3B Czech Premium Pale Lager",
+					"notes": "Más suave y cremosa que la Pils alemana; favorece espuma densa y húmeda (hladinka)."
+				},
+				"helles_kolsch": {
+					"name": "Munich Helles y Kölsch",
+					"examples": "4A Munich Helles, 5B Kölsch",
+					"notes": "Moderada a media-alta; fresca, bebible y con equilibrio delicado de malta."
+				},
+				"german_intl_pilsner": {
+					"name": "Pilsner alemana e internacional",
+					"examples": "5D German Pils, 2A International Pale Lager, 2C International Amber/Pilsner",
+					"notes": "Media-alta a alta; aporta chispa carbónica y corona blanca persistente."
+				},
+				"belgian_blond_dubbel": {
+					"name": "Belgian Blond y Dubbel",
+					"examples": "25A Belgian Blond Ale, 26A Trappist Single, 26B Belgian Dubbel",
+					"notes": "Carbonatación media-alta que realza ésteres y fenoles aligerando el cuerpo."
+				},
+				"belgian_wit_tripel_quad": {
+					"name": "Witbier, Tripel y Quad belga",
+					"examples": "24A Witbier, 26C Belgian Tripel, 26D Belgian Dark Strong Ale",
+					"notes": "Alta efervescencia esencial para un final seco y digerible en cervezas de abadía."
+				},
+				"saison": {
+					"name": "Saison",
+					"examples": "25B Saison",
+					"notes": "Alta a efervescente; encaje belga clásico y frescura campesina muy seca."
+				},
+				"hefeweizen": {
+					"name": "Hefeweizen / Weissbier alemana",
+					"examples": "10A Weissbier, 10B Dunkels Weissbier, 10C Weizenbock",
+					"notes": "Muy alta (Weissbier bávara ~3,0–3,5 vol); sostiene la corona alta y esponjosa."
+				},
+				"flanders_oud_bruin": {
+					"name": "Flanders Red y Oud Bruin",
+					"examples": "23B Flanders Red Ale, 23C Oud Bruin",
+					"notes": "Baja a moderada; evita que la acidez se sienta punzante."
+				},
+				"straight_lambic": {
+					"name": "Lambic sin mezclar / Straight",
+					"examples": "23D Lambic (Tradicional de barril)",
+					"notes": "Prácticamente plana o con carbonatación natural muy baja."
+				},
+				"berliner_gueuze": {
+					"name": "Berliner Weisse, Gueuze y Lambic de fruta",
+					"examples": "23A Berliner Weisse, 23E Gueuze, 23F Fruit Lambic",
+					"notes": "Efervescencia tipo champán; >3,2 vol requiere botellas belgas gruesas o de champán."
+				}
+			},
+			"matrix": {
+				"subtitle": "Presión manométrica de equilibrio ASBC / Zahm & Nagel al nivel del mar. Haz clic en una celda para aplicarla a la calculadora.",
+				"temp_header": "Temp",
+				"selected_cell_hint": "La celda resaltada coincide con la configuración activa",
+				"altitude_note": "Ajuste por altitud: Añade ~0,5 PSI por cada 1.000 ft (+0,011 bar por 100 m) sobre el nivel del mar.",
+				"inverse_title": "Comprobación rápida Presión → CO₂",
+				"inverse_psi": "PSI manómetro",
+				"inverse_temp": "Temp. cerveza",
+				"inverse_result": "CO₂ de equilibrio"
+			},
+			"methods_title": "Métodos de carbonatación forzada y spunding",
+			"methods": {
+				"set_and_forget": {
+					"title": "Set-and-Forget",
+					"timing": "7–14 días",
+					"summary": "Enfría el barril, purga el espacio de cabeza con CO₂ y ajusta el regulador al PSI exacto de equilibrio. Sin riesgo de sobrecarbonatación."
+				},
+				"burst": {
+					"title": "Carbonatación rápida (Burst)",
+					"timing": "24–36 h @ 25–30 PSI",
+					"summary": "Enfría a 0–4 °C, aplica 25–30 PSI (1,7–2,1 bar) 24–36 h, desconecta, purga presión, ajusta a PSI de servicio y reposa 24 h.",
+					"caution": "Barriles medio llenos carbonatan mucho más rápido; dejar 30 PSI demasiado tiempo sobrecarbonata."
+				},
+				"gentle_roll": {
+					"title": "Rodado suave",
+					"timing": "10–15 min (seguro) / 60–90 s (rápido)",
+					"summary": "Enfría a 0–4 °C, acuesta el barril a PSI de equilibrio y balancea 10–15 min hasta que cese el flujo de gas (o 60–90 s a 25–30 PSI + 24 h de reposo)."
+				},
+				"carb_stone": {
+					"title": "Piedra difusora",
+					"timing": "1–4 horas",
+					"summary": "Aplica PSI de equilibrio + presión de humectación (~2–4 PSI) + columna líquida (~1 PSI) con difusor de 0,5–2,0 µm."
+				},
+				"spunding": {
+					"title": "Spunding (Presión natural)",
+					"timing": "2–4 °P antes de DF",
+					"summary": "Sella con válvula spunding al final de la fermentación: ~16–18 PSI @ 10–12 °C, ~21–23 PSI @ 15–16 °C, ~26–28 PSI @ 20 °C para ~2,4–2,5 vol.",
+					"caution": "Nunca superes el límite de la válvula del fermentador (muchos PET limitan a 15 PSI / 1,0 bar)."
+				}
+			},
+			"priming": {
+				"temp_rule_title": "Regla clave: Usa la temperatura máxima posfermentación (antes del cold crash)",
+				"temp_rule_body": "El cold crash bajo airlock a presión atmosférica no disuelve CO₂ relevante. Usar 2 °C en vez de 20 °C asume ~1,60 vol residual en lugar de ~0,86 vol, dejando la cerveza plana (~0,74 vol menos).",
+				"col_agent": "Agente de cebado",
+				"col_yield": "Rendimiento",
+				"col_multiplier": "vs. Sacarosa",
+				"col_rule_of_thumb": "Por +1,0 vol",
+				"col_notes": "Notas del cervecero",
+				"agents": {
+					"sucrose": {
+						"name": "Azúcar de mesa (Sacarosa)",
+						"notes": "Base más limpia y 100% consistente; sin sabores indeseados a dosis de cebado."
+					},
+					"dextrose": {
+						"name": "Azúcar de maíz (Dextrosa monohidrato)",
+						"notes": "Contiene ~9% de agua de cristalización (rendimiento ~0,91). La anhidra equivale a 1,00×."
+					},
+					"dme": {
+						"name": "Extracto de malta seco (DME)",
+						"notes": "Fermentabilidad variable (65–72%); deja más sedimento y tarda algo más."
+					},
+					"honey": {
+						"name": "Miel",
+						"notes": "Humedad variable (~17–20%); verifica el % de carbohidratos en la etiqueta."
+					},
+					"candi_syrup": {
+						"name": "Sirope candi belga / Azúcar invertido",
+						"notes": "Calcula según el % de azúcares de la etiqueta (~75–85% respecto a sacarosa)."
+					}
+				},
+				"conditioning_title": "Acondicionamiento y enfriado previo",
+				"conditioning_body": "Guarda las botellas chapadas en vertical y a oscuras a 20–22 °C durante 2–3 semanas (4–8 semanas si >8% ABV o ácidas). Enfría 48 horas antes de servir.",
+				"safety_title": "Límites de presión del vidrio",
+				"safety_standard": "Botellas estándar 330 / 500 mL: seguras hasta ~3,0 vol (máx. 3,2 vol; evitar vidrio fino).",
+				"safety_heavy": "Botellas belgas gruesas o de champán: obligatorias por encima de 3,2 vol CO₂ (Saison, Weissbier, Gueuze)."
+			},
+			"draft": {
+				"balancer_title": "Calculadora interactiva de línea de tiraje",
+				"keg_psi": "Presión barril (PSI)",
+				"tubing_type": "Tubería",
+				"vertical_rise": "Altura vertical (ft)",
+				"recommended_length": "Longitud recomendada",
+				"effective_pressure": "Presión neta a equilibrar",
+				"head_rule": "Carga estática y grifo: Cada 1 ft de subida resta ~0,5 PSI (~0,10 bar/m); apunta a 1–2 PSI residuales en el grifo.",
+				"col_tubing": "Tipo de tubería",
+				"col_resistance": "Resistencia",
+				"col_typical": "Típico @ 11–12 PSI",
+				"tubing": {
+					"vinyl_3_16": "3/16\" ID (4,76 mm) PVC vinilo",
+					"evabarrier_4mm": "4 mm ID (5/32\") EVAbarrier",
+					"evabarrier_5mm": "5 mm ID (3/16\"+) EVAbarrier",
+					"vinyl_1_4": "1/4\" ID (6,35 mm) PVC vinilo"
+				},
+				"typical": {
+					"vinyl_3_16": "1,2–1,8 m (4–6 ft)",
+					"evabarrier_4mm": "1,5–1,8 m (5–6 ft)",
+					"evabarrier_5mm": "3,0–3,7 m (10–12 ft)",
+					"vinyl_1_4": "3,7–4,9+ m (12–16+ ft)"
+				},
+				"troubleshooting_title": "Diagnóstico rápido de grifo",
+				"col_symptom": "Síntoma",
+				"col_cause": "Causa probable",
+				"col_fix": "Solución",
+				"issues": {
+					"warm_tower": {
+						"symptom": "La primera pinta es espuma; la segunda sale limpia",
+						"cause": "Torre o grifo caliente provoca liberación de CO₂",
+						"fix": "Instala ventilación en la torre y enrolla las líneas en la zona más fría."
+					},
+					"breakout_in_line": {
+						"symptom": "Cada tiraje hace espuma + burbujas en la línea",
+						"cause": "La presión de servicio es menor que la presión de equilibrio a esa temperatura",
+						"fix": "Sube el regulador según la matriz y ajusta la longitud de línea."
+					},
+					"insufficient_resistance": {
+						"symptom": "Sale demasiado rápido formando espuma en el vaso",
+						"cause": "Línea muy corta/ancha (ej. 5 mm EVAbarrier cortada como 4 mm) o barril sobrecarbonatado",
+						"fix": "Alarga la línea o usa 4 mm ID; despresuriza y reequilibra si está sobrecarbonatado."
+					},
+					"dip_tube_oring": {
+						"symptom": "Escupe espuma de forma intermitente",
+						"cause": "Junta tórica del espadín dañada, manguera doblada o restos de lúpulo",
+						"fix": "Cambia la junta tórica, limpia el poppet y elimina dobleces."
+					},
+					"flat_pour": {
+						"symptom": "Cerveza sin gas y sin retención de espuma",
+						"cause": "PSI bajo, fuga de CO₂, <7 días de gas o restos de jabón en el vaso",
+						"fix": "Comprueba el PSI de equilibrio, revisa fugas, espera 7–14 días y enjuaga vasos."
+					},
+					"half_pull": {
+						"symptom": "El grifo silba y espuma al abrir a medias",
+						"cause": "Abrir parcialmente el grifo estrangula el flujo y causa cavitación",
+						"fix": "Abre siempre el grifo al 100% de golpe y cierra con firmeza."
+					}
+				}
+			}
 		}
 	},
 	"dashboard": {
