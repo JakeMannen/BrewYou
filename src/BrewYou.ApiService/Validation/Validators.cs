@@ -1371,14 +1371,14 @@ public class AdvanceBatchStageRequestValidator : AbstractValidator<AdvanceBatchS
             .IsInEnum().WithMessage("A valid target stage is required.");
 
         RuleFor(x => x.MeasuredOg)
-            .InclusiveBetween(1.000m, 1.200m)
+            .InclusiveBetween(1.000m, 1.250m)
             .When(x => x.MeasuredOg.HasValue)
-            .WithMessage("Measured OG must be between 1.000 and 1.200.");
+            .WithMessage("Measured OG must be between 1.000 and 1.250.");
 
         RuleFor(x => x.MeasuredFg)
-            .InclusiveBetween(0.980m, 1.150m)
+            .InclusiveBetween(0.980m, 1.200m)
             .When(x => x.MeasuredFg.HasValue)
-            .WithMessage("Measured FG must be between 0.980 and 1.150.");
+            .WithMessage("Measured FG must be between 0.980 and 1.200.");
 
         RuleFor(x => x.MeasuredBatchSizeLiters)
             .InclusiveBetween(0.10m, 100_000.00m)
@@ -1422,18 +1422,33 @@ public class AddBatchReadingRequestValidator : AbstractValidator<AddBatchReading
     public AddBatchReadingRequestValidator()
     {
         RuleFor(x => x.SpecificGravity)
-            .InclusiveBetween(0.980m, 1.200m)
-            .WithMessage("Specific gravity must be between 0.980 and 1.200.");
+            .InclusiveBetween(0.900m, 1.250m)
+            .WithMessage("Specific gravity must be between 0.900 and 1.250.");
 
         RuleFor(x => x.TemperatureC)
-            .InclusiveBetween(-10.0m, 110.0m)
+            .InclusiveBetween(-20.0m, 120.0m)
             .When(x => x.TemperatureC.HasValue)
-            .WithMessage("Temperature must be between -10°C and 110°C.");
+            .WithMessage("Temperature must be between -20°C and 120°C.");
 
         RuleFor(x => x.Notes)
             .MaximumLength(500)
             .When(x => !string.IsNullOrEmpty(x.Notes))
             .WithMessage("Reading notes cannot exceed 500 characters.");
+
+        RuleFor(x => x.Stage)
+            .IsInEnum()
+            .When(x => x.Stage.HasValue)
+            .WithMessage("Invalid brew stage.");
+
+        RuleFor(x => x.EquipmentId)
+            .Must(id => id != Guid.Empty)
+            .When(x => x.EquipmentId.HasValue)
+            .WithMessage("Equipment ID cannot be empty.");
+
+        RuleFor(x => x.BatchMashStepId)
+            .Must(id => id != Guid.Empty)
+            .When(x => x.BatchMashStepId.HasValue)
+            .WithMessage("Mash step ID cannot be empty.");
     }
 }
 
@@ -1460,14 +1475,14 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
             .WithMessage("Notes cannot exceed 2000 characters or contain invalid characters.");
 
         RuleFor(x => x.MeasuredOg)
-            .InclusiveBetween(1.000m, 1.200m)
+            .InclusiveBetween(1.000m, 1.250m)
             .When(x => x.MeasuredOg.HasValue)
-            .WithMessage("Measured OG must be between 1.000 and 1.200.");
+            .WithMessage("Measured OG must be between 1.000 and 1.250.");
 
         RuleFor(x => x.MeasuredFg)
-            .InclusiveBetween(0.980m, 1.150m)
+            .InclusiveBetween(0.980m, 1.200m)
             .When(x => x.MeasuredFg.HasValue)
-            .WithMessage("Measured FG must be between 0.980 and 1.150.");
+            .WithMessage("Measured FG must be between 0.980 and 1.200.");
 
         RuleFor(x => x.PitchTemperatureC)
             .InclusiveBetween(-10.0m, 110.0m)
@@ -1525,6 +1540,16 @@ public class UpdateBatchRequestValidator : AbstractValidator<UpdateBatchRequest>
         RuleForEach(x => x.SensorAssignments)
             .SetValidator(new BatchSensorAssignmentInputValidator())
             .When(x => x.SensorAssignments != null);
+
+        RuleFor(x => x.Status)
+            .IsInEnum()
+            .When(x => x.Status.HasValue)
+            .WithMessage("Invalid batch status.");
+
+        RuleFor(x => x.BrewDate)
+            .GreaterThanOrEqualTo(new DateOnly(1900, 1, 1))
+            .When(x => x.BrewDate.HasValue)
+            .WithMessage("Brew date must be on or after 1900-01-01.");
     }
 }
 

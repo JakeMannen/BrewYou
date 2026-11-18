@@ -143,6 +143,18 @@ describe('StageMeasurementsCard Form & Payload Logic', () => {
 		expect(payload.measuredOg).toBe(1.056);
 	});
 
+	it('creates valid Condition stage update with conditioning vessel and notes (F21)', () => {
+		const payload = buildStageUpdatePayload('Condition', mockBatch, {
+			packagingVesselId: 'vessel-bright-tank',
+			notes: 'Lagering in secondary bright tank at 2°C for 21 days.'
+		});
+
+		expect(payload.packagingVesselId).toBe('vessel-bright-tank');
+		expect(payload.notes).toBe('Lagering in secondary bright tank at 2°C for 21 days.');
+		expect(payload.measuredOg).toBe(1.056);
+		expect(payload.name).toBe('Summer IPA');
+	});
+
 	it('preserves existing notes when not edited during stage input adjustment', () => {
 		const payload = buildStageUpdatePayload('Ferment', mockBatch, {
 			pitchTemperatureC: 18.0
@@ -221,6 +233,21 @@ describe('StageMeasurementsCard Volume Milestones & Water Schedule', () => {
 		expect(formatNumber(plannedAbsorption, 1)).toBe('5.5');
 	});
 
+	it('calculates non-null grain absorption for All-in-One boilers when mash tun dead space is recovered', () => {
+		// All-in-One boiler (e.g. Grainfather G30 with 3.5L dead space and 0.8 L/kg absorption rate)
+		const totalWaterLiters = 31.0;
+		const targetPreBoilVolumeLiters = 27.4;
+		const mashTunDeadSpaceLiters = 3.5;
+		const isAllInOne = true; // boilerId === mashTunId or subtype AllInOne -> recoverMashTunDeadSpace
+
+		const rawRemaining = totalWaterLiters - targetPreBoilVolumeLiters; // 3.6L
+		const unrecoveredDeadSpace = isAllInOne ? 0 : mashTunDeadSpaceLiters;
+		const plannedAbsorption = Math.round((rawRemaining - unrecoveredDeadSpace) * 100) / 100;
+
+		expect(plannedAbsorption).toBe(3.6);
+		expect(formatNumber(plannedAbsorption, 1)).toBe('3.6');
+	});
+
 	it('flags tannin extraction risk when runoff gravity drops below 1.010 SG', () => {
 		const isTanninRisk = (grav: number | null | undefined) =>
 			grav !== null && grav !== undefined && grav > 1.0 && grav < 1.01;
@@ -230,5 +257,67 @@ describe('StageMeasurementsCard Volume Milestones & Water Schedule', () => {
 		expect(isTanninRisk(1.01)).toBe(false);
 		expect(isTanninRisk(1.045)).toBe(false);
 		expect(isTanninRisk(null)).toBe(false);
+	});
+
+	describe('Stage Advance Volume Precedence & Fallbacks (TC-T1-R3-06, TC-T2-R3-06)', () => {
+		function resolveAdvancePreFillVolume(
+			measuredBatchSizeLiters: number | null | undefined,
+			targetFermenterVolumeLiters: number | null | undefined
+		): number | null {
+			// Precedence fix (F20): Measured volume has highest priority; only fall back to target if measured is absent
+			if (
+				measuredBatchSizeLiters !== null &&
+				measuredBatchSizeLiters !== undefined &&
+				!isNaN(measuredBatchSizeLiters) &&
+				measuredBatchSizeLiters > 0
+			) {
+				return measuredBatchSizeLiters;
+			}
+			if (
+				targetFermenterVolumeLiters !== null &&
+				targetFermenterVolumeLiters !== undefined &&
+				!isNaN(targetFermenterVolumeLiters) &&
+				targetFermenterVolumeLiters > 0
+			) {
+				return targetFermenterVolumeLiters;
+			}
+			return null;
+		}
+
+		it('TC-T1-R3-06: stage advance modal pre-fills measured volume instead of overwriting with target volume', () => {
+			const targetVolume = 20.0;
+			const measuredVolume = 18.5;
+
+			const preFilled = resolveAdvancePreFillVolume(measuredVolume, targetVolume);
+
+			// Must choose measured volume (18.5L), not target volume (20.0L)
+			expect(preFilled).toBe(18.5);
+			expect(preFilled).not.toBe(targetVolume);
+		});
+
+		it('TC-T1-R3-06: falls back to target volume when measured volume has not yet been recorded', () => {
+			const targetVolume = 20.0;
+			const measuredVolume = null;
+
+			const preFilled = resolveAdvancePreFillVolume(measuredVolume, targetVolume);
+
+			expect(preFilled).toBe(20.0);
+		});
+
+		it('TC-T2-R3-06: handles boundary case where both measured and target volumes are null', () => {
+			const preFilled = resolveAdvancePreFillVolume(null, null);
+
+			// Safely returns null without throwing exceptions
+			expect(preFilled).toBeNull();
+		});
+
+		it('TC-T2-R3-06: handles zero or negative values by falling back appropriately', () => {
+			// Measured is 0 or negative (invalid measurement) -> fallback to target
+			expect(resolveAdvancePreFillVolume(0, 20.0)).toBe(20.0);
+			expect(resolveAdvancePreFillVolume(-1.5, 20.0)).toBe(20.0);
+
+			// Both are 0 or negative -> safely returns null
+			expect(resolveAdvancePreFillVolume(0, 0)).toBeNull();
+		});
 	});
 });

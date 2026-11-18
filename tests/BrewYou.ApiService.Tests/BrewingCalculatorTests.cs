@@ -818,4 +818,138 @@ public class BrewingCalculatorTests
 
         BrewingCalculator.CalculateMashGrainWeightKg(batchIngredients).Should().BeApproximately(4.5m, 0.001m);
     }
+
+    [Fact]
+    public void CorrectHydrometerReading_WarmSample_CorrectsToHigherGravity()
+    {
+        // 1.050 SG measured at 50°C with hydrometer calibrated at 20°C
+        var corrected = BrewingCalculator.CorrectHydrometerReading(1.050m, 50.0m, 20.0m);
+
+        corrected.Should().BeGreaterThan(1.058m);
+        corrected.Should().BeApproximately(1.0607m, 0.001m);
+    }
+
+    [Fact]
+    public void CorrectHydrometerReading_ColdSample_CorrectsToLowerGravity()
+    {
+        // 1.050 SG measured at 10°C with hydrometer calibrated at 20°C
+        var corrected = BrewingCalculator.CorrectHydrometerReading(1.050m, 10.0m, 20.0m);
+
+        corrected.Should().BeLessThan(1.050m);
+        corrected.Should().BeApproximately(1.0483m, 0.001m);
+    }
+
+    [Fact]
+    public void CorrectHydrometerReading_AtCalibrationTemp_ReturnsUnchanged()
+    {
+        var corrected = BrewingCalculator.CorrectHydrometerReading(1.050m, 20.0m, 20.0m);
+
+        corrected.Should().Be(1.0500m);
+    }
+
+    [Fact]
+    public void CorrectHydrometerReading_WithDifferentCalibrationTemp_CalculatesAccurately()
+    {
+        // Hydrometer calibrated at 15.55°C (60°F) measuring at 25°C
+        var corrected = BrewingCalculator.CorrectHydrometerReading(1.050m, 25.0m, 15.55m);
+
+        corrected.Should().BeGreaterThan(1.050m);
+        corrected.Should().BeApproximately(1.0522m, 0.001m);
+    }
+
+    [Theory]
+    [InlineData(1.050, 0.0, 20.0, 1.050)] // tempC <= 0
+    [InlineData(1.050, -5.0, 20.0, 1.050)] // negative tempC
+    [InlineData(1.050, 105.0, 20.0, 1.050)] // tempC > 100
+    [InlineData(0.0, 25.0, 20.0, 0.0)] // rawSg <= 0
+    [InlineData(-1.0, 25.0, 20.0, -1.0)] // rawSg negative
+    [InlineData(1.050, 25.0, 0.0, 1.050)] // calTempC <= 0
+    [InlineData(1.050, 25.0, 105.0, 1.050)] // calTempC > 100
+    public void CorrectHydrometerReading_WithEdgeCases_HandlesSafely(
+        double rawSg, double tempC, double calTempC, double expected)
+    {
+        var result = BrewingCalculator.CorrectHydrometerReading((decimal)rawSg, (decimal)tempC, (decimal)calTempC);
+        result.Should().Be((decimal)expected);
+    }
+
+    [Fact]
+    public void CalculateApparentAttenuation_WithValidInputs_CalculatesCorrectPercentage()
+    {
+        // OG 1.050, FG 1.010 -> (50 - 10) / 50 = 80.0%
+        var attenuation = BrewingCalculator.CalculateApparentAttenuation(1.050m, 1.010m);
+
+        attenuation.Should().Be(80.0m);
+    }
+
+    [Theory]
+    [InlineData(1.000, 1.010)] // OG <= 1.000
+    [InlineData(0.998, 0.990)] // OG <= 1.000
+    [InlineData(1.050, 1.050)] // OG == FG
+    [InlineData(1.040, 1.050)] // OG < FG
+    public void CalculateApparentAttenuation_WithEdgeCases_ReturnsZero(double og, double fg)
+    {
+        var attenuation = BrewingCalculator.CalculateApparentAttenuation((decimal)og, (decimal)fg);
+        attenuation.Should().Be(0.0m);
+    }
+
+    [Fact]
+    public void CalculateRealAttenuation_FromApparent_AppliesAsbcFactor()
+    {
+        // 80.0% apparent * 0.8192 = 65.536% -> 65.5%
+        var realAttenuation = BrewingCalculator.CalculateRealAttenuation(80.0m);
+
+        realAttenuation.Should().Be(65.5m);
+    }
+
+    [Fact]
+    public void CalculateRealAttenuation_FromOgAndFg_CalculatesCorrectly()
+    {
+        // OG 1.050, FG 1.010 -> apparent 80.0% -> real 65.5%
+        var realAttenuation = BrewingCalculator.CalculateRealAttenuation(1.050m, 1.010m);
+
+        realAttenuation.Should().Be(65.5m);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-10.0)]
+    public void CalculateRealAttenuation_WithZeroOrNegative_ReturnsZero(double apparent)
+    {
+        var realAttenuation = BrewingCalculator.CalculateRealAttenuation((decimal)apparent);
+        realAttenuation.Should().Be(0.0m);
+    }
+
+    [Fact]
+    public void CalculateActualAbv_StandardGravity_UsesLinearFormula()
+    {
+        // OG <= 1.060 uses linear (OG - FG) * 131.25
+        // (1.050 - 1.010) * 131.25 = 5.25%
+        var abv = BrewingCalculator.CalculateActualAbv(1.050m, 1.010m);
+
+        abv.Should().Be(5.25m);
+    }
+
+    [Fact]
+    public void CalculateActualAbv_HighGravity_UsesAsbcFormula()
+    {
+        // OG > 1.060 uses non-linear ASBC formula
+        // OG = 1.070, FG = 1.015:
+        // abw = (76.08 * 0.055) / (1.775 - 1.070) = 4.1844 / 0.705 = 5.935319
+        // abv = 5.935319 * (1.015 / 0.794) = 7.587% -> 7.59%
+        var abv = BrewingCalculator.CalculateActualAbv(1.070m, 1.015m);
+
+        abv.Should().Be(7.59m);
+    }
+
+    [Theory]
+    [InlineData(1.050, 1.050)] // OG == FG
+    [InlineData(1.040, 1.050)] // OG < FG
+    [InlineData(0.999, 0.990)] // OG <= 1.000
+    [InlineData(1.050, 0.0)]   // FG <= 0
+    [InlineData(1.800, 1.050)] // OG >= 1.775 (safely clamped)
+    public void CalculateActualAbv_EdgeCases_ReturnsZero(double og, double fg)
+    {
+        var abv = BrewingCalculator.CalculateActualAbv((decimal)og, (decimal)fg);
+        abv.Should().Be(0.0m);
+    }
 }

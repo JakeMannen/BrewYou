@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
-	import { formatNumber } from '$lib/utils/formatNumber';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
+	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
 	import {
 		calculateBoilTimeAdjustment,
 		recalculatePostStepMilestones
@@ -29,15 +31,24 @@
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
 
-	// Draft inputs
-	let draftPreBoilVol = $state<number | null>(null);
-	let draftPreBoilGrav = $state<number | null>(null);
-	let draftPostBoilVol = $state<number | null>(null);
-	let draftMeasuredOg = $state<number | null>(null);
-	let draftPitchTemp = $state<number | null>(null);
-	let draftMeasuredBatchSize = $state<number | null>(null);
-	let draftMeasuredFg = $state<number | null>(null);
-	let draftPackagedVol = $state<number | null>(null);
+	// Draft string inputs (supporting both comma and dot decimal separators)
+	let draftPreBoilVolStr = $state('');
+	let draftPreBoilGravStr = $state('');
+	let draftPostBoilVolStr = $state('');
+	let draftMeasuredOgStr = $state('');
+	let draftPitchTempStr = $state('');
+	let draftMeasuredBatchSizeStr = $state('');
+	let draftMeasuredFgStr = $state('');
+	let draftPackagedVolStr = $state('');
+
+	let draftPreBoilVol = $derived(parseDecimal(draftPreBoilVolStr));
+	let draftPreBoilGrav = $derived(parseDecimal(draftPreBoilGravStr));
+	let draftPostBoilVol = $derived(parseDecimal(draftPostBoilVolStr));
+	let draftMeasuredOg = $derived(parseDecimal(draftMeasuredOgStr));
+	let draftPitchTemp = $derived(parseDecimal(draftPitchTempStr));
+	let draftMeasuredBatchSize = $derived(parseDecimal(draftMeasuredBatchSizeStr));
+	let draftMeasuredFg = $derived(parseDecimal(draftMeasuredFgStr));
+	let draftPackagedVol = $derived(parseDecimal(draftPackagedVolStr));
 	let draftPackagingVesselId = $state<string>('');
 	let draftNotes = $state<string>('');
 
@@ -70,10 +81,25 @@
 
 	let plannedGrainAbsorption = $derived.by(() => {
 		const vp = displayVolumeProfile ?? batch?.volumeProfile;
+		const mashGrainKg = (batch?.ingredients ?? [])
+			.filter((i) => isMashGrain(i.type, i.additionStage, i.fermentableCategory, i.name))
+			.reduce((sum, i) => sum + normalizeFermentableToKg(Number(i.amount), i.unit), 0);
+		if (mashGrainKg > 0 && (vp?.grainAbsorptionRateLPerKg ?? 0) > 0) {
+			return Math.round(mashGrainKg * vp!.grainAbsorptionRateLPerKg * 100) / 100;
+		}
 		if (!vp || !vp.totalWaterLiters || !vp.targetPreBoilVolumeLiters) return null;
+		const rawRemaining = vp.totalWaterLiters - vp.targetPreBoilVolumeLiters;
+		const isAllInOne =
+			Boolean(batch?.boilerId && (!batch.mashTunId || batch.mashTunId === batch.boilerId)) ||
+			vp.grainAbsorptionRateLPerKg === 0.8 ||
+			rawRemaining <= (vp.mashTunDeadSpaceLiters || 0);
+		const unrecoveredDeadSpace = isAllInOne ? 0 : vp.mashTunDeadSpaceLiters || 0;
 		const loss =
-			vp.totalWaterLiters - vp.targetPreBoilVolumeLiters - (vp.mashTunDeadSpaceLiters || 0);
-		return loss > 0 ? loss : null;
+			rawRemaining -
+			unrecoveredDeadSpace -
+			(vp.hltDeadSpaceLiters || 0) -
+			(vp.plumbingLossLiters || 0);
+		return loss > 0 ? Math.round(loss * 100) / 100 : null;
 	});
 
 	let boilExtensionMinutes = $derived.by(() => {
@@ -94,19 +120,49 @@
 	});
 
 	function startEditing() {
-		draftPreBoilVol = batch.volumeProfile?.measuredPreBoilVolumeLiters ?? null;
-		draftPreBoilGrav = batch.volumeProfile?.measuredPreBoilGravity ?? null;
-		draftPostBoilVol = batch.volumeProfile?.measuredPostBoilVolumeLiters ?? null;
-		draftMeasuredOg = batch.measuredOg ?? null;
-		draftPitchTemp = batch.pitchTemperatureC ?? null;
-		draftMeasuredBatchSize = batch.measuredBatchSizeLiters ?? null;
-		draftMeasuredFg = batch.measuredFg ?? null;
-		draftPackagedVol = batch.volumeProfile?.measuredPackagedVolumeLiters ?? null;
+		draftPreBoilVolStr = formatDecimalInput(batch.volumeProfile?.measuredPreBoilVolumeLiters, 1);
+		draftPreBoilGravStr = formatDecimalInput(batch.volumeProfile?.measuredPreBoilGravity, 3);
+		draftPostBoilVolStr = formatDecimalInput(batch.volumeProfile?.measuredPostBoilVolumeLiters, 1);
+		draftMeasuredOgStr = formatDecimalInput(batch.measuredOg, 3);
+		draftPitchTempStr = formatDecimalInput(batch.pitchTemperatureC, 1);
+		draftMeasuredBatchSizeStr = formatDecimalInput(batch.measuredBatchSizeLiters, 1);
+		draftMeasuredFgStr = formatDecimalInput(batch.measuredFg, 3);
+		draftPackagedVolStr = formatDecimalInput(batch.volumeProfile?.measuredPackagedVolumeLiters, 1);
 		draftPackagingVesselId = batch.packagingVesselId ?? '';
 		draftNotes = batch.notes ?? '';
 		error = null;
 		success = null;
 		isEditing = true;
+	}
+
+	function hasInvalidStageDecimals(): boolean {
+		const checks: [string, number | null][] =
+			stage === 'Mash'
+				? [
+						[draftPreBoilVolStr, draftPreBoilVol],
+						[draftPreBoilGravStr, draftPreBoilGrav]
+					]
+				: stage === 'Boil'
+					? [
+							[draftPostBoilVolStr, draftPostBoilVol],
+							[draftMeasuredOgStr, draftMeasuredOg]
+						]
+					: stage === 'Ferment'
+						? [
+								[draftMeasuredOgStr, draftMeasuredOg],
+								[draftPitchTempStr, draftPitchTemp],
+								[draftMeasuredBatchSizeStr, draftMeasuredBatchSize]
+							]
+						: stage === 'Condition'
+							? [
+									[draftMeasuredFgStr, draftMeasuredFg],
+									[draftMeasuredBatchSizeStr, draftMeasuredBatchSize]
+								]
+							: [
+									[draftMeasuredFgStr, draftMeasuredFg],
+									[draftPackagedVolStr, draftPackagedVol]
+								];
+		return checks.some(([raw, parsed]) => raw.trim() !== '' && parsed === null);
 	}
 
 	function cancelEditing() {
@@ -116,6 +172,10 @@
 
 	async function handleSubmit(event: SubmitEvent) {
 		event.preventDefault();
+		if (hasInvalidStageDecimals()) {
+			error = t('batches.workspace.stage_inputs_error');
+			return;
+		}
 		saving = true;
 		error = null;
 		success = null;
@@ -127,8 +187,6 @@
 				req.measuredPreBoilVolumeLiters = draftPreBoilVol;
 				req.measuredPreBoilGravity = draftPreBoilGrav;
 			} else if (stage === 'Boil') {
-				req.measuredPreBoilVolumeLiters = draftPreBoilVol;
-				req.measuredPreBoilGravity = draftPreBoilGrav;
 				req.measuredPostBoilVolumeLiters = draftPostBoilVol;
 				req.measuredOg = draftMeasuredOg;
 			} else if (stage === 'Ferment') {
@@ -136,7 +194,15 @@
 				req.pitchTemperatureC = draftPitchTemp;
 				req.measuredBatchSizeLiters = draftMeasuredBatchSize;
 			} else if (stage === 'Condition') {
-				// Condition stage inputs
+				req.measuredFg = draftMeasuredFg;
+				req.measuredBatchSizeLiters = draftMeasuredBatchSize;
+				if (draftPackagingVesselId !== (batch.packagingVesselId ?? '')) {
+					req.packagingVesselId = draftPackagingVesselId
+						? draftPackagingVesselId
+						: batch.packagingVesselId
+							? '00000000-0000-0000-0000-000000000000'
+							: null;
+				}
 			} else if (stage === 'Package') {
 				req.measuredFg = draftMeasuredFg;
 				req.measuredPackagedVolumeLiters = draftPackagedVol;
@@ -352,7 +418,7 @@
 					class="rounded-xl border border-zinc-200/60 bg-white/70 p-3 text-center dark:border-white/5 dark:bg-zinc-900/60"
 				>
 					<span class="block text-[10px] font-semibold text-zinc-500 uppercase dark:text-zinc-400">
-						{t('batches.workspace.pitch_temp_label')}
+						{t('batches.workspace.pitch_temp_label', { unit: settings.tempShort })}
 					</span>
 					<div class="mt-1 font-mono text-sm font-bold text-zinc-900 dark:text-white">
 						{batch.pitchTemperatureC !== null && batch.pitchTemperatureC !== undefined
@@ -382,6 +448,49 @@
 					</span>
 					<div class="mt-1 font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
 						{batch.currentGravity ? `${formatNumber(batch.currentGravity, 3)} SG` : '—'}
+					</div>
+				</div>
+
+				<div
+					class="rounded-xl border border-zinc-200/60 bg-white/70 p-3 text-center dark:border-white/5 dark:bg-zinc-900/60"
+				>
+					<span class="block text-[10px] font-semibold text-zinc-500 uppercase dark:text-zinc-400">
+						{t('batches.workspace.measured_fg_label')}
+					</span>
+					<div class="mt-1 font-mono text-sm font-bold text-zinc-900 dark:text-white">
+						{batch.measuredFg ? `${formatNumber(batch.measuredFg, 3)} SG` : '—'}
+					</div>
+				</div>
+
+				<div
+					class="rounded-xl border border-zinc-200/60 bg-white/70 p-3 text-center dark:border-white/5 dark:bg-zinc-900/60"
+				>
+					<span class="block text-[10px] font-semibold text-zinc-500 uppercase dark:text-zinc-400">
+						{t('batches.workspace.measured_volume_label')}
+					</span>
+					<div class="mt-1 font-mono text-sm font-bold text-zinc-900 dark:text-white">
+						{batch.measuredBatchSizeLiters
+							? `${formatNumber(batch.measuredBatchSizeLiters, 1)}L`
+							: '—'}
+					</div>
+				</div>
+
+				<div
+					class="rounded-xl border border-zinc-200/60 bg-white/70 p-3 text-center dark:border-white/5 dark:bg-zinc-900/60"
+				>
+					<span class="block text-[10px] font-semibold text-zinc-500 uppercase dark:text-zinc-400">
+						{t('batches.equipment.packaging_vessel')}
+					</span>
+					<div class="mt-1 text-xs font-medium text-zinc-900 dark:text-white">
+						{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+							<span class="text-zinc-500 italic">
+								{batch.packagingVesselName
+									? `${batch.packagingVesselName} (${t('common.deleted')})`
+									: t('batches.workspace.deleted_vessel')}
+							</span>
+						{:else}
+							{batch.packagingVesselName || t('batches.workspace.bottled_cellared_option')}
+						{/if}
 					</div>
 				</div>
 			{:else if stage === 'Package'}
@@ -456,9 +565,9 @@
 						</label>
 						<input
 							id="edit-preboil-vol"
-							type="number"
-							step="0.1"
-							bind:value={draftPreBoilVol}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftPreBoilVolStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(28.5, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
@@ -473,48 +582,14 @@
 						</label>
 						<input
 							id="edit-preboil-grav"
-							type="number"
-							step="0.001"
-							bind:value={draftPreBoilGrav}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftPreBoilGravStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.045, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
 				{:else if stage === 'Boil'}
-					<div>
-						<label
-							for="edit-preboil-vol"
-							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-						>
-							{t('batches.workspace.pre_boil_vol_label')}
-						</label>
-						<input
-							id="edit-preboil-vol"
-							type="number"
-							step="0.1"
-							bind:value={draftPreBoilVol}
-							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(28.5, 1)}`}
-							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-						/>
-					</div>
-
-					<div>
-						<label
-							for="edit-preboil-grav"
-							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
-						>
-							{t('batches.workspace.pre_boil_grav_label')}
-						</label>
-						<input
-							id="edit-preboil-grav"
-							type="number"
-							step="0.001"
-							bind:value={draftPreBoilGrav}
-							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.045, 3)}`}
-							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-						/>
-					</div>
-
 					<div>
 						<label
 							for="edit-postboil-vol"
@@ -524,9 +599,9 @@
 						</label>
 						<input
 							id="edit-postboil-vol"
-							type="number"
-							step="0.1"
-							bind:value={draftPostBoilVol}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftPostBoilVolStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(23.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
@@ -541,9 +616,9 @@
 						</label>
 						<input
 							id="edit-measured-og"
-							type="number"
-							step="0.001"
-							bind:value={draftMeasuredOg}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftMeasuredOgStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.055, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
@@ -558,9 +633,9 @@
 						</label>
 						<input
 							id="edit-measured-og"
-							type="number"
-							step="0.001"
-							bind:value={draftMeasuredOg}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftMeasuredOgStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.055, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
@@ -571,13 +646,13 @@
 							for="edit-pitch-temp"
 							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
 						>
-							{t('batches.workspace.pitch_temp_label')}
+							{t('batches.workspace.pitch_temp_label', { unit: settings.tempShort })}
 						</label>
 						<input
 							id="edit-pitch-temp"
-							type="number"
-							step="0.5"
-							bind:value={draftPitchTemp}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftPitchTempStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(19.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
@@ -592,12 +667,72 @@
 						</label>
 						<input
 							id="edit-fermenter-vol"
-							type="number"
-							step="0.1"
-							bind:value={draftMeasuredBatchSize}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftMeasuredBatchSizeStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(20.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
+					</div>
+				{:else if stage === 'Condition'}
+					<div>
+						<label
+							for="edit-cond-measured-fg"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.workspace.measured_fg_label')}
+						</label>
+						<input
+							id="edit-cond-measured-fg"
+							type="text"
+							inputmode="decimal"
+							bind:value={draftMeasuredFgStr}
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.01, 3)}`}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						/>
+					</div>
+
+					<div>
+						<label
+							for="edit-cond-volume"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.workspace.measured_volume_label')}
+						</label>
+						<input
+							id="edit-cond-volume"
+							type="text"
+							inputmode="decimal"
+							bind:value={draftMeasuredBatchSizeStr}
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(20.0, 1)}`}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						/>
+					</div>
+
+					<div class="sm:col-span-2">
+						<label
+							for="edit-cond-packaging-vessel"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.equipment.select_packaging_vessel')}
+						</label>
+						<select
+							id="edit-cond-packaging-vessel"
+							bind:value={draftPackagingVesselId}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						>
+							{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+								<option value={batch.packagingVesselId} disabled>
+									{batch.packagingVesselName
+										? `${batch.packagingVesselName} (${t('common.deleted')})`
+										: t('batches.workspace.deleted_vessel')}
+								</option>
+							{/if}
+							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
+							{#each equipmentList.filter((e) => e.type === 'Keg') as keg}
+								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
+							{/each}
+						</select>
 					</div>
 				{:else if stage === 'Package'}
 					<div>
@@ -609,9 +744,9 @@
 						</label>
 						<input
 							id="edit-measured-fg"
-							type="number"
-							step="0.001"
-							bind:value={draftMeasuredFg}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftMeasuredFgStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(1.01, 3)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
@@ -626,9 +761,9 @@
 						</label>
 						<input
 							id="edit-packaged-vol"
-							type="number"
-							step="0.1"
-							bind:value={draftPackagedVol}
+							type="text"
+							inputmode="decimal"
+							bind:value={draftPackagedVolStr}
 							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(18.5, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>

@@ -601,7 +601,7 @@
 					{t('batches.workspace.target_temp_hud')}
 				</span>
 				<div class="mt-1 flex items-baseline gap-1.5 font-mono text-2xl font-bold text-amber-400">
-					<Thermometer class="h-5 w-5 text-copper-500" />
+					<Thermometer class="h-5 w-5 text-amber-500" />
 					<span>{getDisplayTemp(targetTemperatureC)}</span>
 				</div>
 			</div>

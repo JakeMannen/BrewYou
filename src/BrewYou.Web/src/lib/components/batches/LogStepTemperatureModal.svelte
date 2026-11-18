@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
+	import { formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import { settings } from '$lib/stores/settings.svelte';
 	import type {
 		BatchBoilStep,
@@ -43,7 +44,8 @@
 	let selectedEquipmentId = $state<string>('');
 	let selectedMashStepId = $state<string>('');
 	let selectedBoilStepName = $state<string>('');
-	let tempInputValue = $state<number>(65.0);
+	let tempInputStr = $state('');
+	let tempInputValue = $derived(parseDecimal(tempInputStr));
 	let notes = $state<string>('');
 	let timestampLocal = $state<string>('');
 	let saving = $state(false);
@@ -96,10 +98,11 @@
 				matchedStep?.targetTemperatureC ??
 				matchedBoil?.targetTemperatureC ??
 				(stage === 'Boil' ? 100 : stage === 'Ferment' ? 20 : 65);
-			tempInputValue =
+			const initialTemp =
 				settings.temperatureUnit === 'Fahrenheit'
 					? Number(((target * 9) / 5 + 32).toFixed(1))
 					: target;
+			tempInputStr = formatNumber(initialTemp, 1);
 			notes = '';
 			timestampLocal = '';
 			error = null;
@@ -225,9 +228,9 @@
 					<div class="relative mt-1">
 						<input
 							id="step-temp-input"
-							type="number"
-							step="0.1"
-							bind:value={tempInputValue}
+							type="text"
+							inputmode="decimal"
+							bind:value={tempInputStr}
 							required
 							class="w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 font-mono text-sm font-semibold text-zinc-900 shadow-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 focus:outline-hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
 						/>

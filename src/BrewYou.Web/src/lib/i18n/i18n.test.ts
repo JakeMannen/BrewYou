@@ -27,6 +27,23 @@ function getTopLevelKeysFromRawJson(filePath: string): string[] {
 	return matches.map((m) => m[1]);
 }
 
+function getLeafEntries(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
+	const entries: Record<string, string> = {};
+	for (const [k, v] of Object.entries(obj)) {
+		const fullKey = prefix ? `${prefix}.${k}` : k;
+		if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+			Object.assign(entries, getLeafEntries(v as Record<string, unknown>, fullKey));
+		} else {
+			entries[fullKey] = String(v);
+		}
+	}
+	return entries;
+}
+
+function extractPlaceholders(value: string): string[] {
+	return [...value.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).sort();
+}
+
 describe('i18n Translation Engine', () => {
 	it('has 100% key parity across English, Swedish, German, French, and Spanish dictionaries', () => {
 		const enKeys = getAllKeys(en);
@@ -39,6 +56,31 @@ describe('i18n Translation Engine', () => {
 		expect(deKeys).toEqual(enKeys);
 		expect(frKeys).toEqual(enKeys);
 		expect(esKeys).toEqual(enKeys);
+	});
+
+	it('has 100% {param} placeholder parity across English, Swedish, German, French, and Spanish dictionaries', () => {
+		const enEntries = getLeafEntries(en);
+		const otherLocales = [
+			['sv', getLeafEntries(sv)],
+			['de', getLeafEntries(de)],
+			['fr', getLeafEntries(fr)],
+			['es', getLeafEntries(es)]
+		] as const;
+
+		const mismatches: string[] = [];
+		for (const [key, enVal] of Object.entries(enEntries)) {
+			const expectedParams = extractPlaceholders(enVal);
+			for (const [loc, entries] of otherLocales) {
+				const actualParams = extractPlaceholders(entries[key] ?? '');
+				if (JSON.stringify(actualParams) !== JSON.stringify(expectedParams)) {
+					mismatches.push(
+						`${loc}.${key}: expected [${expectedParams.join(', ')}] got [${actualParams.join(', ')}]`
+					);
+				}
+			}
+		}
+
+		expect(mismatches).toEqual([]);
 	});
 
 	it('contains no duplicate top-level keys in any locale file', () => {
@@ -413,6 +455,92 @@ describe('i18n Translation Engine', () => {
 		}
 
 		expect(missing).toEqual([]);
+	});
+
+	it('TC-T1-R1-01: distinguishes Swedish measured_og and target_og without collision', () => {
+		// Swedish translation parity check for measured vs target OG
+		i18n.setLocale('sv');
+		const svMeasured = t('batches.measured_og');
+		const svTarget = t('batches.telemetry.target_og');
+
+		expect(svMeasured).toBe('Uppmätt OG');
+		expect(svTarget).toBe('Mål-OG');
+		expect(svMeasured).not.toEqual(svTarget);
+
+		// English translation distinction check
+		i18n.setLocale('en');
+		const enMeasured = t('batches.measured_og');
+		const enTarget = t('batches.telemetry.target_og');
+
+		expect(enMeasured).toBe('Measured OG');
+		expect(enTarget).toBe('Target OG');
+		expect(enMeasured).not.toEqual(enTarget);
+	});
+
+	it('TC-T1-R1-02: dynamically interpolates temperature unit tokens ({unit}) across all 5 locales and avoids hardcoded °C', () => {
+		const unitCases = [
+			{
+				locale: 'en',
+				pitch: (u: string) => `Yeast Pitch Temp (${u})`,
+				reading: (u: string) => `Vessel Temperature (${u})`,
+				telemetry: (u: string) => `Temperature (${u})`,
+				wizardPitch: (u: string) => `Pitch Temp (${u}, Optional)`
+			},
+			{
+				locale: 'sv',
+				pitch: (u: string) => `Jästtillsättningstemp (${u})`,
+				reading: (u: string) => `Kärltemperatur (${u})`,
+				telemetry: (u: string) => `Temperatur (${u})`,
+				wizardPitch: (u: string) => `Jästtillsättningstemp (${u}, valfritt)`
+			},
+			{
+				locale: 'de',
+				pitch: (u: string) => `Anstelltemperatur (${u})`,
+				reading: (u: string) => `Kesseltemperatur (${u})`,
+				telemetry: (u: string) => `Temperatur (${u})`,
+				wizardPitch: (u: string) => `Anstelltemperatur (${u}, optional)`
+			},
+			{
+				locale: 'es',
+				pitch: (u: string) => `Temperatura de inoculación (${u})`,
+				reading: (u: string) => `Temperatura del tanque (${u})`,
+				telemetry: (u: string) => `Temperatura (${u})`,
+				wizardPitch: (u: string) => `Temperatura de inoculación (${u}, opcional)`
+			},
+			{
+				locale: 'fr',
+				pitch: (u: string) => `Température d'ensemencement (${u})`,
+				reading: (u: string) => `Température de cuve (${u})`,
+				telemetry: (u: string) => `Température (${u})`,
+				wizardPitch: (u: string) => `Température d'ensemencement (${u}, facultatif)`
+			}
+		] as const;
+
+		for (const c of unitCases) {
+			i18n.setLocale(c.locale);
+			for (const unit of ['°C', '°F']) {
+				expect(t('batches.workspace.pitch_temp_label', { unit })).toBe(c.pitch(unit));
+				expect(t('batches.workspace.reading_temp_label', { unit })).toBe(c.reading(unit));
+				expect(t('batches.telemetry.temperature', { unit })).toBe(c.telemetry(unit));
+				expect(t('batches.wizard.pitch_temp_optional', { unit })).toBe(c.wizardPitch(unit));
+			}
+			expect(t('batches.telemetry.temp_input_label')).not.toContain('°C');
+			expect(t('batches.wizard.strike_temp')).not.toContain('°C');
+			expect(t('batches.wizard.sparge_temp')).not.toContain('°C');
+		}
+	});
+
+	it('TC-T2-R1-01: handles missing parameter interpolation gracefully without crashes', () => {
+		i18n.setLocale('en');
+		// Missing parameter does not throw
+		const rawPitch = t('batches.workspace.pitch_temp_label');
+		expect(rawPitch).toBeDefined();
+		expect(rawPitch).toContain('Pitch Temp');
+
+		i18n.setLocale('sv');
+		const rawPitchSv = t('batches.workspace.pitch_temp_label');
+		expect(rawPitchSv).toBeDefined();
+		expect(rawPitchSv).toContain('Jästtillsättningstemp');
 	});
 
 	it('translates batch progression and stage measurement keys accurately in Swedish', () => {

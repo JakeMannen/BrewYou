@@ -503,7 +503,9 @@
 								class="rounded-xl border border-zinc-200/60 bg-zinc-100/50 p-2.5 text-center dark:border-white/5 dark:bg-zinc-900/60"
 							>
 								<span class="block text-[10px] font-semibold tracking-wider text-zinc-400 uppercase"
-									>{t('batches.target_abv')}</span
+									>{batch.alcoholByVolume
+										? t('batches.workspace.current_abv')
+										: t('batches.target_abv')}</span
 								>
 								<span class="font-mono text-sm font-bold text-amber-600 dark:text-amber-400"
 									>{batch.alcoholByVolume

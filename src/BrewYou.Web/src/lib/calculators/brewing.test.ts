@@ -3,6 +3,9 @@ import {
 	calculateBrewMetrics,
 	calculateBuGuRatio,
 	calculateApparentAttenuation,
+	calculateRealAttenuation,
+	calculateActualAbv,
+	correctHydrometerReading,
 	danielsIbu,
 	srmToHexColor,
 	sgToPpg,
@@ -521,11 +524,24 @@ describe('calculateBrewMetrics', () => {
 			expect(imp.bitternessIbu).toBeCloseTo(met.bitternessIbu, 1);
 		});
 
-		it('calculates BU:GU ratio and Apparent Attenuation accurately', () => {
+		it('calculates BU:GU ratio, Apparent Attenuation, and Real Attenuation accurately', () => {
 			expect(calculateBuGuRatio(1.05, 40)).toBe(0.8);
 			expect(calculateBuGuRatio(1.0, 40)).toBe(0);
 			expect(calculateApparentAttenuation(1.05, 1.01)).toBe(80.0);
 			expect(calculateApparentAttenuation(1.01, 1.01)).toBe(0);
+			expect(calculateApparentAttenuation(1.05, 0)).toBe(0);
+			expect(calculateApparentAttenuation(1.05, -0.5)).toBe(0);
+			expect(calculateApparentAttenuation(NaN, 1.01)).toBe(0);
+
+			// Real attenuation overloads (ASBC 0.8192 factor, 1 decimal place)
+			expect(calculateRealAttenuation(80.0)).toBe(65.5);
+			expect(calculateRealAttenuation(1.05, 1.01)).toBe(65.5);
+			expect(calculateRealAttenuation(0)).toBe(0);
+			expect(calculateRealAttenuation(-10)).toBe(0);
+			expect(calculateRealAttenuation(NaN)).toBe(0);
+			expect(calculateRealAttenuation(1.01, 1.05)).toBe(0);
+			expect(calculateRealAttenuation(1.0, 0.99)).toBe(0);
+			expect(calculateRealAttenuation(1.05, 0)).toBe(0);
 		});
 
 		it('adjusts yeast attenuation for mash saccharification temperature (e.g. 64.5C Hochkurz maltose rest with 70% WLP860)', () => {
@@ -698,6 +714,136 @@ describe('calculateBrewMetrics', () => {
 			expect(isMashGrain('Fermentable', 'Boil', 'Grain', 'Caramel 60L')).toBe(false);
 			expect(isMashGrain('Fermentable', 'Mash', 'Sugar', 'Dextrose')).toBe(false);
 			expect(isMashGrain('Fermentable', 'Boil', 'DryExtract', 'Light DME')).toBe(false);
+		});
+	});
+
+	describe('calculateActualAbv & High-Gravity ASBC Parity (TC-T1-R4-03, TC-T2-R4-02)', () => {
+		it('calculates ABV with Linear formula ((OG - FG) * 131.25) when OG <= 1.060', () => {
+			const abv = calculateActualAbv(1.05, 1.01, 'Linear');
+			expect(abv).toBe(5.25);
+		});
+
+		it('automatically switches to ASBC non-linear formula for OG > 1.060 regardless of formula selection', () => {
+			const linearOverride = calculateActualAbv(1.09, 1.02, 'Linear');
+			const advanced = calculateActualAbv(1.09, 1.02, 'Advanced');
+			const defaultFormula = calculateActualAbv(1.09, 1.02);
+			expect(linearOverride).toBe(9.99);
+			expect(advanced).toBe(9.99);
+			expect(defaultFormula).toBe(9.99);
+
+			// Formula-override parity at 1.070 and 1.080
+			expect(calculateActualAbv(1.07, 1.015, 'Linear')).toBe(7.59);
+			expect(calculateActualAbv(1.07, 1.015, 'Advanced')).toBe(7.59);
+			expect(calculateActualAbv(1.07, 1.015)).toBe(7.59);
+			expect(calculateActualAbv(1.08, 1.018, 'Linear')).toBe(8.7);
+			expect(calculateActualAbv(1.08, 1.018, 'Advanced')).toBe(8.7);
+		});
+
+		it('switches cleanly at exact OG 1.0600 vs 1.0601 / 1.061 boundary', () => {
+			// At 1.0600 (<= 1.060): linear -> (1.060 - 1.010) * 131.25 = 6.5625 -> 6.56
+			expect(calculateActualAbv(1.06, 1.01, 'Linear')).toBe(6.56);
+			expect(calculateActualAbv(1.06, 1.01)).toBe(6.56);
+
+			// Above 1.060 (1.0601 & 1.061): ASBC non-linear -> 6.78 and 6.91
+			expect(calculateActualAbv(1.0601, 1.01, 'Linear')).toBe(6.78);
+			expect(calculateActualAbv(1.0601, 1.01)).toBe(6.78);
+			expect(calculateActualAbv(1.061, 1.01, 'Linear')).toBe(6.91);
+			expect(calculateActualAbv(1.061, 1.01, 'Advanced')).toBe(6.91);
+		});
+
+		it('TC-T1-R4-03: matches backend ASBC formula calculation for OG 1.070, FG 1.015', () => {
+			// Backend BrewingCalculator.CalculateActualAbv(1.070, 1.015) computes 7.59%
+			// abw = (76.08 * 0.055) / (1.775 - 1.070) = 5.935319
+			// abv = 5.935319 * (1.015 / 0.794) = 7.587% -> 7.59%
+			const abv = calculateActualAbv(1.07, 1.015, 'Advanced');
+			expect(abv).toBe(7.59);
+		});
+
+		it('TC-T1-R4-03: matches backend ASBC formula calculation for Imperial Stout (OG 1.080, FG 1.018)', () => {
+			// Backend BrewingCalculator.CalculateActualAbv(1.080, 1.018) computes 8.70%
+			// abw = (76.08 * 0.062) / (1.775 - 1.080) = 4.71696 / 0.695 = 6.78699
+			// abv = 6.78699 * (1.018 / 0.794) = 8.7017% -> 8.70%
+			const abv = calculateActualAbv(1.08, 1.018, 'Advanced');
+			expect(abv).toBe(8.7);
+		});
+
+		it('TC-T2-R4-02: handles threshold and corner cases safely', () => {
+			// Identical gravities (no fermentation)
+			expect(calculateActualAbv(1.05, 1.05, 'Linear')).toBe(0);
+			expect(calculateActualAbv(1.05, 1.05, 'Advanced')).toBe(0);
+
+			// Inverted gravities (FG > OG)
+			expect(calculateActualAbv(1.01, 1.05, 'Linear')).toBe(0);
+			expect(calculateActualAbv(1.01, 1.05, 'Advanced')).toBe(0);
+
+			// Sub-water or water gravities (OG <= 1.0)
+			expect(calculateActualAbv(1.0, 1.0, 'Linear')).toBe(0);
+			expect(calculateActualAbv(0.998, 0.995, 'Linear')).toBe(0);
+			expect(calculateActualAbv(0.998, 0.995, 'Advanced')).toBe(0);
+
+			// Zero / negative FG and non-finite inputs
+			expect(calculateActualAbv(1.05, 0, 'Linear')).toBe(0);
+			expect(calculateActualAbv(1.05, -1, 'Advanced')).toBe(0);
+			expect(calculateActualAbv(NaN, 1.01)).toBe(0);
+			expect(calculateActualAbv(1.05, NaN)).toBe(0);
+
+			// ASBC singularity guard (og >= 1.775)
+			expect(calculateActualAbv(1.775, 1.01, 'Advanced')).toBe(0);
+			expect(calculateActualAbv(1.8, 1.05, 'Linear')).toBe(0);
+
+			// Extreme OG values within valid range
+			const extremeAbv = calculateActualAbv(1.15, 1.03, 'Advanced');
+			expect(extremeAbv).toBeGreaterThan(15.0);
+			expect(extremeAbv).toBeLessThan(20.0);
+		});
+	});
+
+	describe('Hydrometer Temperature Correction ASBC Parity (TC-T1-R4-01, TC-T1-R4-02, TC-T2-R4-01)', () => {
+		it('TC-T1-R4-01: at calibration temperature (20°C), hydrometer reading is unchanged', () => {
+			const corrected = correctHydrometerReading(1.05, 20.0, 20.0);
+			expect(corrected).toBe(1.05);
+		});
+
+		it('TC-T1-R4-02: warm hydrometer sample (50°C) corrects to higher gravity due to wort expansion', () => {
+			// Backend test vector: 1.050 at 50°C with 20°C calTemp -> approx 1.0607
+			const corrected = correctHydrometerReading(1.05, 50.0, 20.0);
+			expect(corrected).toBeGreaterThan(1.058);
+			expect(corrected).toBeCloseTo(1.0607, 3);
+		});
+
+		it('TC-T1-R4-02: cold hydrometer sample (10°C) corrects to lower gravity due to wort contraction', () => {
+			// Backend test vector: 1.050 at 10°C with 20°C calTemp -> approx 1.0483
+			const corrected = correctHydrometerReading(1.05, 10.0, 20.0);
+			expect(corrected).toBeLessThan(1.05);
+			expect(corrected).toBeCloseTo(1.0483, 3);
+		});
+
+		it('TC-T1-R4-02: supports custom calibration temperature (e.g. 15.55°C / 60°F)', () => {
+			// Backend test vector: 1.050 at 25°C with 15.55°C calTemp -> approx 1.0522
+			const corrected = correctHydrometerReading(1.05, 25.0, 15.55);
+			expect(corrected).toBeGreaterThan(1.05);
+			expect(corrected).toBeCloseTo(1.0522, 3);
+		});
+
+		it('TC-T2-R4-01: handles extreme and invalid temperatures safely without divergence or NaN', () => {
+			// tempC <= 0: safely returns raw SG
+			expect(correctHydrometerReading(1.05, 0.0, 20.0)).toBe(1.05);
+			expect(correctHydrometerReading(1.05, -5.0, 20.0)).toBe(1.05);
+
+			// tempC > 100: safely returns raw SG
+			expect(correctHydrometerReading(1.05, 105.0, 20.0)).toBe(1.05);
+
+			// rawSg <= 0: safely returns raw SG
+			expect(correctHydrometerReading(0.0, 25.0, 20.0)).toBe(0.0);
+			expect(correctHydrometerReading(-1.0, 25.0, 20.0)).toBe(-1.0);
+
+			// calTempC <= 0 or > 100: safely returns raw SG
+			expect(correctHydrometerReading(1.05, 25.0, 0.0)).toBe(1.05);
+			expect(correctHydrometerReading(1.05, 25.0, 105.0)).toBe(1.05);
+
+			// Non-finite inputs safely return raw SG
+			expect(correctHydrometerReading(1.05, NaN, 20.0)).toBe(1.05);
+			expect(correctHydrometerReading(1.05, 25.0, Infinity)).toBe(1.05);
 		});
 	});
 });

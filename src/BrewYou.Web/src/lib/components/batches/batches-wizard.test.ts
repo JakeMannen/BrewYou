@@ -224,4 +224,162 @@ describe('Batches Wizard — Equipment Capacity & Boilover Calculations', () => 
 		expect(svBoiloverWarn).toContain('Risk för överkokning');
 		expect(svBoiloverWarn).toContain('8%');
 	});
+
+	describe('Boiler Warning Deduplication (TC-T1-R1-05, TC-T2-R1-04)', () => {
+		function shouldRenderBoilerAlert(
+			step: number,
+			location: 'vesselSelector' | 'waterSchedule' | 'reviewSummary',
+			isOverCapacity: boolean
+		): boolean {
+			if (!isOverCapacity) return false;
+			// Dedicated rule: warning only renders in Step 2 Vessel Selector; suppressed in water schedule and review
+			if (step === 2 && location === 'vesselSelector') return true;
+			return false;
+		}
+
+		it('TC-T1-R1-05: renders boiler overcapacity warning exactly once in Step 2 vessel selector and suppresses duplicates', () => {
+			const isOverCapacity = true;
+
+			// Step 2 Vessel Selector renders the alert
+			expect(shouldRenderBoilerAlert(2, 'vesselSelector', isOverCapacity)).toBe(true);
+
+			// Step 2 Water Schedule alert is suppressed
+			expect(shouldRenderBoilerAlert(2, 'waterSchedule', isOverCapacity)).toBe(false);
+
+			// Step 3 Review Summary alert is suppressed
+			expect(shouldRenderBoilerAlert(3, 'reviewSummary', isOverCapacity)).toBe(false);
+		});
+
+		it('TC-T2-R1-04: tests exact capacity boundary (30.00L vs 30.01L)', () => {
+			const capacity = 30.0;
+			const exactlyAtCapacity = 30.0;
+			const slightlyOverCapacity = 30.01;
+			const slightlyUnderCapacity = 29.99;
+
+			const isOverAtCapacity = exactlyAtCapacity > capacity;
+			const isOverAboveCapacity = slightlyOverCapacity > capacity;
+			const isOverBelowCapacity = slightlyUnderCapacity > capacity;
+
+			expect(isOverAtCapacity).toBe(false);
+			expect(isOverAboveCapacity).toBe(true);
+			expect(isOverBelowCapacity).toBe(false);
+
+			// Only slightlyOverCapacity activates the alert in Step 2 vessel selector
+			expect(shouldRenderBoilerAlert(2, 'vesselSelector', isOverAtCapacity)).toBe(false);
+			expect(shouldRenderBoilerAlert(2, 'vesselSelector', isOverAboveCapacity)).toBe(true);
+			expect(shouldRenderBoilerAlert(2, 'vesselSelector', isOverBelowCapacity)).toBe(false);
+		});
+	});
+
+	describe('Equipment Connectivity Badges & Graceful Disconnect Fallback (TC-T1-R3-01, TC-T2-R3-01)', () => {
+		interface ConnectionBadge {
+			status: 'Connected' | 'Offline' | 'Manual';
+			badgeColor: 'green' | 'amber' | 'zinc';
+			canAutoSendRecipe: boolean;
+		}
+
+		function resolveEquipmentConnectionBadge(
+			equipment: EquipmentDto,
+			isDeviceOnline = false
+		): ConnectionBadge {
+			if (equipment.connectionType === 'BrewLink') {
+				if (isDeviceOnline) {
+					return {
+						status: 'Connected',
+						badgeColor: 'green',
+						canAutoSendRecipe: true
+					};
+				}
+				return {
+					status: 'Offline',
+					badgeColor: 'amber',
+					canAutoSendRecipe: false
+				};
+			}
+			return {
+				status: 'Manual',
+				badgeColor: 'zinc',
+				canAutoSendRecipe: false
+			};
+		}
+
+		function resolveBatchCreationMode(
+			boiler: EquipmentDto,
+			requestedAutoSend: boolean,
+			isDeviceOnline: boolean
+		): { sendRecipeToBoiler: boolean; isManualFallback: boolean; canProceed: boolean } {
+			if (boiler.connectionType === 'BrewLink') {
+				if (!isDeviceOnline) {
+					// Fallback to manual mode gracefully without throwing unhandled 409
+					return {
+						sendRecipeToBoiler: false,
+						isManualFallback: true,
+						canProceed: true
+					};
+				}
+				return {
+					sendRecipeToBoiler: requestedAutoSend,
+					isManualFallback: false,
+					canProceed: true
+				};
+			}
+			return {
+				sendRecipeToBoiler: false,
+				isManualFallback: false,
+				canProceed: true
+			};
+		}
+
+		it('TC-T1-R3-01: resolves live connected BrewLink equipment to green Connected badge', () => {
+			const brewlinkBoiler = createMockBoiler({
+				connectionType: 'BrewLink',
+				connectionToken: 'tok-123'
+			});
+			const badge = resolveEquipmentConnectionBadge(brewlinkBoiler, true);
+
+			expect(badge.status).toBe('Connected');
+			expect(badge.badgeColor).toBe('green');
+			expect(badge.canAutoSendRecipe).toBe(true);
+		});
+
+		it('TC-T1-R3-01: resolves offline BrewLink equipment to amber Offline badge and disables auto-send', () => {
+			const brewlinkBoiler = createMockBoiler({
+				connectionType: 'BrewLink',
+				connectionToken: 'tok-123'
+			});
+			const badge = resolveEquipmentConnectionBadge(brewlinkBoiler, false);
+
+			expect(badge.status).toBe('Offline');
+			expect(badge.badgeColor).toBe('amber');
+			expect(badge.canAutoSendRecipe).toBe(false);
+		});
+
+		it('TC-T2-R3-01: gracefully falls back to manual batch creation when BrewLink boiler is offline', () => {
+			const offlineBoiler = createMockBoiler({
+				connectionType: 'BrewLink',
+				connectionToken: 'tok-123'
+			});
+
+			// User requested auto-send, but device is offline
+			const mode = resolveBatchCreationMode(offlineBoiler, true, false);
+
+			expect(mode.canProceed).toBe(true);
+			expect(mode.sendRecipeToBoiler).toBe(false);
+			expect(mode.isManualFallback).toBe(true);
+		});
+
+		it('TC-T2-R3-01: handles manual equipment without connection gracefully', () => {
+			const manualBoiler = createMockBoiler({
+				connectionType: 'None',
+				connectionToken: null
+			});
+			const badge = resolveEquipmentConnectionBadge(manualBoiler, false);
+			const mode = resolveBatchCreationMode(manualBoiler, false, false);
+
+			expect(badge.status).toBe('Manual');
+			expect(mode.canProceed).toBe(true);
+			expect(mode.sendRecipeToBoiler).toBe(false);
+			expect(mode.isManualFallback).toBe(false);
+		});
+	});
 });

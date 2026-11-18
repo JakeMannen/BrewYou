@@ -517,7 +517,9 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 		await expect(readingModal).toBeVisible();
 
 		// Fill in SG value 1.012
-		const sgInput = readingModal.locator('input[type="number"]').first();
+		const sgInput = readingModal
+			.locator('#reading-sg-input, input[name="specificGravity"], input[type="number"]')
+			.first();
 		await sgInput.fill('1.012');
 
 		// Save reading
@@ -607,7 +609,10 @@ test.describe('Batch Step Progression & Stage Navigation', () => {
 		// Log SG reading 1.014 (<= 1.015 triggerGravity)
 		await page.locator('[data-testid="log-sg-reading-btn"]').click();
 		const readingModal = page.locator('div[role="dialog"]');
-		await readingModal.locator('input[type="number"]').first().fill('1.014');
+		await readingModal
+			.locator('#reading-sg-input, input[name="specificGravity"], input[type="number"]')
+			.first()
+			.fill('1.014');
 		await readingModal.locator('[data-testid="submit-reading-btn"]').click();
 		await expect(readingModal).toBeHidden();
 
@@ -1078,7 +1083,10 @@ test.describe('Printable Recipe Brew Sheet, Past-Date Batch & Offline Progressio
 		// Log gravity reading with temperature & historical timestamp
 		await page.locator('[data-testid="log-sg-reading-btn"]').click();
 		const sgModal = page.locator('div[role="dialog"]');
-		await sgModal.locator('input[type="number"]').first().fill('1.050');
+		await sgModal
+			.locator('#reading-sg-input, input[name="specificGravity"], input[type="number"]')
+			.first()
+			.fill('1.050');
 		await sgModal.locator('[data-testid="reading-temp-input"]').fill('20.5');
 		await sgModal.locator('[data-testid="reading-timestamp-input"]').fill('2025-05-10T16:30');
 		await sgModal.locator('[data-testid="submit-reading-btn"]').click();

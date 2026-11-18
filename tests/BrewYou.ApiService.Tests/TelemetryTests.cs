@@ -702,7 +702,7 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task LogBatchTemperature_Manual_RejectsCompletedStagesAndCompletedMashSteps()
+    public async Task LogBatchTemperature_Manual_AllowsRetrospectiveStagesAndCompletedSteps_RejectsArchivedBatch()
     {
         var (client, _, setupId) = await CreateUserAsync();
 
@@ -722,7 +722,7 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
             RecipeId: null,
             BatchCode: null,
-            Name: "Rejection Test Batch",
+            Name: "Retrospective Temp Test Batch",
             BeerStyle: "Stout",
             BrewDate: null,
             TargetBatchSizeLiters: 20,
@@ -745,20 +745,50 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
             new ToggleBatchMashStepRequest(true));
         toggleRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Attempt manual log on completed Step A -> 409 Conflict
-        var conflictStep = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+        // Retrospective manual log on completed Step A -> 200 OK (F6)
+        var retroStep = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
             new LogBatchTemperatureRequest(50.0m, boiler.Id, BrewStage.Mash, stepAId, "Step A"));
-        conflictStep.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        retroStep.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Advance to Boil
+        // Advance to Boil and record live Boil temperature
         var advanceRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
             new AdvanceBatchStageRequest(BrewStage.Boil));
         advanceRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Attempt manual log on completed Mash stage -> 409 Conflict
-        var conflictStage = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+        var liveBoilLog = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+            new LogBatchTemperatureRequest(99.5m, boiler.Id, BrewStage.Boil));
+        liveBoilLog.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Retrospective manual log on completed Mash stage -> 200 OK, and must NOT overwrite live Boil temp (99.5C)
+        var retroStage = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
             new LogBatchTemperatureRequest(65.0m, boiler.Id, BrewStage.Mash));
-        conflictStage.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        retroStage.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var eqAfterRetro = (await (await client.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        eqAfterRetro.CurrentTemperatureC.Should().Be(99.5m);
+
+        // Complete batch -> manual log still succeeds without overwriting live equipment temp
+        var completeRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Package));
+        completeRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var completedLog = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+            new LogBatchTemperatureRequest(18.0m, boiler.Id, BrewStage.Condition));
+        completedLog.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var eqAfterCompleted = (await (await client.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        eqAfterCompleted.CurrentTemperatureC.Should().Be(99.5m);
+
+        // Archive batch -> 409 Conflict
+        var archiveRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}",
+            new UpdateBatchRequest(Status: BatchStatus.Archived));
+        archiveRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var archivedLog = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/equipment-readings",
+            new LogBatchTemperatureRequest(20.0m, boiler.Id, BrewStage.Condition));
+        archivedLog.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -2194,5 +2224,85 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         var step2Readings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stepId={step2Id}"))
             .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
         step2Readings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AddBatchReading_WithTemperatureAndEquipment_BroadcastsManualSseReadingAndDualPersists()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        var fermenterRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"SSE Fermenter {Guid.NewGuid():N}",
+            Type: EquipmentType.Fermenter,
+            Capacity: 30
+        ));
+        var fermenter = (await fermenterRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: null,
+            BatchCode: null,
+            Name: "SSE Manual Telemetry Batch",
+            BeerStyle: "IPA",
+            BrewDate: null,
+            TargetBatchSizeLiters: 20,
+            TargetOg: 1.055m,
+            TargetFg: 1.010m,
+            TargetAbv: 5.9m,
+            TargetIbu: 40m,
+            TargetColorSrm: 6m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            BoilerId: null,
+            FermenterId: fermenter.Id,
+            MeasuredOg: 1.055m
+        ));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var sseReq = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/batches/{batch.Id}/telemetry-stream");
+        using var sseRes = await client.SendAsync(sseReq, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+        sseRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var stream = await sseRes.Content.ReadAsStreamAsync(cts.Token);
+        using var reader = new StreamReader(stream);
+
+        var connectLine = await reader.ReadLineAsync(cts.Token);
+        connectLine.Should().Be(": connected");
+        await reader.ReadLineAsync(cts.Token); // blank line
+
+        var postRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/readings",
+            new AddBatchReadingRequest(
+                Timestamp: DateTime.UtcNow,
+                SpecificGravity: 1.022m,
+                TemperatureC: 19.8m,
+                Notes: "Manual SSE hydrometer check",
+                EquipmentId: fermenter.Id,
+                Stage: BrewStage.Ferment));
+        postRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        string? dataLine = null;
+        while (!cts.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(cts.Token);
+            if (line == null) break;
+            if (line.StartsWith("data: ", StringComparison.Ordinal))
+            {
+                dataLine = line["data: ".Length..];
+                break;
+            }
+        }
+
+        dataLine.Should().NotBeNullOrWhiteSpace();
+        using var doc = JsonDocument.Parse(dataLine!);
+        doc.RootElement.GetProperty("source").GetString().Should().Be("Manual");
+        doc.RootElement.GetProperty("specificGravity").GetDecimal().Should().Be(1.022m);
+        doc.RootElement.GetProperty("temperatureC").GetDecimal().Should().Be(19.8m);
+        doc.RootElement.GetProperty("equipmentId").GetGuid().Should().Be(fermenter.Id);
+
+        var eqReadings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stage=Ferment"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        eqReadings.Should().ContainSingle(r => r.Source == "Manual" && r.SpecificGravity == 1.022m && r.TemperatureC == 19.8m);
     }
 }
