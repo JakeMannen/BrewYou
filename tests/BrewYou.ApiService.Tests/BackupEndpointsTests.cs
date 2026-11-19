@@ -1468,7 +1468,7 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
         exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
-        envelope.SchemaVersion.Should().Be(3);
+        envelope.SchemaVersion.Should().Be(BackupSchemaConstants.CurrentSchemaVersion);
 
         var (targetClient, _, _) = await CreateAuthenticatedUserAsync("V3 Fermentable Target");
         var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
@@ -1836,5 +1836,268 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
         equipList.Should().Contain(e => e.Name == "Hijacked G30" && e.ConnectionType == EquipmentConnectionType.None && e.ConnectionConfigJson == null);
         equipList.Should().Contain(e => e.Name == "HardwareId Spoof G30" && e.ConnectionType == EquipmentConnectionType.None && e.ConnectionConfigJson == null);
+    }
+
+    [Fact]
+    public async Task V4_WaterProfilesRecipePlanYeastBankAndTastings_RoundTripExportAndRestore()
+    {
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("V4 RoundTrip Source");
+
+        // 1. Custom Water Profile
+        var wpRes = await sourceClient.PostAsJsonAsync("/api/v1/water-profiles", new CreateWaterProfileRequest(
+            Name: "House Gothenburg Well",
+            Category: "Source",
+            CalciumPpm: 22m,
+            MagnesiumPpm: 4m,
+            SodiumPpm: 12m,
+            SulfatePpm: 18m,
+            ChloridePpm: 20m,
+            BicarbonatePpm: 55m,
+            Ph: 7.3m));
+        wpRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var customProfile = (await wpRes.Content.ReadFromJsonAsync<ApiResponse<WaterProfileDto>>())!.Data!;
+
+        // 2. Recipe with WaterPlan
+        var catalogRes = await sourceClient.GetFromJsonAsync<ApiResponse<List<IngredientDto>>>("/api/v1/ingredients?type=Fermentable&search=Pale%20Malt&limit=20");
+        var paleMalt = catalogRes!.Data!.First(i => (i.ColorSrm ?? 10m) < 5m);
+
+        var recipeRes = await sourceClient.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Gothenburg West Coast IPA",
+            Description: "V4 backup check",
+            BeerStyle: "American IPA",
+            BatchSizeLiters: 20m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 74m,
+            IsPublic: false,
+            Ingredients: [new RecipeIngredientInputDto(paleMalt.Id, 5.5m, "kg", null, IngredientUsage.Mash, null)],
+            WaterPlan: new RecipeWaterPlanInputDto(
+                SourceProfileId: customProfile.Id,
+                SourceProfileName: customProfile.Name,
+                SourceCalciumPpm: customProfile.CalciumPpm,
+                SourceMagnesiumPpm: customProfile.MagnesiumPpm,
+                SourceSodiumPpm: customProfile.SodiumPpm,
+                SourceSulfatePpm: customProfile.SulfatePpm,
+                SourceChloridePpm: customProfile.ChloridePpm,
+                SourceBicarbonatePpm: customProfile.BicarbonatePpm,
+                SourcePh: 7.3m,
+                TargetProfileName: "Hoppy IPA",
+                TargetMashPh: 5.38m,
+                MashGypsumGrams: 4.5m,
+                MashCalciumChlorideGrams: 1.5m,
+                MashAcidType: "Lactic80",
+                MashAcidAmountMlOrG: 2.5m)));
+        recipeRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var recipe = (await recipeRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        // 3. Batch #1 -> Harvest Slurry -> Batch #2 repitch + Tasting Log
+        var b1Res = await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: recipe.Id,
+            BatchCode: "B-V4-01",
+            Name: "Gothenburg Batch 1",
+            BeerStyle: "American IPA",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-20)),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.064m,
+            TargetFg: 1.012m,
+            TargetAbv: 6.8m,
+            TargetIbu: 60m,
+            TargetColorSrm: 6m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 74m,
+            BoilerId: null,
+            FermenterId: null,
+            MeasuredMashPh: 5.39m));
+        b1Res.StatusCode.Should().Be(HttpStatusCode.Created);
+        var b1 = (await b1Res.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var harvestRes = await sourceClient.PostAsJsonAsync($"/api/v1/yeast-bank/harvest/{b1.Id}", new HarvestYeastRequest(
+            StrainName: "WLP001 California Ale",
+            LabOrBrand: "White Labs",
+            ProductCode: "WLP001",
+            VolumeMl: 450m,
+            EstimatedDensityBillionPerMl: 1.2m,
+            StorageLocation: "Yeast Fridge A"));
+        harvestRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var slurry = (await harvestRes.Content.ReadFromJsonAsync<ApiResponse<YeastBankEntryDto>>())!.Data!;
+
+        var b2Res = await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            RecipeId: recipe.Id,
+            BatchCode: "B-V4-02",
+            Name: "Gothenburg Batch 2 (Repitch)",
+            BeerStyle: "American IPA",
+            BrewDate: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-5)),
+            TargetBatchSizeLiters: 20m,
+            TargetOg: 1.064m,
+            TargetFg: 1.012m,
+            TargetAbv: 6.8m,
+            TargetIbu: 60m,
+            TargetColorSrm: 6m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 74m,
+            BoilerId: null,
+            FermenterId: null,
+            YeastBankEntryId: slurry.Id,
+            YeastSlurryVolumeUsedMl: 150m,
+            YeastPitchRateMillionPerMlPlato: 0.75m));
+        b2Res.StatusCode.Should().Be(HttpStatusCode.Created);
+        var b2 = (await b2Res.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var tasteRes = await sourceClient.PostAsJsonAsync($"/api/v1/batches/{b2.Id}/tastings", new CreateBatchTastingRequest(
+            SampleSource: "Keg",
+            AromaScore: 10m,
+            AppearanceScore: 3m,
+            FlavorScore: 17m,
+            MouthfeelScore: 4m,
+            OverallScore: 8m,
+            StarRating: 5,
+            WouldRebrew: true,
+            OffFlavors: ["Diacetyl"],
+            OverallNotes: "Bright pine & grapefruit"));
+        tasteRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // 4. Export backup & verify Preview counts
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+        envelope.SchemaVersion.Should().Be(4);
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("V4 RoundTrip Target");
+        var previewRes = await targetClient.PostAsJsonAsync("/api/v1/backup/preview", new PreviewRestoreRequest(envelope));
+        previewRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = (await previewRes.Content.ReadFromJsonAsync<ApiResponse<RestorePreviewReportDto>>())!.Data!;
+        preview.Counts.WaterProfiles.Should().Be(1);
+        preview.Counts.YeastBankEntries.Should().Be(1);
+        preview.Counts.Tastings.Should().Be(1);
+
+        // 5. Restore in ReplaceAll mode to another account -> verify IDs remapped & data preserved
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restoreResult = (await restoreRes.Content.ReadFromJsonAsync<ApiResponse<RestoreResultDto>>())!.Data!;
+        restoreResult.Summary.WaterProfilesRestored.Should().Be(1);
+        restoreResult.Summary.YeastBankEntriesRestored.Should().Be(1);
+        restoreResult.Summary.TastingsRestored.Should().Be(1);
+
+        var restoredProfiles = (await targetClient.GetFromJsonAsync<ApiResponse<List<WaterProfileDto>>>("/api/v1/water-profiles"))!.Data!;
+        var restoredCustomProfile = restoredProfiles.FirstOrDefault(p => p.Name == "House Gothenburg Well");
+        restoredCustomProfile.Should().NotBeNull();
+
+        var restoredRecipes = (await targetClient.GetFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>("/api/v1/recipes?scope=mine"))!.Data!;
+        var targetRecipeSummary = restoredRecipes.First(r => r.Name == "Gothenburg West Coast IPA");
+        var restoredRecipeDetail = (await targetClient.GetFromJsonAsync<ApiResponse<RecipeDetailDto>>($"/api/v1/recipes/{targetRecipeSummary.Id}"))!.Data!;
+        restoredRecipeDetail.WaterPlan.Should().NotBeNull();
+        restoredRecipeDetail.WaterPlan!.SourceProfileId.Should().Be(restoredCustomProfile!.Id);
+        restoredRecipeDetail.WaterPlan.MashGypsumGrams.Should().Be(4.5m);
+
+        var restoredYeast = (await targetClient.GetFromJsonAsync<ApiResponse<List<YeastBankEntryDto>>>("/api/v1/yeast-bank"))!.Data!;
+        restoredYeast.Should().ContainSingle(y => y.StrainName == "WLP001 California Ale" && y.SourceBatchCode == "B-V4-01" && y.VolumeMl == 300m);
+
+        var restoredBatches = (await targetClient.GetFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>("/api/v1/batches"))!.Data!;
+        var restoredB2Summary = restoredBatches.First(b => b.BatchCode == "B-V4-02");
+        var restoredB2Detail = (await targetClient.GetFromJsonAsync<ApiResponse<BatchDetailDto>>($"/api/v1/batches/{restoredB2Summary.Id}"))!.Data!;
+        restoredB2Detail.YeastBankEntryId.Should().Be(restoredYeast[0].Id);
+        restoredB2Detail.Tastings.Should().HaveCount(1);
+        restoredB2Detail.Tastings![0].TotalScore.Should().Be(42m);
+        restoredB2Detail.Tastings[0].OffFlavors.Should().Contain("Diacetyl");
+    }
+
+    [Fact]
+    public async Task LegacyV3Backup_UpgradesCleanlyToV4AndRestores()
+    {
+        var (legacyClient, _, _) = await CreateAuthenticatedUserAsync("Legacy V3 Target");
+
+        var legacyV3Json = """
+        {
+          "recipes": [
+            {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "name": "Legacy V3 Pale Ale",
+              "beerStyle": "American Pale Ale",
+              "batchSizeLiters": 20.0,
+              "boilTimeMinutes": 60,
+              "efficiencyPercent": 72.0,
+              "ingredients": []
+            }
+          ],
+          "batches": [
+            {
+              "id": "22222222-2222-2222-2222-222222222222",
+              "recipeId": "11111111-1111-1111-1111-111111111111",
+              "batchCode": "B-V3-LEGACY",
+              "name": "V3 Legacy Batch",
+              "beerStyle": "American Pale Ale",
+              "status": "Completed",
+              "currentStage": "Package"
+            }
+          ]
+        }
+        """;
+
+        var dataElem = JsonSerializer.Deserialize<JsonElement>(legacyV3Json);
+        var v3Envelope = new BrewYouBackupEnvelope(
+            Format: BackupSchemaConstants.FormatIdentifier,
+            SchemaVersion: 3,
+            AppVersion: "1.7.0",
+            ExportedAtUtc: DateTime.UtcNow.AddDays(-30),
+            ChecksumSha256: BackupMigrationPipeline.ComputeChecksumSha256(dataElem),
+            Data: dataElem);
+
+        var previewRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/preview", new PreviewRestoreRequest(v3Envelope));
+        previewRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = (await previewRes.Content.ReadFromJsonAsync<ApiResponse<RestorePreviewReportDto>>())!.Data!;
+        preview.IsValid.Should().BeTrue();
+        preview.WasUpgraded.Should().BeTrue();
+        preview.BackupSchemaVersion.Should().Be(3);
+        preview.CurrentSchemaVersion.Should().Be(4);
+        preview.Counts.WaterProfiles.Should().Be(0);
+        preview.Counts.YeastBankEntries.Should().Be(0);
+
+        var restoreRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(v3Envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.MergeSkipExisting)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var resDto = (await restoreRes.Content.ReadFromJsonAsync<ApiResponse<RestoreResultDto>>())!.Data!;
+        resDto.Summary.RecipesCreated.Should().Be(1);
+        resDto.Summary.BatchesCreated.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExportAndRestore_PreservesBrewerySetupAndBoilerDefaultEfficiency()
+    {
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("Efficiency Backup Source");
+        var setupsRes = await sourceClient.GetFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>("/api/v1/brewery-setups");
+        var setup = setupsRes!.Data!.First();
+
+        var updSetupRes = await sourceClient.PutAsJsonAsync($"/api/v1/brewery-setups/{setup.Id}", new UpdateBrewerySetupRequest(
+            Name: setup.Name,
+            Description: setup.Description,
+            DefaultEfficiencyPercent: 76.5m));
+        updSetupRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var boilerRes = await sourceClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setup.Id,
+            Name: "Calibrated Kettle 50L",
+            Type: EquipmentType.Boiler,
+            Capacity: 50m,
+            Subtype: EquipmentSubtype.AllInOne,
+            BoilOffRatePerHour: 3.4m,
+            TrubLossLiters: 1.8m,
+            DefaultEfficiencyPercent: 78.2m));
+        boilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest(IncludeSecrets: false));
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("Efficiency Backup Target");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoredSetups = (await targetClient.GetFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>("/api/v1/brewery-setups"))!.Data!;
+        restoredSetups.Should().Contain(s => s.DefaultEfficiencyPercent == 76.5m);
+
+        var restoredEquipment = (await targetClient.GetFromJsonAsync<ApiResponse<List<EquipmentDto>>>("/api/v1/inventory/equipment"))!.Data!;
+        var restoredBoiler = restoredEquipment.Should().ContainSingle(e => e.Name == "Calibrated Kettle 50L").Subject;
+        restoredBoiler.DefaultEfficiencyPercent.Should().Be(78.2m);
     }
 }

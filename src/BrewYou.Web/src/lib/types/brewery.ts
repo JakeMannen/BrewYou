@@ -9,5 +9,6 @@ export interface BrewerySetup {
 	currentUserRole?: BreweryRole;
 	isOwner?: boolean;
 	memberCount?: number;
+	defaultEfficiencyPercent?: number;
 	createdAt: string;
 }

@@ -351,6 +351,7 @@ public class EquipmentService : IEquipmentService
             TrubLossLiters = trubLoss,
             MashTunDeadSpaceLiters = mashDeadSpace,
             PackagingLossLiters = packagingLoss,
+            DefaultEfficiencyPercent = (isTap || isBrewLinkSensor) ? null : request.DefaultEfficiencyPercent,
             CurrentTemperatureC = (isTap || isBrewLinkSensor) ? null : request.CurrentTemperatureC,
             TemperatureUpdatedAt = (isTap || isBrewLinkSensor) ? null : (request.CurrentTemperatureC.HasValue ? DateTime.UtcNow : null),
             ConnectionType = connectionType,
@@ -516,6 +517,7 @@ public class EquipmentService : IEquipmentService
         equipment.TrubLossLiters = isSensorOrTap ? null : request.TrubLossLiters;
         equipment.MashTunDeadSpaceLiters = isSensorOrTap ? null : request.MashTunDeadSpaceLiters;
         equipment.PackagingLossLiters = isSensorOrTap ? null : request.PackagingLossLiters;
+        equipment.DefaultEfficiencyPercent = isSensorOrTap ? null : request.DefaultEfficiencyPercent;
 
         equipment.DisplayWidthPx = request.DisplayWidthPx;
         equipment.DisplayHeightPx = request.DisplayHeightPx;
@@ -1117,7 +1119,8 @@ public class EquipmentService : IEquipmentService
             assignedKegSummary,
             e.AssignedBatchId,
             fillLevelPercent,
-            hasConnectionToken
+            hasConnectionToken,
+            e.DefaultEfficiencyPercent
         );
     }
 

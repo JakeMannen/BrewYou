@@ -82,6 +82,7 @@
 	let trubLossLiters = $state<number | ''>('');
 	let mashTunDeadSpaceLiters = $state<number | ''>('');
 	let packagingLossLiters = $state<number | ''>('');
+	let defaultEfficiencyPercent = $state<number | ''>('');
 	let selectedAioPreset = $state('');
 
 	// Tap Display Settings
@@ -363,6 +364,7 @@
 				trubLossLiters = equipment.trubLossLiters ?? '';
 				mashTunDeadSpaceLiters = equipment.mashTunDeadSpaceLiters ?? '';
 				packagingLossLiters = equipment.packagingLossLiters ?? '';
+				defaultEfficiencyPercent = equipment.defaultEfficiencyPercent ?? '';
 
 				const matchingPreset = ALL_IN_ONE_PRESETS.find(
 					(p) => p.name.toLowerCase() === equipment.name.toLowerCase()
@@ -477,6 +479,7 @@
 				trubLossLiters = defLosses.trubLossLiters;
 				mashTunDeadSpaceLiters = defLosses.mashTunDeadSpaceLiters;
 				packagingLossLiters = defLosses.packagingLossLiters;
+				defaultEfficiencyPercent = '';
 
 				// Tap display settings
 				displayWidthPx = '';
@@ -584,6 +587,7 @@
 			trubLossLiters = defLosses.trubLossLiters;
 			mashTunDeadSpaceLiters = defLosses.mashTunDeadSpaceLiters;
 			packagingLossLiters = defLosses.packagingLossLiters;
+			defaultEfficiencyPercent = '';
 
 			if (newType === 'Tap') {
 				if (defaultSub === 'RoundDisplayTap') {
@@ -951,6 +955,10 @@
 						type === 'Sensor' || type === 'Tap' || packagingLossLiters === ''
 							? null
 							: Number(packagingLossLiters),
+					defaultEfficiencyPercent:
+						type === 'Boiler' && defaultEfficiencyPercent !== ''
+							? Number(defaultEfficiencyPercent)
+							: null,
 					displayWidthPx:
 						type === 'Tap' && displayWidthPx !== '' && !isNaN(Number(displayWidthPx))
 							? Number(displayWidthPx)
@@ -1001,6 +1009,10 @@
 						type === 'Sensor' || type === 'Tap' || packagingLossLiters === ''
 							? null
 							: Number(packagingLossLiters),
+					defaultEfficiencyPercent:
+						type === 'Boiler' && defaultEfficiencyPercent !== ''
+							? Number(defaultEfficiencyPercent)
+							: null,
 					displayWidthPx:
 						type === 'Tap' && displayWidthPx !== '' && !isNaN(Number(displayWidthPx))
 							? Number(displayWidthPx)
@@ -1552,7 +1564,7 @@
 
 							<div
 								class="grid grid-cols-1 gap-3 pt-1 {type === 'Boiler'
-									? 'sm:grid-cols-3 sm:items-end'
+									? 'sm:grid-cols-2 sm:items-end lg:grid-cols-4'
 									: 'sm:grid-cols-2'}"
 							>
 								{#if type === 'Boiler'}
@@ -1607,6 +1619,24 @@
 											max="50"
 											bind:value={mashTunDeadSpaceLiters}
 											placeholder={t('equipment.mash_tun_dead_space_placeholder')}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
+										/>
+									</div>
+									<div>
+										<label
+											for="boiler-default-efficiency"
+											class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+										>
+											{t('calibration.default_efficiency')}
+										</label>
+										<input
+											id="boiler-default-efficiency"
+											type="number"
+											step="0.5"
+											min="10"
+											max="100"
+											bind:value={defaultEfficiencyPercent}
+											placeholder={t('calibration.default_efficiency_placeholder')}
 											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-600"
 										/>
 									</div>

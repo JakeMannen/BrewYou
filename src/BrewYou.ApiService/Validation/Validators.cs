@@ -451,6 +451,10 @@ public class CreateBrewerySetupRequestValidator : AbstractValidator<CreateBrewer
         RuleFor(x => x.Description)
             .MaximumLength(500).When(x => !string.IsNullOrEmpty(x.Description))
             .WithMessage("Description cannot exceed 500 characters.");
+
+        RuleFor(x => x.DefaultEfficiencyPercent)
+            .InclusiveBetween(10m, 100m).When(x => x.DefaultEfficiencyPercent.HasValue)
+            .WithMessage("Default brewhouse efficiency must be between 10% and 100%.");
     }
 }
 
@@ -467,6 +471,10 @@ public class UpdateBrewerySetupRequestValidator : AbstractValidator<UpdateBrewer
         RuleFor(x => x.Description)
             .MaximumLength(500).When(x => !string.IsNullOrEmpty(x.Description))
             .WithMessage("Description cannot exceed 500 characters.");
+
+        RuleFor(x => x.DefaultEfficiencyPercent)
+            .InclusiveBetween(10m, 100m).When(x => x.DefaultEfficiencyPercent.HasValue)
+            .WithMessage("Default brewhouse efficiency must be between 10% and 100%.");
     }
 }
 
@@ -631,6 +639,11 @@ public class CreateEquipmentRequestValidator : AbstractValidator<CreateEquipment
             .When(x => x.Subtype == EquipmentSubtype.BrewLink && !string.IsNullOrWhiteSpace(x.ConnectionConfigJson))
             .WithMessage("BrewLink sensor configuration must include a valid brewLinkGatewayId.")
             .WithName("ConnectionConfigJson");
+
+        RuleFor(x => x.DefaultEfficiencyPercent)
+            .InclusiveBetween(10m, 100m)
+            .When(x => x.DefaultEfficiencyPercent.HasValue)
+            .WithMessage("Default brewhouse efficiency must be between 10% and 100%.");
     }
 
     internal static bool HaveValidBrewLinkConfig(string? configJson)
@@ -893,6 +906,11 @@ public class UpdateEquipmentRequestValidator : AbstractValidator<UpdateEquipment
             .When(x => x.Subtype == EquipmentSubtype.BrewLink && !string.IsNullOrWhiteSpace(x.ConnectionConfigJson))
             .WithMessage("BrewLink sensor configuration must include a valid brewLinkGatewayId.")
             .WithName("ConnectionConfigJson");
+
+        RuleFor(x => x.DefaultEfficiencyPercent)
+            .InclusiveBetween(10m, 100m)
+            .When(x => x.DefaultEfficiencyPercent.HasValue)
+            .WithMessage("Default brewhouse efficiency must be between 10% and 100%.");
     }
 }
 

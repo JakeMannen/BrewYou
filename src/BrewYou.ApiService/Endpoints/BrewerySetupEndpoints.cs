@@ -192,6 +192,73 @@ public static class BrewerySetupEndpoints
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id:guid}/calibration", async (
+            Guid id,
+            [FromQuery] int? sampleSize,
+            [FromQuery] Guid? boilerId,
+            [FromQuery] Guid? fermenterId,
+            ClaimsPrincipal principal,
+            IRigCalibrationService calibrationService) =>
+        {
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, report, errorMessage) = await calibrationService.GetCalibrationReportAsync(id, userId, sampleSize ?? 5, boilerId, fermenterId);
+            if (result == BrewerySetupAccessResult.NotFound || report == null)
+            {
+                return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Brewery setup not found."));
+            }
+
+            return Results.Ok(ApiResponse<RigCalibrationReportDto>.Ok(report));
+        })
+        .WithName("GetBrewerySetupCalibration")
+        .Produces<ApiResponse<RigCalibrationReportDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/calibration/apply", async (
+            Guid id,
+            [FromBody] ApplyRigCalibrationRequest request,
+            IValidator<ApplyRigCalibrationRequest> validator,
+            ClaimsPrincipal principal,
+            IRigCalibrationService calibrationService) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Calibration request validation failed.", details));
+            }
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var (result, report, errorMessage) = await calibrationService.ApplyCalibrationAsync(id, request, userId);
+            if (result == BrewerySetupAccessResult.Forbidden)
+            {
+                return Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "Access forbidden."), statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            if (result == BrewerySetupAccessResult.NotFound || report == null)
+            {
+                return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Brewery setup not found."));
+            }
+
+            return Results.Ok(ApiResponse<RigCalibrationReportDto>.Ok(report));
+        })
+        .WithName("ApplyBrewerySetupCalibration")
+        .Produces<ApiResponse<RigCalibrationReportDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ApiResponse>(StatusCodes.Status404NotFound);
+
         return group;
     }
 }

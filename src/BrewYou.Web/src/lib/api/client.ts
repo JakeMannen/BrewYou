@@ -72,6 +72,25 @@ import type {
 	RestorePreviewReportDto,
 	ExecuteRestoreRequest,
 	RestoreResultDto,
+	RigCalibrationReportDto,
+	ApplyRigCalibrationRequest,
+	WaterProfileDto,
+	CreateWaterProfileRequest,
+	UpdateWaterProfileRequest,
+	CalculateWaterChemistryRequest,
+	WaterChemistryResultDto,
+	SuggestWaterSaltsRequest,
+	SuggestWaterSaltsResponse,
+	YeastBankEntryDto,
+	CreateYeastBankEntryRequest,
+	UpdateYeastBankEntryRequest,
+	HarvestYeastRequest,
+	CalculateYeastPitchRequest,
+	YeastPitchPlanDto,
+	OffFlavorDescriptorDto,
+	BatchTastingDto,
+	CreateBatchTastingRequest,
+	UpdateBatchTastingRequest,
 	RecipeLabelDto,
 	UpdateRecipeLabelSettingsRequest,
 	TapDisplayLinkDto,
@@ -759,6 +778,33 @@ export const api = {
 			return request<BrewerySetupDto>(`/api/v1/brewery-setups/${id}/set-default`, {
 				method: 'POST'
 			});
+		},
+
+		async getCalibration(
+			setupId: string,
+			sampleSize = 5,
+			boilerId?: string | null,
+			fermenterId?: string | null
+		): Promise<RigCalibrationReportDto> {
+			const params = new URLSearchParams({ sampleSize: String(sampleSize) });
+			if (boilerId) params.set('boilerId', boilerId);
+			if (fermenterId) params.set('fermenterId', fermenterId);
+			return request<RigCalibrationReportDto>(
+				`/api/v1/brewery-setups/${setupId}/calibration?${params.toString()}`
+			);
+		},
+
+		async applyCalibration(
+			setupId: string,
+			req: ApplyRigCalibrationRequest
+		): Promise<RigCalibrationReportDto> {
+			return request<RigCalibrationReportDto>(
+				`/api/v1/brewery-setups/${setupId}/calibration/apply`,
+				{
+					method: 'POST',
+					body: JSON.stringify(req)
+				}
+			);
 		}
 	},
 
@@ -1044,6 +1090,36 @@ export const api = {
 			});
 		},
 
+		tastings: {
+			async list(batchId: string): Promise<BatchTastingDto[]> {
+				return request<BatchTastingDto[]>(`/api/v1/batches/${batchId}/tastings`);
+			},
+
+			async create(batchId: string, req: CreateBatchTastingRequest): Promise<BatchTastingDto> {
+				return request<BatchTastingDto>(`/api/v1/batches/${batchId}/tastings`, {
+					method: 'POST',
+					body: JSON.stringify(req)
+				});
+			},
+
+			async update(
+				batchId: string,
+				tastingId: string,
+				req: UpdateBatchTastingRequest
+			): Promise<BatchTastingDto> {
+				return request<BatchTastingDto>(`/api/v1/batches/${batchId}/tastings/${tastingId}`, {
+					method: 'PUT',
+					body: JSON.stringify(req)
+				});
+			},
+
+			async delete(batchId: string, tastingId: string): Promise<void> {
+				return request<void>(`/api/v1/batches/${batchId}/tastings/${tastingId}`, {
+					method: 'DELETE'
+				});
+			}
+		},
+
 		async streamEquipmentReadings(
 			id: string,
 			options: {
@@ -1149,6 +1225,101 @@ export const api = {
 				method: 'POST',
 				body: JSON.stringify(req)
 			});
+		}
+	},
+
+	waterProfiles: {
+		async list(category?: 'Source' | 'Target'): Promise<WaterProfileDto[]> {
+			const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+			return request<WaterProfileDto[]>(`/api/v1/water-profiles${qs}`);
+		},
+
+		async getById(id: string): Promise<WaterProfileDto> {
+			return request<WaterProfileDto>(`/api/v1/water-profiles/${id}`);
+		},
+
+		async create(req: CreateWaterProfileRequest): Promise<WaterProfileDto> {
+			return request<WaterProfileDto>('/api/v1/water-profiles', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async update(id: string, req: UpdateWaterProfileRequest): Promise<WaterProfileDto> {
+			return request<WaterProfileDto>(`/api/v1/water-profiles/${id}`, {
+				method: 'PUT',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async delete(id: string): Promise<void> {
+			return request<void>(`/api/v1/water-profiles/${id}`, { method: 'DELETE' });
+		},
+
+		async calculate(req: CalculateWaterChemistryRequest): Promise<WaterChemistryResultDto> {
+			return request<WaterChemistryResultDto>('/api/v1/water-profiles/calculate', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async suggestSalts(req: SuggestWaterSaltsRequest): Promise<SuggestWaterSaltsResponse> {
+			return request<SuggestWaterSaltsResponse>('/api/v1/water-profiles/suggest-salts', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		}
+	},
+
+	yeastBank: {
+		async list(status?: 'Available' | 'Depleted' | 'Discarded'): Promise<YeastBankEntryDto[]> {
+			const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+			return request<YeastBankEntryDto[]>(`/api/v1/yeast-bank${qs}`);
+		},
+
+		async getById(id: string): Promise<YeastBankEntryDto> {
+			return request<YeastBankEntryDto>(`/api/v1/yeast-bank/${id}`);
+		},
+
+		async create(req: CreateYeastBankEntryRequest): Promise<YeastBankEntryDto> {
+			return request<YeastBankEntryDto>('/api/v1/yeast-bank', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async update(id: string, req: UpdateYeastBankEntryRequest): Promise<YeastBankEntryDto> {
+			return request<YeastBankEntryDto>(`/api/v1/yeast-bank/${id}`, {
+				method: 'PUT',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async delete(id: string): Promise<void> {
+			return request<void>(`/api/v1/yeast-bank/${id}`, { method: 'DELETE' });
+		},
+
+		async harvestFromBatch(
+			batchId: string,
+			req: HarvestYeastRequest = {}
+		): Promise<YeastBankEntryDto> {
+			return request<YeastBankEntryDto>(`/api/v1/yeast-bank/harvest/${batchId}`, {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async calculatePitch(req: CalculateYeastPitchRequest): Promise<YeastPitchPlanDto> {
+			return request<YeastPitchPlanDto>('/api/v1/yeast-bank/calculate-pitch', {
+				method: 'POST',
+				body: JSON.stringify(req)
+			});
+		}
+	},
+
+	tastings: {
+		async getOffFlavors(): Promise<OffFlavorDescriptorDto[]> {
+			return request<OffFlavorDescriptorDto[]>('/api/v1/tastings/off-flavors');
 		}
 	}
 };

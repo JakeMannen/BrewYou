@@ -33,6 +33,8 @@
 		type RecipeImportOptions
 	} from '$lib/components/recipes/RecipeImportModal.svelte';
 	import RecipeExportModal from '$lib/components/recipes/RecipeExportModal.svelte';
+	import RecipeWaterPlanCard from '$lib/components/recipes/RecipeWaterPlanCard.svelte';
+	import type { RecipeWaterPlanInputDto } from '$lib/types/api';
 	import {
 		buildMissingIngredientKey,
 		findCatalogIngredientMatch
@@ -121,10 +123,36 @@
 	]);
 
 	let isHydrated = false;
+	let waterPlan = $state<RecipeWaterPlanInputDto | null>(null);
+	let clearWaterPlan = $state(false);
+
+	const waterGrist = $derived.by(() =>
+		items
+			.filter((i) => i.type === 'Fermentable')
+			.map((i) => {
+				const ing = currentCatalogIngredients.find((c) => c.id === i.ingredientId);
+				const unit = (i.unit || 'kg').toLowerCase();
+				const kg =
+					unit === 'g'
+						? i.amount / 1000
+						: unit === 'lb' || unit === 'lbs'
+							? i.amount * 0.453592
+							: i.amount;
+				return {
+					weightKg: kg,
+					colorSrm: ing?.colorSrm ?? 2,
+					name: ing?.name ?? ''
+				};
+			})
+			.filter((g) => g.weightKg > 0)
+	);
 
 	$effect(() => {
 		if (isHydrated) return;
 		if (mode === 'edit' && initialRecipe) {
+			if (initialRecipe.waterPlan) {
+				waterPlan = { ...initialRecipe.waterPlan };
+			}
 			name = initialRecipe.name;
 			description = initialRecipe.description ?? '';
 			beerStyle = initialRecipe.beerStyle;
@@ -813,7 +841,9 @@
 					rampTimeHours: s.rampTimeHours ?? null,
 					triggerGravity: s.triggerGravity ?? null,
 					notes: s.notes ?? null
-				}))
+				})),
+				waterPlan: waterPlan ?? null,
+				clearWaterPlan: clearWaterPlan && !waterPlan
 			};
 
 			if (mode === 'edit' && initialRecipe) {
@@ -1313,6 +1343,14 @@
 		{boilTimeMinutes}
 		onAddItem={handleAddItem}
 		onRemoveItem={handleRemoveItem}
+	/>
+
+	<!-- Water Chemistry & Per-Recipe Salt Plan -->
+	<RecipeWaterPlanCard
+		bind:waterPlan
+		{batchSizeLiters}
+		grist={waterGrist}
+		onClear={() => (clearWaterPlan = true)}
 	/>
 
 	<!-- Mobile Sticky Save Bar (< sm) -->

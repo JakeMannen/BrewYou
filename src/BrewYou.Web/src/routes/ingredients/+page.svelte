@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
+	import { auth } from '$lib/stores/auth.svelte';
+	import YeastBankPanel from '$lib/components/ingredients/YeastBankPanel.svelte';
 	import type { FermentableCategory, IngredientDto, IngredientType } from '$lib/types/api';
 	import {
 		Layers,
@@ -529,6 +531,12 @@
 					</div>
 				</article>
 			{/each}
+		</div>
+	{/if}
+
+	{#if auth.isAuthenticated && (selectedType === 'All' || selectedType === 'Yeast')}
+		<div class="mt-8 border-t border-zinc-200/80 pt-6 dark:border-white/10">
+			<YeastBankPanel />
 		</div>
 	{/if}
 </div>

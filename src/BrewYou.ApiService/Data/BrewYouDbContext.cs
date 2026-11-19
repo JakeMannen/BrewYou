@@ -36,6 +36,10 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
     public DbSet<BatchSensorAssignment> BatchSensorAssignments => Set<BatchSensorAssignment>();
     public DbSet<EquipmentReading> EquipmentReadings => Set<EquipmentReading>();
     public DbSet<BrewLinkGateway> BrewLinkGateways => Set<BrewLinkGateway>();
+    public DbSet<WaterProfile> WaterProfiles => Set<WaterProfile>();
+    public DbSet<RecipeWaterPlan> RecipeWaterPlans => Set<RecipeWaterPlan>();
+    public DbSet<YeastBankEntry> YeastBankEntries => Set<YeastBankEntry>();
+    public DbSet<BatchTasting> BatchTastings => Set<BatchTasting>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -74,6 +78,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.Property(s => s.Name).HasMaxLength(100).IsRequired();
             entity.Property(s => s.Description).HasMaxLength(500);
             entity.Property(s => s.IsDefault).HasDefaultValue(false);
+            entity.Property(s => s.DefaultEfficiencyPercent).HasPrecision(5, 2).HasDefaultValue(72.0m);
 
             entity.HasOne(s => s.User)
                   .WithMany(u => u.BrewerySetups)
@@ -226,6 +231,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.Property(e => e.Notes).HasMaxLength(2000);
             entity.Property(e => e.DisplayOrientation).HasConversion<string>().HasMaxLength(20).HasDefaultValue(DisplayOrientation.Landscape);
             entity.Property(e => e.DisplayTokenHash).HasMaxLength(64);
+            entity.Property(e => e.DefaultEfficiencyPercent).HasPrecision(5, 2);
 
             entity.HasOne(e => e.User)
                   .WithMany(u => u.Equipment)
@@ -402,6 +408,15 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
                   .HasForeignKey(b => b.PackagingVesselId)
                   .OnDelete(DeleteBehavior.SetNull);
 
+            entity.Property(b => b.MeasuredMashPh).HasPrecision(4, 2);
+            entity.Property(b => b.YeastPitchRateMillionPerMlPlato).HasPrecision(4, 2);
+            entity.Property(b => b.YeastStarterVolumeLiters).HasPrecision(6, 2);
+
+            entity.HasOne(b => b.YeastBankEntry)
+                  .WithMany()
+                  .HasForeignKey(b => b.YeastBankEntryId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
             entity.HasIndex(b => new { b.UserId, b.BatchCode }).IsUnique();
             entity.HasIndex(b => new { b.UserId, b.Status });
             entity.HasIndex(b => new { b.UserId, b.BrewDate });
@@ -410,6 +425,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.HasIndex(b => b.BoilerId);
             entity.HasIndex(b => b.FermenterId);
             entity.HasIndex(b => b.PackagingVesselId);
+            entity.HasIndex(b => b.YeastBankEntryId);
         });
 
         builder.Entity<BatchReading>(entity =>
@@ -586,6 +602,175 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
                   .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(g => new { g.UserId, g.GatewayId }).IsUnique();
+        });
+
+        builder.Entity<WaterProfile>(entity =>
+        {
+            entity.HasKey(w => w.Id);
+            entity.Property(w => w.Name).HasMaxLength(100).IsRequired();
+            entity.Property(w => w.Description).HasMaxLength(500);
+            entity.Property(w => w.Category).HasMaxLength(20).HasDefaultValue("Target").IsRequired();
+            entity.Property(w => w.CalciumPpm).HasPrecision(7, 2);
+            entity.Property(w => w.MagnesiumPpm).HasPrecision(7, 2);
+            entity.Property(w => w.SodiumPpm).HasPrecision(7, 2);
+            entity.Property(w => w.SulfatePpm).HasPrecision(7, 2);
+            entity.Property(w => w.ChloridePpm).HasPrecision(7, 2);
+            entity.Property(w => w.BicarbonatePpm).HasPrecision(7, 2);
+            entity.Property(w => w.Ph).HasPrecision(4, 2);
+
+            entity.HasOne(w => w.User)
+                  .WithMany()
+                  .HasForeignKey(w => w.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(w => new { w.UserId, w.Category });
+            entity.HasIndex(w => w.IsPreset);
+        });
+
+        builder.Entity<RecipeWaterPlan>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.HasIndex(p => p.RecipeId).IsUnique();
+
+            entity.HasOne(p => p.Recipe)
+                  .WithOne(r => r.WaterPlan)
+                  .HasForeignKey<RecipeWaterPlan>(p => p.RecipeId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.SourceProfile)
+                  .WithMany()
+                  .HasForeignKey(p => p.SourceProfileId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(p => p.TargetProfile)
+                  .WithMany()
+                  .HasForeignKey(p => p.TargetProfileId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(p => p.SourceProfileName).HasMaxLength(100);
+            entity.Property(p => p.TargetProfileName).HasMaxLength(100);
+            entity.Property(p => p.MashAcidType).HasMaxLength(30);
+            entity.Property(p => p.SpargeAcidType).HasMaxLength(30);
+            entity.Property(p => p.Notes).HasMaxLength(1000);
+
+            entity.Property(p => p.SourceCalciumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.SourceMagnesiumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.SourceSodiumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.SourceSulfatePpm).HasPrecision(7, 2);
+            entity.Property(p => p.SourceChloridePpm).HasPrecision(7, 2);
+            entity.Property(p => p.SourceBicarbonatePpm).HasPrecision(7, 2);
+            entity.Property(p => p.SourcePh).HasPrecision(4, 2);
+
+            entity.Property(p => p.TargetCalciumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.TargetMagnesiumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.TargetSodiumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.TargetSulfatePpm).HasPrecision(7, 2);
+            entity.Property(p => p.TargetChloridePpm).HasPrecision(7, 2);
+            entity.Property(p => p.TargetBicarbonatePpm).HasPrecision(7, 2);
+            entity.Property(p => p.TargetMashPh).HasPrecision(4, 2);
+
+            entity.Property(p => p.MashGypsumGrams).HasPrecision(7, 2);
+            entity.Property(p => p.MashCalciumChlorideGrams).HasPrecision(7, 2);
+            entity.Property(p => p.MashEpsomSaltGrams).HasPrecision(7, 2);
+            entity.Property(p => p.MashTableSaltGrams).HasPrecision(7, 2);
+            entity.Property(p => p.MashBakingSodaGrams).HasPrecision(7, 2);
+            entity.Property(p => p.MashChalkGrams).HasPrecision(7, 2);
+            entity.Property(p => p.MashAcidAmountMlOrG).HasPrecision(7, 2);
+
+            entity.Property(p => p.SpargeGypsumGrams).HasPrecision(7, 2);
+            entity.Property(p => p.SpargeCalciumChlorideGrams).HasPrecision(7, 2);
+            entity.Property(p => p.SpargeEpsomSaltGrams).HasPrecision(7, 2);
+            entity.Property(p => p.SpargeTableSaltGrams).HasPrecision(7, 2);
+            entity.Property(p => p.SpargeBakingSodaGrams).HasPrecision(7, 2);
+            entity.Property(p => p.SpargeChalkGrams).HasPrecision(7, 2);
+            entity.Property(p => p.SpargeAcidAmountMlOrG).HasPrecision(7, 2);
+
+            entity.Property(p => p.ResultingCalciumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.ResultingMagnesiumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.ResultingSodiumPpm).HasPrecision(7, 2);
+            entity.Property(p => p.ResultingSulfatePpm).HasPrecision(7, 2);
+            entity.Property(p => p.ResultingChloridePpm).HasPrecision(7, 2);
+            entity.Property(p => p.ResultingBicarbonatePpm).HasPrecision(7, 2);
+            entity.Property(p => p.SulfateToChlorideRatio).HasPrecision(6, 2);
+            entity.Property(p => p.ResidualAlkalinityPpm).HasPrecision(7, 2);
+            entity.Property(p => p.PredictedMashPh).HasPrecision(4, 2);
+        });
+
+        builder.Entity<YeastBankEntry>(entity =>
+        {
+            entity.HasKey(y => y.Id);
+            entity.Property(y => y.StrainName).HasMaxLength(150).IsRequired();
+            entity.Property(y => y.LabOrBrand).HasMaxLength(100);
+            entity.Property(y => y.ProductCode).HasMaxLength(50);
+            entity.Property(y => y.Form).HasMaxLength(20).HasDefaultValue("Slurry").IsRequired();
+            entity.Property(y => y.SourceBatchName).HasMaxLength(150);
+            entity.Property(y => y.SourceBatchCode).HasMaxLength(50);
+            entity.Property(y => y.VolumeMl).HasPrecision(8, 2);
+            entity.Property(y => y.EstimatedDensityBillionPerMl).HasPrecision(5, 2);
+            entity.Property(y => y.BaseViabilityPercent).HasPrecision(5, 2);
+            entity.Property(y => y.StorageLocation).HasMaxLength(150);
+            entity.Property(y => y.Status).HasMaxLength(20).HasDefaultValue("Available").IsRequired();
+            entity.Property(y => y.Notes).HasMaxLength(1000);
+
+            entity.HasOne(y => y.User)
+                  .WithMany()
+                  .HasForeignKey(y => y.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(y => y.Ingredient)
+                  .WithMany()
+                  .HasForeignKey(y => y.IngredientId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(y => y.SourceBatch)
+                  .WithMany()
+                  .HasForeignKey(y => y.SourceBatchId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(y => new { y.UserId, y.Status });
+            entity.HasIndex(y => y.SourceBatchId);
+        });
+
+        builder.Entity<BatchTasting>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.SampleSource).HasMaxLength(40);
+            entity.Property(t => t.AromaScore).HasPrecision(4, 1);
+            entity.Property(t => t.AromaNotes).HasMaxLength(1000);
+            entity.Property(t => t.AppearanceScore).HasPrecision(3, 1);
+            entity.Property(t => t.AppearanceNotes).HasMaxLength(1000);
+            entity.Property(t => t.FlavorScore).HasPrecision(4, 1);
+            entity.Property(t => t.FlavorNotes).HasMaxLength(1000);
+            entity.Property(t => t.MouthfeelScore).HasPrecision(3, 1);
+            entity.Property(t => t.MouthfeelNotes).HasMaxLength(1000);
+            entity.Property(t => t.OverallScore).HasPrecision(4, 1);
+            entity.Property(t => t.OverallNotes).HasMaxLength(1000);
+            entity.Property(t => t.TotalScore).HasPrecision(4, 1);
+            entity.Property(t => t.ServingTemperatureC).HasPrecision(4, 1);
+
+            entity.Property(t => t.OffFlavors)
+                  .HasMaxLength(500)
+                  .HasConversion(
+                      list => JsonSerializer.Serialize(list, (JsonSerializerOptions?)null),
+                      json => string.IsNullOrWhiteSpace(json)
+                          ? new List<string>()
+                          : JsonSerializer.Deserialize<List<string>>(json, (JsonSerializerOptions?)null) ?? new List<string>(),
+                      new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>>(
+                          (c1, c2) => c1 != null && c2 != null && c1.SequenceEqual(c2),
+                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                          c => c.ToList()));
+
+            entity.HasOne(t => t.Batch)
+                  .WithMany(b => b.Tastings)
+                  .HasForeignKey(t => t.BatchId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(t => t.User)
+                  .WithMany()
+                  .HasForeignKey(t => t.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(t => new { t.BatchId, t.TastedAt });
         });
     }
 }

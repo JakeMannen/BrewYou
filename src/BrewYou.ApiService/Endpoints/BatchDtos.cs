@@ -34,7 +34,10 @@ public record BatchSummaryDto(
     string? MashTunName = null,
     Guid? BoilerId = null,
     string? BoilerName = null,
-    string? RecipeName = null
+    string? RecipeName = null,
+    decimal? AverageStarRating = null,
+    int TastingCount = 0,
+    bool? WouldRebrew = null
 );
 
 public record BatchReadingDto(
@@ -223,7 +226,15 @@ public record BatchDetailDto(
     BatchVolumeProfileDto? VolumeProfile,
     BatchDeviationsDto? Deviations = null,
     string? BoilerSyncStatus = null,
-    string? BoilerSyncWarning = null
+    string? BoilerSyncWarning = null,
+    decimal? MeasuredMashPh = null,
+    Guid? YeastBankEntryId = null,
+    string? YeastBankStrainName = null,
+    int? YeastGeneration = null,
+    decimal? YeastPitchRateMillionPerMlPlato = null,
+    decimal? YeastStarterVolumeLiters = null,
+    List<BatchTastingDto>? Tastings = null,
+    BatchTastingSummaryDto? TastingSummary = null
 );
 
 public record BatchDeviationsDto(
@@ -275,7 +286,12 @@ public record CreateBatchRequest(
     decimal? FermenterLossLiters = null,
     bool? SpargeEnabled = null,
     List<BatchSensorAssignmentInput>? SensorAssignments = null,
-    bool SendRecipeToBoiler = false
+    bool SendRecipeToBoiler = false,
+    Guid? YeastBankEntryId = null,
+    decimal? YeastSlurryVolumeUsedMl = null,
+    decimal? YeastPitchRateMillionPerMlPlato = null,
+    decimal? YeastStarterVolumeLiters = null,
+    decimal? MeasuredMashPh = null
 );
 
 public record BatchMashStepInputDto(
@@ -382,7 +398,11 @@ public record UpdateBatchRequest(
     decimal? PlumbingLossLiters = null,
     string? SpargeMethod = null,
     DateOnly? BrewDate = null,
-    BatchStatus? Status = null
+    BatchStatus? Status = null,
+    decimal? MeasuredMashPh = null,
+    Guid? YeastBankEntryId = null,
+    decimal? YeastPitchRateMillionPerMlPlato = null,
+    decimal? YeastStarterVolumeLiters = null
 );
 
 public record NextBatchCodeResponse(string BatchCode);

@@ -104,39 +104,55 @@ public class BatchService : IBatchService
                     g => g.OrderByDescending(r => r.Timestamp).First().SpecificGravity)
             : new Dictionary<Guid, decimal>();
 
+        var tastingSummaryByBatch = batchIds.Count > 0
+            ? (await _db.BatchTastings
+                .AsNoTracking()
+                .Where(t => batchIds.Contains(t.BatchId))
+                .ToListAsync())
+                .GroupBy(t => t.BatchId)
+                .ToDictionary(g => g.Key, g => BatchTastingService.BuildSummary(g))
+            : new Dictionary<Guid, BatchTastingSummaryDto>();
+
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var items = batches.Select(b => new BatchSummaryDto(
-            b.Id,
-            b.BatchCode,
-            b.Name,
-            b.RecipeId,
-            b.BeerStyle,
-            b.Status,
-            b.CurrentStage,
-            b.BrewDate,
-            Math.Max(0, today.DayNumber - b.BrewDate.DayNumber),
-            b.TargetOg,
-            b.MeasuredOg,
-            b.CurrentGravity ?? (latestGravityByBatch.TryGetValue(b.Id, out var latestSg) ? latestSg : null),
-            b.TargetFg,
-            b.MeasuredFg,
-            b.AlcoholByVolume,
-            b.TargetColorSrm,
-            null, // vessel temp computed from latest reading
-            b.FermenterId,
-            b.Fermenter?.Name,
-            b.TargetBatchSizeLiters,
-            b.MeasuredBatchSizeLiters,
-            b.CreatedAt,
-            b.UpdatedAt,
-            b.HltId,
-            b.Hlt?.Name,
-            b.MashTunId,
-            b.MashTun?.Name,
-            b.BoilerId,
-            b.Boiler?.Name,
-            b.Recipe?.Name ?? b.RecipeName
-        )).ToList();
+        var items = batches.Select(b =>
+        {
+            tastingSummaryByBatch.TryGetValue(b.Id, out var tastingSummary);
+            return new BatchSummaryDto(
+                b.Id,
+                b.BatchCode,
+                b.Name,
+                b.RecipeId,
+                b.BeerStyle,
+                b.Status,
+                b.CurrentStage,
+                b.BrewDate,
+                Math.Max(0, today.DayNumber - b.BrewDate.DayNumber),
+                b.TargetOg,
+                b.MeasuredOg,
+                b.CurrentGravity ?? (latestGravityByBatch.TryGetValue(b.Id, out var latestSg) ? latestSg : null),
+                b.TargetFg,
+                b.MeasuredFg,
+                b.AlcoholByVolume,
+                b.TargetColorSrm,
+                null, // vessel temp computed from latest reading
+                b.FermenterId,
+                b.Fermenter?.Name,
+                b.TargetBatchSizeLiters,
+                b.MeasuredBatchSizeLiters,
+                b.CreatedAt,
+                b.UpdatedAt,
+                b.HltId,
+                b.Hlt?.Name,
+                b.MashTunId,
+                b.MashTun?.Name,
+                b.BoilerId,
+                b.Boiler?.Name,
+                b.Recipe?.Name ?? b.RecipeName,
+                tastingSummary?.AverageStarRating,
+                tastingSummary?.Count ?? 0,
+                tastingSummary?.LatestWouldRebrew
+            );
+        }).ToList();
 
         var meta = new PaginationMeta(page, limit, total, totalPages);
         return (items, meta);
@@ -161,7 +177,9 @@ public class BatchService : IBatchService
                 .ThenInclude(sa => sa.Equipment)
             .Include(b => b.SensorAssignments)
                 .ThenInclude(sa => sa.BatchMashStep)
-            .Include(b => b.VolumeProfile);
+            .Include(b => b.VolumeProfile)
+            .Include(b => b.YeastBankEntry)
+            .Include(b => b.Tastings);
     }
 
     public async Task<(BatchAccessResult Result, BatchDetailDto? Batch)> GetBatchByIdAsync(Guid id, string userId)
@@ -378,6 +396,28 @@ public class BatchService : IBatchService
             batchCode = await GetNextBatchCodeAsync(userId, brewDate);
         }
 
+        YeastBankEntry? yeastBankEntry = null;
+        if (request.YeastBankEntryId.HasValue && request.YeastBankEntryId.Value != Guid.Empty)
+        {
+            yeastBankEntry = await _db.YeastBankEntries
+                .FirstOrDefaultAsync(y => y.Id == request.YeastBankEntryId.Value && y.UserId == userId);
+
+            if (yeastBankEntry == null)
+            {
+                return (BatchAccessResult.NotFound, null, "Selected yeast bank entry not found.");
+            }
+
+            if (request.YeastSlurryVolumeUsedMl is > 0m)
+            {
+                yeastBankEntry.VolumeMl = Math.Max(0m, yeastBankEntry.VolumeMl - request.YeastSlurryVolumeUsedMl.Value);
+                if (yeastBankEntry.VolumeMl <= 0m)
+                {
+                    yeastBankEntry.Status = "Depleted";
+                }
+                yeastBankEntry.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
         // 5. Build Batch Entity
         var batch = new Batch
         {
@@ -400,6 +440,11 @@ public class BatchService : IBatchService
             TargetColorSrm = request.TargetColorSrm ?? recipe?.ColorSrm ?? 6.0m,
             MeasuredOg = request.MeasuredOg,
             PitchTemperatureC = request.PitchTemperatureC,
+            MeasuredMashPh = request.MeasuredMashPh,
+            YeastBankEntryId = yeastBankEntry?.Id,
+            YeastBankEntry = yeastBankEntry,
+            YeastPitchRateMillionPerMlPlato = request.YeastPitchRateMillionPerMlPlato,
+            YeastStarterVolumeLiters = request.YeastStarterVolumeLiters,
             Notes = request.Notes?.Trim(),
             HltId = hlt?.Id,
             Hlt = hlt,
@@ -1859,6 +1904,28 @@ public class BatchService : IBatchService
         }
         if (request.MeasuredBatchSizeLiters.HasValue) batch.MeasuredBatchSizeLiters = request.MeasuredBatchSizeLiters.Value;
         if (request.PitchTemperatureC.HasValue) batch.PitchTemperatureC = request.PitchTemperatureC.Value;
+        if (request.MeasuredMashPh.HasValue) batch.MeasuredMashPh = request.MeasuredMashPh.Value;
+        if (request.YeastPitchRateMillionPerMlPlato.HasValue) batch.YeastPitchRateMillionPerMlPlato = request.YeastPitchRateMillionPerMlPlato.Value;
+        if (request.YeastStarterVolumeLiters.HasValue) batch.YeastStarterVolumeLiters = request.YeastStarterVolumeLiters.Value;
+        if (request.YeastBankEntryId.HasValue)
+        {
+            if (request.YeastBankEntryId.Value == Guid.Empty)
+            {
+                batch.YeastBankEntryId = null;
+                batch.YeastBankEntry = null;
+            }
+            else
+            {
+                var bankEntry = await _db.YeastBankEntries
+                    .FirstOrDefaultAsync(y => y.Id == request.YeastBankEntryId.Value && y.UserId == userId);
+                if (bankEntry == null)
+                {
+                    return (BatchAccessResult.NotFound, null, "Selected yeast bank entry not found.");
+                }
+                batch.YeastBankEntryId = bankEntry.Id;
+                batch.YeastBankEntry = bankEntry;
+            }
+        }
 
         var packagingVesselChanged = false;
         if (request.PackagingVesselId.HasValue)
@@ -2292,6 +2359,15 @@ public class BatchService : IBatchService
         var now = DateTime.UtcNow;
         await DecoupleAssignedEquipmentAsync(batch.Id, now);
 
+        // Explicitly decouple any YeastBankEntries harvested from this batch (preserving snapshot name & code)
+        var harvestedEntries = await _db.YeastBankEntries
+            .Where(y => y.SourceBatchId == batch.Id)
+            .ToListAsync();
+        foreach (var entry in harvestedEntries)
+        {
+            entry.SourceBatchId = null;
+        }
+
         if (!IsPastBatch(batch.BrewDate) && batch.Status != BatchStatus.Completed && batch.Status != BatchStatus.Archived)
         {
             // Free associated active equipment only when not actively occupied by another batch
@@ -2372,7 +2448,13 @@ public class BatchService : IBatchService
         equipment.UpdatedAt = now;
     }
 
-    private async Task<decimal> CalculateTotalGrainPotentialPointsAsync(IEnumerable<BatchIngredient> ingredients, string userId)
+    private Task<decimal> CalculateTotalGrainPotentialPointsAsync(IEnumerable<BatchIngredient> ingredients, string userId)
+        => CalculateTotalGrainPotentialPointsAsync(_db, ingredients, userId);
+
+    internal static async Task<decimal> CalculateTotalGrainPotentialPointsAsync(
+        BrewYouDbContext db,
+        IEnumerable<BatchIngredient> ingredients,
+        string userId)
     {
         var fermentables = ingredients
             .Where(i => i.Type == IngredientType.Fermentable &&
@@ -2392,7 +2474,7 @@ public class BatchService : IBatchService
             .ToList();
 
         var potentialById = sourceIds.Count > 0
-            ? await _db.Ingredients
+            ? await db.Ingredients
                 .AsNoTracking()
                 .Where(i => sourceIds.Contains(i.Id) && (i.IsCatalogItem || i.CreatedByUserId == userId))
                 .ToDictionaryAsync(i => i.Id, i => i.PotentialGravity)
@@ -2407,7 +2489,7 @@ public class BatchService : IBatchService
         var potentialByName = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
         if (namesWithoutId.Count > 0)
         {
-            var matchedByName = await _db.Ingredients
+            var matchedByName = await db.Ingredients
                 .AsNoTracking()
                 .Where(i => i.Type == IngredientType.Fermentable &&
                             (i.IsCatalogItem || i.CreatedByUserId == userId) &&
@@ -2692,7 +2774,19 @@ public class BatchService : IBatchService
             ) : null,
             Deviations: deviations,
             BoilerSyncStatus: boilerSyncStatus,
-            BoilerSyncWarning: boilerSyncWarning
+            BoilerSyncWarning: boilerSyncWarning,
+            MeasuredMashPh: b.MeasuredMashPh,
+            YeastBankEntryId: b.YeastBankEntryId,
+            YeastBankStrainName: b.YeastBankEntry?.StrainName,
+            YeastGeneration: b.YeastBankEntry?.Generation,
+            YeastPitchRateMillionPerMlPlato: b.YeastPitchRateMillionPerMlPlato,
+            YeastStarterVolumeLiters: b.YeastStarterVolumeLiters,
+            Tastings: b.Tastings
+                .OrderByDescending(t => t.TastedAt)
+                .ThenByDescending(t => t.CreatedAt)
+                .Select(BatchTastingService.MapToDto)
+                .ToList(),
+            TastingSummary: BatchTastingService.BuildSummary(b.Tastings)
         );
     }
 

@@ -8,9 +8,11 @@
 	import DilutionBoiloffCard from '$lib/components/calculators/DilutionBoiloffCard.svelte';
 	import CarbonationCard from '$lib/components/calculators/CarbonationCard.svelte';
 	import CarbonationCheatSheetCard from '$lib/components/calculators/CarbonationCheatSheetCard.svelte';
+	import YeastPitchCard from '$lib/components/calculators/YeastPitchCard.svelte';
+	import WaterProfileManagerCard from '$lib/components/calculators/WaterProfileManagerCard.svelte';
 	import { Calculator, Search } from '@lucide/svelte';
 
-	type Category = 'all' | 'water' | 'gravity' | 'finishing';
+	type Category = 'all' | 'water' | 'gravity' | 'finishing' | 'yeast';
 
 	let activeCategory = $state<Category>('all');
 	let searchQuery = $state('');
@@ -87,6 +89,20 @@
 			titleKey: 'calculations.carbonation_cheat_sheet.title',
 			descKey: 'calculations.carbonation_cheat_sheet.description',
 			component: CarbonationCheatSheetCard
+		},
+		{
+			id: 'yeast-pitch',
+			category: 'yeast' as Category,
+			titleKey: 'calculations.yeast_pitch.title',
+			descKey: 'calculations.yeast_pitch.description',
+			component: YeastPitchCard
+		},
+		{
+			id: 'water-profiles',
+			category: 'water' as Category,
+			titleKey: 'water.library_title',
+			descKey: 'water.library_subtitle',
+			component: WaterProfileManagerCard
 		}
 	];
 
@@ -185,6 +201,16 @@
 		>
 			{t('calculations.categories.finishing')}
 		</button>
+		<button
+			type="button"
+			onclick={() => (activeCategory = 'yeast')}
+			class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors {activeCategory ===
+			'yeast'
+				? 'bg-zinc-900 text-white dark:bg-amber-600 dark:text-white'
+				: 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'}"
+		>
+			{t('calculations.categories.yeast')}
+		</button>
 	</div>
 
 	<!-- Calculators Cards Grid -->
@@ -204,6 +230,10 @@
 					onSelectTargetCo2={handleSelectTargetFromCheatSheet}
 					class="lg:col-span-2"
 				/>
+			{:else if calc.id === 'water-profiles'}
+				<WaterProfileManagerCard class="lg:col-span-2" />
+			{:else if calc.id === 'yeast-pitch'}
+				<YeastPitchCard class="lg:col-span-2" />
 			{:else}
 				{@const Component = calc.component}
 				<Component />

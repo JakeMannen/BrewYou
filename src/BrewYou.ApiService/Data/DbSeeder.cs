@@ -102,6 +102,156 @@ public static class DbSeeder
                     ALTER TABLE "Ingredients" ADD COLUMN IF NOT EXISTS "FermentabilityPercent" numeric(5,2);
                     ALTER TABLE "BatchIngredients" ADD COLUMN IF NOT EXISTS "FermentableCategory" character varying(20);
                     ALTER TABLE "BatchIngredients" ADD COLUMN IF NOT EXISTS "FermentabilityPercent" numeric(5,2);
+
+                    CREATE TABLE IF NOT EXISTS "WaterProfiles" (
+                        "Id" uuid PRIMARY KEY,
+                        "UserId" text,
+                        "Name" character varying(100) NOT NULL,
+                        "Description" character varying(500),
+                        "Category" character varying(20) NOT NULL DEFAULT 'Target',
+                        "IsPreset" boolean NOT NULL DEFAULT false,
+                        "CalciumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MagnesiumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SodiumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SulfatePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ChloridePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "BicarbonatePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "Ph" numeric(4,2),
+                        "CreatedAt" timestamp with time zone NOT NULL,
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "FK_WaterProfiles_AspNetUsers_UserId" FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS "IX_WaterProfiles_UserId_Category" ON "WaterProfiles" ("UserId", "Category");
+                    CREATE INDEX IF NOT EXISTS "IX_WaterProfiles_IsPreset" ON "WaterProfiles" ("IsPreset");
+
+                    CREATE TABLE IF NOT EXISTS "RecipeWaterPlans" (
+                        "Id" uuid PRIMARY KEY,
+                        "RecipeId" uuid NOT NULL,
+                        "SourceProfileId" uuid,
+                        "SourceProfileName" character varying(100),
+                        "SourceCalciumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SourceMagnesiumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SourceSodiumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SourceSulfatePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SourceChloridePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SourceBicarbonatePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SourcePh" numeric(4,2) NOT NULL DEFAULT 7.0,
+                        "TargetProfileId" uuid,
+                        "TargetProfileName" character varying(100),
+                        "TargetCalciumPpm" numeric(7,2),
+                        "TargetMagnesiumPpm" numeric(7,2),
+                        "TargetSodiumPpm" numeric(7,2),
+                        "TargetSulfatePpm" numeric(7,2),
+                        "TargetChloridePpm" numeric(7,2),
+                        "TargetBicarbonatePpm" numeric(7,2),
+                        "TargetMashPh" numeric(4,2) NOT NULL DEFAULT 5.4,
+                        "MashGypsumGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MashCalciumChlorideGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MashEpsomSaltGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MashTableSaltGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MashBakingSodaGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MashChalkGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "MashAcidType" character varying(30),
+                        "MashAcidAmountMlOrG" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeGypsumGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeCalciumChlorideGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeEpsomSaltGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeTableSaltGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeBakingSodaGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeChalkGrams" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SpargeAcidType" character varying(30),
+                        "SpargeAcidAmountMlOrG" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ResultingCalciumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ResultingMagnesiumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ResultingSodiumPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ResultingSulfatePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ResultingChloridePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "ResultingBicarbonatePpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "SulfateToChlorideRatio" numeric(6,2),
+                        "ResidualAlkalinityPpm" numeric(7,2) NOT NULL DEFAULT 0,
+                        "PredictedMashPh" numeric(4,2) NOT NULL DEFAULT 5.4,
+                        "Notes" character varying(1000),
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "FK_RecipeWaterPlans_Recipes_RecipeId" FOREIGN KEY ("RecipeId") REFERENCES "Recipes" ("Id") ON DELETE CASCADE,
+                        CONSTRAINT "FK_RecipeWaterPlans_WaterProfiles_SourceProfileId" FOREIGN KEY ("SourceProfileId") REFERENCES "WaterProfiles" ("Id") ON DELETE SET NULL,
+                        CONSTRAINT "FK_RecipeWaterPlans_WaterProfiles_TargetProfileId" FOREIGN KEY ("TargetProfileId") REFERENCES "WaterProfiles" ("Id") ON DELETE SET NULL
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS "IX_RecipeWaterPlans_RecipeId" ON "RecipeWaterPlans" ("RecipeId");
+
+                    CREATE TABLE IF NOT EXISTS "YeastBankEntries" (
+                        "Id" uuid PRIMARY KEY,
+                        "UserId" text NOT NULL,
+                        "IngredientId" uuid,
+                        "StrainName" character varying(150) NOT NULL,
+                        "LabOrBrand" character varying(100),
+                        "ProductCode" character varying(50),
+                        "Form" character varying(20) NOT NULL DEFAULT 'Slurry',
+                        "Generation" integer NOT NULL DEFAULT 1,
+                        "HarvestDate" timestamp with time zone NOT NULL,
+                        "SourceBatchId" uuid,
+                        "SourceBatchName" character varying(150),
+                        "SourceBatchCode" character varying(50),
+                        "VolumeMl" numeric(8,2) NOT NULL DEFAULT 0,
+                        "EstimatedDensityBillionPerMl" numeric(5,2) NOT NULL DEFAULT 1.0,
+                        "BaseViabilityPercent" numeric(5,2) NOT NULL DEFAULT 95.0,
+                        "StorageLocation" character varying(150),
+                        "Status" character varying(20) NOT NULL DEFAULT 'Available',
+                        "Notes" character varying(1000),
+                        "CreatedAt" timestamp with time zone NOT NULL,
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "FK_YeastBankEntries_AspNetUsers_UserId" FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE,
+                        CONSTRAINT "FK_YeastBankEntries_Ingredients_IngredientId" FOREIGN KEY ("IngredientId") REFERENCES "Ingredients" ("Id") ON DELETE SET NULL,
+                        CONSTRAINT "FK_YeastBankEntries_Batches_SourceBatchId" FOREIGN KEY ("SourceBatchId") REFERENCES "Batches" ("Id") ON DELETE SET NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS "IX_YeastBankEntries_UserId_Status" ON "YeastBankEntries" ("UserId", "Status");
+                    CREATE INDEX IF NOT EXISTS "IX_YeastBankEntries_SourceBatchId" ON "YeastBankEntries" ("SourceBatchId");
+
+                    ALTER TABLE "Batches" ADD COLUMN IF NOT EXISTS "MeasuredMashPh" numeric(4,2);
+                    ALTER TABLE "Batches" ADD COLUMN IF NOT EXISTS "YeastBankEntryId" uuid;
+                    ALTER TABLE "Batches" ADD COLUMN IF NOT EXISTS "YeastPitchRateMillionPerMlPlato" numeric(4,2);
+                    ALTER TABLE "Batches" ADD COLUMN IF NOT EXISTS "YeastStarterVolumeLiters" numeric(6,2);
+                    CREATE INDEX IF NOT EXISTS "IX_Batches_YeastBankEntryId" ON "Batches" ("YeastBankEntryId");
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'FK_Batches_YeastBankEntries_YeastBankEntryId'
+                        ) THEN
+                            ALTER TABLE "Batches"
+                                ADD CONSTRAINT "FK_Batches_YeastBankEntries_YeastBankEntryId"
+                                FOREIGN KEY ("YeastBankEntryId") REFERENCES "YeastBankEntries" ("Id") ON DELETE SET NULL;
+                        END IF;
+                    END $$;
+
+                    CREATE TABLE IF NOT EXISTS "BatchTastings" (
+                        "Id" uuid PRIMARY KEY,
+                        "BatchId" uuid NOT NULL,
+                        "UserId" text NOT NULL,
+                        "TastedAt" timestamp with time zone NOT NULL,
+                        "SampleSource" character varying(40),
+                        "AromaScore" numeric(4,1) NOT NULL DEFAULT 0,
+                        "AromaNotes" character varying(1000),
+                        "AppearanceScore" numeric(3,1) NOT NULL DEFAULT 0,
+                        "AppearanceNotes" character varying(1000),
+                        "FlavorScore" numeric(4,1) NOT NULL DEFAULT 0,
+                        "FlavorNotes" character varying(1000),
+                        "MouthfeelScore" numeric(3,1) NOT NULL DEFAULT 0,
+                        "MouthfeelNotes" character varying(1000),
+                        "OverallScore" numeric(4,1) NOT NULL DEFAULT 0,
+                        "OverallNotes" character varying(1000),
+                        "TotalScore" numeric(4,1) NOT NULL DEFAULT 0,
+                        "StarRating" integer NOT NULL DEFAULT 3,
+                        "WouldRebrew" boolean NOT NULL DEFAULT true,
+                        "OffFlavors" character varying(500) NOT NULL DEFAULT '[]',
+                        "ServingTemperatureC" numeric(4,1),
+                        "CreatedAt" timestamp with time zone NOT NULL,
+                        "UpdatedAt" timestamp with time zone NOT NULL,
+                        CONSTRAINT "FK_BatchTastings_Batches_BatchId" FOREIGN KEY ("BatchId") REFERENCES "Batches" ("Id") ON DELETE CASCADE,
+                        CONSTRAINT "FK_BatchTastings_AspNetUsers_UserId" FOREIGN KEY ("UserId") REFERENCES "AspNetUsers" ("Id") ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS "IX_BatchTastings_BatchId_TastedAt" ON "BatchTastings" ("BatchId", "TastedAt");
+
+                    ALTER TABLE "BrewerySetups" ADD COLUMN IF NOT EXISTS "DefaultEfficiencyPercent" numeric(5,2) NOT NULL DEFAULT 72.0;
+                    ALTER TABLE "Equipment" ADD COLUMN IF NOT EXISTS "DefaultEfficiencyPercent" numeric(5,2);
                     """);
             }
 
@@ -263,12 +413,210 @@ public static class DbSeeder
                 }
                 await db.SaveChangesAsync();
             }
+
+            // Seed built-in water profile presets idempotently
+            var presetProfiles = GetDefaultWaterProfiles();
+            var existingPresets = await db.WaterProfiles
+                .Where(w => w.IsPreset)
+                .ToListAsync();
+
+            var existingPresetLookup = existingPresets
+                .GroupBy(w => (w.Name, w.Category))
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var missingPresets = new List<WaterProfile>();
+            var modifiedPreset = false;
+
+            foreach (var preset in presetProfiles)
+            {
+                if (existingPresetLookup.TryGetValue((preset.Name, preset.Category), out var existing))
+                {
+                    if (existing.CalciumPpm != preset.CalciumPpm ||
+                        existing.MagnesiumPpm != preset.MagnesiumPpm ||
+                        existing.SodiumPpm != preset.SodiumPpm ||
+                        existing.SulfatePpm != preset.SulfatePpm ||
+                        existing.ChloridePpm != preset.ChloridePpm ||
+                        existing.BicarbonatePpm != preset.BicarbonatePpm ||
+                        existing.Ph != preset.Ph ||
+                        existing.Description != preset.Description)
+                    {
+                        existing.CalciumPpm = preset.CalciumPpm;
+                        existing.MagnesiumPpm = preset.MagnesiumPpm;
+                        existing.SodiumPpm = preset.SodiumPpm;
+                        existing.SulfatePpm = preset.SulfatePpm;
+                        existing.ChloridePpm = preset.ChloridePpm;
+                        existing.BicarbonatePpm = preset.BicarbonatePpm;
+                        existing.Ph = preset.Ph;
+                        existing.Description = preset.Description;
+                        existing.UpdatedAt = DateTime.UtcNow;
+                        modifiedPreset = true;
+                    }
+                }
+                else
+                {
+                    missingPresets.Add(preset);
+                }
+            }
+
+            if (missingPresets.Count > 0)
+            {
+                await db.WaterProfiles.AddRangeAsync(missingPresets);
+            }
+
+            if (missingPresets.Count > 0 || modifiedPreset)
+            {
+                await db.SaveChangesAsync();
+            }
         }
         finally
         {
             _seedLock.Release();
         }
     }
+
+    public static List<WaterProfile> GetDefaultWaterProfiles() =>
+    [
+        new()
+        {
+            Name = "RO / Distilled Water",
+            Category = "Source",
+            IsPreset = true,
+            Description = "Pure reverse osmosis or distilled blank canvas with virtually zero dissolved minerals.",
+            CalciumPpm = 0m,
+            MagnesiumPpm = 0m,
+            SodiumPpm = 0m,
+            SulfatePpm = 0m,
+            ChloridePpm = 0m,
+            BicarbonatePpm = 0m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Pilsen (Soft Lager)",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Ultra-soft Bohemian pilsner water allowing delicate noble hops and crisp pilsner malt to shine.",
+            CalciumPpm = 7m,
+            MagnesiumPpm = 2m,
+            SodiumPpm = 2m,
+            SulfatePpm = 5m,
+            ChloridePpm = 5m,
+            BicarbonatePpm = 15m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Balanced / Light Colored Ale",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Versatile everyday brewing water for golden ales, blondes, cream ales, and balanced pale styles.",
+            CalciumPpm = 75m,
+            MagnesiumPpm = 5m,
+            SodiumPpm = 15m,
+            SulfatePpm = 80m,
+            ChloridePpm = 70m,
+            BicarbonatePpm = 40m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Hoppy / West Coast IPA",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Sulfate-forward profile accenting crisp hop bitterness and dry, snapping finishes.",
+            CalciumPpm = 110m,
+            MagnesiumPpm = 10m,
+            SodiumPpm = 15m,
+            SulfatePpm = 250m,
+            ChloridePpm = 55m,
+            BicarbonatePpm = 35m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "NEIPA / Juicy Hazy",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Chloride-forward soft water emphasizing pillowy mouthfeel and saturated fruit-forward hop aroma.",
+            CalciumPpm = 100m,
+            MagnesiumPpm = 10m,
+            SodiumPpm = 20m,
+            SulfatePpm = 75m,
+            ChloridePpm = 175m,
+            BicarbonatePpm = 40m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Burton-on-Trent (ESB / Classic IPA)",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Historic gypsum-rich English bitter and classic IPA water yielding assertive bitterness.",
+            CalciumPpm = 275m,
+            MagnesiumPpm = 40m,
+            SodiumPpm = 25m,
+            SulfatePpm = 600m,
+            ChloridePpm = 35m,
+            BicarbonatePpm = 250m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Munich (Dunkel / Dark Lager)",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Malty, moderately carbonate Bavarian profile ideal for Dunkel, Bock, and Schwarzbier.",
+            CalciumPpm = 75m,
+            MagnesiumPpm = 18m,
+            SodiumPpm = 10m,
+            SulfatePpm = 15m,
+            ChloridePpm = 20m,
+            BicarbonatePpm = 150m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Dublin (Dry Irish Stout)",
+            Category = "Target",
+            IsPreset = true,
+            Description = "High-bicarbonate classic stout water buffering roasted barley acidity without harsh astringency.",
+            CalciumPpm = 115m,
+            MagnesiumPpm = 4m,
+            SodiumPpm = 12m,
+            SulfatePpm = 55m,
+            ChloridePpm = 19m,
+            BicarbonatePpm = 200m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Dortmund (Export Lager)",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Mineral-rich German export lager water supporting crisp maltiness and firm hop finish.",
+            CalciumPpm = 225m,
+            MagnesiumPpm = 25m,
+            SodiumPpm = 40m,
+            SulfatePpm = 120m,
+            ChloridePpm = 100m,
+            BicarbonatePpm = 220m,
+            Ph = 7.0m
+        },
+        new()
+        {
+            Name = "Amber / Malty Ale",
+            Category = "Target",
+            IsPreset = true,
+            Description = "Chloride-tilted amber water enhancing toasted, caramel, and bready malt complexity.",
+            CalciumPpm = 85m,
+            MagnesiumPpm = 10m,
+            SodiumPpm = 18m,
+            SulfatePpm = 65m,
+            ChloridePpm = 95m,
+            BicarbonatePpm = 90m,
+            Ph = 7.0m
+        }
+    ];
 
     public static List<Ingredient> GetDefaultCatalogIngredients() =>
     [
