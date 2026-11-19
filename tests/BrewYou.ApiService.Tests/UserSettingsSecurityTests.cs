@@ -382,7 +382,8 @@ public class UserSettingsSecurityTests : IClassFixture<WebApplicationFactory<Pro
         result.Summary.RecipesCreated.Should().Be(1);
         result.Warnings.Should().Contain(w => w.Contains("Skipped invalid or unsupported recipe label image", StringComparison.OrdinalIgnoreCase));
 
-        var recipesRes = await client.GetAsync("/api/v1/recipes");
+        var recipesRes = await client.GetAsync("/api/v1/recipes?scope=mine");
+        recipesRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var recipes = (await recipesRes.Content.ReadFromJsonAsync<ApiResponse<List<RecipeSummaryDto>>>())!.Data!;
         var restoredRecipe = recipes.Should().ContainSingle(r => r.Name == "SVG Attack IPA").Subject;
         restoredRecipe.HasCustomLabel.Should().BeFalse();
