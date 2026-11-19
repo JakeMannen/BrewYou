@@ -395,7 +395,19 @@ public class AuthService(
             user.WebhookBaseUrl = string.IsNullOrWhiteSpace(request.WebhookBaseUrl) ? null : request.WebhookBaseUrl.Trim().TrimEnd('/');
         }
 
+        var mqttChanged = request.MqttHost != null ||
+                          request.MqttPort.HasValue ||
+                          request.MqttUsername != null ||
+                          request.MqttPassword != null ||
+                          request.MqttCertificate != null;
+
         await userManager.UpdateAsync(user);
+
+        if (mqttChanged)
+        {
+            await mqttService.DisconnectUserAsync(userId);
+        }
+
         return MapToUserDto(user);
     }
 
@@ -566,8 +578,8 @@ public class AuthService(
             port ??= 1883;
         }
 
-        // Check if persistent MQTT client is already actively connected to this host/port
-        var status = mqttService.GetStatus(host, port);
+        // Check if this user's persistent MQTT client is already actively connected to this host/port
+        var status = mqttService.GetStatus(userId, host, port);
         if (status.Connected)
         {
             return new MqttStatusResult(true, true, host, port.Value);

@@ -159,6 +159,7 @@ builder.Services.AddSingleton<ITelemetryBroadcastService, TelemetryBroadcastServ
 builder.Services.AddSingleton<ITelemetryThrottlingService, TelemetryThrottlingService>();
 builder.Services.AddSingleton<IBrewLinkWebSocketManager, BrewLinkWebSocketManager>();
 builder.Services.AddSingleton<IBrewLinkDiscoveryService, BrewLinkDiscoveryService>();
+builder.Services.Configure<NetworkSecurityOptions>(builder.Configuration.GetSection(NetworkSecurityOptions.SectionName));
 builder.Services.AddSingleton<IMqttConnectivityChecker, MqttConnectivityChecker>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
 builder.Services.AddScoped<ITelemetryService, TelemetryService>();
@@ -216,6 +217,18 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = builder.Environment.IsDevelopment() ? 600 : 120,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+    options.AddPolicy("mqtt-status-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Environment.IsDevelopment() ? 120 : 10,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0

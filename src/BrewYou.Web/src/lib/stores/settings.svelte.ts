@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { SvelteURL } from 'svelte/reactivity';
 import { api } from '$lib/api/client';
 import { auth, onAuthCleared } from '$lib/stores/auth.svelte';
 import { theme, type ThemePreference as ThemeStorePreference } from '$lib/stores/theme.svelte';
@@ -251,6 +252,23 @@ export function formatGravity(
 	return formatNumber(sg, decimals);
 }
 
+export function isValidHttpUrl(raw: string | null | undefined): boolean {
+	if (!raw) return false;
+	const trimmed = raw.trim();
+	if (!trimmed) return false;
+	try {
+		const parsed = new SvelteURL(trimmed);
+		return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
+export function sanitizeHttpBaseUrl(raw: string | null | undefined): string {
+	if (!isValidHttpUrl(raw)) return '';
+	return raw!.trim().replace(/\/+$/, '');
+}
+
 class SettingsState {
 	volumeUnit = $state<VolumeUnit>('Liters');
 	grainWeightUnit = $state<GrainWeightUnit>('kg');
@@ -286,8 +304,9 @@ class SettingsState {
 	}
 
 	get resolvedAppBaseUrl(): string {
-		if (this.appBaseUrl && this.appBaseUrl.trim()) {
-			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		const safeAppUrl = sanitizeHttpBaseUrl(this.appBaseUrl);
+		if (safeAppUrl) {
+			return safeAppUrl;
 		}
 		const metaEnv =
 			typeof import.meta !== 'undefined'
@@ -321,12 +340,14 @@ class SettingsState {
 	}
 
 	get resolvedWebhookBaseUrl(): string {
-		if (this.webhookBaseUrl && this.webhookBaseUrl.trim()) {
-			return this.webhookBaseUrl.trim().replace(/\/+$/, '');
+		const safeWebhookUrl = sanitizeHttpBaseUrl(this.webhookBaseUrl);
+		if (safeWebhookUrl) {
+			return safeWebhookUrl;
 		}
 		// In most deployments (reverse proxies, LAN IP, domains), webhooks share the application base URL
-		if (this.appBaseUrl && this.appBaseUrl.trim()) {
-			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		const safeAppUrl = sanitizeHttpBaseUrl(this.appBaseUrl);
+		if (safeAppUrl) {
+			return safeAppUrl;
 		}
 		const metaEnv =
 			typeof import.meta !== 'undefined'
@@ -592,10 +613,11 @@ class SettingsState {
 			if (savedMqttTopicPrefix !== null) this.mqttTopicPrefix = savedMqttTopicPrefix;
 
 			const savedAppUrl = localStorage.getItem('brewyou_app_base_url');
-			if (savedAppUrl !== null) this.appBaseUrl = savedAppUrl;
+			if (savedAppUrl !== null) this.appBaseUrl = isValidHttpUrl(savedAppUrl) ? savedAppUrl : '';
 
 			const savedWebhookUrl = localStorage.getItem('brewyou_webhook_base_url');
-			if (savedWebhookUrl !== null) this.webhookBaseUrl = savedWebhookUrl;
+			if (savedWebhookUrl !== null)
+				this.webhookBaseUrl = isValidHttpUrl(savedWebhookUrl) ? savedWebhookUrl : '';
 		}
 
 		if (auth.user?.preferences) {
@@ -670,8 +692,10 @@ class SettingsState {
 		if (pref.mqttTopicPrefix !== undefined) {
 			this.mqttTopicPrefix = pref.mqttTopicPrefix ?? 'brewyou/equipment';
 		}
-		if (pref.appBaseUrl !== undefined) this.appBaseUrl = pref.appBaseUrl ?? '';
-		if (pref.webhookBaseUrl !== undefined) this.webhookBaseUrl = pref.webhookBaseUrl ?? '';
+		if (pref.appBaseUrl !== undefined)
+			this.appBaseUrl = isValidHttpUrl(pref.appBaseUrl) ? (pref.appBaseUrl ?? '') : '';
+		if (pref.webhookBaseUrl !== undefined)
+			this.webhookBaseUrl = isValidHttpUrl(pref.webhookBaseUrl) ? (pref.webhookBaseUrl ?? '') : '';
 
 		this.persistToLocalStorage();
 

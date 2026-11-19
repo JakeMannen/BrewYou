@@ -24,6 +24,7 @@ public interface IBackupService
 public class BackupService : IBackupService
 {
     private const int MaxExportedTelemetryReadings = 5000;
+    private const int MaxRestoredLabelBytes = 10 * 1024 * 1024; // 10 MB cap for restored recipe label images
 
     private readonly BrewYouDbContext _db;
     private readonly BackupMigrationPipeline _migrationPipeline;
@@ -1458,11 +1459,11 @@ public class BackupService : IBackupService
                             {
                                 if (existingRecipe.Label != null)
                                 {
-                                    UpdateRecipeLabelFromDto(existingRecipe.Label, recipeDto.Label);
+                                    UpdateRecipeLabelFromDto(existingRecipe.Label, recipeDto.Label, normName, warnings);
                                 }
                                 else
                                 {
-                                    var newLabel = CreateRecipeLabelFromDto(existingRecipe.Id, recipeDto.Label);
+                                    var newLabel = CreateRecipeLabelFromDto(existingRecipe.Id, recipeDto.Label, normName, warnings);
                                     if (newLabel != null)
                                     {
                                         existingRecipe.Label = newLabel;
@@ -1514,7 +1515,7 @@ public class BackupService : IBackupService
                             IsPublic = recipeDto.IsPublic,
                             CreatedAt = recipeDto.CreatedAt == default ? DateTime.UtcNow : recipeDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow,
-                            Label = CreateRecipeLabelFromDto(newRecipeId, recipeDto.Label),
+                            Label = CreateRecipeLabelFromDto(newRecipeId, recipeDto.Label, uniqueName, warnings),
                             Ingredients = await BuildRecipeIngredientsAsync(newRecipeId, recipeDto.Ingredients, ResolveIngredientAsync),
                             MashSteps = BuildRecipeMashSteps(newRecipeId, recipeDto.MashSteps),
                             FermentationSteps = BuildRecipeFermentationSteps(newRecipeId, recipeDto.FermentationSteps)
@@ -2269,9 +2270,20 @@ public class BackupService : IBackupService
         byte[]? encryptionKey,
         List<string> warnings)
     {
-        if (!string.IsNullOrWhiteSpace(s.DisplayName) && !s.DisplayName.Contains('<') && !s.DisplayName.Contains('>'))
+        if (!string.IsNullOrWhiteSpace(s.DisplayName))
         {
-            user.DisplayName = s.DisplayName.Trim();
+            var trimmedName = s.DisplayName.Trim();
+            if (trimmedName.Length <= 100 &&
+                !trimmedName.Contains('<') &&
+                !trimmedName.Contains('>') &&
+                !trimmedName.Any(char.IsControl))
+            {
+                user.DisplayName = trimmedName;
+            }
+            else
+            {
+                warnings.Add("Skipped invalid display name from backup.");
+            }
         }
 
         var validLangs = new[] { "en", "sv", "de", "fr", "es" };
@@ -2310,25 +2322,128 @@ public class BackupService : IBackupService
             user.DefaultBoilTimeMinutes = s.DefaultBoilTimeMinutes;
         }
 
-        user.MqttHost = string.IsNullOrWhiteSpace(s.MqttHost) ? null : s.MqttHost.Trim();
+        if (string.IsNullOrWhiteSpace(s.MqttHost))
+        {
+            user.MqttHost = null;
+        }
+        else
+        {
+            var trimmedHost = s.MqttHost.Trim();
+            if (trimmedHost.Length <= 255 && !trimmedHost.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+            {
+                user.MqttHost = trimmedHost;
+            }
+            else
+            {
+                user.MqttHost = null;
+                warnings.Add("Skipped invalid MQTT host from backup.");
+            }
+        }
+
         user.MqttPort = s.MqttPort is >= 1 and <= 65535 ? s.MqttPort : 1883;
-        user.MqttUsername = string.IsNullOrWhiteSpace(s.MqttUsername) ? null : s.MqttUsername.Trim();
-        user.MqttCertificate = string.IsNullOrWhiteSpace(s.MqttCertificate) ? null : s.MqttCertificate.Trim();
-        user.MqttTopicPrefix = string.IsNullOrWhiteSpace(s.MqttTopicPrefix) ? "brewyou/equipment" : s.MqttTopicPrefix.Trim().Trim('/');
-        user.AppBaseUrl = string.IsNullOrWhiteSpace(s.AppBaseUrl) ? null : s.AppBaseUrl.Trim().TrimEnd('/');
-        user.WebhookBaseUrl = string.IsNullOrWhiteSpace(s.WebhookBaseUrl) ? null : s.WebhookBaseUrl.Trim().TrimEnd('/');
+
+        if (string.IsNullOrWhiteSpace(s.MqttUsername))
+        {
+            user.MqttUsername = null;
+        }
+        else
+        {
+            var trimmedUsername = s.MqttUsername.Trim();
+            if (trimmedUsername.Length <= 100 && !trimmedUsername.Any(char.IsControl))
+            {
+                user.MqttUsername = trimmedUsername;
+            }
+            else
+            {
+                user.MqttUsername = null;
+                warnings.Add("Skipped invalid MQTT username from backup.");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(s.MqttCertificate))
+        {
+            user.MqttCertificate = null;
+        }
+        else
+        {
+            var trimmedCert = s.MqttCertificate.Trim();
+            if (trimmedCert.Length <= 16384 &&
+                trimmedCert.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal) &&
+                trimmedCert.Contains("-----END CERTIFICATE-----", StringComparison.Ordinal))
+            {
+                user.MqttCertificate = trimmedCert;
+            }
+            else
+            {
+                user.MqttCertificate = null;
+                warnings.Add("Skipped invalid MQTT certificate from backup.");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(s.MqttTopicPrefix))
+        {
+            user.MqttTopicPrefix = "brewyou/equipment";
+        }
+        else
+        {
+            var trimmedPrefix = s.MqttTopicPrefix.Trim().Trim('/');
+            if (!string.IsNullOrWhiteSpace(trimmedPrefix) &&
+                trimmedPrefix.Length <= 150 &&
+                !trimmedPrefix.Contains('+') &&
+                !trimmedPrefix.Contains('#') &&
+                !trimmedPrefix.Contains('$') &&
+                !trimmedPrefix.Any(char.IsControl))
+            {
+                user.MqttTopicPrefix = trimmedPrefix;
+            }
+            else
+            {
+                user.MqttTopicPrefix = "brewyou/equipment";
+                warnings.Add("Skipped invalid MQTT topic prefix from backup and restored default.");
+            }
+        }
+
+        user.AppBaseUrl = SanitizeHttpUrl(s.AppBaseUrl, "App base URL", warnings);
+        user.WebhookBaseUrl = SanitizeHttpUrl(s.WebhookBaseUrl, "Webhook base URL", warnings);
 
         if (!string.IsNullOrWhiteSpace(s.MqttPasswordEncrypted))
         {
             if (encryptionKey != null && BackupSecretProtector.TryDecryptSecret(s.MqttPasswordEncrypted, encryptionKey, out var plainPwd) && !string.IsNullOrWhiteSpace(plainPwd))
             {
-                user.MqttPassword = BackupSecretProtector.ProtectServerSecret(plainPwd, _protector);
+                if (plainPwd.Length <= 255)
+                {
+                    user.MqttPassword = BackupSecretProtector.ProtectServerSecret(plainPwd, _protector);
+                }
+                else
+                {
+                    warnings.Add("Skipped MQTT password from backup because it exceeds maximum length.");
+                }
             }
             else
             {
                 warnings.Add("Skipped encrypted MQTT password because no valid passphrase was provided.");
             }
         }
+    }
+
+    private static string? SanitizeHttpUrl(string? rawUrl, string fieldLabel, List<string> warnings)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+        {
+            return null;
+        }
+
+        var trimmed = rawUrl.Trim().TrimEnd('/');
+        if (trimmed.Length <= 255 &&
+            !trimmed.Any(char.IsControl) &&
+            Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            return trimmed;
+        }
+
+        warnings.Add($"Skipped invalid {fieldLabel} from backup (only absolute HTTP/HTTPS URLs up to 255 characters are permitted).");
+        return null;
     }
 
     private async Task ExecuteReplaceAllCleanupAsync(string userId)
@@ -2390,39 +2505,33 @@ public class BackupService : IBackupService
         int restoredMembers = 0;
         var generatedInvites = new List<RestoredInviteInfoDto>();
 
+        // Security: Never look up arbitrary accounts in _db.Users or silently enroll unconsented users
+        // from an untrusted backup payload. Only preserve already-existing memberships on this setup;
+        // all other collaborators require explicit invitation acceptance.
+        List<BreweryMember> existingMembers = mode == CollaboratorRestoreMode.RestoreMembershipsIfAvailable
+            ? await _db.BreweryMembers
+                .AsNoTracking()
+                .Include(m => m.User)
+                .Where(m => m.BrewerySetupId == targetSetup.Id)
+                .ToListAsync()
+            : [];
+
         if (setupDto.Members != null)
         {
             foreach (var mDto in setupDto.Members)
             {
                 if (mDto.UserId == ownerUserId) continue;
 
-                ApplicationUser? targetUser = null;
-                if (mode == CollaboratorRestoreMode.RestoreMembershipsIfAvailable)
-                {
-                    targetUser = await _db.Users.FirstOrDefaultAsync(u => u.Id == mDto.UserId);
-                    if (targetUser == null && !string.IsNullOrWhiteSpace(mDto.Email))
-                    {
-                        var normEmail = mDto.Email.Trim().ToLowerInvariant();
-                        targetUser = await _db.Users.FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normEmail);
-                    }
-                }
+                var alreadyExistingMember = mode == CollaboratorRestoreMode.RestoreMembershipsIfAvailable &&
+                    existingMembers.Any(existing =>
+                        existing.UserId == mDto.UserId ||
+                        (!string.IsNullOrWhiteSpace(mDto.Email) &&
+                         !string.IsNullOrWhiteSpace(existing.User?.Email) &&
+                         string.Equals(existing.User.Email, mDto.Email.Trim(), StringComparison.OrdinalIgnoreCase)));
 
-                if (targetUser != null && targetUser.Id != ownerUserId)
+                if (alreadyExistingMember)
                 {
-                    var alreadyMember = await _db.BreweryMembers.AnyAsync(m =>
-                        m.BrewerySetupId == targetSetup.Id && m.UserId == targetUser.Id);
-                    if (!alreadyMember)
-                    {
-                        _db.BreweryMembers.Add(new BreweryMember
-                        {
-                            Id = Guid.NewGuid(),
-                            BrewerySetupId = targetSetup.Id,
-                            UserId = targetUser.Id,
-                            Role = mDto.Role,
-                            JoinedAt = mDto.JoinedAt == default ? DateTime.UtcNow : mDto.JoinedAt
-                        });
-                        restoredMembers++;
-                    }
+                    restoredMembers++;
                 }
                 else if (!string.IsNullOrWhiteSpace(mDto.Email) && !mDto.Email.Contains('*'))
                 {
@@ -2889,15 +2998,84 @@ public class BackupService : IBackupService
         return string.Concat(email.AsSpan(0, 1), "***", email.AsSpan(atIndex - 1));
     }
 
-    private static RecipeLabel? CreateRecipeLabelFromDto(Guid recipeId, RecipeLabelBackupDto? labelDto)
+    private NormalizedImage? TryNormalizeRestoredLabelImage(
+        RecipeLabelBackupDto labelDto,
+        string recipeName,
+        List<string> warnings)
     {
-        if (labelDto == null || string.IsNullOrWhiteSpace(labelDto.ImageBase64)) return null;
-        byte[] bytes;
+        if (string.IsNullOrWhiteSpace(labelDto.ImageBase64))
+        {
+            return null;
+        }
+
+        // Guard against oversized Base64 payloads before decoding
+        if (labelDto.ImageBase64.Length > (MaxRestoredLabelBytes * 4 / 3) + 16)
+        {
+            warnings.Add($"Skipped recipe label for '{recipeName}' because image data exceeds the 10 MB limit.");
+            return null;
+        }
+
+        byte[] rawBytes;
         try
         {
-            bytes = Convert.FromBase64String(labelDto.ImageBase64);
+            rawBytes = Convert.FromBase64String(labelDto.ImageBase64);
         }
         catch
+        {
+            warnings.Add($"Skipped recipe label for '{recipeName}' because Base64 image data was malformed.");
+            return null;
+        }
+
+        if (rawBytes.Length == 0 || rawBytes.Length > MaxRestoredLabelBytes)
+        {
+            warnings.Add($"Skipped recipe label for '{recipeName}' because image data size is invalid.");
+            return null;
+        }
+
+        var processor = _imageProcessor ?? new SkiaLabelImageProcessor();
+        try
+        {
+            using var stream = new MemoryStream(rawBytes, writable: false);
+            return processor.Normalize(stream, SanitizeOriginalFileName(labelDto.OriginalFileName));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rejected invalid recipe label image during backup restore for recipe '{RecipeName}'", recipeName);
+            warnings.Add($"Skipped invalid or unsupported recipe label image for '{recipeName}'.");
+            return null;
+        }
+    }
+
+    private static string? SanitizeOriginalFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        var nameOnly = Path.GetFileName(fileName.Trim());
+        var cleaned = new string(nameOnly.Where(c => !char.IsControl(c) && c != '<' && c != '>').ToArray());
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return null;
+        }
+
+        return cleaned.Length > 200 ? cleaned[..200] : cleaned;
+    }
+
+    private RecipeLabel? CreateRecipeLabelFromDto(
+        Guid recipeId,
+        RecipeLabelBackupDto? labelDto,
+        string recipeName,
+        List<string> warnings)
+    {
+        if (labelDto == null || string.IsNullOrWhiteSpace(labelDto.ImageBase64))
+        {
+            return null;
+        }
+
+        var normalized = TryNormalizeRestoredLabelImage(labelDto, recipeName, warnings);
+        if (normalized == null)
         {
             return null;
         }
@@ -2906,50 +3084,52 @@ public class BackupService : IBackupService
         {
             Id = Guid.NewGuid(),
             RecipeId = recipeId,
-            ContentType = string.IsNullOrWhiteSpace(labelDto.ContentType) ? "image/webp" : labelDto.ContentType,
-            ImageData = bytes,
-            WidthPx = labelDto.WidthPx > 0 ? labelDto.WidthPx : 1024,
-            HeightPx = labelDto.HeightPx > 0 ? labelDto.HeightPx : 1024,
-            SizeBytes = bytes.Length,
-            Sha256 = string.IsNullOrWhiteSpace(labelDto.Sha256) ? LabelUrlSigner.ComputeSha256(bytes) : labelDto.Sha256,
+            ContentType = normalized.ContentType,
+            ImageData = normalized.Bytes,
+            WidthPx = normalized.Width,
+            HeightPx = normalized.Height,
+            SizeBytes = normalized.SizeBytes,
+            Sha256 = normalized.Sha256,
             Version = labelDto.Version > 0 ? labelDto.Version : 1,
             BottleCrop = labelDto.BottleCrop != null ? labelDto.BottleCrop.ToEntity() : LabelCrop.Default,
             RoundCrop = labelDto.RoundCrop != null ? labelDto.RoundCrop.ToEntity() : LabelCrop.Default,
             RectCrop = labelDto.RectCrop != null ? labelDto.RectCrop.ToEntity() : LabelCrop.Default,
             RectOrientation = labelDto.RectOrientation,
-            BottleWidthMm = labelDto.BottleWidthMm,
-            BottleHeightMm = labelDto.BottleHeightMm,
-            OriginalFileName = labelDto.OriginalFileName,
+            BottleWidthMm = labelDto.BottleWidthMm is >= 20m and <= 300m ? labelDto.BottleWidthMm : 90.0m,
+            BottleHeightMm = labelDto.BottleHeightMm is >= 20m and <= 300m ? labelDto.BottleHeightMm : 120.0m,
+            OriginalFileName = SanitizeOriginalFileName(labelDto.OriginalFileName),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
     }
 
-    private static void UpdateRecipeLabelFromDto(RecipeLabel target, RecipeLabelBackupDto labelDto)
+    private void UpdateRecipeLabelFromDto(
+        RecipeLabel target,
+        RecipeLabelBackupDto labelDto,
+        string recipeName,
+        List<string> warnings)
     {
         if (!string.IsNullOrWhiteSpace(labelDto.ImageBase64))
         {
-            try
+            var normalized = TryNormalizeRestoredLabelImage(labelDto, recipeName, warnings);
+            if (normalized != null)
             {
-                target.ImageData = Convert.FromBase64String(labelDto.ImageBase64);
-                target.SizeBytes = target.ImageData.Length;
-                target.Sha256 = string.IsNullOrWhiteSpace(labelDto.Sha256)
-                    ? LabelUrlSigner.ComputeSha256(target.ImageData)
-                    : labelDto.Sha256;
-                target.ContentType = string.IsNullOrWhiteSpace(labelDto.ContentType) ? "image/webp" : labelDto.ContentType;
-                target.WidthPx = labelDto.WidthPx > 0 ? labelDto.WidthPx : target.WidthPx;
-                target.HeightPx = labelDto.HeightPx > 0 ? labelDto.HeightPx : target.HeightPx;
+                target.ImageData = normalized.Bytes;
+                target.SizeBytes = normalized.SizeBytes;
+                target.Sha256 = normalized.Sha256;
+                target.ContentType = normalized.ContentType;
+                target.WidthPx = normalized.Width;
+                target.HeightPx = normalized.Height;
             }
-            catch { }
         }
         target.Version = Math.Max(target.Version + 1, labelDto.Version);
         if (labelDto.BottleCrop != null) target.BottleCrop = labelDto.BottleCrop.ToEntity();
         if (labelDto.RoundCrop != null) target.RoundCrop = labelDto.RoundCrop.ToEntity();
         if (labelDto.RectCrop != null) target.RectCrop = labelDto.RectCrop.ToEntity();
         target.RectOrientation = labelDto.RectOrientation;
-        target.BottleWidthMm = labelDto.BottleWidthMm;
-        target.BottleHeightMm = labelDto.BottleHeightMm;
-        target.OriginalFileName = labelDto.OriginalFileName ?? target.OriginalFileName;
+        if (labelDto.BottleWidthMm is >= 20m and <= 300m) target.BottleWidthMm = labelDto.BottleWidthMm;
+        if (labelDto.BottleHeightMm is >= 20m and <= 300m) target.BottleHeightMm = labelDto.BottleHeightMm;
+        target.OriginalFileName = SanitizeOriginalFileName(labelDto.OriginalFileName) ?? target.OriginalFileName;
         target.UpdatedAt = DateTime.UtcNow;
     }
 }

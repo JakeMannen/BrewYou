@@ -503,7 +503,7 @@ public record RestoreOptionsDto(
     bool RestoreUserSettings = true,
     bool RestoreSharedSetups = true,
     SharedSetupFallbackMode SharedSetupFallback = SharedSetupFallbackMode.CloneAsPersonal,
-    CollaboratorRestoreMode CollaboratorRestore = CollaboratorRestoreMode.RestoreMembershipsIfAvailable,
+    CollaboratorRestoreMode CollaboratorRestore = CollaboratorRestoreMode.CreateInvitesOnly,
     bool RestoreTelemetryReadings = true,
     string? Passphrase = null
 );

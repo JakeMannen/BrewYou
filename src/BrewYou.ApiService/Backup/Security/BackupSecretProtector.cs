@@ -170,12 +170,27 @@ public static class BackupSecretProtector
             return (backupConfigJson, false);
         }
 
+        if (backupConfigJson.Length > 4000)
+        {
+            return (null, false);
+        }
+
         try
         {
             var node = JsonNode.Parse(backupConfigJson);
             if (node is not JsonObject obj)
             {
-                return (backupConfigJson, false);
+                return (null, false);
+            }
+
+            // Defense-in-depth: Strip any raw plaintext password fields from untrusted backup JSON
+            var plaintextPasswordKeys = obj
+                .Where(kvp => string.Equals(kvp.Key, "password", StringComparison.OrdinalIgnoreCase))
+                .Select(kvp => kvp.Key)
+                .ToList();
+            foreach (var key in plaintextPasswordKeys)
+            {
+                obj.Remove(key);
             }
 
             bool failed = false;

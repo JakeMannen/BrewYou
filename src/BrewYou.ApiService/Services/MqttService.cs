@@ -5,7 +5,12 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using MQTTnet;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 
@@ -13,22 +18,42 @@ namespace BrewYou.ApiService.Services;
 
 public class MqttService : IMqttService, IDisposable
 {
+    private const int DefaultTlsMqttPort = 8883;
+
+    private sealed class UserMqttConnection : IDisposable
+    {
+        public SemaphoreSlim Lock { get; } = new(1, 1);
+        public IMqttClient? Client { get; set; }
+        public HashSet<string> SubscribedTopics { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public string? Host { get; set; }
+        public int? Port { get; set; }
+        public string? ConfigFingerprint { get; set; }
+        public DateTime? LastConnectedAt { get; set; }
+        public string? LastError { get; set; }
+        public bool IsConnected => Client?.IsConnected ?? false;
+
+        public void Dispose()
+        {
+            Client?.Dispose();
+            Lock.Dispose();
+        }
+    }
+
     private readonly IServiceProvider _serviceProvider;
     private readonly IMqttConnectivityChecker _connectivityChecker;
     private readonly IDataProtector _protector;
     private readonly IDataProtector _brewLinkProtector;
     private readonly IBrewLinkDiscoveryService? _brewLinkDiscoveryService;
     private readonly ILogger<MqttService> _logger;
-    private IMqttClient? _mqttClient;
-    private readonly SemaphoreSlim _connectionLock = new(1, 1);
-    private readonly HashSet<string> _subscribedTopics = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, UserMqttConnection> _connections = new(StringComparer.Ordinal);
 
-    public bool IsConnected => _mqttClient?.IsConnected ?? false;
-    public string? ConnectedHost { get; private set; }
-    public int? ConnectedPort { get; private set; }
-    public string? ConnectedUserId { get; private set; }
-    public DateTime? LastConnectedAt { get; private set; }
-    public string? LastError { get; private set; }
+    public bool IsConnected => _connections.Values.Any(c => c.IsConnected);
+    public string? ConnectedHost => _connections.Values.FirstOrDefault(c => c.IsConnected)?.Host;
+    public int? ConnectedPort => _connections.Values.FirstOrDefault(c => c.IsConnected)?.Port;
+    public DateTime? LastConnectedAt => _connections.Values
+        .Where(c => c.LastConnectedAt.HasValue)
+        .Select(c => c.LastConnectedAt)
+        .Max();
 
     public MqttService(
         IServiceProvider serviceProvider,
@@ -45,31 +70,41 @@ public class MqttService : IMqttService, IDisposable
         _logger = logger;
     }
 
-    public MqttStatusInfo GetStatus(string? host = null, int? port = null)
+    public MqttStatusInfo GetStatus(string userId, string? host = null, int? port = null)
     {
-        if (string.IsNullOrWhiteSpace(host))
+        if (string.IsNullOrWhiteSpace(userId) || !_connections.TryGetValue(userId, out var conn))
         {
             return new MqttStatusInfo(
-                Configured: !string.IsNullOrWhiteSpace(ConnectedHost),
-                Connected: IsConnected,
-                Host: ConnectedHost,
-                Port: ConnectedPort,
-                Error: LastError,
-                LastConnectedAt: LastConnectedAt
+                Configured: !string.IsNullOrWhiteSpace(host),
+                Connected: false,
+                Host: host,
+                Port: port
             );
         }
 
-        var isSameHost = string.Equals(host.Trim(), ConnectedHost, StringComparison.OrdinalIgnoreCase);
-        var isSamePort = port == null || port == ConnectedPort;
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return new MqttStatusInfo(
+                Configured: !string.IsNullOrWhiteSpace(conn.Host),
+                Connected: conn.IsConnected,
+                Host: conn.Host,
+                Port: conn.Port,
+                Error: conn.LastError,
+                LastConnectedAt: conn.LastConnectedAt
+            );
+        }
 
-        if (isSameHost && isSamePort && IsConnected)
+        var isSameHost = string.Equals(host.Trim(), conn.Host, StringComparison.OrdinalIgnoreCase);
+        var isSamePort = port == null || port == conn.Port;
+
+        if (isSameHost && isSamePort && conn.IsConnected)
         {
             return new MqttStatusInfo(
                 Configured: true,
                 Connected: true,
-                Host: ConnectedHost,
-                Port: ConnectedPort,
-                LastConnectedAt: LastConnectedAt
+                Host: conn.Host,
+                Port: conn.Port,
+                LastConnectedAt: conn.LastConnectedAt
             );
         }
 
@@ -78,126 +113,368 @@ public class MqttService : IMqttService, IDisposable
             Connected: false,
             Host: host,
             Port: port,
-            Error: isSameHost && isSamePort ? LastError : null
+            Error: isSameHost && isSamePort ? conn.LastError : null
+        );
+    }
+
+    public MqttStatusInfo GetStatus(string? host = null, int? port = null)
+    {
+        // Aggregate summary only (never returns cross-user status for arbitrary host/port queries)
+        if (!string.IsNullOrWhiteSpace(host))
+        {
+            return new MqttStatusInfo(Configured: true, Connected: false, Host: host, Port: port);
+        }
+
+        var connected = _connections.Values.FirstOrDefault(c => c.IsConnected);
+        if (connected != null)
+        {
+            return new MqttStatusInfo(
+                Configured: true,
+                Connected: true,
+                Host: connected.Host,
+                Port: connected.Port,
+                LastConnectedAt: connected.LastConnectedAt
+            );
+        }
+
+        return new MqttStatusInfo(
+            Configured: !_connections.IsEmpty,
+            Connected: false
         );
     }
 
     public async Task<bool> EnsureConnectedAsync(CancellationToken cancellationToken = default)
     {
-        await _connectionLock.WaitAsync(cancellationToken);
-        try
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+
+        var configuredUsers = await db.Users
+            .AsNoTracking()
+            .Where(u => !string.IsNullOrEmpty(u.MqttHost))
+            .ToListAsync(cancellationToken);
+
+        var activeUserIds = configuredUsers.Select(u => u.Id).ToHashSet(StringComparer.Ordinal);
+
+        // Disconnect any stale connections for users who removed their MQTT host
+        foreach (var staleUserId in _connections.Keys.Where(id => !activeUserIds.Contains(id)).ToList())
         {
-            if (IsConnected)
-            {
-                return true;
-            }
+            await DisconnectUserAsync(staleUserId, cancellationToken);
+        }
 
-            // Look up active MQTT configurations from ApplicationUser or Equipment
-            using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
-
-            var userWithMqtt = await db.Users
-                .AsNoTracking()
-                .Where(u => !string.IsNullOrEmpty(u.MqttHost))
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (userWithMqtt == null || string.IsNullOrWhiteSpace(userWithMqtt.MqttHost))
-            {
-                return false;
-            }
-
-            var host = userWithMqtt.MqttHost.Trim();
-            var port = userWithMqtt.MqttPort ?? 1883;
-
-            // SSRF and Reachability pre-check
-            var reachable = await _connectivityChecker.CanConnectAsync(host, port, TimeSpan.FromSeconds(3), cancellationToken);
-            if (!reachable)
-            {
-                LastError = $"Broker {host}:{port} is unreachable or forbidden.";
-                _logger.LogWarning("MQTT reachability check failed for {Host}:{Port}", host, port);
-                return false;
-            }
-
-            if (_mqttClient == null)
-            {
-                var factory = new MqttClientFactory();
-                _mqttClient = factory.CreateMqttClient();
-                _mqttClient.ApplicationMessageReceivedAsync += HandleApplicationMessageReceivedAsync;
-                _mqttClient.DisconnectedAsync += OnClientDisconnectedAsync;
-            }
-
-            var clientOptionsBuilder = new MqttClientOptionsBuilder()
-                .WithTcpServer(host, port)
-                .WithClientId($"BrewYou-{Guid.NewGuid():N}"[..23])
-                .WithCleanSession(true)
-                .WithTimeout(TimeSpan.FromSeconds(5))
-                .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
-
-            if (!string.IsNullOrWhiteSpace(userWithMqtt.MqttUsername))
-            {
-                string? plaintextPassword = null;
-                if (!string.IsNullOrWhiteSpace(userWithMqtt.MqttPassword))
-                {
-                    try
-                    {
-                        plaintextPassword = _protector.Unprotect(userWithMqtt.MqttPassword);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to decrypt stored MQTT password for user {UserId}", userWithMqtt.Id);
-                    }
-                }
-
-                clientOptionsBuilder.WithCredentials(userWithMqtt.MqttUsername, plaintextPassword);
-            }
-
-            var clientOptions = clientOptionsBuilder.Build();
-
-            _logger.LogInformation("Connecting persistent MQTT client to {Host}:{Port}...", host, port);
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            connectCts.CancelAfter(TimeSpan.FromSeconds(5));
-
-            var result = await _mqttClient.ConnectAsync(clientOptions, connectCts.Token);
-            if (_mqttClient.IsConnected)
-            {
-                ConnectedHost = host;
-                ConnectedPort = port;
-                ConnectedUserId = userWithMqtt.Id;
-                LastConnectedAt = DateTime.UtcNow;
-                LastError = null;
-                _logger.LogInformation("Persistent MQTT client successfully connected to {Host}:{Port}", host, port);
-
-                await RefreshSubscriptionsAsync(cancellationToken);
-                return true;
-            }
-
-            LastError = $"Connection failed with result code: {result.ResultCode}";
+        if (configuredUsers.Count == 0)
+        {
             return false;
         }
-        catch (Exception ex)
+
+        var anyConnected = false;
+        foreach (var user in configuredUsers)
         {
-            LastError = ex.Message;
-            _logger.LogWarning(ex, "Failed to connect persistent MQTT client");
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            if (await EnsureUserConnectedAsync(user, cancellationToken))
+            {
+                anyConnected = true;
+            }
+        }
+
+        return anyConnected;
+    }
+
+    private async Task<bool> EnsureUserConnectedAsync(ApplicationUser user, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(user.MqttHost))
+        {
+            return false;
+        }
+
+        var host = user.MqttHost.Trim();
+        var port = user.MqttPort ?? 1883;
+        var fingerprint = ComputeConfigFingerprint(host, port, user.MqttUsername, user.MqttPassword, user.MqttCertificate);
+        var conn = _connections.GetOrAdd(user.Id, _ => new UserMqttConnection());
+
+        await conn.Lock.WaitAsync(cancellationToken);
+        try
+        {
+            if (conn.IsConnected && string.Equals(conn.ConfigFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            // Reconfigure if user changed host/port/credentials/certificate
+            if (conn.Client != null && conn.Client.IsConnected)
+            {
+                try
+                {
+                    await conn.Client.DisconnectAsync(cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error disconnecting previous MQTT session for user {UserId}", user.Id);
+                }
+                conn.SubscribedTopics.Clear();
+            }
+
+            // SSRF & DNS-rebinding defense: resolve and validate once, then pin the validated IP
+            var validatedAddresses = await _connectivityChecker.ResolveValidatedAddressesAsync(host, cancellationToken);
+            if (validatedAddresses.Length == 0)
+            {
+                conn.Host = host;
+                conn.Port = port;
+                conn.LastError = $"Broker {host}:{port} is unreachable or forbidden.";
+                _logger.LogWarning("MQTT host validation failed for user {UserId} ({Host}:{Port})", user.Id, host, port);
+                return false;
+            }
+
+            string? plaintextPassword = null;
+            if (!string.IsNullOrWhiteSpace(user.MqttPassword))
+            {
+                try
+                {
+                    plaintextPassword = _protector.Unprotect(user.MqttPassword);
+                }
+                catch (Exception ex)
+                {
+                    conn.Host = host;
+                    conn.Port = port;
+                    conn.LastError = "Stored MQTT credentials could not be decrypted. Please re-save your MQTT password.";
+                    _logger.LogWarning(ex, "Failed to decrypt stored MQTT password for user {UserId}", user.Id);
+                    return false;
+                }
+            }
+
+            if (conn.Client == null)
+            {
+                var factory = new MqttClientFactory();
+                var client = factory.CreateMqttClient();
+                var ownerUserId = user.Id;
+                client.ApplicationMessageReceivedAsync += e => HandleApplicationMessageReceivedAsync(ownerUserId, e);
+                client.DisconnectedAsync += e => OnClientDisconnectedAsync(ownerUserId, conn, e);
+                conn.Client = client;
+            }
+
+            Exception? lastException = null;
+            foreach (var resolvedIp in validatedAddresses)
+            {
+                MqttClientOptions clientOptions;
+                try
+                {
+                    clientOptions = BuildClientOptions(
+                        originalHost: host,
+                        pinnedAddress: resolvedIp,
+                        port: port,
+                        username: user.MqttUsername,
+                        plaintextPassword: plaintextPassword,
+                        certificatePem: user.MqttCertificate);
+                }
+                catch (Exception ex)
+                {
+                    conn.Host = host;
+                    conn.Port = port;
+                    conn.LastError = $"Invalid MQTT TLS configuration: {ex.Message}";
+                    _logger.LogWarning(ex, "Invalid MQTT TLS certificate configuration for user {UserId}", user.Id);
+                    return false;
+                }
+
+                try
+                {
+                    _logger.LogInformation("Connecting persistent MQTT client for user {UserId} to {Host}:{Port}...", user.Id, host, port);
+                    using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    connectCts.CancelAfter(TimeSpan.FromSeconds(5));
+
+                    var result = await conn.Client.ConnectAsync(clientOptions, connectCts.Token);
+                    if (conn.Client.IsConnected)
+                    {
+                        conn.Host = host;
+                        conn.Port = port;
+                        conn.ConfigFingerprint = fingerprint;
+                        conn.LastConnectedAt = DateTime.UtcNow;
+                        conn.LastError = null;
+                        _logger.LogInformation("Persistent MQTT client connected for user {UserId} to {Host}:{Port}", user.Id, host, port);
+
+                        await RefreshUserSubscriptionsAsync(user.Id, conn, cancellationToken);
+                        return true;
+                    }
+
+                    conn.LastError = $"Connection failed with result code: {result.ResultCode}";
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                }
+            }
+
+            conn.Host = host;
+            conn.Port = port;
+            if (lastException != null)
+            {
+                conn.LastError = lastException.Message;
+                _logger.LogWarning(lastException, "Failed to connect persistent MQTT client for user {UserId}", user.Id);
+            }
             return false;
         }
         finally
         {
-            _connectionLock.Release();
+            conn.Lock.Release();
         }
     }
 
-    private Task OnClientDisconnectedAsync(MqttClientDisconnectedEventArgs e)
+    public static MqttClientOptions BuildClientOptions(
+        string originalHost,
+        IPAddress pinnedAddress,
+        int port,
+        string? username,
+        string? plaintextPassword,
+        string? certificatePem)
     {
-        _logger.LogWarning("MQTT client disconnected from {Host}:{Port}. Reason: {Reason}",
-            ConnectedHost, ConnectedPort, e.Reason);
-        _subscribedTopics.Clear();
-        ConnectedUserId = null;
+        var builder = new MqttClientOptionsBuilder()
+            .WithTcpServer(pinnedAddress.ToString(), port)
+            .WithClientId($"BrewYou-{Guid.NewGuid():N}"[..23])
+            .WithCleanSession(true)
+            .WithTimeout(TimeSpan.FromSeconds(5))
+            .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            builder.WithCredentials(username, plaintextPassword);
+        }
+
+        var hasCustomCert = !string.IsNullOrWhiteSpace(certificatePem);
+        var useTls = hasCustomCert || port == DefaultTlsMqttPort;
+
+        if (useTls)
+        {
+            X509Certificate2Collection? customRoots = null;
+            if (hasCustomCert)
+            {
+                customRoots = new X509Certificate2Collection();
+                customRoots.ImportFromPem(certificatePem!);
+                if (customRoots.Count == 0)
+                {
+                    throw new CryptographicException("No valid X.509 certificate found in PEM data.");
+                }
+            }
+
+            builder.WithTlsOptions(tls =>
+            {
+                tls.UseTls(true);
+                tls.WithTargetHost(originalHost);
+                tls.WithSslProtocols(SslProtocols.Tls12 | SslProtocols.Tls13);
+                tls.WithAllowUntrustedCertificates(false);
+                tls.WithIgnoreCertificateChainErrors(false);
+                tls.WithIgnoreCertificateRevocationErrors(false);
+
+                if (customRoots != null)
+                {
+                    tls.WithCertificateValidationHandler(ctx =>
+                        ValidateServerCertificateWithCustomRoots(ctx.Certificate, ctx.Chain, ctx.SslPolicyErrors, originalHost, customRoots));
+                }
+            });
+        }
+
+        return builder.Build();
+    }
+
+    public static bool ValidateServerCertificateWithCustomRoots(
+        X509Certificate? certificate,
+        X509Chain? _,
+        SslPolicyErrors __,
+        string expectedHost,
+        X509Certificate2Collection customRoots)
+    {
+        if (certificate == null || customRoots.Count == 0)
+        {
+            return false;
+        }
+
+        using var serverCert = certificate is X509Certificate2 cert2
+            ? new X509Certificate2(cert2)
+            : new X509Certificate2(certificate);
+
+        if (!serverCert.MatchesHostname(expectedHost, allowWildcards: true, allowCommonName: true))
+        {
+            return false;
+        }
+
+        using var customChain = new X509Chain();
+        customChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        customChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        foreach (var root in customRoots)
+        {
+            customChain.ChainPolicy.CustomTrustStore.Add(root);
+        }
+
+        return customChain.Build(serverCert);
+    }
+
+    public static string RedactTopicForLogging(string topic)
+    {
+        if (string.IsNullOrWhiteSpace(topic))
+        {
+            return string.Empty;
+        }
+
+        var segments = topic.Split('/');
+        // Redact secret topicKey in brewlink/{topicKey}/{gatewayId}/...
+        if (segments.Length >= 3 &&
+            string.Equals(segments[0], "brewlink", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(segments[1], "discovery", StringComparison.OrdinalIgnoreCase))
+        {
+            segments[1] = "***";
+            return string.Join('/', segments);
+        }
+
+        return topic;
+    }
+
+    private static string ComputeConfigFingerprint(string host, int port, string? username, string? encryptedPassword, string? certificate)
+    {
+        var input = $"{host.ToLowerInvariant()}|{port}|{username ?? ""}|{encryptedPassword ?? ""}|{certificate ?? ""}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
+    }
+
+    private Task OnClientDisconnectedAsync(string userId, UserMqttConnection conn, MqttClientDisconnectedEventArgs e)
+    {
+        _logger.LogWarning("MQTT client disconnected for user {UserId} from {Host}:{Port}. Reason: {Reason}",
+            userId, conn.Host, conn.Port, e.Reason);
+        conn.SubscribedTopics.Clear();
         return Task.CompletedTask;
     }
 
     public async Task RefreshSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
-        if (!IsConnected || _mqttClient == null)
+        foreach (var (userId, conn) in _connections)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            if (!conn.IsConnected)
+            {
+                continue;
+            }
+
+            await conn.Lock.WaitAsync(cancellationToken);
+            try
+            {
+                if (conn.IsConnected)
+                {
+                    await RefreshUserSubscriptionsAsync(userId, conn, cancellationToken);
+                }
+            }
+            finally
+            {
+                conn.Lock.Release();
+            }
+        }
+    }
+
+    private async Task RefreshUserSubscriptionsAsync(string userId, UserMqttConnection conn, CancellationToken cancellationToken)
+    {
+        if (!conn.IsConnected || conn.Client == null)
         {
             return;
         }
@@ -207,7 +484,7 @@ public class MqttService : IMqttService, IDisposable
 
         var mqttEquipment = await db.Equipment
             .AsNoTracking()
-            .Where(e => (ConnectedUserId == null || e.UserId == ConnectedUserId) &&
+            .Where(e => e.UserId == userId &&
                         e.ConnectionType == EquipmentConnectionType.Mqtt &&
                         !string.IsNullOrEmpty(e.ConnectionConfigJson))
             .ToListAsync(cancellationToken);
@@ -228,8 +505,7 @@ public class MqttService : IMqttService, IDisposable
 
         var brewLinkGateways = await db.BrewLinkGateways
             .AsNoTracking()
-            .Where(g => (ConnectedUserId == null || g.UserId == ConnectedUserId) &&
-                        !string.IsNullOrEmpty(g.MqttTopicKey))
+            .Where(g => g.UserId == userId && !string.IsNullOrEmpty(g.MqttTopicKey))
             .ToListAsync(cancellationToken);
 
         foreach (var gw in brewLinkGateways)
@@ -250,46 +526,60 @@ public class MqttService : IMqttService, IDisposable
 
         foreach (var topic in targetTopics)
         {
-            if (!_subscribedTopics.Contains(topic))
+            if (!conn.SubscribedTopics.Contains(topic))
             {
                 try
                 {
-                    await _mqttClient.SubscribeAsync(topic, cancellationToken: cancellationToken);
-                    _subscribedTopics.Add(topic);
-                    _logger.LogInformation("Subscribed to MQTT equipment topic: {Topic}", topic);
+                    await conn.Client.SubscribeAsync(topic, cancellationToken: cancellationToken);
+                    conn.SubscribedTopics.Add(topic);
+                    _logger.LogInformation("Subscribed to MQTT equipment topic for user {UserId}: {Topic}",
+                        userId, RedactTopicForLogging(topic));
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to subscribe to MQTT topic {Topic}", topic);
+                    _logger.LogWarning(ex, "Failed to subscribe to MQTT topic {Topic} for user {UserId}",
+                        RedactTopicForLogging(topic), userId);
                 }
             }
+        }
+    }
+
+    public async Task DisconnectUserAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || !_connections.TryRemove(userId, out var conn))
+        {
+            return;
+        }
+
+        await conn.Lock.WaitAsync(cancellationToken);
+        try
+        {
+            if (conn.Client != null && conn.Client.IsConnected)
+            {
+                await conn.Client.DisconnectAsync(cancellationToken: cancellationToken);
+                _logger.LogInformation("MQTT client disconnected cleanly for user {UserId}.", userId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disconnecting MQTT client for user {UserId}.", userId);
+        }
+        finally
+        {
+            conn.Lock.Release();
+            conn.Dispose();
         }
     }
 
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        await _connectionLock.WaitAsync(cancellationToken);
-        try
+        foreach (var userId in _connections.Keys.ToList())
         {
-            if (_mqttClient != null && _mqttClient.IsConnected)
-            {
-                await _mqttClient.DisconnectAsync(cancellationToken: cancellationToken);
-                _subscribedTopics.Clear();
-                ConnectedUserId = null;
-                _logger.LogInformation("MQTT client disconnected cleanly.");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error disconnecting MQTT client.");
-        }
-        finally
-        {
-            _connectionLock.Release();
+            await DisconnectUserAsync(userId, cancellationToken);
         }
     }
 
-    private async Task HandleApplicationMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs e)
+    private async Task HandleApplicationMessageReceivedAsync(string ownerUserId, MqttApplicationMessageReceivedEventArgs e)
     {
         var topic = e.ApplicationMessage.Topic;
         var payloadBytes = e.ApplicationMessage.Payload;
@@ -299,7 +589,8 @@ public class MqttService : IMqttService, IDisposable
         }
 
         var payload = Encoding.UTF8.GetString(payloadBytes.ToArray());
-        _logger.LogDebug("Received MQTT message on topic {Topic}: {Payload}", topic, payload);
+        var safeTopic = RedactTopicForLogging(topic);
+        _logger.LogDebug("Received MQTT message for user {UserId} on topic {Topic}: {Payload}", ownerUserId, safeTopic, payload);
 
         if (topic.StartsWith("brewlink/discovery/", StringComparison.OrdinalIgnoreCase))
         {
@@ -325,11 +616,11 @@ public class MqttService : IMqttService, IDisposable
                 var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
 
                 var matchingGateways = await db.BrewLinkGateways.AsNoTracking()
-                    .Where(g => g.GatewayId == gatewayHardwareId &&
-                                (ConnectedUserId == null || g.UserId == ConnectedUserId))
+                    .Where(g => g.GatewayId == gatewayHardwareId && g.UserId == ownerUserId)
                     .ToListAsync();
 
                 BrewLinkGateway? gateway = null;
+                var incomingKeyBytes = Encoding.UTF8.GetBytes(topicKey);
                 foreach (var candidateGw in matchingGateways)
                 {
                     if (string.IsNullOrEmpty(candidateGw.MqttTopicKey))
@@ -340,7 +631,8 @@ public class MqttService : IMqttService, IDisposable
                     try
                     {
                         var unprotectedKey = _brewLinkProtector.Unprotect(candidateGw.MqttTopicKey);
-                        if (string.Equals(unprotectedKey, topicKey, StringComparison.Ordinal))
+                        var expectedKeyBytes = Encoding.UTF8.GetBytes(unprotectedKey);
+                        if (CryptographicOperations.FixedTimeEquals(expectedKeyBytes, incomingKeyBytes))
                         {
                             gateway = candidateGw;
                             break;
@@ -401,7 +693,7 @@ public class MqttService : IMqttService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing incoming BrewLink MQTT telemetry on {Topic}", topic);
+                _logger.LogError(ex, "Error processing incoming BrewLink MQTT telemetry on {Topic} for user {UserId}", safeTopic, ownerUserId);
             }
             return;
         }
@@ -413,7 +705,7 @@ public class MqttService : IMqttService, IDisposable
             var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
 
             var matchingEquipment = await db.Equipment
-                .Where(eq => (ConnectedUserId == null || eq.UserId == ConnectedUserId) &&
+                .Where(eq => eq.UserId == ownerUserId &&
                              eq.ConnectionType == EquipmentConnectionType.Mqtt &&
                              !string.IsNullOrEmpty(eq.ConnectionConfigJson))
                 .ToListAsync();
@@ -429,7 +721,7 @@ public class MqttService : IMqttService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing incoming MQTT message on {Topic}", topic);
+            _logger.LogError(ex, "Error processing incoming MQTT message on {Topic} for user {UserId}", safeTopic, ownerUserId);
         }
     }
 
@@ -456,7 +748,10 @@ public class MqttService : IMqttService, IDisposable
 
     public void Dispose()
     {
-        _mqttClient?.Dispose();
-        _connectionLock.Dispose();
+        foreach (var conn in _connections.Values)
+        {
+            conn.Dispose();
+        }
+        _connections.Clear();
     }
 }

@@ -369,6 +369,7 @@ public static class AuthEndpoints
             return Results.Ok(ApiResponse<MqttStatusResult>.Ok(result));
         })
         .RequireAuthorization()
+        .RequireRateLimiting("mqtt-status-limit")
         .WithName("GetMqttStatus")
         .Produces<ApiResponse<MqttStatusResult>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)

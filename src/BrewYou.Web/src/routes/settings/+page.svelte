@@ -147,7 +147,7 @@
 	let selectedBackupFileName = $state<string>('');
 	let conflictResolutionMode = $state<RestoreConflictResolutionMode>('MergeSkipExisting');
 	let sharedSetupFallbackMode = $state<SharedSetupFallbackMode>('CloneAsPersonal');
-	let collaboratorRestoreMode = $state<CollaboratorRestoreMode>('RestoreMembershipsIfAvailable');
+	let collaboratorRestoreMode = $state<CollaboratorRestoreMode>('CreateInvitesOnly');
 	let decryptionPassphrase = $state('');
 	let isPreviewingRestore = $state(false);
 	let isExecutingRestore = $state(false);
@@ -2650,11 +2650,11 @@
 										onchange={() => void handlePreviewRestore()}
 										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-xs font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
 									>
-										<option value="RestoreMembershipsIfAvailable"
-											>{t('settings.backup.collaborator_existing')}</option
-										>
 										<option value="CreateInvitesOnly"
 											>{t('settings.backup.collaborator_invites')}</option
+										>
+										<option value="RestoreMembershipsIfAvailable"
+											>{t('settings.backup.collaborator_existing')}</option
 										>
 										<option value="SkipCollaborators"
 											>{t('settings.backup.collaborator_ignore')}</option
