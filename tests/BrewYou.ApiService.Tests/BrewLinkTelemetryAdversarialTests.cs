@@ -701,7 +701,7 @@ public class BrewLinkTelemetryAdversarialTests : IClassFixture<WebApplicationFac
             Subtype = EquipmentSubtype.AllInOne,
             Capacity = 30,
             ConnectionType = connectionType,
-            ConnectionToken = connToken,
+            ConnectionToken = EquipmentService.HashConnectionToken(connToken),
             ConnectionConfigJson = """{"brewLinkGatewayId":"C44F331A8B20","targetMac":"C4:4F:33:1A:8B:22","slot":1}"""
         };
         db.Equipment.Add(eq);

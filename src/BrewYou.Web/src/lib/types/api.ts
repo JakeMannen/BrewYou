@@ -903,6 +903,7 @@ export interface EquipmentDto {
 	latestMetricsJson?: string | null;
 	connectionType?: EquipmentConnectionType;
 	connectionToken?: string | null;
+	hasConnectionToken?: boolean;
 	connectionConfigJson?: string | null;
 	description?: string | null;
 	notes?: string | null;
@@ -975,7 +976,6 @@ export interface TelemetryPollResult {
 	success: boolean;
 	temperatureC?: number | null;
 	errorMessage?: string | null;
-	responseSnippet?: string | null;
 }
 
 export interface CreateEquipmentRequest {

@@ -57,6 +57,14 @@ public class SecurityAuditTests : IClassFixture<WebApplicationFactory<Program>>
     [InlineData("http://100.100.100.200/latest/meta-data")]
     [InlineData("http://127.0.0.1:5000/api/v1/auth/me")]
     [InlineData("http://localhost:5432/")]
+    [InlineData("http://api.localhost:5000/")]
+    [InlineData("http://[::]:5000/api/v1/auth/me")]
+    [InlineData("http://[::1]:5000/api/v1/auth/me")]
+    [InlineData("http://[::127.0.0.1]:5000/")]
+    [InlineData("http://[::ffff:169.254.169.254]/latest/meta-data")]
+    [InlineData("http://[64:ff9b::a9fe:a9fe]/latest/meta-data")]
+    [InlineData("http://[2002:7f00:0001::]/")]
+    [InlineData("http://[fec0::1]/")]
     [InlineData("http://10.0.0.1/admin")]
     [InlineData("http://172.16.0.1/status")]
     [InlineData("http://192.168.1.1/router")]
@@ -66,6 +74,43 @@ public class SecurityAuditTests : IClassFixture<WebApplicationFactory<Program>>
         var (isValid, errorMessage, _) = await Services.NetworkSecurityValidator.ValidateUrlAsync(targetUrl);
         isValid.Should().BeFalse();
         errorMessage.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Theory]
+    [InlineData("::", true)]
+    [InlineData("::1", true)]
+    [InlineData("::127.0.0.1", true)]
+    [InlineData("::10.0.0.1", true)]
+    [InlineData("64:ff9b::a9fe:a9fe", true)]
+    [InlineData("64:ff9b:1::1", true)]
+    [InlineData("2002:a00:1::1", true)]
+    [InlineData("fec0::1", true)]
+    [InlineData("fe80::1", true)]
+    [InlineData("fc00::1", true)]
+    [InlineData("2606:4700:4700::1111", false)]
+    public void NetworkSecurityValidator_IsForbiddenAddress_EnforcesIpv6Rules(string ipString, bool expectedForbidden)
+    {
+        var ip = System.Net.IPAddress.Parse(ipString);
+        Services.NetworkSecurityValidator.IsForbiddenAddress(ip, allowPrivateNetworks: false)
+            .Should().Be(expectedForbidden);
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("::")]
+    [InlineData("64:ff9b::a9fe:a9fe")]
+    [InlineData("169.254.169.254")]
+    public async Task NetworkSecurityValidator_ConnectCallback_BlocksDnsRebindingToForbiddenIp(string rebindingIp)
+    {
+        var act = async () => await Services.NetworkSecurityValidator.ConnectToValidatedHostAsync(
+            "rebind.attacker.example",
+            80,
+            allowPrivateNetworks: false,
+            allowLoopback: false,
+            dnsResolver: (_, _) => Task.FromResult(new[] { System.Net.IPAddress.Parse(rebindingIp) }),
+            cancellationToken: CancellationToken.None);
+
+        await act.Should().ThrowAsync<HttpRequestException>();
     }
 
     [Fact]

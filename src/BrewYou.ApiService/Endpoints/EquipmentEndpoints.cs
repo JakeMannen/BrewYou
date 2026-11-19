@@ -208,6 +208,7 @@ public static class EquipmentEndpoints
             return Results.Created($"/api/v1/inventory/equipment/{created!.Id}", ApiResponse<EquipmentDto>.Ok(created));
         })
         .WithName("CreateEquipment")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status201Created)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -265,6 +266,7 @@ public static class EquipmentEndpoints
             return Results.Ok(ApiResponse<EquipmentDto>.Ok(updated));
         })
         .WithName("UpdateEquipment")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -303,6 +305,7 @@ public static class EquipmentEndpoints
             return Results.Ok(ApiResponse.Ok());
         })
         .WithName("DeleteEquipment")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
@@ -364,6 +367,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("AssignTap")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -393,6 +397,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("UnassignTap")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
@@ -429,6 +434,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("AssignKegBatch")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -458,6 +464,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("UnassignKegBatch")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<EquipmentDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
@@ -485,11 +492,13 @@ public static class EquipmentEndpoints
                 EquipmentAccessResult.Success => Results.Ok(ApiResponse<TapDisplayLinkDto>.Ok(link!)),
                 EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Display link not enabled.")),
                 EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                EquipmentAccessResult.InvalidTapAssignment => Results.BadRequest(ApiResponse.Fail("INVALID_TAP", error ?? "Equipment is not a tap.")),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })
         .WithName("GetTapDisplayLink")
         .Produces<ApiResponse<TapDisplayLinkDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
@@ -516,11 +525,14 @@ public static class EquipmentEndpoints
                 EquipmentAccessResult.Success => Results.Ok(ApiResponse<TapDisplayLinkDto>.Ok(link!)),
                 EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
                 EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                EquipmentAccessResult.InvalidTapAssignment => Results.BadRequest(ApiResponse.Fail("INVALID_TAP", error ?? "Equipment is not a tap.")),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })
         .WithName("EnableOrRegenerateTapDisplayLink")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<TapDisplayLinkDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
@@ -542,11 +554,14 @@ public static class EquipmentEndpoints
                 EquipmentAccessResult.Success => Results.Ok(ApiResponse.Ok()),
                 EquipmentAccessResult.NotFound => Results.NotFound(ApiResponse.Fail("NOT_FOUND", error ?? "Equipment not found.")),
                 EquipmentAccessResult.Forbidden => Results.Json(ApiResponse.Fail("FORBIDDEN", error ?? "Access denied."), statusCode: StatusCodes.Status403Forbidden),
+                EquipmentAccessResult.InvalidTapAssignment => Results.BadRequest(ApiResponse.Fail("INVALID_TAP", error ?? "Equipment is not a tap.")),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         })
         .WithName("RevokeTapDisplayLink")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status403Forbidden)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
@@ -577,6 +592,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("SendBrewLinkRecipe")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BrewLinkCommandResultDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -611,6 +627,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("SendBrewLinkControl")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BrewLinkCommandResultDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -644,6 +661,7 @@ public static class EquipmentEndpoints
             };
         })
         .WithName("SyncBrewLinkEquipment")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BrewLinkSyncResultDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)

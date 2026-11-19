@@ -64,15 +64,15 @@ public class TelemetryService : ITelemetryService
         }
 
         var normalizedToken = token.Trim();
+        var tokenHash = EquipmentService.HashConnectionToken(normalizedToken);
         var equipment = await _db.Equipment
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
-            .FirstOrDefaultAsync(e => e.ConnectionToken == normalizedToken);
+            .FirstOrDefaultAsync(e => e.ConnectionToken == tokenHash);
 
-        if (equipment == null)
+        if (equipment == null || equipment.ConnectionType != EquipmentConnectionType.HttpPush)
         {
-            _logger.LogWarning("Telemetry rejected: No equipment matching token {TokenPrefix}...",
-                normalizedToken.Length > 8 ? normalizedToken[..8] : normalizedToken);
+            _logger.LogWarning("Telemetry rejected: No active HttpPush equipment matching provided token.");
             return new TelemetryIngestResult(TelemetryIngestStatus.NotFound, null, "Equipment not found for provided token.");
         }
 
@@ -604,7 +604,9 @@ public class TelemetryService : ITelemetryService
         Guid equipmentId, string userId, int limit = 50)
     {
         var equipmentExists = await _db.Equipment.AsNoTracking()
-            .AnyAsync(e => e.Id == equipmentId && e.UserId == userId);
+            .AnyAsync(e => e.Id == equipmentId &&
+                ((e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))) ||
+                 (e.BrewerySetup == null && e.UserId == userId)));
 
         if (!equipmentExists)
         {
@@ -642,9 +644,9 @@ public class TelemetryService : ITelemetryService
         var equipment = await _db.Equipment.AsNoTracking()
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
-            .FirstOrDefaultAsync(e => e.Id == equipmentId && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)))));
+            .FirstOrDefaultAsync(e => e.Id == equipmentId);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsOwner(equipment, userId))
         {
             return new TelemetryPollResult(false, null, "Equipment not found.");
         }
@@ -727,7 +729,7 @@ public class TelemetryService : ITelemetryService
             var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cts.Token);
             if (!response.IsSuccessStatusCode)
             {
-                return new TelemetryPollResult(false, null, $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                return new TelemetryPollResult(false, null, "Poll endpoint returned an unsuccessful HTTP status.");
             }
 
             var content = await response.Content.ReadAsStringAsync(cts.Token);
@@ -747,7 +749,7 @@ public class TelemetryService : ITelemetryService
                 else
                 {
                     return new TelemetryPollResult(false, null,
-                        parseResult.ErrorMessage ?? "Could not find temperature in response JSON.", snippet);
+                        parseResult.ErrorMessage ?? "Could not find temperature in response JSON.");
                 }
             }
 
@@ -755,7 +757,7 @@ public class TelemetryService : ITelemetryService
             if (finalTempC < MinTemperatureC || finalTempC > MaxTemperatureC)
             {
                 return new TelemetryPollResult(false, finalTempC,
-                    $"Temperature {finalTempC} °C is outside plausible range [{MinTemperatureC}, {MaxTemperatureC}].", snippet);
+                    $"Temperature {finalTempC} °C is outside plausible range [{MinTemperatureC}, {MaxTemperatureC}].");
             }
 
             if (!isTestOnly)
@@ -824,7 +826,7 @@ public class TelemetryService : ITelemetryService
                 }
             }
 
-            return new TelemetryPollResult(true, finalTempC, null, snippet);
+            return new TelemetryPollResult(true, finalTempC, null);
         }
         catch (TaskCanceledException)
         {
@@ -832,12 +834,17 @@ public class TelemetryService : ITelemetryService
         }
         catch (HttpRequestException ex)
         {
-            return new TelemetryPollResult(false, null, $"Network error: {ex.Message}");
+            _logger.LogWarning(ex, "Network error while polling equipment {EquipmentId}", equipment.Id);
+            return new TelemetryPollResult(false, null, "Failed to connect to poll endpoint.");
+        }
+        catch (JsonException)
+        {
+            return new TelemetryPollResult(false, null, "Poll endpoint did not return valid JSON.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to poll equipment {EquipmentId} from {Url}", equipment.Id, targetUrl);
-            return new TelemetryPollResult(false, null, $"Polling error: {ex.Message}");
+            return new TelemetryPollResult(false, null, "Unexpected error while polling endpoint.");
         }
     }
 
@@ -1088,22 +1095,9 @@ public class TelemetryService : ITelemetryService
 
     private void BroadcastEquipmentUpdateToSetup(Equipment equipment, EquipmentTelemetryUpdateDto update)
     {
-        _broadcastService.BroadcastEquipmentReading(equipment.UserId, update);
-
-        if (equipment.BrewerySetup != null)
+        foreach (var uid in EquipmentAccessHelper.GetAuthorizedSetupUserIds(equipment))
         {
-            if (equipment.BrewerySetup.UserId != equipment.UserId)
-            {
-                _broadcastService.BroadcastEquipmentReading(equipment.BrewerySetup.UserId, update);
-            }
-
-            foreach (var member in equipment.BrewerySetup.Members)
-            {
-                if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
-                {
-                    _broadcastService.BroadcastEquipmentReading(member.UserId, update);
-                }
-            }
+            _broadcastService.BroadcastEquipmentReading(uid, update);
         }
     }
 
@@ -1145,6 +1139,8 @@ public class TelemetryService : ITelemetryService
         if (equipment.Type == EquipmentType.Keg)
         {
             var connectedTaps = _db.Equipment.AsNoTracking()
+                .Include(t => t.BrewerySetup)
+                    .ThenInclude(s => s!.Members)
                 .Where(t => t.Type == EquipmentType.Tap && t.AssignedKegId == equipment.Id)
                 .ToList();
 
@@ -1168,23 +1164,7 @@ public class TelemetryService : ITelemetryService
                     null
                 );
 
-                _broadcastService.BroadcastEquipmentReading(equipment.UserId, tapUpdate);
-
-                if (equipment.BrewerySetup != null)
-                {
-                    if (equipment.BrewerySetup.UserId != equipment.UserId)
-                    {
-                        _broadcastService.BroadcastEquipmentReading(equipment.BrewerySetup.UserId, tapUpdate);
-                    }
-
-                    foreach (var member in equipment.BrewerySetup.Members)
-                    {
-                        if (member.UserId != equipment.UserId && member.UserId != equipment.BrewerySetup.UserId)
-                        {
-                            _broadcastService.BroadcastEquipmentReading(member.UserId, tapUpdate);
-                        }
-                    }
-                }
+                BroadcastEquipmentUpdateToSetup(tap, tapUpdate);
             }
         }
 

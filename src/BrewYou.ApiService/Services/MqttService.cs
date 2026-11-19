@@ -314,6 +314,7 @@ public class MqttService : IMqttService, IDisposable
             string.Equals(segments[3], "equipment", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(segments[5], "telemetry", StringComparison.OrdinalIgnoreCase))
         {
+            var topicKey = segments[1];
             var gatewayHardwareId = segments[2];
             var mac = segments[4];
 
@@ -323,14 +324,42 @@ public class MqttService : IMqttService, IDisposable
                 var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
                 var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
 
-                var gateway = await db.BrewLinkGateways.AsNoTracking()
-                    .FirstOrDefaultAsync(g => g.GatewayId == gatewayHardwareId);
+                var matchingGateways = await db.BrewLinkGateways.AsNoTracking()
+                    .Where(g => g.GatewayId == gatewayHardwareId &&
+                                (ConnectedUserId == null || g.UserId == ConnectedUserId))
+                    .ToListAsync();
+
+                BrewLinkGateway? gateway = null;
+                foreach (var candidateGw in matchingGateways)
+                {
+                    if (string.IsNullOrEmpty(candidateGw.MqttTopicKey))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var unprotectedKey = _brewLinkProtector.Unprotect(candidateGw.MqttTopicKey);
+                        if (string.Equals(unprotectedKey, topicKey, StringComparison.Ordinal))
+                        {
+                            gateway = candidateGw;
+                            break;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore unprotect failures for non-matching gateways
+                    }
+                }
 
                 if (gateway != null)
                 {
                     var cleanMac = BrewLinkTelemetryParser.CleanMac(mac);
                     var candidates = await db.Equipment.AsNoTracking()
-                        .Where(eq => eq.ConnectionType == EquipmentConnectionType.BrewLink &&
+                        .Include(eq => eq.BrewerySetup)
+                        .Where(eq => ((eq.BrewerySetup != null && eq.BrewerySetup.UserId == gateway.UserId) ||
+                                      (eq.BrewerySetup == null && eq.UserId == gateway.UserId)) &&
+                                     eq.ConnectionType == EquipmentConnectionType.BrewLink &&
                                      !(eq.Type == EquipmentType.Sensor && eq.Subtype != EquipmentSubtype.BrewLink) &&
                                      !string.IsNullOrEmpty(eq.ConnectionConfigJson))
                         .ToListAsync();

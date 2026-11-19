@@ -269,7 +269,10 @@ public sealed class BrewLinkWebSocketManager : IBrewLinkWebSocketManager, IDispo
             var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
 
             var candidateEquipment = await db.Equipment
-                .Where(e => e.ConnectionType == EquipmentConnectionType.BrewLink &&
+                .Include(e => e.BrewerySetup)
+                .Where(e => ((e.BrewerySetup != null && e.BrewerySetup.UserId == gateway.UserId) ||
+                             (e.BrewerySetup == null && e.UserId == gateway.UserId)) &&
+                            e.ConnectionType == EquipmentConnectionType.BrewLink &&
                             !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink) &&
                             !string.IsNullOrEmpty(e.ConnectionConfigJson))
                 .ToListAsync();

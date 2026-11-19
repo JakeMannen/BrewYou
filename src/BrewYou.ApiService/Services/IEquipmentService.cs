@@ -111,7 +111,8 @@ public record EquipmentDto(
     Guid? AssignedKegId = null,
     AssignedKegSummaryDto? AssignedKeg = null,
     Guid? AssignedBatchId = null,
-    decimal? FillLevelPercent = null
+    decimal? FillLevelPercent = null,
+    bool HasConnectionToken = false
 );
 
 public record EquipmentActiveBatchDto(

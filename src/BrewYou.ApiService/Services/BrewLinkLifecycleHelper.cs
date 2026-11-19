@@ -155,11 +155,15 @@ internal static partial class BrewLinkLifecycleHelper
     internal static async Task<List<Equipment>> FindBrewLinkGatewayGroupAsync(
         BrewYouDbContext db,
         Guid gatewayId,
+        string ownerUserId,
         Equipment? primaryEquipment = null,
         CancellationToken ct = default)
     {
         var candidates = await db.Equipment
-            .Where(e => e.ConnectionConfigJson != null &&
+            .Include(e => e.BrewerySetup)
+            .Where(e => ((e.BrewerySetup != null && e.BrewerySetup.UserId == ownerUserId) ||
+                         (e.BrewerySetup == null && e.UserId == ownerUserId)) &&
+                        e.ConnectionConfigJson != null &&
                         (e.ConnectionType == EquipmentConnectionType.BrewLink || e.Subtype == EquipmentSubtype.BrewLink))
             .ToListAsync(ct);
 

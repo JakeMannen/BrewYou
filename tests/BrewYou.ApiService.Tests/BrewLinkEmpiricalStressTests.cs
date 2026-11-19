@@ -627,35 +627,26 @@ public class BrewLinkEmpiricalStressTests : IClassFixture<WebApplicationFactory<
         eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
 
-        // Directly assign connection token
-        var deviceToken = "test-token-" + Guid.NewGuid().ToString("N");
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
-            var entity = await db.Equipment.FindAsync(eq.Id);
-            entity!.ConnectionToken = deviceToken;
-            await db.SaveChangesAsync();
-        }
-
         var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
         throttler.Reset(eq.Id);
 
-        var publicClient = _factory.CreateClient();
-
-        // 2. Fire 50 rapid requests in parallel
-        var payload = new
-        {
-            current_temp_c = 65.0,
-            target_temp_c = 65.0,
-            heat_active = true,
-            heat_power_pct = 100,
-            pump_active = true
-        };
+        // 2. Fire 50 rapid requests in parallel via BrewLink ingestion
+        using var payloadDoc = JsonDocument.Parse("""
+            {
+              "current_temp_c": 65.0,
+              "target_temp_c": 65.0,
+              "heat_active": true,
+              "heat_power_pct": 100,
+              "pump_active": true
+            }
+            """);
 
         var postTasks = Enumerable.Range(0, 50).Select(async _ =>
         {
-            var res = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{deviceToken}", payload);
-            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var scope = _factory.Services.CreateScope();
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            var res = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, payloadDoc.RootElement);
+            res.Status.Should().Be(TelemetryIngestStatus.Success);
         });
 
         await Task.WhenAll(postTasks);
@@ -667,15 +658,21 @@ public class BrewLinkEmpiricalStressTests : IClassFixture<WebApplicationFactory<
         readings.Should().HaveCount(1, "all 50 rapid identical frames must be throttled to 1 database write");
 
         // 4. Send frame with +0.5°C jump -> must immediately persist!
-        var jumpRes = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{deviceToken}", new
+        using var jumpDoc = JsonDocument.Parse("""
+            {
+              "current_temp_c": 65.5,
+              "target_temp_c": 65.0,
+              "heat_active": true,
+              "heat_power_pct": 100,
+              "pump_active": true
+            }
+            """);
+        using (var scope = _factory.Services.CreateScope())
         {
-            current_temp_c = 65.5,
-            target_temp_c = 65.0,
-            heat_active = true,
-            heat_power_pct = 100,
-            pump_active = true
-        });
-        jumpRes.StatusCode.Should().Be(HttpStatusCode.OK);
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            var jumpRes = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, jumpDoc.RootElement);
+            jumpRes.Status.Should().Be(TelemetryIngestStatus.Success);
+        }
 
         var readingsAfterJump = (await (await userClient.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;

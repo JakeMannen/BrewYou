@@ -41,7 +41,7 @@ public static class NetworkSecurityValidator
 
         var host = uri.Host.Trim().ToLowerInvariant();
 
-        if (BlockedHostnames.Contains(host))
+        if (IsBlockedHostname(host))
         {
             return (false, "Access to metadata and local loopback endpoints is prohibited.", null);
         }
@@ -85,13 +85,13 @@ public static class NetworkSecurityValidator
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             if (allowPrivateNetworks)
             {
                 return (true, null, uri);
             }
-            return (false, $"DNS resolution failed: {ex.Message}", null);
+            return (false, "Host could not be resolved.", null);
         }
 
         return (true, null, uri);
@@ -118,7 +118,7 @@ public static class NetworkSecurityValidator
         }
 
         var host = uri.Host.Trim().ToLowerInvariant();
-        if (BlockedHostnames.Contains(host))
+        if (IsBlockedHostname(host))
         {
             return (false, "Access to metadata and local loopback endpoints is prohibited.");
         }
@@ -129,6 +129,87 @@ public static class NetworkSecurityValidator
         }
 
         return (true, null);
+    }
+
+    public static Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> CreateSsrfSafeConnectCallback(
+        bool allowPrivateNetworks = false,
+        bool allowLoopback = false)
+    {
+        return (context, cancellationToken) => ConnectToValidatedHostAsync(
+            context.DnsEndPoint.Host,
+            context.DnsEndPoint.Port,
+            allowPrivateNetworks,
+            allowLoopback,
+            dnsResolver: null,
+            cancellationToken);
+    }
+
+    public static async ValueTask<Stream> ConnectToValidatedHostAsync(
+        string hostInput,
+        int port,
+        bool allowPrivateNetworks = false,
+        bool allowLoopback = false,
+        Func<string, CancellationToken, Task<IPAddress[]>>? dnsResolver = null,
+        CancellationToken cancellationToken = default)
+    {
+        var host = hostInput.Trim().ToLowerInvariant();
+        if (IsBlockedHostname(host))
+        {
+            throw new HttpRequestException("Access to metadata and local loopback endpoints is prohibited.");
+        }
+
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(host, out var literalIp))
+        {
+            addresses = [literalIp];
+        }
+        else
+        {
+            addresses = dnsResolver != null
+                ? await dnsResolver(host, cancellationToken)
+                : await Dns.GetHostAddressesAsync(host, cancellationToken);
+            if (addresses.Length == 0)
+            {
+                throw new HttpRequestException("Host could not be resolved.");
+            }
+        }
+
+        foreach (var ip in addresses)
+        {
+            if ((!allowLoopback && IPAddress.IsLoopback(ip)) || IsForbiddenAddress(ip, allowPrivateNetworks))
+            {
+                throw new HttpRequestException("Target IP address is in a prohibited or private range.");
+            }
+        }
+
+        Exception? lastException = null;
+        foreach (var ip in addresses)
+        {
+            var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+            {
+                NoDelay = true
+            };
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(ip, port), cancellationToken);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                socket.Dispose();
+                lastException = ex;
+            }
+        }
+
+        throw lastException ?? new HttpRequestException("Failed to connect to target host.");
+    }
+
+    private static bool IsBlockedHostname(string host)
+    {
+        var unbracketed = host.Trim('[', ']');
+        return BlockedHostnames.Contains(host) ||
+               BlockedHostnames.Contains(unbracketed) ||
+               unbracketed.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsForbiddenAddress(IPAddress address, bool allowPrivateNetworks = false)
@@ -144,15 +225,15 @@ public static class NetworkSecurityValidator
             return true;
         }
 
-        if (IPAddress.IsLoopback(address))
-        {
-            return !allowPrivateNetworks;
-        }
-
         var bytes = address.GetAddressBytes();
 
         if (address.AddressFamily == AddressFamily.InterNetwork)
         {
+            if (IPAddress.IsLoopback(address))
+            {
+                return !allowPrivateNetworks;
+            }
+
             // 0.0.0.0/8 (Current network)
             if (bytes[0] == 0)
             {
@@ -207,6 +288,43 @@ public static class NetworkSecurityValidator
         }
         else if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
+            // ::/128 (Unspecified address)
+            if (address.Equals(IPAddress.IPv6Any) || bytes.All(b => b == 0))
+            {
+                return true;
+            }
+
+            // ::1/128 (Loopback)
+            if (IPAddress.IsLoopback(address))
+            {
+                return !allowPrivateNetworks;
+            }
+
+            // ::/96 (IPv4-compatible IPv6 - deprecated RFC 4291)
+            if (bytes.Take(12).All(b => b == 0))
+            {
+                return true;
+            }
+
+            // 64:ff9b::/96 (NAT64 well-known prefix, RFC 6052) and 64:ff9b:1::/48 (NAT64 local-use, RFC 8215)
+            if (bytes[0] == 0x00 && bytes[1] == 0x64 && bytes[2] == 0xFF && bytes[3] == 0x9B &&
+                ((bytes[4..12].All(b => b == 0)) || (bytes[4] == 0x00 && bytes[5] == 0x01)))
+            {
+                return true;
+            }
+
+            // 2002::/16 (6to4 tunneling, RFC 3056)
+            if (bytes[0] == 0x20 && bytes[1] == 0x02)
+            {
+                return true;
+            }
+
+            // fec0::/10 (Deprecated IPv6 site-local)
+            if (bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0xC0)
+            {
+                return true;
+            }
+
             // IPv6 Unique Local Addresses (fc00::/7)
             if ((bytes[0] & 0xFE) == 0xFC && !allowPrivateNetworks)
             {

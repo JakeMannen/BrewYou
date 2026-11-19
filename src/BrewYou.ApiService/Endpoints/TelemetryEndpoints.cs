@@ -13,14 +13,19 @@ public static class TelemetryEndpoints
     public static RouteGroupBuilder MapTelemetryEndpoints(this IEndpointRouteBuilder routes)
     {
         var publicGroup = routes.MapGroup("/api/v1/telemetry")
-            .WithTags("Telemetry");
+            .WithTags("Telemetry")
+            .RequireRateLimiting("telemetry-rate-limit");
 
-        // Public IoT device ingestion endpoint (authenticated by cryptographically unguessable token in route)
+        // Deprecated public IoT device ingestion endpoint (prefer POST /api/v1/telemetry/equipment with X-BrewYou-Device-Token header)
         publicGroup.MapPost("/equipment/{token}", async (
             string token,
+            HttpContext httpContext,
             [FromBody] JsonElement? payload,
             ITelemetryService telemetryService) =>
         {
+            httpContext.Response.Headers["Deprecation"] = "true";
+            httpContext.Response.Headers["Link"] = "</api/v1/telemetry/equipment>; rel=\"successor-version\"";
+
             if (!payload.HasValue || payload.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
             {
                 return Results.BadRequest(ApiResponse.Fail("INVALID_PAYLOAD", "A request body is required."));
@@ -47,6 +52,12 @@ public static class TelemetryEndpoints
             };
         })
         .WithName("IngestEquipmentTelemetry")
+        .WithSummary("[Deprecated] Ingest telemetry via URL token (use X-BrewYou-Device-Token header endpoint instead)")
+        .AddOpenApiOperationTransformer((operation, _, _) =>
+        {
+            operation.Deprecated = true;
+            return Task.CompletedTask;
+        })
         .Produces<ApiResponse<object>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);
@@ -104,7 +115,8 @@ public static class TelemetryEndpoints
         // Authenticated inventory equipment telemetry management endpoints
         var authGroup = routes.MapGroup("/api/v1/inventory/equipment")
             .WithTags("Equipment Telemetry")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .RequireRateLimiting("batch-write");
 
         authGroup.MapGet("/{id:guid}/readings", async (
             Guid id,
@@ -186,6 +198,7 @@ public static class TelemetryEndpoints
             return Results.Ok(ApiResponse<TelemetryPollResult>.Ok(pollResult));
         })
         .WithName("TestEquipmentPoll")
+        .RequireRateLimiting("test-poll-limit")
         .Produces<ApiResponse<TelemetryPollResult>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound);

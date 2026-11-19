@@ -36,8 +36,7 @@ public record EquipmentReadingDto(
 public record TelemetryPollResult(
     bool Success,
     decimal? TemperatureC = null,
-    string? ErrorMessage = null,
-    string? ResponseSnippet = null
+    string? ErrorMessage = null
 );
 
 public interface ITelemetryService

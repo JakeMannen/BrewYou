@@ -306,6 +306,16 @@ public class BreweryCollaborationService : IBreweryCollaborationService
         }
 
         _db.BreweryMembers.Remove(member);
+
+        // Reassign any equipment created by the removed member in this setup to the primary setup owner
+        var memberEquipment = await _db.Equipment
+            .Where(e => e.BrewerySetupId == setupId && e.UserId == targetUserId)
+            .ToListAsync();
+        foreach (var eq in memberEquipment)
+        {
+            eq.UserId = setup.UserId;
+        }
+
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Member {TargetUserId} removed from setup {SetupId} by {UserId}", targetUserId, setupId, currentUserId);
@@ -335,6 +345,16 @@ public class BreweryCollaborationService : IBreweryCollaborationService
         }
 
         _db.BreweryMembers.Remove(member);
+
+        // Reassign any equipment created by the departing member in this setup to the primary setup owner
+        var memberEquipment = await _db.Equipment
+            .Where(e => e.BrewerySetupId == setupId && e.UserId == currentUserId)
+            .ToListAsync();
+        foreach (var eq in memberEquipment)
+        {
+            eq.UserId = setup.UserId;
+        }
+
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("User {UserId} left brewery setup {SetupId}", currentUserId, setupId);

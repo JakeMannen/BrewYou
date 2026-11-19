@@ -92,6 +92,9 @@
 	// Telemetry & External Connectivity
 	let connectionType = $state<EquipmentConnectionType>('None');
 	let connectionToken = $state<string | null>(null);
+	let hasConnectionToken = $state(false);
+	let copiedToken = $state(false);
+	let isSetupOwner = $derived(brewery.activeSetup.isOwner !== false);
 	let currentTemperature = $state<number | ''>('');
 	let pollUrl = $state('');
 	let pollIntervalSeconds = $state(60);
@@ -372,6 +375,8 @@
 				displayOrientation = equipment.displayOrientation ?? 'Landscape';
 
 				// Initialize telemetry
+				connectionToken = equipment.connectionToken ?? null;
+				hasConnectionToken = Boolean(equipment.hasConnectionToken || equipment.connectionToken);
 				if (equipment.subtype === 'BrewLink') {
 					connectionType = 'BrewLink';
 					currentTemperature = '';
@@ -481,6 +486,7 @@
 				// Reset telemetry
 				connectionType = initialSubtype === 'BrewLink' ? 'BrewLink' : 'None';
 				connectionToken = null;
+				hasConnectionToken = false;
 				brewLinkGatewayId = '';
 				brewLinkTargetMac = '';
 				brewLinkTargetName = '';
@@ -549,6 +555,7 @@
 		if (newType === 'Tap') {
 			connectionType = 'None';
 			connectionToken = null;
+			hasConnectionToken = false;
 			currentTemperature = '';
 			pollUrl = '';
 			mqttTopic = '';
@@ -699,7 +706,7 @@
 
 	let webhookUrl = $derived.by(() => {
 		if (!connectionToken) return '';
-		return `${activeWebhookBase}/api/v1/telemetry/equipment/${connectionToken}`;
+		return `${activeWebhookBase}/api/v1/telemetry/equipment`;
 	});
 
 	async function copyWebhookUrl() {
@@ -715,6 +722,19 @@
 		}
 	}
 
+	async function copyWebhookToken() {
+		if (!connectionToken) return;
+		try {
+			await navigator.clipboard.writeText(connectionToken);
+			copiedToken = true;
+			setTimeout(() => {
+				copiedToken = false;
+			}, 2500);
+		} catch (err) {
+			console.error('Failed to copy webhook token:', err);
+		}
+	}
+
 	async function handleConfirmRegenerateToken() {
 		if (!equipment || isRegeneratingToken) return;
 
@@ -722,6 +742,7 @@
 		try {
 			const updated = await api.equipment.regenerateToken(equipment.id);
 			connectionToken = updated.connectionToken ?? null;
+			hasConnectionToken = Boolean(updated.hasConnectionToken || updated.connectionToken);
 			showRegenerateTokenModal = false;
 		} catch (err: unknown) {
 			errorMessage = (err as Error).message || t('equipment.err_regenerate_failed');
@@ -835,7 +856,10 @@
 
 		try {
 			let configJson: string | null = null;
-			if (connectionType === 'HttpPoll') {
+			if (!isSetupOwner) {
+				connectionType = equipment?.connectionType ?? 'None';
+				configJson = null;
+			} else if (connectionType === 'HttpPoll') {
 				configJson = JSON.stringify({
 					url: pollUrl.trim(),
 					intervalSeconds: Number(pollIntervalSeconds) || 60,
@@ -1699,7 +1723,8 @@
 										<select
 											id="equipment-connection-type"
 											bind:value={connectionType}
-											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+											disabled={!isSetupOwner}
+											class="mt-1 h-9 w-full rounded-xl border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-900 focus:border-amber-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
 										>
 											<option value="None">{t('equipment.conn_none')}</option>
 											{#if type === 'Boiler' || type === 'Fermenter'}
@@ -1833,6 +1858,36 @@
 												{/if}
 											</button>
 										</div>
+										<p class="mt-2 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+											{t('equipment.webhook_header_label')}
+										</p>
+										<div class="mt-1 flex items-center gap-2">
+											<input
+												type="text"
+												readonly
+												value={connectionToken}
+												class="h-8 min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+											/>
+											<button
+												type="button"
+												onclick={copyWebhookToken}
+												class="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+											>
+												{#if copiedToken}
+													<CheckCheck class="h-3.5 w-3.5 text-emerald-500" />
+													<span class="text-emerald-600 dark:text-emerald-400"
+														>{t('equipment.copied')}</span
+													>
+												{:else}
+													<Copy class="h-3.5 w-3.5" />
+													<span>{t('equipment.copy_token')}</span>
+												{/if}
+											</button>
+										</div>
+									{:else if hasConnectionToken}
+										<p class="mt-2 text-xs text-amber-600 italic dark:text-amber-400">
+											{t('equipment.webhook_token_configured')}
+										</p>
 									{:else}
 										<p class="mt-2 text-xs text-amber-600 italic dark:text-amber-400">
 											{t('equipment.webhook_token_on_save')}

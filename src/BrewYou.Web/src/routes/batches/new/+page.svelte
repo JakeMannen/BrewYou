@@ -251,7 +251,9 @@
 				// ignore invalid json
 			}
 		}
-		return Boolean(eq.connectionToken && eq.currentTemperatureC !== null);
+		return Boolean(
+			(eq.hasConnectionToken || eq.connectionToken) && eq.currentTemperatureC !== null
+		);
 	}
 
 	function resetEquipmentDefaults() {
