@@ -934,12 +934,31 @@ class SettingsState {
 			this.mqttTopicPrefix = topicPrefix.trim() || 'brewyou/equipment';
 		}
 		await this.syncAllToBackend();
+		// Security: Clear plaintext MQTT password from in-memory store immediately after syncing
+		this.mqttPassword = '';
 		if (this.hasMqttConfigured) {
 			await this.checkMqttStatus();
 			this.startMqttHeartbeat();
 		} else {
 			this.mqttConnected = null;
 			this.stopMqttHeartbeat();
+		}
+	}
+
+	async clearStoredMqttPassword(): Promise<void> {
+		this.mqttPassword = '';
+		if (auth.isAuthenticated) {
+			const updatedUser = await api.auth.updatePreferences({
+				clearMqttPassword: true
+			});
+			if (auth.user && updatedUser.preferences) {
+				auth.user.preferences = updatedUser.preferences;
+				this.hasMqttPassword = !!updatedUser.preferences.hasMqttPassword;
+			} else {
+				this.hasMqttPassword = false;
+			}
+		} else {
+			this.hasMqttPassword = false;
 		}
 	}
 
@@ -953,6 +972,7 @@ class SettingsState {
 		this.persistToLocalStorage();
 
 		if (auth.isAuthenticated) {
+			const pendingMqttPassword = this.mqttPassword ? this.mqttPassword : null;
 			const updatedUser = await api.auth.updatePreferences({
 				volumeUnit: this.volumeUnit,
 				weightUnit: this.weightUnit,
@@ -972,12 +992,15 @@ class SettingsState {
 				mqttHost: this.mqttHost.trim() || null,
 				mqttPort: Number(this.mqttPort) || 1883,
 				mqttUsername: this.mqttUsername.trim() || null,
-				mqttPassword: this.mqttPassword ? this.mqttPassword : null,
+				mqttPassword: pendingMqttPassword,
 				mqttCertificate: this.mqttCertificate.trim() || null,
 				mqttTopicPrefix: this.mqttTopicPrefix.trim() || 'brewyou/equipment',
 				appBaseUrl: this.appBaseUrl.trim() || null,
 				webhookBaseUrl: this.webhookBaseUrl.trim() || null
 			});
+
+			// Security: Never retain plaintext MQTT password in memory across unrelated saves
+			this.mqttPassword = '';
 
 			if (auth.user && updatedUser.preferences) {
 				auth.user.preferences = updatedUser.preferences;
@@ -1007,13 +1030,25 @@ class SettingsState {
 			localStorage.setItem('brewyou_default_batch_size', String(this.defaultBatchSize));
 			localStorage.setItem('brewyou_default_efficiency', String(this.defaultEfficiency));
 			localStorage.setItem('brewyou_default_boil_time', String(this.defaultBoilTime));
-			localStorage.setItem('brewyou_mqtt_host', this.mqttHost);
-			localStorage.setItem('brewyou_mqtt_port', String(this.mqttPort));
-			localStorage.setItem('brewyou_mqtt_username', this.mqttUsername);
-			localStorage.setItem('brewyou_mqtt_certificate', this.mqttCertificate);
-			localStorage.setItem('brewyou_mqtt_topic_prefix', this.mqttTopicPrefix);
-			localStorage.setItem('brewyou_app_base_url', this.appBaseUrl);
-			localStorage.setItem('brewyou_webhook_base_url', this.webhookBaseUrl);
+			// Security: Do not duplicate infrastructure/broker settings in localStorage when authenticated
+			if (!auth.isAuthenticated) {
+				localStorage.setItem('brewyou_mqtt_host', this.mqttHost);
+				localStorage.setItem('brewyou_mqtt_port', String(this.mqttPort));
+				localStorage.setItem('brewyou_mqtt_username', this.mqttUsername);
+				localStorage.setItem('brewyou_mqtt_certificate', this.mqttCertificate);
+				localStorage.setItem('brewyou_mqtt_topic_prefix', this.mqttTopicPrefix);
+				localStorage.setItem('brewyou_app_base_url', this.appBaseUrl);
+				localStorage.setItem('brewyou_webhook_base_url', this.webhookBaseUrl);
+			} else {
+				localStorage.removeItem('brewyou_mqtt_host');
+				localStorage.removeItem('brewyou_mqtt_port');
+				localStorage.removeItem('brewyou_mqtt_username');
+				localStorage.removeItem('brewyou_mqtt_certificate');
+				localStorage.removeItem('brewyou_mqtt_password');
+				localStorage.removeItem('brewyou_mqtt_topic_prefix');
+				localStorage.removeItem('brewyou_app_base_url');
+				localStorage.removeItem('brewyou_webhook_base_url');
+			}
 		}
 	}
 
@@ -1122,6 +1157,8 @@ class SettingsState {
 		this.hasMqttPassword = false;
 		this.mqttTopicPrefix = 'brewyou/equipment';
 		this.mqttConnected = null;
+		this.appBaseUrl = '';
+		this.webhookBaseUrl = '';
 		if (browser) {
 			localStorage.removeItem('brewyou_mqtt_host');
 			localStorage.removeItem('brewyou_mqtt_port');
@@ -1129,6 +1166,8 @@ class SettingsState {
 			localStorage.removeItem('brewyou_mqtt_certificate');
 			localStorage.removeItem('brewyou_mqtt_password');
 			localStorage.removeItem('brewyou_mqtt_topic_prefix');
+			localStorage.removeItem('brewyou_app_base_url');
+			localStorage.removeItem('brewyou_webhook_base_url');
 		}
 	}
 }

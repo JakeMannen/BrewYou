@@ -10,10 +10,12 @@ namespace BrewYou.ApiService.Tests;
 
 public class ValidationAndAuthPolicyTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private readonly WebApplicationFactory<Program> _factory;
     private readonly HttpClient _client;
 
     public ValidationAndAuthPolicyTests(WebApplicationFactory<Program> factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -90,40 +92,62 @@ public class ValidationAndAuthPolicyTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task RefreshToken_WithValidAndInvalidTokens_HandlesCorrectly()
     {
+        using var noCookieClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
         // 1. Register a user
         var email = $"refresh_user_{Guid.NewGuid():N}@example.com";
-        var reg = await _client.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(email, "StrongPass123!", "Refresh User"));
+        var reg = await noCookieClient.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(email, "StrongPass123!", "Refresh User"));
         reg.StatusCode.Should().Be(HttpStatusCode.OK);
         var auth = (await reg.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())!.Data!;
 
-        // 2. Refresh with valid token
-        var refreshReq = new RefreshTokenRequest(auth.RefreshToken);
-        var refreshRes = await _client.PostAsJsonAsync("/api/v1/auth/refresh", refreshReq);
+        // Raw refresh token must NOT be exposed in JSON body (HttpOnly cookie only)
+        auth.RefreshToken.Should().BeEmpty();
+        var setCookies = reg.Headers.GetValues("Set-Cookie").ToList();
+        var refreshCookieHeader = setCookies.Should().ContainSingle(c => c.StartsWith("refreshToken=", StringComparison.Ordinal)).Subject;
+        refreshCookieHeader.Should().ContainEquivalentOf("httponly");
+        refreshCookieHeader.Should().ContainEquivalentOf("samesite=strict");
+        var initialCookiePair = refreshCookieHeader.Split(';')[0];
+
+        // 2. Refresh with valid HttpOnly cookie
+        using var refreshMsg = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
+        {
+            Content = JsonContent.Create(new RefreshTokenRequest(null))
+        };
+        refreshMsg.Headers.Add("Cookie", initialCookiePair);
+        var refreshRes = await noCookieClient.SendAsync(refreshMsg);
         refreshRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var refreshEnv = await refreshRes.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
         refreshEnv!.Success.Should().BeTrue();
         refreshEnv.Data!.AccessToken.Should().NotBeNullOrEmpty();
-        refreshEnv.Data.RefreshToken.Should().NotBeNullOrEmpty();
+        refreshEnv.Data.RefreshToken.Should().BeEmpty();
+        var rotatedCookiePair = refreshRes.Headers.GetValues("Set-Cookie")
+            .First(c => c.StartsWith("refreshToken=", StringComparison.Ordinal))
+            .Split(';')[0];
+        rotatedCookiePair.Should().NotBe(initialCookiePair);
 
-        // 3. Refresh with invalid token returns unauthorized / bad request
+        // 3. Refresh with invalid token returns 401
         var invalidReq = new RefreshTokenRequest("invalid-token-value");
-        var invalidRes = await _client.PostAsJsonAsync("/api/v1/auth/refresh", invalidReq);
+        var invalidRes = await noCookieClient.PostAsJsonAsync("/api/v1/auth/refresh", invalidReq);
         invalidRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // 4. Refresh with empty token returns 401
         var emptyReq = new RefreshTokenRequest("");
-        var emptyRes = await _client.PostAsJsonAsync("/api/v1/auth/refresh", emptyReq);
+        var emptyRes = await noCookieClient.PostAsJsonAsync("/api/v1/auth/refresh", emptyReq);
         emptyRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // 5. Logout revokes token
         using var logoutReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/logout");
         logoutReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", refreshEnv.Data.AccessToken);
-        var logoutRes = await _client.SendAsync(logoutReq);
+        var logoutRes = await noCookieClient.SendAsync(logoutReq);
         logoutRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // 6. Refreshing with old or revoked token now fails
-        var revokedReq = new RefreshTokenRequest(refreshEnv.Data.RefreshToken);
-        var revokedRes = await _client.PostAsJsonAsync("/api/v1/auth/refresh", revokedReq);
+        // 6. Refreshing with old or revoked cookie token now fails
+        using var revokedMsg = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
+        {
+            Content = JsonContent.Create(new RefreshTokenRequest(null))
+        };
+        revokedMsg.Headers.Add("Cookie", rotatedCookiePair);
+        var revokedRes = await noCookieClient.SendAsync(revokedMsg);
         revokedRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 }

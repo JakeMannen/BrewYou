@@ -8,6 +8,8 @@ namespace BrewYou.ApiService.Backup.Security;
 public static class BackupSecretProtector
 {
     public const int DefaultIterations = 600_000;
+    public const int MinAllowedIterations = 10_000;
+    public const int MaxAllowedIterations = 600_000;
     private const int SaltSizeBytes = 16;
     private const int KeySizeBytes = 32;
     private const int NonceSizeBytes = 12;
@@ -23,12 +25,19 @@ public static class BackupSecretProtector
     {
         var salt = Convert.FromBase64String(saltBase64);
         var passwordBytes = Encoding.UTF8.GetBytes(passphrase);
-        return Rfc2898DeriveBytes.Pbkdf2(
-            passwordBytes,
-            salt,
-            Math.Clamp(iterations, 10_000, 2_000_000),
-            HashAlgorithmName.SHA256,
-            KeySizeBytes);
+        try
+        {
+            return Rfc2898DeriveBytes.Pbkdf2(
+                passwordBytes,
+                salt,
+                Math.Clamp(iterations, MinAllowedIterations, MaxAllowedIterations),
+                HashAlgorithmName.SHA256,
+                KeySizeBytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+        }
     }
 
     public static string EncryptSecret(string plaintext, byte[] key)
@@ -38,15 +47,22 @@ public static class BackupSecretProtector
         var cipherBytes = new byte[plainBytes.Length];
         var tag = new byte[TagSizeBytes];
 
-        using var aesGcm = new AesGcm(key, TagSizeBytes);
-        aesGcm.Encrypt(nonce, plainBytes, cipherBytes, tag);
+        try
+        {
+            using var aesGcm = new AesGcm(key, TagSizeBytes);
+            aesGcm.Encrypt(nonce, plainBytes, cipherBytes, tag);
 
-        var combined = new byte[NonceSizeBytes + TagSizeBytes + cipherBytes.Length];
-        Buffer.BlockCopy(nonce, 0, combined, 0, NonceSizeBytes);
-        Buffer.BlockCopy(tag, 0, combined, NonceSizeBytes, TagSizeBytes);
-        Buffer.BlockCopy(cipherBytes, 0, combined, NonceSizeBytes + TagSizeBytes, cipherBytes.Length);
+            var combined = new byte[NonceSizeBytes + TagSizeBytes + cipherBytes.Length];
+            Buffer.BlockCopy(nonce, 0, combined, 0, NonceSizeBytes);
+            Buffer.BlockCopy(tag, 0, combined, NonceSizeBytes, TagSizeBytes);
+            Buffer.BlockCopy(cipherBytes, 0, combined, NonceSizeBytes + TagSizeBytes, cipherBytes.Length);
 
-        return Convert.ToBase64String(combined);
+            return Convert.ToBase64String(combined);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plainBytes);
+        }
     }
 
     public static bool TryDecryptSecret(string encryptedBase64, byte[] key, out string? plaintext)
@@ -57,6 +73,7 @@ public static class BackupSecretProtector
             return false;
         }
 
+        byte[]? plainBytes = null;
         try
         {
             var combined = Convert.FromBase64String(encryptedBase64);
@@ -68,7 +85,7 @@ public static class BackupSecretProtector
             var nonce = combined.AsSpan(0, NonceSizeBytes);
             var tag = combined.AsSpan(NonceSizeBytes, TagSizeBytes);
             var cipherBytes = combined.AsSpan(NonceSizeBytes + TagSizeBytes);
-            var plainBytes = new byte[cipherBytes.Length];
+            plainBytes = new byte[cipherBytes.Length];
 
             using var aesGcm = new AesGcm(key, TagSizeBytes);
             aesGcm.Decrypt(nonce, cipherBytes, tag, plainBytes);
@@ -79,6 +96,13 @@ public static class BackupSecretProtector
         catch
         {
             return false;
+        }
+        finally
+        {
+            if (plainBytes != null)
+            {
+                CryptographicOperations.ZeroMemory(plainBytes);
+            }
         }
     }
 
@@ -100,7 +124,8 @@ public static class BackupSecretProtector
         }
         catch
         {
-            return protectedValue;
+            // Fail closed: never fall back to returning raw server-protected ciphertext as plaintext
+            return null;
         }
     }
 

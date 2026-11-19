@@ -376,7 +376,42 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
         RuleFor(x => x.Email).NotEmpty().WithMessage("Email is required.")
             .EmailAddress().WithMessage("A valid email is required.");
         RuleFor(x => x.Password).NotEmpty().WithMessage("Password is required.")
-            .MinimumLength(6).WithMessage("Password must be at least 6 characters long.");
+            .MinimumLength(8).WithMessage("Password must be at least 8 characters long.")
+            .MaximumLength(128).WithMessage("Password cannot exceed 128 characters.");
+    }
+}
+
+public class UpdateLanguageRequestValidator : AbstractValidator<UpdateLanguageRequest>
+{
+    private static readonly string[] ValidLanguages = ["en", "sv", "de", "fr", "es"];
+
+    public UpdateLanguageRequestValidator()
+    {
+        RuleFor(x => x.Language)
+            .NotEmpty().WithMessage("Language code is required.")
+            .Must(lang => ValidLanguages.Contains(lang.ToLower().Trim()))
+            .When(x => !string.IsNullOrWhiteSpace(x.Language))
+            .WithMessage("Language must be one of the supported codes: 'en', 'sv', 'de', 'fr', 'es'.");
+    }
+}
+
+public class ChangePasswordRequestValidator : AbstractValidator<ChangePasswordRequest>
+{
+    public ChangePasswordRequestValidator()
+    {
+        RuleFor(x => x.CurrentPassword)
+            .NotEmpty().WithMessage("Current password is required.");
+
+        RuleFor(x => x.NewPassword)
+            .NotEmpty().WithMessage("New password is required.")
+            .MinimumLength(8).WithMessage("New password must be at least 8 characters long.")
+            .MaximumLength(128).WithMessage("New password cannot exceed 128 characters.");
+
+        RuleFor(x => x)
+            .Must(x => !string.Equals(x.CurrentPassword, x.NewPassword, StringComparison.Ordinal))
+            .When(x => !string.IsNullOrEmpty(x.CurrentPassword) && !string.IsNullOrEmpty(x.NewPassword))
+            .WithMessage("New password must be different from your current password.")
+            .WithName("NewPassword");
     }
 }
 
@@ -1719,6 +1754,13 @@ public class PreviewRestoreRequestValidator : AbstractValidator<PreviewRestoreRe
         RuleFor(x => x.Backup.Format)
             .NotEmpty().WithMessage("Backup format identifier is required.")
             .When(x => x.Backup != null);
+
+        RuleFor(x => x.Backup.Encryption!.Iterations)
+            .InclusiveBetween(
+                BrewYou.ApiService.Backup.Security.BackupSecretProtector.MinAllowedIterations,
+                BrewYou.ApiService.Backup.Security.BackupSecretProtector.MaxAllowedIterations)
+            .When(x => x.Backup?.Encryption is { SecretsEncrypted: true, Iterations: not 0 })
+            .WithMessage($"Backup KDF iterations must be between {BrewYou.ApiService.Backup.Security.BackupSecretProtector.MinAllowedIterations} and {BrewYou.ApiService.Backup.Security.BackupSecretProtector.MaxAllowedIterations}.");
     }
 }
 
@@ -1732,5 +1774,12 @@ public class ExecuteRestoreRequestValidator : AbstractValidator<ExecuteRestoreRe
         RuleFor(x => x.Backup.Format)
             .NotEmpty().WithMessage("Backup format identifier is required.")
             .When(x => x.Backup != null);
+
+        RuleFor(x => x.Backup.Encryption!.Iterations)
+            .InclusiveBetween(
+                BrewYou.ApiService.Backup.Security.BackupSecretProtector.MinAllowedIterations,
+                BrewYou.ApiService.Backup.Security.BackupSecretProtector.MaxAllowedIterations)
+            .When(x => x.Backup?.Encryption is { SecretsEncrypted: true, Iterations: not 0 })
+            .WithMessage($"Backup KDF iterations must be between {BrewYou.ApiService.Backup.Security.BackupSecretProtector.MinAllowedIterations} and {BrewYou.ApiService.Backup.Security.BackupSecretProtector.MaxAllowedIterations}.");
     }
 }

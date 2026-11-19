@@ -40,6 +40,7 @@ import type {
 	UpdateBrewerySetupRequest,
 	UpdateEquipmentRequest,
 	UpdateProfileRequest,
+	ChangePasswordRequest,
 	UpdateUserPreferencesRequest,
 	UserDto,
 	VolumeUnit,
@@ -375,6 +376,13 @@ export const api = {
 
 		async updateProfile(req: UpdateProfileRequest): Promise<UserDto> {
 			return request<UserDto>('/api/v1/auth/me/profile', {
+				method: 'PUT',
+				body: JSON.stringify(req)
+			});
+		},
+
+		async changePassword(req: ChangePasswordRequest): Promise<void> {
+			await request<void>('/api/v1/auth/me/password', {
 				method: 'PUT',
 				body: JSON.stringify(req)
 			});

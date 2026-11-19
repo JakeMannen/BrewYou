@@ -25,6 +25,13 @@ public class BackupService : IBackupService
 {
     private const int MaxExportedTelemetryReadings = 5000;
     private const int MaxRestoredLabelBytes = 10 * 1024 * 1024; // 10 MB cap for restored recipe label images
+    private const int MaxRestoredSetups = 100;
+    private const int MaxRestoredEquipment = 500;
+    private const int MaxRestoredGateways = 100;
+    private const int MaxRestoredIngredients = 2000;
+    private const int MaxRestoredRecipes = 1000;
+    private const int MaxRestoredBatches = 2000;
+    private const int MaxRestoredTelemetryReadings = 10000;
 
     private readonly BrewYouDbContext _db;
     private readonly BackupMigrationPipeline _migrationPipeline;
@@ -60,386 +67,396 @@ public class BackupService : IBackupService
         byte[]? encryptionKey = null;
         BackupEncryptionMetadataDto? encryptionMeta = null;
 
-        var encryptSecrets = request.IncludeSecrets && !string.IsNullOrWhiteSpace(request.Passphrase);
-        if (encryptSecrets)
+        try
         {
-            var salt = BackupSecretProtector.GenerateSaltBase64();
-            encryptionKey = BackupSecretProtector.DeriveKey(request.Passphrase!, salt);
-            encryptionMeta = new BackupEncryptionMetadataDto(
-                SecretsEncrypted: true,
-                Algorithm: "AES-256-GCM",
-                Kdf: "PBKDF2-SHA256",
-                Iterations: BackupSecretProtector.DefaultIterations,
-                SaltBase64: salt);
-        }
-
-        // 1. User Settings
-        string? encryptedMqttPassword = null;
-        if (encryptSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(user.MqttPassword))
-        {
-            var rawMqttPassword = BackupSecretProtector.UnprotectServerSecret(user.MqttPassword, _protector);
-            if (!string.IsNullOrWhiteSpace(rawMqttPassword))
+            var encryptSecrets = request.IncludeSecrets && !string.IsNullOrWhiteSpace(request.Passphrase);
+            if (encryptSecrets)
             {
-                encryptedMqttPassword = BackupSecretProtector.EncryptSecret(rawMqttPassword, encryptionKey);
+                var salt = BackupSecretProtector.GenerateSaltBase64();
+                encryptionKey = BackupSecretProtector.DeriveKey(request.Passphrase!, salt);
+                encryptionMeta = new BackupEncryptionMetadataDto(
+                    SecretsEncrypted: true,
+                    Algorithm: "AES-256-GCM",
+                    Kdf: "PBKDF2-SHA256",
+                    Iterations: BackupSecretProtector.DefaultIterations,
+                    SaltBase64: salt);
             }
-        }
 
-        var userSettingsDto = new UserSettingsBackupDto(
-            OriginalUserId: user.Id,
-            Email: user.Email,
-            DisplayName: user.DisplayName,
-            PreferredLanguage: user.PreferredLanguage,
-            PreferredVolumeUnit: user.PreferredVolumeUnit,
-            PreferredWeightUnit: user.PreferredWeightUnit,
-            PreferredGrainWeightUnit: user.PreferredGrainWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "lb" : "kg"),
-            PreferredHopWeightUnit: user.PreferredHopWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "oz" : "g"),
-            PreferredColorUnit: user.PreferredColorUnit ?? "SRM",
-            PreferredCarbonationUnit: user.PreferredCarbonationUnit ?? "Volumes",
-            PreferredTemperatureUnit: user.PreferredTemperatureUnit,
-            PreferredGravityUnit: user.PreferredGravityUnit,
-            PreferredTheme: user.PreferredTheme,
-            PreferredBitternessFormula: user.PreferredBitternessFormula ?? "Tinseth",
-            PreferredColorFormula: user.PreferredColorFormula ?? "Morey",
-            PreferredAbvFormula: user.PreferredAbvFormula ?? "Linear",
-            DefaultBatchSizeLiters: user.DefaultBatchSizeLiters,
-            DefaultEfficiencyPercent: user.DefaultEfficiencyPercent,
-            DefaultBoilTimeMinutes: user.DefaultBoilTimeMinutes,
-            MqttHost: user.MqttHost,
-            MqttPort: user.MqttPort,
-            MqttUsername: user.MqttUsername,
-            MqttPasswordEncrypted: encryptedMqttPassword,
-            HasMqttPassword: !string.IsNullOrWhiteSpace(user.MqttPassword),
-            MqttCertificate: user.MqttCertificate,
-            MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment",
-            AppBaseUrl: user.AppBaseUrl,
-            WebhookBaseUrl: user.WebhookBaseUrl
-        );
+            // 1. User Settings
+            string? encryptedMqttPassword = null;
+            if (encryptSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(user.MqttPassword))
+            {
+                var rawMqttPassword = BackupSecretProtector.UnprotectServerSecret(user.MqttPassword, _protector);
+                if (!string.IsNullOrWhiteSpace(rawMqttPassword))
+                {
+                    encryptedMqttPassword = BackupSecretProtector.EncryptSecret(rawMqttPassword, encryptionKey);
+                }
+            }
 
-        // 2. Custom Ingredients
-        var customIngredients = await _db.Ingredients
-            .AsNoTracking()
-            .Where(i => !i.IsCatalogItem && i.CreatedByUserId == userId)
-            .OrderBy(i => i.Name)
-            .Select(i => new CustomIngredientBackupDto(
-                i.Id,
-                i.Name,
-                i.Type,
-                i.PotentialGravity,
-                i.ColorSrm,
-                i.AlphaAcidPercent,
-                i.AttenuationPercent,
-                i.Form,
-                i.Description,
-                i.CreatedAt,
-                i.FermentableCategory,
-                i.FermentabilityPercent))
-            .ToListAsync();
+            var userSettingsDto = new UserSettingsBackupDto(
+                OriginalUserId: user.Id,
+                Email: user.Email,
+                DisplayName: user.DisplayName,
+                PreferredLanguage: user.PreferredLanguage,
+                PreferredVolumeUnit: user.PreferredVolumeUnit,
+                PreferredWeightUnit: user.PreferredWeightUnit,
+                PreferredGrainWeightUnit: user.PreferredGrainWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "lb" : "kg"),
+                PreferredHopWeightUnit: user.PreferredHopWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "oz" : "g"),
+                PreferredColorUnit: user.PreferredColorUnit ?? "SRM",
+                PreferredCarbonationUnit: user.PreferredCarbonationUnit ?? "Volumes",
+                PreferredTemperatureUnit: user.PreferredTemperatureUnit,
+                PreferredGravityUnit: user.PreferredGravityUnit,
+                PreferredTheme: user.PreferredTheme,
+                PreferredBitternessFormula: user.PreferredBitternessFormula ?? "Tinseth",
+                PreferredColorFormula: user.PreferredColorFormula ?? "Morey",
+                PreferredAbvFormula: user.PreferredAbvFormula ?? "Linear",
+                DefaultBatchSizeLiters: user.DefaultBatchSizeLiters,
+                DefaultEfficiencyPercent: user.DefaultEfficiencyPercent,
+                DefaultBoilTimeMinutes: user.DefaultBoilTimeMinutes,
+                MqttHost: user.MqttHost,
+                MqttPort: user.MqttPort,
+                MqttUsername: user.MqttUsername,
+                MqttPasswordEncrypted: encryptedMqttPassword,
+                HasMqttPassword: !string.IsNullOrWhiteSpace(user.MqttPassword),
+                MqttCertificate: user.MqttCertificate,
+                MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment",
+                AppBaseUrl: user.AppBaseUrl,
+                WebhookBaseUrl: user.WebhookBaseUrl
+            );
 
-        // 3. Pantry Stock
-        var stocks = await _db.IngredientStocks
-            .AsNoTracking()
-            .Include(s => s.Ingredient)
-            .Where(s => s.UserId == userId && s.Ingredient != null)
-            .OrderBy(s => s.Ingredient!.Name)
-            .Select(s => new IngredientStockBackupDto(
-                s.Id,
-                s.IngredientId,
-                s.Ingredient!.Name,
-                s.Ingredient.Type,
-                s.Ingredient.IsCatalogItem,
-                s.Amount,
-                s.Unit,
-                s.LowStockAlertThreshold,
-                s.UpdatedAt,
-                new IngredientSnapshotDto(
-                    s.Ingredient.Name,
-                    s.Ingredient.Type,
-                    s.Ingredient.PotentialGravity,
-                    s.Ingredient.ColorSrm,
-                    s.Ingredient.AlphaAcidPercent,
-                    s.Ingredient.AttenuationPercent,
-                    s.Ingredient.Form,
-                    s.Ingredient.Description,
-                    s.Ingredient.FermentableCategory,
-                    s.Ingredient.FermentabilityPercent)))
-            .ToListAsync();
-
-        // 4. Owned Brewery Setups & Collaboration
-        var now = DateTime.UtcNow;
-        var ownedSetupsEntities = await _db.BrewerySetups
-            .AsNoTracking()
-            .Include(s => s.Members)
-                .ThenInclude(m => m.User)
-            .Include(s => s.Invites)
-            .Where(s => s.UserId == userId)
-            .OrderByDescending(s => s.IsDefault)
-            .ThenBy(s => s.CreatedAt)
-            .ToListAsync();
-
-        var ownedSetups = ownedSetupsEntities.Select(s => new BrewerySetupBackupDto(
-            s.Id,
-            s.Name,
-            s.Description,
-            s.IsDefault,
-            s.DefaultGrainAbsorptionRate,
-            s.DefaultBoilOffRatePerHour,
-            s.DefaultKettleTrubLossLiters,
-            s.DefaultFermenterLossLiters,
-            s.DefaultMashTunDeadSpaceLiters,
-            s.CoolingShrinkagePercent,
-            s.DefaultPackagingLossLiters,
-            s.CreatedAt,
-            s.UpdatedAt,
-            s.Members
-                .OrderBy(m => m.JoinedAt)
-                .Select(m => new BreweryMemberBackupDto(
-                    m.UserId,
-                    m.User?.Email,
-                    m.User?.DisplayName,
-                    m.Role,
-                    m.JoinedAt))
-                .ToList(),
-            s.Invites
-                .Where(i => i.AcceptedAt == null && i.ExpiresAt > now)
-                .OrderBy(i => i.CreatedAt)
-                .Select(i => new BreweryInviteBackupDto(
-                    i.InvitedEmail,
-                    i.Role,
+            // 2. Custom Ingredients
+            var customIngredients = await _db.Ingredients
+                .AsNoTracking()
+                .Where(i => !i.IsCatalogItem && i.CreatedByUserId == userId)
+                .OrderBy(i => i.Name)
+                .Select(i => new CustomIngredientBackupDto(
+                    i.Id,
+                    i.Name,
+                    i.Type,
+                    i.PotentialGravity,
+                    i.ColorSrm,
+                    i.AlphaAcidPercent,
+                    i.AttenuationPercent,
+                    i.Form,
+                    i.Description,
                     i.CreatedAt,
-                    i.ExpiresAt))
-                .ToList()
-        )).ToList();
+                    i.FermentableCategory,
+                    i.FermentabilityPercent))
+                .ToListAsync();
 
-        var ownedSetupIds = ownedSetupsEntities.Select(s => s.Id).ToHashSet();
+            // 3. Pantry Stock
+            var stocks = await _db.IngredientStocks
+                .AsNoTracking()
+                .Include(s => s.Ingredient)
+                .Where(s => s.UserId == userId && s.Ingredient != null)
+                .OrderBy(s => s.Ingredient!.Name)
+                .Select(s => new IngredientStockBackupDto(
+                    s.Id,
+                    s.IngredientId,
+                    s.Ingredient!.Name,
+                    s.Ingredient.Type,
+                    s.Ingredient.IsCatalogItem,
+                    s.Amount,
+                    s.Unit,
+                    s.LowStockAlertThreshold,
+                    s.UpdatedAt,
+                    new IngredientSnapshotDto(
+                        s.Ingredient.Name,
+                        s.Ingredient.Type,
+                        s.Ingredient.PotentialGravity,
+                        s.Ingredient.ColorSrm,
+                        s.Ingredient.AlphaAcidPercent,
+                        s.Ingredient.AttenuationPercent,
+                        s.Ingredient.Form,
+                        s.Ingredient.Description,
+                        s.Ingredient.FermentableCategory,
+                        s.Ingredient.FermentabilityPercent)))
+                .ToListAsync();
 
-        // 5. Shared Setups where user is a Collaborator
-        var sharedMembershipsEntities = await _db.BreweryMembers
-            .AsNoTracking()
-            .Include(m => m.BrewerySetup)
-                .ThenInclude(s => s!.User)
-            .Include(m => m.BrewerySetup)
-                .ThenInclude(s => s!.Equipment)
-            .Where(m => m.UserId == userId && m.BrewerySetup != null && m.BrewerySetup.UserId != userId)
-            .OrderBy(m => m.JoinedAt)
-            .ToListAsync();
+            // 4. Owned Brewery Setups & Collaboration
+            var now = DateTime.UtcNow;
+            var ownedSetupsEntities = await _db.BrewerySetups
+                .AsNoTracking()
+                .Include(s => s.Members)
+                    .ThenInclude(m => m.User)
+                .Include(s => s.Invites)
+                .Where(s => s.UserId == userId)
+                .OrderByDescending(s => s.IsDefault)
+                .ThenBy(s => s.CreatedAt)
+                .ToListAsync();
 
-        var sharedMemberships = sharedMembershipsEntities.Select(m =>
-        {
-            var s = m.BrewerySetup!;
-            var isCoOwner = m.Role == BreweryRole.Owner;
-            var canExportSharedSecrets = isCoOwner && encryptSecrets && encryptionKey != null;
+            var ownedSetups = ownedSetupsEntities.Select(s => new BrewerySetupBackupDto(
+                s.Id,
+                s.Name,
+                s.Description,
+                s.IsDefault,
+                s.DefaultGrainAbsorptionRate,
+                s.DefaultBoilOffRatePerHour,
+                s.DefaultKettleTrubLossLiters,
+                s.DefaultFermenterLossLiters,
+                s.DefaultMashTunDeadSpaceLiters,
+                s.CoolingShrinkagePercent,
+                s.DefaultPackagingLossLiters,
+                s.CreatedAt,
+                s.UpdatedAt,
+                s.Members
+                    .OrderBy(m => m.JoinedAt)
+                    .Select(m => new BreweryMemberBackupDto(
+                        m.UserId,
+                        m.User?.Email,
+                        m.User?.DisplayName,
+                        m.Role,
+                        m.JoinedAt))
+                    .ToList(),
+                s.Invites
+                    .Where(i => i.AcceptedAt == null && i.ExpiresAt > now)
+                    .OrderBy(i => i.CreatedAt)
+                    .Select(i => new BreweryInviteBackupDto(
+                        i.InvitedEmail,
+                        i.Role,
+                        i.CreatedAt,
+                        i.ExpiresAt))
+                    .ToList()
+            )).ToList();
 
-            var eqSnapshots = s.Equipment
-                .OrderBy(e => e.Name)
-                .Select(e => MapEquipmentToBackupDto(e, isCoOwner && request.IncludeSecrets, encryptionKey))
+            var ownedSetupIds = ownedSetupsEntities.Select(s => s.Id).ToHashSet();
+
+            // 5. Shared Setups where user is a Collaborator
+            var sharedMembershipsEntities = await _db.BreweryMembers
+                .AsNoTracking()
+                .Include(m => m.BrewerySetup)
+                    .ThenInclude(s => s!.User)
+                .Include(m => m.BrewerySetup)
+                    .ThenInclude(s => s!.Equipment)
+                .Where(m => m.UserId == userId && m.BrewerySetup != null && m.BrewerySetup.UserId != userId)
+                .OrderBy(m => m.JoinedAt)
+                .ToListAsync();
+
+            var sharedMemberships = sharedMembershipsEntities.Select(m =>
+            {
+                var s = m.BrewerySetup!;
+                var isCoOwner = m.Role == BreweryRole.Owner;
+                var canExportSharedSecrets = isCoOwner && encryptSecrets && encryptionKey != null;
+
+                var eqSnapshots = s.Equipment
+                    .OrderBy(e => e.Name)
+                    .Select(e => MapEquipmentToBackupDto(e, isCoOwner && request.IncludeSecrets, encryptionKey))
+                    .ToList();
+
+                return new SharedSetupMembershipBackupDto(
+                    OriginalSetupId: s.Id,
+                    SetupName: s.Name,
+                    OwnerUserId: s.UserId,
+                    OwnerEmail: isCoOwner ? s.User?.Email : MaskEmail(s.User?.Email),
+                    OwnerDisplayName: s.User?.DisplayName,
+                    MyRole: m.Role,
+                    JoinedAt: m.JoinedAt,
+                    SetupSnapshot: new BrewerySetupBackupDto(
+                        s.Id,
+                        s.Name,
+                        s.Description,
+                        IsDefault: false,
+                        s.DefaultGrainAbsorptionRate,
+                        s.DefaultBoilOffRatePerHour,
+                        s.DefaultKettleTrubLossLiters,
+                        s.DefaultFermenterLossLiters,
+                        s.DefaultMashTunDeadSpaceLiters,
+                        s.CoolingShrinkagePercent,
+                        s.DefaultPackagingLossLiters,
+                        s.CreatedAt,
+                        s.UpdatedAt),
+                    ReferencedEquipmentSnapshots: eqSnapshots
+                );
+            }).ToList();
+
+            // 6. Equipment in Owned Setups
+            var equipmentEntities = await _db.Equipment
+                .AsNoTracking()
+                .Where(e => ownedSetupIds.Contains(e.BrewerySetupId))
+                .OrderBy(e => e.CreatedAt)
+                .ToListAsync();
+
+            var equipmentDtos = equipmentEntities
+                .Select(e => MapEquipmentToBackupDto(e, request.IncludeSecrets, encryptionKey))
                 .ToList();
 
-            return new SharedSetupMembershipBackupDto(
-                OriginalSetupId: s.Id,
-                SetupName: s.Name,
-                OwnerUserId: s.UserId,
-                OwnerEmail: isCoOwner ? s.User?.Email : MaskEmail(s.User?.Email),
-                OwnerDisplayName: s.User?.DisplayName,
-                MyRole: m.Role,
-                JoinedAt: m.JoinedAt,
-                SetupSnapshot: new BrewerySetupBackupDto(
-                    s.Id,
-                    s.Name,
-                    s.Description,
-                    IsDefault: false,
-                    s.DefaultGrainAbsorptionRate,
-                    s.DefaultBoilOffRatePerHour,
-                    s.DefaultKettleTrubLossLiters,
-                    s.DefaultFermenterLossLiters,
-                    s.DefaultMashTunDeadSpaceLiters,
-                    s.CoolingShrinkagePercent,
-                    s.DefaultPackagingLossLiters,
-                    s.CreatedAt,
-                    s.UpdatedAt),
-                ReferencedEquipmentSnapshots: eqSnapshots
-            );
-        }).ToList();
+            var ownedEquipmentIds = equipmentEntities.Select(e => e.Id).ToHashSet();
 
-        // 6. Equipment in Owned Setups
-        var equipmentEntities = await _db.Equipment
-            .AsNoTracking()
-            .Where(e => ownedSetupIds.Contains(e.BrewerySetupId))
-            .OrderBy(e => e.CreatedAt)
-            .ToListAsync();
+            // 6.5 BrewLink Gateways (User-owned)
+            var gatewayEntities = await _db.BrewLinkGateways
+                .AsNoTracking()
+                .Where(g => g.UserId == userId)
+                .OrderBy(g => g.PairedAt)
+                .ToListAsync();
 
-        var equipmentDtos = equipmentEntities
-            .Select(e => MapEquipmentToBackupDto(e, request.IncludeSecrets, encryptionKey))
-            .ToList();
-
-        var ownedEquipmentIds = equipmentEntities.Select(e => e.Id).ToHashSet();
-
-        // 6.5 BrewLink Gateways (User-owned)
-        var gatewayEntities = await _db.BrewLinkGateways
-            .AsNoTracking()
-            .Where(g => g.UserId == userId)
-            .OrderBy(g => g.PairedAt)
-            .ToListAsync();
-
-        var gatewayDtos = gatewayEntities.Select(g =>
-        {
-            string? encApiToken = null;
-            string? encMqttKey = null;
-
-            if (encryptSecrets && encryptionKey != null)
+            var gatewayDtos = gatewayEntities.Select(g =>
             {
-                var rawToken = BackupSecretProtector.UnprotectServerSecret(g.ApiToken, _brewLinkProtector);
-                if (!string.IsNullOrWhiteSpace(rawToken))
-                {
-                    encApiToken = BackupSecretProtector.EncryptSecret(rawToken, encryptionKey);
-                }
+                string? encApiToken = null;
+                string? encMqttKey = null;
 
-                if (!string.IsNullOrWhiteSpace(g.MqttTopicKey))
+                if (encryptSecrets && encryptionKey != null)
                 {
-                    var rawKey = BackupSecretProtector.UnprotectServerSecret(g.MqttTopicKey, _brewLinkProtector);
-                    if (!string.IsNullOrWhiteSpace(rawKey))
+                    var rawToken = BackupSecretProtector.UnprotectServerSecret(g.ApiToken, _brewLinkProtector);
+                    if (!string.IsNullOrWhiteSpace(rawToken))
                     {
-                        encMqttKey = BackupSecretProtector.EncryptSecret(rawKey, encryptionKey);
+                        encApiToken = BackupSecretProtector.EncryptSecret(rawToken, encryptionKey);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(g.MqttTopicKey))
+                    {
+                        var rawKey = BackupSecretProtector.UnprotectServerSecret(g.MqttTopicKey, _brewLinkProtector);
+                        if (!string.IsNullOrWhiteSpace(rawKey))
+                        {
+                            encMqttKey = BackupSecretProtector.EncryptSecret(rawKey, encryptionKey);
+                        }
                     }
                 }
-            }
 
-            return new BrewLinkGatewayBackupDto(
-                g.Id,
-                g.Name,
-                g.Host,
-                g.GatewayId,
-                encApiToken,
-                encMqttKey,
-                g.PairedAt,
-                g.UpdatedAt,
-                g.ClientName
-            );
-        }).ToList();
+                return new BrewLinkGatewayBackupDto(
+                    g.Id,
+                    g.Name,
+                    g.Host,
+                    g.GatewayId,
+                    encApiToken,
+                    encMqttKey,
+                    g.PairedAt,
+                    g.UpdatedAt,
+                    g.ClientName
+                );
+            }).ToList();
 
-        // 7. Recipes (User-owned)
-        var userRecipeEntities = await _db.Recipes
-            .AsNoTracking()
-            .Include(r => r.Label)
-            .Include(r => r.Ingredients)
-                .ThenInclude(ri => ri.Ingredient)
-            .Include(r => r.MashSteps)
-            .Include(r => r.FermentationSteps)
-            .Where(r => r.UserId == userId)
-            .OrderBy(r => r.CreatedAt)
-            .ToListAsync();
-
-        var recipeDtos = userRecipeEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
-        var userRecipeIds = userRecipeEntities.Select(r => r.Id).ToHashSet();
-
-        // 8. Batches
-        var batchEntities = await _db.Batches
-            .AsNoTracking()
-            .Include(b => b.Recipe)
-            .Include(b => b.VolumeProfile)
-            .Include(b => b.Ingredients)
-            .Include(b => b.MashSteps)
-            .Include(b => b.FermentationSteps)
-            .Include(b => b.StageHistory)
-            .Include(b => b.Readings)
-            .Include(b => b.SensorAssignments)
-            .Where(b => b.UserId == userId)
-            .OrderBy(b => b.BrewDate)
-            .ThenBy(b => b.CreatedAt)
-            .ToListAsync();
-
-        var batchDtos = batchEntities.Select(MapBatchToBackupDto).ToList();
-        var batchIds = batchEntities.Select(b => b.Id).ToHashSet();
-
-        // 9. Referenced External Community Recipes
-        var externalRecipeIds = batchEntities
-            .Where(b => b.RecipeId.HasValue && !userRecipeIds.Contains(b.RecipeId.Value))
-            .Select(b => b.RecipeId!.Value)
-            .Distinct()
-            .ToList();
-
-        var referencedExternalRecipes = new List<RecipeBackupDto>();
-        if (externalRecipeIds.Count > 0)
-        {
-            var extEntities = await _db.Recipes
+            // 7. Recipes (User-owned)
+            var userRecipeEntities = await _db.Recipes
                 .AsNoTracking()
                 .Include(r => r.Label)
                 .Include(r => r.Ingredients)
                     .ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.MashSteps)
                 .Include(r => r.FermentationSteps)
-                .Where(r => externalRecipeIds.Contains(r.Id) && r.IsPublic)
+                .Where(r => r.UserId == userId)
+                .OrderBy(r => r.CreatedAt)
                 .ToListAsync();
 
-            referencedExternalRecipes = extEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
-        }
+            var recipeDtos = userRecipeEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
+            var userRecipeIds = userRecipeEntities.Select(r => r.Id).ToHashSet();
 
-        // 10. Equipment Telemetry Readings
-        var equipmentReadings = new List<EquipmentReadingBackupDto>();
-        if (request.IncludeTelemetryReadings && (ownedEquipmentIds.Count > 0 || batchIds.Count > 0))
-        {
-            var readingEntities = await _db.EquipmentReadings
+            // 8. Batches
+            var batchEntities = await _db.Batches
                 .AsNoTracking()
-                .Where(er => (er.EquipmentId.HasValue && ownedEquipmentIds.Contains(er.EquipmentId.Value)) ||
-                             (er.BatchId.HasValue && batchIds.Contains(er.BatchId.Value)))
-                .OrderByDescending(er => er.Timestamp)
-                .Take(MaxExportedTelemetryReadings)
-                .OrderBy(er => er.Timestamp)
+                .Include(b => b.Recipe)
+                .Include(b => b.VolumeProfile)
+                .Include(b => b.Ingredients)
+                .Include(b => b.MashSteps)
+                .Include(b => b.FermentationSteps)
+                .Include(b => b.StageHistory)
+                .Include(b => b.Readings)
+                .Include(b => b.SensorAssignments)
+                .Where(b => b.UserId == userId)
+                .OrderBy(b => b.BrewDate)
+                .ThenBy(b => b.CreatedAt)
                 .ToListAsync();
 
-            equipmentReadings = readingEntities.Select(er => new EquipmentReadingBackupDto(
-                er.Id,
-                er.EquipmentId ?? Guid.Empty,
-                er.BatchId,
-                er.Stage,
-                er.BatchMashStepId,
-                er.StepName,
-                er.Timestamp,
-                er.TemperatureC,
-                er.SpecificGravity,
-                er.PressureBar,
-                er.BatteryPercent,
-                er.BatteryVoltage,
-                er.TiltDegrees,
-                er.Rssi,
-                er.MetricsJson,
-                er.Source,
-                er.RawPayload,
-                er.Notes,
-                er.CreatedAt
-            )).ToList();
+            var batchDtos = batchEntities.Select(MapBatchToBackupDto).ToList();
+            var batchIds = batchEntities.Select(b => b.Id).ToHashSet();
+
+            // 9. Referenced External Community Recipes
+            var externalRecipeIds = batchEntities
+                .Where(b => b.RecipeId.HasValue && !userRecipeIds.Contains(b.RecipeId.Value))
+                .Select(b => b.RecipeId!.Value)
+                .Distinct()
+                .ToList();
+
+            var referencedExternalRecipes = new List<RecipeBackupDto>();
+            if (externalRecipeIds.Count > 0)
+            {
+                var extEntities = await _db.Recipes
+                    .AsNoTracking()
+                    .Include(r => r.Label)
+                    .Include(r => r.Ingredients)
+                        .ThenInclude(ri => ri.Ingredient)
+                    .Include(r => r.MashSteps)
+                    .Include(r => r.FermentationSteps)
+                    .Where(r => externalRecipeIds.Contains(r.Id) && r.IsPublic)
+                    .ToListAsync();
+
+                referencedExternalRecipes = extEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
+            }
+
+            // 10. Equipment Telemetry Readings
+            var equipmentReadings = new List<EquipmentReadingBackupDto>();
+            if (request.IncludeTelemetryReadings && (ownedEquipmentIds.Count > 0 || batchIds.Count > 0))
+            {
+                var readingEntities = await _db.EquipmentReadings
+                    .AsNoTracking()
+                    .Where(er => (er.EquipmentId.HasValue && ownedEquipmentIds.Contains(er.EquipmentId.Value)) ||
+                                 (er.BatchId.HasValue && batchIds.Contains(er.BatchId.Value)))
+                    .OrderByDescending(er => er.Timestamp)
+                    .Take(MaxExportedTelemetryReadings)
+                    .OrderBy(er => er.Timestamp)
+                    .ToListAsync();
+
+                equipmentReadings = readingEntities.Select(er => new EquipmentReadingBackupDto(
+                    er.Id,
+                    er.EquipmentId ?? Guid.Empty,
+                    er.BatchId,
+                    er.Stage,
+                    er.BatchMashStepId,
+                    er.StepName,
+                    er.Timestamp,
+                    er.TemperatureC,
+                    er.SpecificGravity,
+                    er.PressureBar,
+                    er.BatteryPercent,
+                    er.BatteryVoltage,
+                    er.TiltDegrees,
+                    er.Rssi,
+                    er.MetricsJson,
+                    er.Source,
+                    er.RawPayload,
+                    er.Notes,
+                    er.CreatedAt
+                )).ToList();
+            }
+
+            var payload = new BackupPayload
+            {
+                UserSettings = userSettingsDto,
+                CustomIngredients = customIngredients,
+                IngredientStocks = stocks,
+                OwnedBrewerySetups = ownedSetups,
+                SharedSetupMemberships = sharedMemberships,
+                Equipment = equipmentDtos,
+                BrewLinkGateways = gatewayDtos,
+                Recipes = recipeDtos,
+                ReferencedExternalRecipes = referencedExternalRecipes,
+                Batches = batchDtos,
+                EquipmentReadings = equipmentReadings
+            };
+
+            var serializerOptions = BackupMigrationPipeline.CreateCanonicalSerializerOptions();
+            var dataElement = JsonSerializer.SerializeToElement(payload, serializerOptions);
+            var checksum = BackupMigrationPipeline.ComputeChecksumSha256(dataElement);
+
+            _logger.LogInformation(
+                "Exported user backup for user {UserId}: {Setups} setups, {Equipment} equipment, {Recipes} recipes, {Batches} batches",
+                userId, ownedSetups.Count, equipmentDtos.Count, recipeDtos.Count, batchDtos.Count);
+
+            return new BrewYouBackupEnvelope(
+                Format: BackupSchemaConstants.FormatIdentifier,
+                SchemaVersion: BackupSchemaConstants.CurrentSchemaVersion,
+                AppVersion: BackupSchemaConstants.CurrentAppVersion,
+                ExportedAtUtc: DateTime.UtcNow,
+                ChecksumSha256: checksum,
+                Data: dataElement,
+                Encryption: encryptionMeta);
         }
-
-        var payload = new BackupPayload
+        finally
         {
-            UserSettings = userSettingsDto,
-            CustomIngredients = customIngredients,
-            IngredientStocks = stocks,
-            OwnedBrewerySetups = ownedSetups,
-            SharedSetupMemberships = sharedMemberships,
-            Equipment = equipmentDtos,
-            BrewLinkGateways = gatewayDtos,
-            Recipes = recipeDtos,
-            ReferencedExternalRecipes = referencedExternalRecipes,
-            Batches = batchDtos,
-            EquipmentReadings = equipmentReadings
-        };
-
-        var serializerOptions = BackupMigrationPipeline.CreateCanonicalSerializerOptions();
-        var dataElement = JsonSerializer.SerializeToElement(payload, serializerOptions);
-        var checksum = BackupMigrationPipeline.ComputeChecksumSha256(dataElement);
-
-        _logger.LogInformation(
-            "Exported user backup for user {UserId}: {Setups} setups, {Equipment} equipment, {Recipes} recipes, {Batches} batches",
-            userId, ownedSetups.Count, equipmentDtos.Count, recipeDtos.Count, batchDtos.Count);
-
-        return new BrewYouBackupEnvelope(
-            Format: BackupSchemaConstants.FormatIdentifier,
-            SchemaVersion: BackupSchemaConstants.CurrentSchemaVersion,
-            AppVersion: BackupSchemaConstants.CurrentAppVersion,
-            ExportedAtUtc: DateTime.UtcNow,
-            ChecksumSha256: checksum,
-            Data: dataElement,
-            Encryption: encryptionMeta);
+            if (encryptionKey != null)
+            {
+                CryptographicOperations.ZeroMemory(encryptionKey);
+            }
+        }
     }
 
     public async Task<RestorePreviewReportDto> PreviewRestoreAsync(string userId, PreviewRestoreRequest request)
@@ -453,6 +470,11 @@ public class BackupService : IBackupService
         if (!checksumVerified)
         {
             warnings.Add("Backup checksum verification did not match. The file may have been manually edited.");
+        }
+
+        if (payload != null)
+        {
+            ValidatePayloadLimits(payload, errors);
         }
 
         if (payload == null || errors.Count > 0)
@@ -477,8 +499,12 @@ public class BackupService : IBackupService
         }
 
         // Check passphrase & secret encryption status
-        var (secretsEncrypted, passphraseRequired, passphraseValid, _) = ValidateAndDeriveEncryptionKey(
+        var (secretsEncrypted, passphraseRequired, passphraseValid, previewKey) = ValidateAndDeriveEncryptionKey(
             envelope, payload, options.Passphrase, warnings);
+        if (previewKey != null)
+        {
+            CryptographicOperations.ZeroMemory(previewKey);
+        }
 
         // Compute item counts
         var collaboratorCount = payload.OwnedBrewerySetups.Sum(s => s.Members?.Count ?? 0);
@@ -605,6 +631,11 @@ public class BackupService : IBackupService
         var envelope = request.Backup;
 
         var (payload, _, migrationNotes, warnings, errors) = _migrationPipeline.MigrateAndDeserialize(envelope);
+        if (payload != null)
+        {
+            ValidatePayloadLimits(payload, errors);
+        }
+
         if (payload == null || errors.Count > 0)
         {
             return (false, null, "INVALID_BACKUP_PAYLOAD", string.Join(" ", errors));
@@ -613,18 +644,20 @@ public class BackupService : IBackupService
         var (secretsEncrypted, passphraseRequired, passphraseValid, encryptionKey) = ValidateAndDeriveEncryptionKey(
             envelope, payload, options.Passphrase, warnings);
 
-        if (secretsEncrypted && !string.IsNullOrWhiteSpace(options.Passphrase) && !passphraseValid)
+        try
         {
-            return (false, null, "INVALID_PASSPHRASE", "The provided backup passphrase is incorrect.");
-        }
+            if (secretsEncrypted && !string.IsNullOrWhiteSpace(options.Passphrase) && !passphraseValid)
+            {
+                return (false, null, "INVALID_PASSPHRASE", "The provided backup passphrase is incorrect.");
+            }
 
-        foreach (var note in migrationNotes)
-        {
-            warnings.Add(note);
-        }
+            foreach (var note in migrationNotes)
+            {
+                warnings.Add(note);
+            }
 
-        var executionStrategy = _db.Database.CreateExecutionStrategy();
-        return await executionStrategy.ExecuteAsync<(bool Succeeded, RestoreResultDto? Result, string? ErrorCode, string? ErrorMessage)>(async () =>
+            var executionStrategy = _db.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync<(bool Succeeded, RestoreResultDto? Result, string? ErrorCode, string? ErrorMessage)>(async () =>
         {
             _db.ChangeTracker.Clear();
 
@@ -1888,6 +1921,58 @@ public class BackupService : IBackupService
                 return (false, null, "RESTORE_FAILED", $"Restore failed: {ex.Message}");
             }
         });
+        }
+        finally
+        {
+            if (encryptionKey != null)
+            {
+                CryptographicOperations.ZeroMemory(encryptionKey);
+            }
+        }
+    }
+
+    private static void ValidatePayloadLimits(BackupPayload payload, List<string> errors)
+    {
+        if (payload.OwnedBrewerySetups.Count > MaxRestoredSetups)
+        {
+            errors.Add($"Backup exceeds maximum allowed owned brewery setups ({MaxRestoredSetups}).");
+        }
+        if (payload.SharedSetupMemberships.Count > MaxRestoredSetups)
+        {
+            errors.Add($"Backup exceeds maximum allowed shared setups ({MaxRestoredSetups}).");
+        }
+        if (payload.Equipment.Count > MaxRestoredEquipment)
+        {
+            errors.Add($"Backup exceeds maximum allowed equipment items ({MaxRestoredEquipment}).");
+        }
+        if (payload.BrewLinkGateways.Count > MaxRestoredGateways)
+        {
+            errors.Add($"Backup exceeds maximum allowed BrewLink gateways ({MaxRestoredGateways}).");
+        }
+        if (payload.CustomIngredients.Count > MaxRestoredIngredients)
+        {
+            errors.Add($"Backup exceeds maximum allowed custom ingredients ({MaxRestoredIngredients}).");
+        }
+        if (payload.IngredientStocks.Count > MaxRestoredIngredients)
+        {
+            errors.Add($"Backup exceeds maximum allowed ingredient stock entries ({MaxRestoredIngredients}).");
+        }
+        if (payload.Recipes.Count > MaxRestoredRecipes)
+        {
+            errors.Add($"Backup exceeds maximum allowed recipes ({MaxRestoredRecipes}).");
+        }
+        if (payload.ReferencedExternalRecipes.Count > MaxRestoredRecipes)
+        {
+            errors.Add($"Backup exceeds maximum allowed external recipes ({MaxRestoredRecipes}).");
+        }
+        if (payload.Batches.Count > MaxRestoredBatches)
+        {
+            errors.Add($"Backup exceeds maximum allowed batches ({MaxRestoredBatches}).");
+        }
+        if (payload.EquipmentReadings.Count > MaxRestoredTelemetryReadings)
+        {
+            errors.Add($"Backup exceeds maximum allowed telemetry readings ({MaxRestoredTelemetryReadings}).");
+        }
     }
 
     private EquipmentBackupDto MapEquipmentToBackupDto(Equipment e, bool includeSecrets, byte[]? encryptionKey)

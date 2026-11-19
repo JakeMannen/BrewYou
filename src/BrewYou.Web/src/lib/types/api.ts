@@ -338,6 +338,7 @@ export interface UpdateUserPreferencesRequest {
 	abvFormula?: AbvFormulaPreference;
 	appBaseUrl?: string | null;
 	webhookBaseUrl?: string | null;
+	clearMqttPassword?: boolean | null;
 }
 
 export interface MqttStatusResponse {
@@ -352,6 +353,11 @@ export interface UpdateProfileRequest {
 	displayName: string;
 }
 
+export interface ChangePasswordRequest {
+	currentPassword: string;
+	newPassword: string;
+}
+
 export interface UserDto {
 	id: string;
 	email: string;
@@ -360,6 +366,7 @@ export interface UserDto {
 	preferredVolumeUnit: VolumeUnit;
 	createdAt?: string;
 	preferences?: UserPreferencesDto;
+	hasPassword?: boolean;
 }
 
 export interface LoginRequest {

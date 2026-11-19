@@ -2,11 +2,15 @@ using BrewYou.ApiService.Backup.Models;
 using BrewYou.ApiService.Backup.Security;
 using BrewYou.ApiService.Backup.Versioning;
 using BrewYou.ApiService.Common;
+using BrewYou.ApiService.Data;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using BrewYou.ApiService.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Http.Headers;
@@ -398,5 +402,176 @@ public class UserSettingsSecurityTests : IClassFixture<WebApplicationFactory<Pro
         var oversized = new string('a', 4001);
         var (oversizedResult, _) = BackupSecretProtector.RestoreConfigJsonFromBackup(oversized, null, null);
         oversizedResult.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task BackupPreviewAndRestore_ExcessiveKdfIterations_ReturnsBadRequest()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Kdf Limit Brewer");
+        var payload = new BackupPayload();
+        var baseEnvelope = BuildEnvelope(payload);
+        var dosEnvelope = baseEnvelope with
+        {
+            Encryption = new BackupEncryptionMetadataDto(
+                SecretsEncrypted: true,
+                Iterations: 2_000_000,
+                SaltBase64: BackupSecretProtector.GenerateSaltBase64())
+        };
+
+        var previewRes = await client.PostAsJsonAsync("/api/v1/backup/preview", new PreviewRestoreRequest(dosEnvelope));
+        previewRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var restoreRes = await client.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(dosEnvelope));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task BackupRestore_ExcessiveCollectionCounts_ReturnsInvalidPayload()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Limit Brewer");
+        var tooManySetups = Enumerable.Range(0, 105)
+            .Select(i => new BrewerySetupBackupDto(Guid.NewGuid(), $"Setup {i}", null, i == 0))
+            .ToList();
+
+        var envelope = BuildEnvelope(new BackupPayload { OwnedBrewerySetups = tooManySetups });
+
+        var restoreRes = await client.PostAsJsonAsync("/api/v1/backup/restore", new ExecuteRestoreRequest(envelope));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await restoreRes.Content.ReadFromJsonAsync<ApiResponse>();
+        body!.Error!.Code.Should().Be("INVALID_BACKUP_PAYLOAD");
+    }
+
+    [Theory]
+    [InlineData("<script>alert(1)</script>")]
+    [InlineData("zz")]
+    [InlineData("en-US-too-long-locale")]
+    public async Task UpdateUserLanguage_InvalidLocaleCode_ReturnsBadRequest(string invalidLang)
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Locale Guard Brewer");
+
+        var res = await client.PutAsJsonAsync("/api/v1/auth/me/language", new UpdateLanguageRequest(invalidLang));
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var body = await res.Content.ReadFromJsonAsync<ApiResponse>();
+        body!.Error!.Code.Should().Be("VALIDATION_ERROR");
+    }
+
+    [Fact]
+    public async Task Register_PasswordShorterThan8Chars_ReturnsBadRequest()
+    {
+        var client = _factory.CreateClient();
+        var email = $"shortpwd_{Guid.NewGuid():N}@brewyou.test";
+
+        var res = await client.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(email, "123456", "Short Pwd"));
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task RefreshToken_StoredAsSha256HashInDatabaseAndOmittedFromJson()
+    {
+        var client = _factory.CreateClient();
+        var email = $"hashedrt_{Guid.NewGuid():N}@brewyou.test";
+
+        var res = await client.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(email, "StrongPassword123!", "Hash Brewer"));
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var auth = (await res.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())!.Data!;
+        auth.RefreshToken.Should().BeEmpty();
+
+        var rawCookie = res.Headers.GetValues("Set-Cookie")
+            .First(c => c.StartsWith("refreshToken=", StringComparison.Ordinal))
+            .Split(';')[0]["refreshToken=".Length..];
+        var rawToken = Uri.UnescapeDataString(rawCookie);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+        var dbUser = await db.Users.AsNoTracking().FirstAsync(u => u.Id == auth.User.Id);
+
+        dbUser.RefreshToken.Should().NotBeNullOrEmpty();
+        dbUser.RefreshToken.Should().NotBe(rawToken);
+        dbUser.RefreshToken.Should().Be(AuthService.HashRefreshToken(rawToken));
+    }
+
+    [Fact]
+    public async Task ChangePassword_ValidCurrentPassword_UpdatesPasswordAndRevokesPreviousRefreshCookie()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+        var email = $"chgpwd_{Guid.NewGuid():N}@brewyou.test";
+
+        var regRes = await client.PostAsJsonAsync("/api/v1/auth/register", new RegisterRequest(email, "OldPassword123!", "Pwd Brewer"));
+        regRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var auth = (await regRes.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())!.Data!;
+        auth.User.HasPassword.Should().BeTrue();
+        var oldCookiePair = regRes.Headers.GetValues("Set-Cookie")
+            .First(c => c.StartsWith("refreshToken=", StringComparison.Ordinal))
+            .Split(';')[0];
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+
+        // Wrong current password must fail
+        var badRes = await client.PutAsJsonAsync("/api/v1/auth/me/password", new ChangePasswordRequest("WrongPassword!", "NewPassword123!"));
+        badRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // Correct current password succeeds and rotates refresh cookie
+        var okRes = await client.PutAsJsonAsync("/api/v1/auth/me/password", new ChangePasswordRequest("OldPassword123!", "NewPassword456!"));
+        okRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Old refresh cookie must be rejected
+        using var staleRefresh = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh")
+        {
+            Content = JsonContent.Create(new RefreshTokenRequest(null))
+        };
+        staleRefresh.Headers.Add("Cookie", oldCookiePair);
+        var staleRes = await client.SendAsync(staleRefresh);
+        staleRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // Old password login fails; new password login succeeds
+        var oldLoginRes = await client.PostAsJsonAsync("/api/v1/auth/login", new LoginRequest(email, "OldPassword123!"));
+        oldLoginRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var newLoginRes = await client.PostAsJsonAsync("/api/v1/auth/login", new LoginRequest(email, "NewPassword456!"));
+        newLoginRes.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task UpdateUserPreferences_ClearMqttPassword_RemovesStoredPassword()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Mqtt Clear Brewer");
+
+        var setRes = await client.PutAsJsonAsync("/api/v1/auth/me/preferences", new UpdateUserPreferencesRequest(
+            MqttHost: "broker.brewyou.example",
+            MqttPort: 8883,
+            MqttUsername: "brewer",
+            MqttPassword: "SuperSecretMqttPassword"));
+        setRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var afterSet = (await setRes.Content.ReadFromJsonAsync<ApiResponse<UserDto>>())!.Data!;
+        afterSet.Preferences.HasMqttPassword.Should().BeTrue();
+
+        var clearRes = await client.PutAsJsonAsync("/api/v1/auth/me/preferences", new UpdateUserPreferencesRequest(
+            ClearMqttPassword: true));
+        clearRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var afterClear = (await clearRes.Content.ReadFromJsonAsync<ApiResponse<UserDto>>())!.Data!;
+        afterClear.Preferences.HasMqttPassword.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ApiResponse_IncludesStrictContentSecurityPolicyHeader()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Csp Brewer");
+        var res = await client.GetAsync("/api/v1/auth/me");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        res.Headers.Should().ContainKey("Content-Security-Policy");
+        res.Headers.GetValues("Content-Security-Policy").First()
+            .Should().Contain("default-src 'none'")
+            .And.Contain("frame-ancestors 'none'");
+    }
+
+    [Fact]
+    public void BackupSecretProtector_UnprotectServerSecret_FailsClosedOnCorruptedCiphertext()
+    {
+        var provider = new EphemeralDataProtectionProvider();
+        var protector = provider.CreateProtector("BrewYou.Test");
+
+        var result = BackupSecretProtector.UnprotectServerSecret("corrupted-non-dp-ciphertext", protector);
+        result.Should().BeNull();
     }
 }

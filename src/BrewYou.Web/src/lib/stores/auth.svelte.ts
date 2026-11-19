@@ -207,6 +207,17 @@ class AuthState {
 		}
 	}
 
+	async changePassword(currentPassword: string, newPassword: string): Promise<boolean> {
+		this.clearError();
+		try {
+			await api.auth.changePassword({ currentPassword, newPassword });
+			return true;
+		} catch (err: unknown) {
+			this.extractError(err, 'Failed to update password.');
+			return false;
+		}
+	}
+
 	async updatePreferences(req: UpdateUserPreferencesRequest): Promise<boolean> {
 		this.clearError();
 		try {

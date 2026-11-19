@@ -9,12 +9,14 @@ using BrewYou.ApiService.Services.Labels;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.RateLimiting;
 
@@ -39,9 +41,25 @@ else
 }
 
 // Data Protection (Persist keys in DB so tokens and credentials survive container restarts)
-builder.Services.AddDataProtection()
+var dataProtectionBuilder = builder.Services.AddDataProtection()
     .SetApplicationName("BrewYou")
     .PersistKeysToDbContext<BrewYouDbContext>();
+
+var dataProtectionCertPath = builder.Configuration["DataProtection:CertificatePath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionCertPath))
+{
+    var dataProtectionCertPassword = builder.Configuration["DataProtection:CertificatePassword"];
+    var cert = string.IsNullOrEmpty(dataProtectionCertPassword)
+        ? X509CertificateLoader.LoadPkcs12FromFile(dataProtectionCertPath, password: null)
+        : X509CertificateLoader.LoadPkcs12FromFile(dataProtectionCertPath, dataProtectionCertPassword);
+    dataProtectionBuilder.ProtectKeysWithCertificate(cert);
+}
+
+// Forwarded headers for reverse-proxy TLS termination (populates Request.IsHttps safely)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
 
 // In-Memory Cache for image renditions and metadata
 builder.Services.AddMemoryCache();
@@ -50,7 +68,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
 {
     options.Password.RequireDigit = false;
-    options.Password.RequiredLength = 6;
+    options.Password.RequiredLength = 8;
     options.Password.RequireNonAlphanumeric = false;
     options.Password.RequireUppercase = false;
     options.Password.RequireLowercase = false;
@@ -221,6 +239,18 @@ builder.Services.AddRateLimiter(options =>
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             }));
+    options.AddPolicy("backup-rate-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Environment.IsDevelopment() ? 120 : 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
     options.AddPolicy("mqtt-status-limit", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -336,6 +366,12 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
+if (!app.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(dataProtectionCertPath))
+{
+    app.Logger.LogWarning("DataProtection:CertificatePath is not configured. Data Protection keys in PostgreSQL are not encrypted at rest.");
+}
+
+app.UseForwardedHeaders();
 app.UseSecurityHeaders();
 app.UseExceptionHandler();
 
@@ -368,7 +404,7 @@ app.MapEquipmentEndpoints();
 app.MapBrewerySetupEndpoints();
 app.MapBreweryCollaborationEndpoints();
 app.MapBatchEndpoints();
-app.MapBackupEndpoints().RequireRateLimiting("auth-rate-limit");
+app.MapBackupEndpoints().RequireRateLimiting("backup-rate-limit");
 app.MapTelemetryEndpoints();
 app.MapBrewLinkEndpoints();
 
