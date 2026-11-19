@@ -5,6 +5,7 @@
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { brewery, DEFAULT_BREWERY_ID } from '$lib/stores/brewery.svelte';
+	import RigCalibrationCard from '$lib/components/equipment/RigCalibrationCard.svelte';
 	import { settings, litersToGallons } from '$lib/stores/settings.svelte';
 	import type {
 		EquipmentDto,
@@ -1758,6 +1759,20 @@
 				{/each}
 			</div>
 		{/if}
+	{/if}
+
+	{#if auth.isAuthenticated && brewery.activeSetupId && brewery.activeSetupId !== DEFAULT_BREWERY_ID}
+		<div class="mt-8">
+			<RigCalibrationCard
+				setupId={brewery.activeSetupId}
+				{equipmentList}
+				isOwner={brewery.activeSetup?.isOwner ?? true}
+				onApplied={async () => {
+					await brewery.syncFromBackend();
+					await loadEquipment();
+				}}
+			/>
+		</div>
 	{/if}
 </div>
 

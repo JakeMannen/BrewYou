@@ -183,6 +183,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			}
@@ -214,6 +215,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			},
@@ -229,6 +231,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			}
@@ -261,6 +264,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			},
@@ -276,6 +280,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			}
@@ -305,6 +310,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			},
@@ -320,6 +326,7 @@ describe('Brewery State Store (brewery.svelte.ts)', () => {
 				defaultMashTunDeadSpaceLiters: 0.0,
 				coolingShrinkagePercent: 4.0,
 				defaultPackagingLossLiters: 0.5,
+				defaultEfficiencyPercent: 72.0,
 				createdAt: '2026-09-07T12:00:00Z',
 				updatedAt: '2026-09-07T12:00:00Z'
 			}

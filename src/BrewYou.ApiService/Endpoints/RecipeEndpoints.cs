@@ -114,7 +114,8 @@ public record CreateRecipeRequest(
     bool IsPublic,
     List<RecipeIngredientInputDto> Ingredients,
     List<RecipeMashStepInputDto>? MashSteps = null,
-    List<RecipeFermentationStepInputDto>? FermentationSteps = null
+    List<RecipeFermentationStepInputDto>? FermentationSteps = null,
+    RecipeWaterPlanInputDto? WaterPlan = null
 );
 
 public record UpdateRecipeRequest(
@@ -127,7 +128,9 @@ public record UpdateRecipeRequest(
     bool IsPublic,
     List<RecipeIngredientInputDto> Ingredients,
     List<RecipeMashStepInputDto>? MashSteps = null,
-    List<RecipeFermentationStepInputDto>? FermentationSteps = null
+    List<RecipeFermentationStepInputDto>? FermentationSteps = null,
+    RecipeWaterPlanInputDto? WaterPlan = null,
+    bool ClearWaterPlan = false
 );
 
 public record RecipeSummaryDto(
@@ -147,7 +150,8 @@ public record RecipeSummaryDto(
     string? AuthorName = null,
     bool IsOwner = true,
     string? LabelImageUrl = null,
-    bool HasCustomLabel = false
+    bool HasCustomLabel = false,
+    RecipeWaterPlanDto? WaterPlan = null
 );
 
 public record RecipeDetailDto(
@@ -172,7 +176,8 @@ public record RecipeDetailDto(
     string? AuthorName = null,
     bool IsOwner = true,
     string? LabelImageUrl = null,
-    bool HasCustomLabel = false
+    bool HasCustomLabel = false,
+    RecipeWaterPlanDto? WaterPlan = null
 );
 
 public record RecipeNameCheckResponse(bool Exists);

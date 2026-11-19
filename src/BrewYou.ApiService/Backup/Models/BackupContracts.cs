@@ -31,8 +31,8 @@ public enum CollaboratorRestoreMode
 public static class BackupSchemaConstants
 {
     public const string FormatIdentifier = "brewyou-user-backup";
-    public const int CurrentSchemaVersion = 3;
-    public const string CurrentAppVersion = "1.7.0";
+    public const int CurrentSchemaVersion = 4;
+    public const string CurrentAppVersion = "1.8.0";
 }
 
 public record BackupEncryptionMetadataDto(
@@ -155,7 +155,8 @@ public record BrewerySetupBackupDto(
     DateTime CreatedAt = default,
     DateTime UpdatedAt = default,
     List<BreweryMemberBackupDto>? Members = null,
-    List<BreweryInviteBackupDto>? PendingInvites = null
+    List<BreweryInviteBackupDto>? PendingInvites = null,
+    decimal DefaultEfficiencyPercent = 72.0m
 );
 
 public record EquipmentBackupDto(
@@ -195,7 +196,8 @@ public record EquipmentBackupDto(
     string? DisplayTokenEncrypted = null,
     Guid? AssignedBatchId = null,
     DateTime? AssignedAt = null,
-    Guid? AssignedKegId = null
+    Guid? AssignedKegId = null,
+    decimal? DefaultEfficiencyPercent = null
 );
 
 public record SharedSetupMembershipBackupDto(
@@ -265,6 +267,116 @@ public record RecipeLabelBackupDto(
     string? OriginalFileName = null
 );
 
+public record WaterProfileBackupDto(
+    Guid Id,
+    string Name,
+    string? Description = null,
+    string Category = "Source",
+    decimal CalciumPpm = 0m,
+    decimal MagnesiumPpm = 0m,
+    decimal SodiumPpm = 0m,
+    decimal SulfatePpm = 0m,
+    decimal ChloridePpm = 0m,
+    decimal BicarbonatePpm = 0m,
+    decimal? Ph = null,
+    DateTime CreatedAt = default,
+    DateTime UpdatedAt = default
+);
+
+public record RecipeWaterPlanBackupDto(
+    Guid Id,
+    Guid? SourceProfileId = null,
+    string? SourceProfileName = null,
+    decimal SourceCalciumPpm = 0m,
+    decimal SourceMagnesiumPpm = 0m,
+    decimal SourceSodiumPpm = 0m,
+    decimal SourceSulfatePpm = 0m,
+    decimal SourceChloridePpm = 0m,
+    decimal SourceBicarbonatePpm = 0m,
+    decimal SourcePh = 7.0m,
+    Guid? TargetProfileId = null,
+    string? TargetProfileName = null,
+    decimal? TargetCalciumPpm = null,
+    decimal? TargetMagnesiumPpm = null,
+    decimal? TargetSodiumPpm = null,
+    decimal? TargetSulfatePpm = null,
+    decimal? TargetChloridePpm = null,
+    decimal? TargetBicarbonatePpm = null,
+    decimal TargetMashPh = 5.4m,
+    decimal MashGypsumGrams = 0m,
+    decimal MashCalciumChlorideGrams = 0m,
+    decimal MashEpsomSaltGrams = 0m,
+    decimal MashTableSaltGrams = 0m,
+    decimal MashBakingSodaGrams = 0m,
+    decimal MashChalkGrams = 0m,
+    string? MashAcidType = "Lactic80",
+    decimal MashAcidAmountMlOrG = 0m,
+    decimal SpargeGypsumGrams = 0m,
+    decimal SpargeCalciumChlorideGrams = 0m,
+    decimal SpargeEpsomSaltGrams = 0m,
+    decimal SpargeTableSaltGrams = 0m,
+    decimal SpargeBakingSodaGrams = 0m,
+    decimal SpargeChalkGrams = 0m,
+    string? SpargeAcidType = "Lactic80",
+    decimal SpargeAcidAmountMlOrG = 0m,
+    decimal ResultingCalciumPpm = 0m,
+    decimal ResultingMagnesiumPpm = 0m,
+    decimal ResultingSodiumPpm = 0m,
+    decimal ResultingSulfatePpm = 0m,
+    decimal ResultingChloridePpm = 0m,
+    decimal ResultingBicarbonatePpm = 0m,
+    decimal? SulfateToChlorideRatio = null,
+    decimal ResidualAlkalinityPpm = 0m,
+    decimal PredictedMashPh = 5.4m,
+    string? Notes = null,
+    DateTime UpdatedAt = default
+);
+
+public record YeastBankEntryBackupDto(
+    Guid Id,
+    Guid? IngredientId,
+    string StrainName,
+    string? LabOrBrand = null,
+    string? ProductCode = null,
+    string Form = "Slurry",
+    int Generation = 1,
+    DateTime HarvestDate = default,
+    Guid? SourceBatchId = null,
+    string? SourceBatchName = null,
+    string? SourceBatchCode = null,
+    decimal VolumeMl = 0m,
+    decimal EstimatedDensityBillionPerMl = 1.0m,
+    decimal BaseViabilityPercent = 95m,
+    string? StorageLocation = null,
+    string Status = "Available",
+    string? Notes = null,
+    DateTime CreatedAt = default,
+    DateTime UpdatedAt = default
+);
+
+public record BatchTastingBackupDto(
+    Guid Id,
+    DateTime TastedAt,
+    string? SampleSource = "Keg",
+    decimal AromaScore = 8m,
+    string? AromaNotes = null,
+    decimal AppearanceScore = 2.5m,
+    string? AppearanceNotes = null,
+    decimal FlavorScore = 14m,
+    string? FlavorNotes = null,
+    decimal MouthfeelScore = 3.5m,
+    string? MouthfeelNotes = null,
+    decimal OverallScore = 7m,
+    string? OverallNotes = null,
+    decimal TotalScore = 35m,
+    int StarRating = 4,
+    bool WouldRebrew = true,
+    List<string>? OffFlavors = null,
+    decimal? ServingTemperatureC = null,
+    DateTime CreatedAt = default,
+    DateTime UpdatedAt = default
+);
+
 public record RecipeBackupDto(
     Guid Id,
     string Name,
@@ -284,7 +396,8 @@ public record RecipeBackupDto(
     List<RecipeIngredientBackupDto>? Ingredients = null,
     List<RecipeMashStepBackupDto>? MashSteps = null,
     List<RecipeFermentationStepBackupDto>? FermentationSteps = null,
-    RecipeLabelBackupDto? Label = null
+    RecipeLabelBackupDto? Label = null,
+    RecipeWaterPlanBackupDto? WaterPlan = null
 );
 
 public record BatchVolumeProfileBackupDto(
@@ -436,7 +549,12 @@ public record BatchBackupDto(
     List<BatchStageHistoryBackupDto>? StageHistory = null,
     List<BatchReadingBackupDto>? Readings = null,
     List<BatchSensorAssignmentBackupDto>? SensorAssignments = null,
-    string? RecipeName = null
+    string? RecipeName = null,
+    decimal? MeasuredMashPh = null,
+    Guid? YeastBankEntryId = null,
+    decimal? YeastPitchRateMillionPerMlPlato = null,
+    decimal? YeastStarterVolumeLiters = null,
+    List<BatchTastingBackupDto>? Tastings = null
 );
 
 public record EquipmentReadingBackupDto(
@@ -486,6 +604,8 @@ public class BackupPayload
     public List<RecipeBackupDto> ReferencedExternalRecipes { get; set; } = [];
     public List<BatchBackupDto> Batches { get; set; } = [];
     public List<EquipmentReadingBackupDto> EquipmentReadings { get; set; } = [];
+    public List<WaterProfileBackupDto> WaterProfiles { get; set; } = [];
+    public List<YeastBankEntryBackupDto> YeastBankEntries { get; set; } = [];
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
@@ -530,7 +650,10 @@ public record BackupItemCountsDto(
     int Collaborators,
     int PendingInvites,
     int Labels = 0,
-    int Taps = 0
+    int Taps = 0,
+    int WaterProfiles = 0,
+    int YeastBankEntries = 0,
+    int Tastings = 0
 );
 
 public record BackupConflictSummaryDto(
@@ -587,7 +710,10 @@ public record RestoreActionCountsDto(
     int BatchesUpdated,
     int BatchesSkipped,
     int TelemetryReadingsRestored,
-    int CollaboratorsRestored
+    int CollaboratorsRestored,
+    int WaterProfilesRestored = 0,
+    int YeastBankEntriesRestored = 0,
+    int TastingsRestored = 0
 );
 
 public record RestoredInviteInfoDto(

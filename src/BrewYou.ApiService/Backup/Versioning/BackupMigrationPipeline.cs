@@ -298,6 +298,42 @@ public class V2ToV3BackupMigrator : IBackupSchemaMigrator
 }
 
 /// <summary>
+/// Upgrades V3 backups to V4 by ensuring waterProfiles, yeastBankEntries,
+/// and per-batch tastings collections default safely when missing from legacy payloads.
+/// </summary>
+public class V3ToV4BackupMigrator : IBackupSchemaMigrator
+{
+    public int FromVersion => 3;
+    public int ToVersion => 4;
+
+    public void Migrate(JsonObject data, List<string> migrationNotes)
+    {
+        if (!data.ContainsKey("waterProfiles") || data["waterProfiles"] == null)
+        {
+            data["waterProfiles"] = new JsonArray();
+        }
+
+        if (!data.ContainsKey("yeastBankEntries") || data["yeastBankEntries"] == null)
+        {
+            data["yeastBankEntries"] = new JsonArray();
+        }
+
+        if (data.TryGetPropertyValue("batches", out var batchesNode) && batchesNode is JsonArray batchesArr)
+        {
+            foreach (var batchObj in batchesArr.OfType<JsonObject>())
+            {
+                if (!batchObj.ContainsKey("tastings") || batchObj["tastings"] == null)
+                {
+                    batchObj["tastings"] = new JsonArray();
+                }
+            }
+        }
+
+        migrationNotes.Add("Initialized default water profiles, yeast bank, and tasting log collections for v3 -> v4 compatibility.");
+    }
+}
+
+/// <summary>
 /// Tolerant enum converter that maps legacy aliases and falls back gracefully instead of failing deserialization
 /// when loading backups created on older or slightly newer versions.
 /// </summary>
@@ -521,7 +557,7 @@ public class BackupMigrationPipeline
 
     public BackupMigrationPipeline(IEnumerable<IBackupSchemaMigrator>? migrators = null)
     {
-        _migrators = (migrators ?? [new V0ToV1BackupMigrator(), new V1ToV2BackupMigrator(), new V2ToV3BackupMigrator()])
+        _migrators = (migrators ?? [new V0ToV1BackupMigrator(), new V1ToV2BackupMigrator(), new V2ToV3BackupMigrator(), new V3ToV4BackupMigrator()])
             .OrderBy(m => m.FromVersion)
             .ToList();
     }

@@ -12,7 +12,8 @@ public record CreateBrewerySetupRequest(
     decimal? DefaultFermenterLossLiters = null,
     decimal? DefaultMashTunDeadSpaceLiters = null,
     decimal? CoolingShrinkagePercent = null,
-    decimal? DefaultPackagingLossLiters = null
+    decimal? DefaultPackagingLossLiters = null,
+    decimal? DefaultEfficiencyPercent = null
 );
 
 public record UpdateBrewerySetupRequest(
@@ -25,7 +26,8 @@ public record UpdateBrewerySetupRequest(
     decimal? DefaultFermenterLossLiters = null,
     decimal? DefaultMashTunDeadSpaceLiters = null,
     decimal? CoolingShrinkagePercent = null,
-    decimal? DefaultPackagingLossLiters = null
+    decimal? DefaultPackagingLossLiters = null,
+    decimal? DefaultEfficiencyPercent = null
 );
 
 public record BrewerySetupDto(
@@ -45,7 +47,8 @@ public record BrewerySetupDto(
     DateTime UpdatedAt,
     BreweryRole CurrentUserRole = BreweryRole.Owner,
     int MemberCount = 1,
-    bool IsOwner = true
+    bool IsOwner = true,
+    decimal DefaultEfficiencyPercent = 72.0m
 );
 
 public enum BrewerySetupAccessResult

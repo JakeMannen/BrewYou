@@ -12,9 +12,9 @@
 ## Core Capabilities
 
 - **Dashboard & Cellar Operations**: Live overview of active batches, fermenters, serving taps, schedule milestones, and quick gravity/temperature logging.
-- **Multi-Rig Setups & Collaboration**: Calibrated equipment profiles (BIAB, All-in-One, 2-vessel, 3-vessel) with shared brewery RBAC (`Owner`/`Co-Owner`, `Brewer`, `Viewer`).
-- **Recipe Formulator & Labels**: Real-time OG, FG, ABV, IBU, and SRM calculations, BJCP style targets, BeerXML 1.0 & BeerJSON import/export, printable brew sheets, and custom bottle/tap artwork.
-- **Live Brew Day & HUD**: 5-stage lifecycle (`Mash -> Boil -> Ferment -> Condition -> Package`), full-screen Brew Station HUD, offline/retroactive batch logging, and QR cellar labels.
+- **Multi-Rig Setups & Calibration**: Calibrated equipment profiles (BIAB, All-in-One, 2-vessel, 3-vessel) with rig efficiency/loss learning, recipe-vs-actual variance reports, and shared brewery RBAC (`Owner`/`Co-Owner`, `Brewer`, `Viewer`).
+- **Recipe Formulator, Water Plans & Labels**: Real-time OG, FG, ABV, IBU, and SRM calculations, BJCP style targets, per-recipe water salt/acid & mash pH planning with profile library, BeerXML 1.0 & BeerJSON import/export, printable brew sheets, and custom bottle/tap artwork.
+- **Live Brew Day, Yeast Bank & Sensory Log**: 5-stage lifecycle (`Mash -> Boil -> Ferment -> Condition -> Package`), Brew Station HUD, slurry yeast bank & pitching/starter calculator, structured 50-point BJCP tasting notes with off-flavor diagnostics, and QR cellar labels.
 - **Equipment, Kegs & Digital Taps**: Vessel and keg fill tracking plus standalone kiosk, rendered image, and JSON manifest displays (`/tap/{token}`).
 - **BrewLink & IoT Telemetry**: ESP32 Wi-Fi/BLE gateway pairing and hardware control, iSpindle/Tilt/HTTP webhooks, Mosquitto MQTT, and real-time Server-Sent Events (SSE).
 - **Pantry, Calculators & Portability**: Ingredient stock alerts, water chemistry/carbonation/hydrometer/refractometer calculators, encrypted `.brewyou.json` backup/restore, and 5 locales (`en`, `sv`, `de`, `fr`, `es`).

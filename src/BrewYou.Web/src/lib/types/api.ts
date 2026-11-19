@@ -222,6 +222,7 @@ export interface CreateRecipeRequest {
 	ingredients: RecipeIngredientInputDto[];
 	mashSteps?: RecipeMashStepInputDto[] | null;
 	fermentationSteps?: RecipeFermentationStepInputDto[] | null;
+	waterPlan?: RecipeWaterPlanInputDto | null;
 }
 
 export interface UpdateRecipeRequest {
@@ -235,6 +236,8 @@ export interface UpdateRecipeRequest {
 	ingredients: RecipeIngredientInputDto[];
 	mashSteps?: RecipeMashStepInputDto[] | null;
 	fermentationSteps?: RecipeFermentationStepInputDto[] | null;
+	waterPlan?: RecipeWaterPlanInputDto | null;
+	clearWaterPlan?: boolean;
 }
 
 export type RecipeScope = 'all' | 'mine' | 'shared';
@@ -265,6 +268,7 @@ export interface RecipeDetailDto extends RecipeSummaryDto {
 	ingredients: RecipeIngredientOutputDto[];
 	mashSteps: RecipeMashStepOutputDto[];
 	fermentationSteps: RecipeFermentationStepOutputDto[];
+	waterPlan?: RecipeWaterPlanDto | null;
 }
 
 export interface RecipeNameCheckResponse {
@@ -664,6 +668,7 @@ export interface BrewerySetupDto {
 	defaultMashTunDeadSpaceLiters: number;
 	coolingShrinkagePercent: number;
 	defaultPackagingLossLiters: number;
+	defaultEfficiencyPercent: number;
 	createdAt: string;
 	updatedAt: string;
 	currentUserRole?: BreweryRole;
@@ -682,6 +687,7 @@ export interface CreateBrewerySetupRequest {
 	defaultMashTunDeadSpaceLiters?: number | null;
 	coolingShrinkagePercent?: number | null;
 	defaultPackagingLossLiters?: number | null;
+	defaultEfficiencyPercent?: number | null;
 }
 
 export interface UpdateBrewerySetupRequest {
@@ -695,6 +701,7 @@ export interface UpdateBrewerySetupRequest {
 	defaultMashTunDeadSpaceLiters?: number | null;
 	coolingShrinkagePercent?: number | null;
 	defaultPackagingLossLiters?: number | null;
+	defaultEfficiencyPercent?: number | null;
 }
 
 export type EquipmentConnectionType = 'None' | 'HttpPush' | 'HttpPoll' | 'Mqtt' | 'BrewLink';
@@ -899,6 +906,7 @@ export interface EquipmentDto {
 	trubLossLiters?: number | null;
 	mashTunDeadSpaceLiters?: number | null;
 	packagingLossLiters?: number | null;
+	defaultEfficiencyPercent?: number | null;
 	fillPercentage: number;
 	currentTemperatureC?: number | null;
 	temperatureUpdatedAt?: string | null;
@@ -999,6 +1007,7 @@ export interface CreateEquipmentRequest {
 	trubLossLiters?: number | null;
 	mashTunDeadSpaceLiters?: number | null;
 	packagingLossLiters?: number | null;
+	defaultEfficiencyPercent?: number | null;
 	currentTemperatureC?: number | null;
 	connectionType?: EquipmentConnectionType;
 	connectionConfigJson?: string | null;
@@ -1021,6 +1030,7 @@ export interface UpdateEquipmentRequest {
 	trubLossLiters?: number | null;
 	mashTunDeadSpaceLiters?: number | null;
 	packagingLossLiters?: number | null;
+	defaultEfficiencyPercent?: number | null;
 	currentTemperatureC?: number | null;
 	connectionType?: EquipmentConnectionType;
 	connectionConfigJson?: string | null;
@@ -1067,6 +1077,9 @@ export interface BatchSummaryDto {
 	fermenterName?: string | null;
 	targetBatchSizeLiters: number;
 	measuredBatchSizeLiters?: number | null;
+	averageStarRating?: number | null;
+	tastingCount?: number;
+	wouldRebrew?: boolean | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -1267,6 +1280,14 @@ export interface BatchDetailDto {
 	deviations?: BatchDeviationsDto | null;
 	boilerSyncStatus?: string | null;
 	boilerSyncWarning?: string | null;
+	measuredMashPh?: number | null;
+	yeastBankEntryId?: string | null;
+	yeastBankStrainName?: string | null;
+	yeastGeneration?: number | null;
+	yeastPitchRateMillionPerMlPlato?: number | null;
+	yeastStarterVolumeLiters?: number | null;
+	tastings?: BatchTastingDto[] | null;
+	tastingSummary?: BatchTastingSummaryDto | null;
 }
 
 export interface BatchVolumeProfileDto {
@@ -1344,6 +1365,11 @@ export interface CreateBatchRequest {
 	packagingLossLiters?: number | null;
 	sensorAssignments?: BatchSensorAssignmentInput[] | null;
 	sendRecipeToBoiler?: boolean;
+	yeastBankEntryId?: string | null;
+	yeastSlurryVolumeUsedMl?: number | null;
+	yeastPitchRateMillionPerMlPlato?: number | null;
+	yeastStarterVolumeLiters?: number | null;
+	measuredMashPh?: number | null;
 }
 
 export interface AdvanceBatchStageRequest {
@@ -1396,6 +1422,10 @@ export interface UpdateBatchRequest {
 	measuredPostBoilVolumeLiters?: number | null;
 	measuredPackagedVolumeLiters?: number | null;
 	sensorAssignments?: BatchSensorAssignmentInput[] | null;
+	measuredMashPh?: number | null;
+	yeastBankEntryId?: string | null;
+	yeastPitchRateMillionPerMlPlato?: number | null;
+	yeastStarterVolumeLiters?: number | null;
 }
 
 export interface NextBatchCodeResponse {
@@ -1601,6 +1631,9 @@ export interface BackupItemCountsDto {
 	pendingInvites: number;
 	labels?: number;
 	taps?: number;
+	waterProfiles?: number;
+	yeastBankEntries?: number;
+	tastings?: number;
 }
 
 export interface BackupConflictSummaryDto {
@@ -1658,6 +1691,9 @@ export interface RestoreActionCountsDto {
 	batchesSkipped: number;
 	telemetryReadingsRestored: number;
 	collaboratorsRestored: number;
+	waterProfilesRestored?: number;
+	yeastBankEntriesRestored?: number;
+	tastingsRestored?: number;
 }
 
 export interface RestoredInviteInfoDto {
@@ -1677,3 +1713,434 @@ export interface RestoreResultDto {
 	generatedInvites: RestoredInviteInfoDto[];
 	warnings: string[];
 }
+
+// ==========================================
+// Rig Calibration & Variance Report
+// ==========================================
+
+export interface BatchVarianceItemDto {
+	batchId: string;
+	batchCode: string;
+	name: string;
+	beerStyle: string;
+	brewDate: string;
+	status: string;
+	recipeName?: string | null;
+	targetOg: number;
+	measuredOg?: number | null;
+	ogVariancePoints?: number | null;
+	targetFg: number;
+	measuredFg?: number | null;
+	fgVariancePoints?: number | null;
+	targetAbv: number;
+	measuredAbv?: number | null;
+	abvVariance?: number | null;
+	targetEfficiencyPercent: number;
+	actualBrewhouseEfficiencyPercent?: number | null;
+	efficiencyVariancePercent?: number | null;
+	actualMashEfficiencyPercent?: number | null;
+	targetPreBoilVolumeLiters?: number | null;
+	measuredPreBoilVolumeLiters?: number | null;
+	targetPostBoilVolumeLiters?: number | null;
+	measuredPostBoilVolumeLiters?: number | null;
+	targetFermenterVolumeLiters?: number | null;
+	measuredFermenterVolumeLiters?: number | null;
+	volumeVarianceLiters?: number | null;
+	targetPackagedVolumeLiters?: number | null;
+	measuredPackagedVolumeLiters?: number | null;
+	configuredBoilOffRatePerHour?: number | null;
+	observedBoilOffRatePerHour?: number | null;
+	observedKettleTrubLossLiters?: number | null;
+	observedFermenterLossLiters?: number | null;
+	observedGrainAbsorptionLPerKg?: number | null;
+	boilerId?: string | null;
+	boilerName?: string | null;
+	fermenterId?: string | null;
+	fermenterName?: string | null;
+}
+
+export interface RigCalibrationReportDto {
+	brewerySetupId: string;
+	brewerySetupName: string;
+	sampleSize: number;
+	analyzedBatchCount: number;
+	currentDefaultBoilOffRatePerHour: number;
+	suggestedBoilOffRatePerHour?: number | null;
+	boilOffSampleCount: number;
+	currentDefaultKettleTrubLossLiters: number;
+	suggestedKettleTrubLossLiters?: number | null;
+	kettleTrubSampleCount: number;
+	currentDefaultFermenterLossLiters: number;
+	suggestedFermenterLossLiters?: number | null;
+	fermenterLossSampleCount: number;
+	currentDefaultGrainAbsorptionRate: number;
+	suggestedGrainAbsorptionRate?: number | null;
+	grainAbsorptionSampleCount: number;
+	suggestedBrewhouseEfficiencyPercent?: number | null;
+	efficiencySampleCount: number;
+	suggestedMashEfficiencyPercent?: number | null;
+	averageOgVariancePoints?: number | null;
+	averageVolumeVarianceLiters?: number | null;
+	hasSuggestions: boolean;
+	batches: BatchVarianceItemDto[];
+	boilerId?: string | null;
+	boilerName?: string | null;
+	fermenterId?: string | null;
+	fermenterName?: string | null;
+	currentDefaultEfficiencyPercent: number;
+}
+
+export interface ApplyRigCalibrationRequest {
+	sampleSize?: number;
+	applyBoilOffRate?: boolean;
+	applyKettleTrubLoss?: boolean;
+	applyFermenterLoss?: boolean;
+	applyGrainAbsorption?: boolean;
+	applyToPrimaryEquipment?: boolean;
+	targetBoilerId?: string | null;
+	targetFermenterId?: string | null;
+	applyEfficiency?: boolean;
+	applyToSetup?: boolean;
+}
+
+// ==========================================
+// Water Profiles & Per-Recipe Water Plan
+// ==========================================
+
+export type WaterProfileCategory = 'Source' | 'Target';
+
+export interface WaterProfileDto {
+	id: string;
+	name: string;
+	description?: string | null;
+	category: WaterProfileCategory;
+	isPreset: boolean;
+	calciumPpm: number;
+	magnesiumPpm: number;
+	sodiumPpm: number;
+	sulfatePpm: number;
+	chloridePpm: number;
+	bicarbonatePpm: number;
+	ph?: number | null;
+	residualAlkalinityPpm: number;
+	sulfateToChlorideRatio?: number | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface CreateWaterProfileRequest {
+	name: string;
+	category?: WaterProfileCategory;
+	description?: string | null;
+	calciumPpm: number;
+	magnesiumPpm: number;
+	sodiumPpm: number;
+	sulfatePpm: number;
+	chloridePpm: number;
+	bicarbonatePpm: number;
+	ph?: number | null;
+}
+
+export type UpdateWaterProfileRequest = Partial<CreateWaterProfileRequest>;
+
+export interface RecipeWaterPlanInputDto {
+	sourceProfileId?: string | null;
+	sourceProfileName?: string | null;
+	sourceCalciumPpm: number;
+	sourceMagnesiumPpm: number;
+	sourceSodiumPpm: number;
+	sourceSulfatePpm: number;
+	sourceChloridePpm: number;
+	sourceBicarbonatePpm: number;
+	sourcePh: number;
+	targetProfileId?: string | null;
+	targetProfileName?: string | null;
+	targetCalciumPpm?: number | null;
+	targetMagnesiumPpm?: number | null;
+	targetSodiumPpm?: number | null;
+	targetSulfatePpm?: number | null;
+	targetChloridePpm?: number | null;
+	targetBicarbonatePpm?: number | null;
+	targetMashPh: number;
+	mashGypsumGrams: number;
+	mashCalciumChlorideGrams: number;
+	mashEpsomSaltGrams: number;
+	mashTableSaltGrams: number;
+	mashBakingSodaGrams: number;
+	mashChalkGrams: number;
+	mashAcidType?: string | null;
+	mashAcidAmountMlOrG: number;
+	spargeGypsumGrams: number;
+	spargeCalciumChlorideGrams: number;
+	spargeEpsomSaltGrams: number;
+	spargeTableSaltGrams: number;
+	spargeBakingSodaGrams: number;
+	spargeChalkGrams: number;
+	spargeAcidType?: string | null;
+	spargeAcidAmountMlOrG: number;
+	notes?: string | null;
+}
+
+export interface RecipeWaterPlanDto extends RecipeWaterPlanInputDto {
+	id: string;
+	recipeId: string;
+	resultingCalciumPpm: number;
+	resultingMagnesiumPpm: number;
+	resultingSodiumPpm: number;
+	resultingSulfatePpm: number;
+	resultingChloridePpm: number;
+	resultingBicarbonatePpm: number;
+	sulfateToChlorideRatio?: number | null;
+	balanceProfile: string;
+	residualAlkalinityPpm: number;
+	predictedMashPh: number;
+	updatedAt: string;
+}
+
+export interface WaterSaltAdditionSetDto {
+	gypsumGrams: number;
+	calciumChlorideGrams: number;
+	epsomSaltGrams: number;
+	tableSaltGrams: number;
+	bakingSodaGrams: number;
+	chalkGrams: number;
+	acidType?: string | null;
+	acidAmountMlOrG: number;
+}
+
+export interface WaterGristGrainDto {
+	weightKg: number;
+	colorSrm: number;
+	name?: string | null;
+}
+
+export interface CalculateWaterChemistryRequest {
+	sourceCalciumPpm: number;
+	sourceMagnesiumPpm: number;
+	sourceSodiumPpm: number;
+	sourceSulfatePpm: number;
+	sourceChloridePpm: number;
+	sourceBicarbonatePpm: number;
+	mashVolumeLiters: number;
+	spargeVolumeLiters: number;
+	mashAdditions: WaterSaltAdditionSetDto;
+	spargeAdditions?: WaterSaltAdditionSetDto | null;
+	grist?: WaterGristGrainDto[] | null;
+}
+
+export interface SuggestWaterSaltsRequest {
+	sourceCalciumPpm: number;
+	sourceMagnesiumPpm: number;
+	sourceSodiumPpm: number;
+	sourceSulfatePpm: number;
+	sourceChloridePpm: number;
+	sourceBicarbonatePpm: number;
+	targetCalciumPpm: number;
+	targetMagnesiumPpm: number;
+	targetSodiumPpm: number;
+	targetSulfatePpm: number;
+	targetChloridePpm: number;
+	targetBicarbonatePpm: number;
+	mashVolumeLiters: number;
+	spargeVolumeLiters: number;
+	targetMashPh?: number;
+	acidType?: string;
+	grist?: WaterGristGrainDto[] | null;
+}
+
+export interface WaterChemistryResultDto {
+	mashCalciumPpm: number;
+	mashMagnesiumPpm: number;
+	mashSodiumPpm: number;
+	mashSulfatePpm: number;
+	mashChloridePpm: number;
+	mashBicarbonatePpm: number;
+	resultingCalciumPpm: number;
+	resultingMagnesiumPpm: number;
+	resultingSodiumPpm: number;
+	resultingSulfatePpm: number;
+	resultingChloridePpm: number;
+	resultingBicarbonatePpm: number;
+	sulfateToChlorideRatio?: number | null;
+	balanceProfile: string;
+	alkalinityPpm: number;
+	residualAlkalinityPpm: number;
+	predictedMashPh: number;
+	hasChalkWarning: boolean;
+}
+
+export interface SuggestWaterSaltsResponse {
+	mashAdditions: WaterSaltAdditionSetDto;
+	spargeAdditions: WaterSaltAdditionSetDto;
+	preview: WaterChemistryResultDto;
+}
+
+// ==========================================
+// Yeast Pitching, Starter & Yeast Bank
+// ==========================================
+
+export type YeastBankForm = 'Slurry' | 'Liquid' | 'Dry';
+export type YeastBankStatus = 'Available' | 'Depleted' | 'Discarded';
+
+export interface YeastBankEntryDto {
+	id: string;
+	ingredientId?: string | null;
+	strainName: string;
+	labOrBrand?: string | null;
+	productCode?: string | null;
+	form: YeastBankForm;
+	generation: number;
+	harvestDate: string;
+	sourceBatchId?: string | null;
+	sourceBatchName?: string | null;
+	sourceBatchCode?: string | null;
+	volumeMl: number;
+	estimatedDensityBillionPerMl: number;
+	baseViabilityPercent: number;
+	currentEstimatedViabilityPercent: number;
+	estimatedTotalViableCellsBillions: number;
+	ageDays: number;
+	storageLocation?: string | null;
+	status: YeastBankStatus;
+	notes?: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface CreateYeastBankEntryRequest {
+	strainName: string;
+	ingredientId?: string | null;
+	labOrBrand?: string | null;
+	productCode?: string | null;
+	form?: YeastBankForm;
+	generation?: number;
+	harvestDate?: string | null;
+	sourceBatchId?: string | null;
+	volumeMl?: number;
+	estimatedDensityBillionPerMl?: number;
+	baseViabilityPercent?: number;
+	storageLocation?: string | null;
+	notes?: string | null;
+}
+
+export interface UpdateYeastBankEntryRequest extends Partial<CreateYeastBankEntryRequest> {
+	status?: YeastBankStatus | null;
+}
+
+export interface HarvestYeastRequest {
+	strainName?: string | null;
+	ingredientId?: string | null;
+	labOrBrand?: string | null;
+	productCode?: string | null;
+	harvestDate?: string | null;
+	volumeMl?: number;
+	estimatedDensityBillionPerMl?: number;
+	baseViabilityPercent?: number;
+	storageLocation?: string | null;
+	notes?: string | null;
+}
+
+export interface CalculateYeastPitchRequest {
+	batchVolumeLiters: number;
+	originalGravity: number;
+	styleCategory?: string;
+	customPitchRateMillionPerMlPlato?: number | null;
+	yeastForm?: string;
+	packageAgeDays?: number | null;
+	baseViabilityPercent?: number | null;
+	cellsPerUnitBillions?: number | null;
+	packsAvailable?: number;
+	slurryDensityBillionPerMl?: number | null;
+	slurryVolumeAvailableMl?: number | null;
+	starterMethod?: string;
+	starterVolumeLiters?: number | null;
+	yeastBankEntryId?: string | null;
+}
+
+export interface YeastPitchPlanDto {
+	plato: number;
+	targetPitchRateMillionPerMlPlato: number;
+	requiredCellsBillions: number;
+	estimatedViabilityPercent: number;
+	viableCellsPerUnitBillions: number;
+	initialViableCellsBillions: number;
+	deficitCellsBillions: number;
+	dryPacksExact: number;
+	dryPacksRecommended: number;
+	requiredSlurryMl: number;
+	recommendedStarterVolumeLiters: number;
+	starterDmeGrams: number;
+	projectedStarterCellsBillions: number;
+	needsMultiStepStarter: boolean;
+	recommendationSummaryKey: string;
+	yeastBankEntryId?: string | null;
+	strainName?: string | null;
+}
+
+// ==========================================
+// Tasting Notes, BJCP Scoring & Off-Flavors
+// ==========================================
+
+export interface OffFlavorDescriptorDto {
+	key: string;
+	displayName: string;
+	sensoryCue: string;
+	likelyCauses: string[];
+	remediationFixes: string[];
+}
+
+export interface BatchTastingDto {
+	id: string;
+	batchId: string;
+	tastedAt: string;
+	sampleSource?: string | null;
+	aromaScore: number;
+	aromaNotes?: string | null;
+	appearanceScore: number;
+	appearanceNotes?: string | null;
+	flavorScore: number;
+	flavorNotes?: string | null;
+	mouthfeelScore: number;
+	mouthfeelNotes?: string | null;
+	overallScore: number;
+	overallNotes?: string | null;
+	totalScore: number;
+	bjcpScoreBand: string;
+	starRating: number;
+	wouldRebrew: boolean;
+	offFlavors: string[];
+	servingTemperatureC?: number | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface BatchTastingSummaryDto {
+	count: number;
+	averageStarRating?: number | null;
+	averageBjcpScore?: number | null;
+	latestStarRating?: number | null;
+	latestBjcpScore?: number | null;
+	latestWouldRebrew?: boolean | null;
+	reportedOffFlavors: string[];
+}
+
+export interface CreateBatchTastingRequest {
+	tastedAt?: string | null;
+	sampleSource?: string | null;
+	aromaScore: number;
+	aromaNotes?: string | null;
+	appearanceScore: number;
+	appearanceNotes?: string | null;
+	flavorScore: number;
+	flavorNotes?: string | null;
+	mouthfeelScore: number;
+	mouthfeelNotes?: string | null;
+	overallScore: number;
+	overallNotes?: string | null;
+	starRating: number;
+	wouldRebrew: boolean;
+	offFlavors?: string[];
+	servingTemperatureC?: number | null;
+}
+
+export type UpdateBatchTastingRequest = Partial<CreateBatchTastingRequest>;

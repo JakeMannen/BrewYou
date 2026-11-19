@@ -144,6 +144,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             .AsNoTracking()
             .Include(r => r.User)
             .Include(r => r.Label)
+            .Include(r => r.WaterPlan)
             .Include(r => r.Ingredients)
                 .ThenInclude(ri => ri.Ingredient)
             .Include(r => r.MashSteps)
@@ -284,6 +285,11 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             FermentationSteps = fermentationSteps
         };
 
+        if (request.WaterPlan is not null)
+        {
+            recipe.WaterPlan = await BuildRecipeWaterPlanAsync(recipe.Id, recipe.BatchSizeLiters, recipeIngredients, request.WaterPlan, userId);
+        }
+
         db.Recipes.Add(recipe);
         await db.SaveChangesAsync();
 
@@ -297,6 +303,7 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
             .Include(r => r.Ingredients)
             .Include(r => r.MashSteps)
             .Include(r => r.FermentationSteps)
+            .Include(r => r.WaterPlan)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (recipe == null)
@@ -421,6 +428,25 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
         recipe.ColorSrm = calc.ColorSrm;
         recipe.IsPublic = request.IsPublic;
         recipe.UpdatedAt = DateTime.UtcNow;
+
+        if (request.ClearWaterPlan && recipe.WaterPlan is not null)
+        {
+            db.RecipeWaterPlans.Remove(recipe.WaterPlan);
+            recipe.WaterPlan = null;
+        }
+        else if (request.WaterPlan is not null)
+        {
+            var computedPlan = await BuildRecipeWaterPlanAsync(recipe.Id, request.BatchSizeLiters, newIngredients, request.WaterPlan, userId);
+            if (recipe.WaterPlan is null)
+            {
+                recipe.WaterPlan = computedPlan;
+                db.RecipeWaterPlans.Add(computedPlan);
+            }
+            else
+            {
+                ApplyWaterPlanValues(recipe.WaterPlan, computedPlan);
+            }
+        }
 
         await db.SaveChangesAsync();
 
@@ -655,9 +681,199 @@ public class RecipeService(BrewYouDbContext db, ILabelUrlSigner? urlSigner = nul
                 : "Community Brewer",
             userId != null && recipe.UserId == userId,
             imageUrl,
-            recipe.Label != null
+            recipe.Label != null,
+            recipe.WaterPlan is not null ? WaterProfileService.MapPlanToDto(recipe.WaterPlan) : null
         );
     }
+
+    private async Task<RecipeWaterPlan> BuildRecipeWaterPlanAsync(
+        Guid recipeId,
+        decimal batchSizeLiters,
+        IEnumerable<RecipeIngredient> ingredients,
+        RecipeWaterPlanInputDto input,
+        string userId)
+    {
+        Guid? sourceProfileId = null;
+        var sourceProfileName = input.SourceProfileName;
+        if (input.SourceProfileId.HasValue && input.SourceProfileId.Value != Guid.Empty)
+        {
+            var sp = await db.WaterProfiles.AsNoTracking()
+                .FirstOrDefaultAsync(w => w.Id == input.SourceProfileId.Value && (w.IsPreset || w.UserId == userId));
+            if (sp is not null)
+            {
+                sourceProfileId = sp.Id;
+                sourceProfileName ??= sp.Name;
+            }
+        }
+
+        Guid? targetProfileId = null;
+        var targetProfileName = input.TargetProfileName;
+        if (input.TargetProfileId.HasValue && input.TargetProfileId.Value != Guid.Empty)
+        {
+            var tp = await db.WaterProfiles.AsNoTracking()
+                .FirstOrDefaultAsync(w => w.Id == input.TargetProfileId.Value && (w.IsPreset || w.UserId == userId));
+            if (tp is not null)
+            {
+                targetProfileId = tp.Id;
+                targetProfileName ??= tp.Name;
+            }
+        }
+
+        var grist = ingredients
+            .Where(ri => ri.Ingredient?.Type == IngredientType.Fermentable)
+            .Select(ri => new GristGrainInput(
+                ToKg(ri.Amount, ri.Unit),
+                ri.Ingredient?.ColorSrm ?? 2m,
+                ri.Ingredient?.Name,
+                ri.Ingredient?.FermentableCategory))
+            .Where(g => g.WeightKg > 0m)
+            .ToList();
+
+        var totalGrainKg = grist.Sum(g => g.WeightKg);
+        var estimatedTotalWater = Math.Max(batchSizeLiters + 5m, (batchSizeLiters * 1.35m) + (totalGrainKg * 0.96m));
+        var estimatedMashWater = totalGrainKg > 0m
+            ? Math.Clamp(totalGrainKg * 3.0m, 4m, estimatedTotalWater * 0.85m)
+            : estimatedTotalWater * 0.65m;
+        var estimatedSpargeWater = Math.Max(0m, estimatedTotalWater - estimatedMashWater);
+
+        var summary = WaterChemistryCalculator.EvaluatePlan(
+            new WaterIonProfile(
+                input.SourceCalciumPpm,
+                input.SourceMagnesiumPpm,
+                input.SourceSodiumPpm,
+                input.SourceSulfatePpm,
+                input.SourceChloridePpm,
+                input.SourceBicarbonatePpm),
+            new SaltAdditionsInput(
+                input.MashGypsumGrams,
+                input.MashCalciumChlorideGrams,
+                input.MashEpsomSaltGrams,
+                input.MashTableSaltGrams,
+                input.MashBakingSodaGrams,
+                input.MashChalkGrams,
+                input.MashAcidType,
+                input.MashAcidAmountMlOrG),
+            estimatedMashWater,
+            new SaltAdditionsInput(
+                input.SpargeGypsumGrams,
+                input.SpargeCalciumChlorideGrams,
+                input.SpargeEpsomSaltGrams,
+                input.SpargeTableSaltGrams,
+                input.SpargeBakingSodaGrams,
+                input.SpargeChalkGrams,
+                input.SpargeAcidType,
+                input.SpargeAcidAmountMlOrG),
+            estimatedSpargeWater,
+            grist);
+
+        return new RecipeWaterPlan
+        {
+            Id = Guid.NewGuid(),
+            RecipeId = recipeId,
+            SourceProfileId = sourceProfileId,
+            SourceProfileName = sourceProfileName?.Trim(),
+            SourceCalciumPpm = input.SourceCalciumPpm,
+            SourceMagnesiumPpm = input.SourceMagnesiumPpm,
+            SourceSodiumPpm = input.SourceSodiumPpm,
+            SourceSulfatePpm = input.SourceSulfatePpm,
+            SourceChloridePpm = input.SourceChloridePpm,
+            SourceBicarbonatePpm = input.SourceBicarbonatePpm,
+            SourcePh = input.SourcePh,
+            TargetProfileId = targetProfileId,
+            TargetProfileName = targetProfileName?.Trim(),
+            TargetCalciumPpm = input.TargetCalciumPpm,
+            TargetMagnesiumPpm = input.TargetMagnesiumPpm,
+            TargetSodiumPpm = input.TargetSodiumPpm,
+            TargetSulfatePpm = input.TargetSulfatePpm,
+            TargetChloridePpm = input.TargetChloridePpm,
+            TargetBicarbonatePpm = input.TargetBicarbonatePpm,
+            TargetMashPh = input.TargetMashPh,
+            MashGypsumGrams = input.MashGypsumGrams,
+            MashCalciumChlorideGrams = input.MashCalciumChlorideGrams,
+            MashEpsomSaltGrams = input.MashEpsomSaltGrams,
+            MashTableSaltGrams = input.MashTableSaltGrams,
+            MashBakingSodaGrams = input.MashBakingSodaGrams,
+            MashChalkGrams = input.MashChalkGrams,
+            MashAcidType = input.MashAcidType,
+            MashAcidAmountMlOrG = input.MashAcidAmountMlOrG,
+            SpargeGypsumGrams = input.SpargeGypsumGrams,
+            SpargeCalciumChlorideGrams = input.SpargeCalciumChlorideGrams,
+            SpargeEpsomSaltGrams = input.SpargeEpsomSaltGrams,
+            SpargeTableSaltGrams = input.SpargeTableSaltGrams,
+            SpargeBakingSodaGrams = input.SpargeBakingSodaGrams,
+            SpargeChalkGrams = input.SpargeChalkGrams,
+            SpargeAcidType = input.SpargeAcidType,
+            SpargeAcidAmountMlOrG = input.SpargeAcidAmountMlOrG,
+            ResultingCalciumPpm = summary.TotalResultingIons.CalciumPpm,
+            ResultingMagnesiumPpm = summary.TotalResultingIons.MagnesiumPpm,
+            ResultingSodiumPpm = summary.TotalResultingIons.SodiumPpm,
+            ResultingSulfatePpm = summary.TotalResultingIons.SulfatePpm,
+            ResultingChloridePpm = summary.TotalResultingIons.ChloridePpm,
+            ResultingBicarbonatePpm = summary.TotalResultingIons.BicarbonatePpm,
+            SulfateToChlorideRatio = summary.SulfateToChlorideRatio,
+            ResidualAlkalinityPpm = summary.ResidualAlkalinityPpm,
+            PredictedMashPh = summary.PredictedMashPh,
+            Notes = input.Notes?.Trim(),
+            UpdatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static void ApplyWaterPlanValues(RecipeWaterPlan target, RecipeWaterPlan source)
+    {
+        target.SourceProfileId = source.SourceProfileId;
+        target.SourceProfileName = source.SourceProfileName;
+        target.SourceCalciumPpm = source.SourceCalciumPpm;
+        target.SourceMagnesiumPpm = source.SourceMagnesiumPpm;
+        target.SourceSodiumPpm = source.SourceSodiumPpm;
+        target.SourceSulfatePpm = source.SourceSulfatePpm;
+        target.SourceChloridePpm = source.SourceChloridePpm;
+        target.SourceBicarbonatePpm = source.SourceBicarbonatePpm;
+        target.SourcePh = source.SourcePh;
+        target.TargetProfileId = source.TargetProfileId;
+        target.TargetProfileName = source.TargetProfileName;
+        target.TargetCalciumPpm = source.TargetCalciumPpm;
+        target.TargetMagnesiumPpm = source.TargetMagnesiumPpm;
+        target.TargetSodiumPpm = source.TargetSodiumPpm;
+        target.TargetSulfatePpm = source.TargetSulfatePpm;
+        target.TargetChloridePpm = source.TargetChloridePpm;
+        target.TargetBicarbonatePpm = source.TargetBicarbonatePpm;
+        target.TargetMashPh = source.TargetMashPh;
+        target.MashGypsumGrams = source.MashGypsumGrams;
+        target.MashCalciumChlorideGrams = source.MashCalciumChlorideGrams;
+        target.MashEpsomSaltGrams = source.MashEpsomSaltGrams;
+        target.MashTableSaltGrams = source.MashTableSaltGrams;
+        target.MashBakingSodaGrams = source.MashBakingSodaGrams;
+        target.MashChalkGrams = source.MashChalkGrams;
+        target.MashAcidType = source.MashAcidType;
+        target.MashAcidAmountMlOrG = source.MashAcidAmountMlOrG;
+        target.SpargeGypsumGrams = source.SpargeGypsumGrams;
+        target.SpargeCalciumChlorideGrams = source.SpargeCalciumChlorideGrams;
+        target.SpargeEpsomSaltGrams = source.SpargeEpsomSaltGrams;
+        target.SpargeTableSaltGrams = source.SpargeTableSaltGrams;
+        target.SpargeBakingSodaGrams = source.SpargeBakingSodaGrams;
+        target.SpargeChalkGrams = source.SpargeChalkGrams;
+        target.SpargeAcidType = source.SpargeAcidType;
+        target.SpargeAcidAmountMlOrG = source.SpargeAcidAmountMlOrG;
+        target.ResultingCalciumPpm = source.ResultingCalciumPpm;
+        target.ResultingMagnesiumPpm = source.ResultingMagnesiumPpm;
+        target.ResultingSodiumPpm = source.ResultingSodiumPpm;
+        target.ResultingSulfatePpm = source.ResultingSulfatePpm;
+        target.ResultingChloridePpm = source.ResultingChloridePpm;
+        target.ResultingBicarbonatePpm = source.ResultingBicarbonatePpm;
+        target.SulfateToChlorideRatio = source.SulfateToChlorideRatio;
+        target.ResidualAlkalinityPpm = source.ResidualAlkalinityPpm;
+        target.PredictedMashPh = source.PredictedMashPh;
+        target.Notes = source.Notes;
+        target.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static decimal ToKg(decimal amount, string? unit) => (unit ?? "kg").Trim().ToLowerInvariant() switch
+    {
+        "g" => amount / 1000m,
+        "lb" or "lbs" => amount * 0.45359237m,
+        "oz" => amount * 0.02834952m,
+        _ => amount
+    };
 
     public async Task<bool> RecipeNameExistsAsync(string name, string userId)
     {

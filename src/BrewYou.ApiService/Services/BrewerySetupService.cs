@@ -68,7 +68,8 @@ public class BrewerySetupService : IBrewerySetupService
                 defaultSetup.UpdatedAt,
                 CurrentUserRole: BreweryRole.Owner,
                 MemberCount: 1,
-                IsOwner: true
+                IsOwner: true,
+                DefaultEfficiencyPercent: defaultSetup.DefaultEfficiencyPercent
             )];
         }
 
@@ -97,7 +98,8 @@ public class BrewerySetupService : IBrewerySetupService
                 s.UpdatedAt,
                 CurrentUserRole: role,
                 MemberCount: memberCount,
-                IsOwner: isOwner
+                IsOwner: isOwner,
+                DefaultEfficiencyPercent: s.DefaultEfficiencyPercent
             );
         }).ToList();
     }
@@ -138,7 +140,8 @@ public class BrewerySetupService : IBrewerySetupService
             setup.UpdatedAt,
             CurrentUserRole: role,
             MemberCount: memberCount,
-            IsOwner: isOwner
+            IsOwner: isOwner,
+            DefaultEfficiencyPercent: setup.DefaultEfficiencyPercent
         );
 
         return (BrewerySetupAccessResult.Success, dto);
@@ -186,6 +189,7 @@ public class BrewerySetupService : IBrewerySetupService
             DefaultMashTunDeadSpaceLiters = request.DefaultMashTunDeadSpaceLiters ?? 0.0m,
             CoolingShrinkagePercent = request.CoolingShrinkagePercent ?? 4.0m,
             DefaultPackagingLossLiters = request.DefaultPackagingLossLiters ?? 0.5m,
+            DefaultEfficiencyPercent = request.DefaultEfficiencyPercent ?? 72.0m,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -199,7 +203,8 @@ public class BrewerySetupService : IBrewerySetupService
             setup.DefaultGrainAbsorptionRate, setup.DefaultBoilOffRatePerHour, setup.DefaultKettleTrubLossLiters,
             setup.DefaultFermenterLossLiters, setup.DefaultMashTunDeadSpaceLiters, setup.CoolingShrinkagePercent,
             setup.DefaultPackagingLossLiters, setup.CreatedAt, setup.UpdatedAt,
-            CurrentUserRole: BreweryRole.Owner, MemberCount: 1, IsOwner: true);
+            CurrentUserRole: BreweryRole.Owner, MemberCount: 1, IsOwner: true,
+            DefaultEfficiencyPercent: setup.DefaultEfficiencyPercent);
         return (BrewerySetupAccessResult.Success, dto, null);
     }
 
@@ -241,6 +246,7 @@ public class BrewerySetupService : IBrewerySetupService
         if (request.DefaultMashTunDeadSpaceLiters.HasValue) setup.DefaultMashTunDeadSpaceLiters = request.DefaultMashTunDeadSpaceLiters.Value;
         if (request.CoolingShrinkagePercent.HasValue) setup.CoolingShrinkagePercent = request.CoolingShrinkagePercent.Value;
         if (request.DefaultPackagingLossLiters.HasValue) setup.DefaultPackagingLossLiters = request.DefaultPackagingLossLiters.Value;
+        if (request.DefaultEfficiencyPercent.HasValue) setup.DefaultEfficiencyPercent = request.DefaultEfficiencyPercent.Value;
 
         if (request.IsDefault.HasValue && request.IsDefault.Value && !setup.IsDefault && setup.UserId == userId)
         {
@@ -281,7 +287,8 @@ public class BrewerySetupService : IBrewerySetupService
             setup.UpdatedAt,
             CurrentUserRole: role,
             MemberCount: memberCount,
-            IsOwner: setup.UserId == userId);
+            IsOwner: setup.UserId == userId,
+            DefaultEfficiencyPercent: setup.DefaultEfficiencyPercent);
 
         _logger.LogInformation("Brewery setup {SetupId} updated by user {UserId}", setup.Id, userId);
         return (BrewerySetupAccessResult.Success, dto, null);
@@ -458,7 +465,8 @@ public class BrewerySetupService : IBrewerySetupService
             setup.UpdatedAt,
             CurrentUserRole: BreweryRole.Owner,
             MemberCount: memberCount,
-            IsOwner: true);
+            IsOwner: true,
+            DefaultEfficiencyPercent: setup.DefaultEfficiencyPercent);
 
         return (BrewerySetupAccessResult.Success, dto, null);
     }
