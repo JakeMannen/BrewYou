@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace BrewYou.ApiService.Services;
 
@@ -29,6 +31,7 @@ public interface IAuthService
     Task<UserDto?> UpdateUserVolumeUnitAsync(string userId, VolumeUnit volumeUnit);
     Task<UserDto?> UpdateUserPreferencesAsync(string userId, UpdateUserPreferencesRequest request);
     Task<UserDto?> UpdateUserProfileAsync(string userId, UpdateProfileRequest request);
+    Task<AuthResult> ChangePasswordAsync(string userId, ChangePasswordRequest request, HttpContext httpContext);
     Task<MqttStatusResult> GetMqttStatusAsync(string userId, string? overrideHost = null, int? overridePort = null);
     Task LogoutAsync(string? userId, HttpContext httpContext);
 }
@@ -213,7 +216,8 @@ public class AuthService(
             return new AuthResult(false, ErrorCode: "INVALID_TOKEN", ErrorMessage: "Refresh token is missing.");
         }
 
-        var user = await userManager.Users.FirstOrDefaultAsync(u => u.RefreshToken == token);
+        var tokenHash = HashRefreshToken(token);
+        var user = await userManager.Users.FirstOrDefaultAsync(u => u.RefreshToken == tokenHash);
         if (user == null || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
         {
             return new AuthResult(false, ErrorCode: "TOKEN_EXPIRED", ErrorMessage: "Refresh token is expired or invalid.");
@@ -362,7 +366,11 @@ public class AuthService(
             user.MqttUsername = string.IsNullOrWhiteSpace(request.MqttUsername) ? null : request.MqttUsername.Trim();
         }
 
-        if (request.MqttPassword != null)
+        if (request.ClearMqttPassword == true)
+        {
+            user.MqttPassword = null;
+        }
+        else if (request.MqttPassword != null)
         {
             if (string.IsNullOrWhiteSpace(request.MqttPassword))
             {
@@ -395,7 +403,20 @@ public class AuthService(
             user.WebhookBaseUrl = string.IsNullOrWhiteSpace(request.WebhookBaseUrl) ? null : request.WebhookBaseUrl.Trim().TrimEnd('/');
         }
 
+        var mqttChanged = request.MqttHost != null ||
+                          request.MqttPort.HasValue ||
+                          request.MqttUsername != null ||
+                          request.MqttPassword != null ||
+                          request.ClearMqttPassword == true ||
+                          request.MqttCertificate != null;
+
         await userManager.UpdateAsync(user);
+
+        if (mqttChanged)
+        {
+            await mqttService.DisconnectUserAsync(userId);
+        }
+
         return MapToUserDto(user);
     }
 
@@ -410,6 +431,46 @@ public class AuthService(
         return MapToUserDto(user);
     }
 
+    public async Task<AuthResult> ChangePasswordAsync(string userId, ChangePasswordRequest request, HttpContext httpContext)
+    {
+        var user = await userManager.FindByIdAsync(userId);
+        if (user == null)
+        {
+            return new AuthResult(false, ErrorCode: "USER_NOT_FOUND", ErrorMessage: "User profile not found.");
+        }
+
+        var hasPassword = await userManager.HasPasswordAsync(user);
+        if (!hasPassword)
+        {
+            return new AuthResult(
+                false,
+                ErrorCode: "NO_PASSWORD_SET",
+                ErrorMessage: "This account uses external sign-in and does not have a local password.");
+        }
+
+        var changeResult = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!changeResult.Succeeded)
+        {
+            var errors = changeResult.Errors.Select(e => e.Description);
+            return new AuthResult(
+                false,
+                ErrorCode: "PASSWORD_CHANGE_FAILED",
+                ErrorMessage: "Failed to change password. Please verify your current password.",
+                Details: errors);
+        }
+
+        // Rotate refresh token so any previously issued session tokens are immediately invalidated
+        var newRefreshToken = tokenService.GenerateRefreshToken();
+        var expiry = DateTime.UtcNow.AddDays(jwtOptions.Value.RefreshTokenExpirationDays);
+        user.RefreshToken = HashRefreshToken(newRefreshToken);
+        user.RefreshTokenExpiryTime = expiry;
+        await userManager.UpdateAsync(user);
+
+        SetRefreshTokenCookie(httpContext, newRefreshToken, expiry);
+
+        return new AuthResult(true);
+    }
+
     public async Task LogoutAsync(string? userId, HttpContext httpContext)
     {
         ApplicationUser? user = null;
@@ -422,7 +483,8 @@ public class AuthService(
             var token = httpContext.Request.Cookies["refreshToken"];
             if (!string.IsNullOrEmpty(token))
             {
-                user = await userManager.Users.FirstOrDefaultAsync(u => u.RefreshToken == token);
+                var tokenHash = HashRefreshToken(token);
+                user = await userManager.Users.FirstOrDefaultAsync(u => u.RefreshToken == tokenHash);
             }
         }
 
@@ -436,10 +498,17 @@ public class AuthService(
         httpContext.Response.Cookies.Delete("refreshToken", new CookieOptions
         {
             HttpOnly = true,
-            SameSite = SameSiteMode.Lax,
+            Secure = httpContext.Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
             Path = "/api/v1/auth"
         });
         httpContext.Response.Cookies.Delete("refreshToken");
+    }
+
+    public static string HashRefreshToken(string rawToken)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawToken));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private async Task<AuthResponse> GenerateAuthResponseAsync(ApplicationUser user, HttpContext httpContext, bool isNewUser = false)
@@ -448,7 +517,7 @@ public class AuthService(
         var refreshToken = tokenService.GenerateRefreshToken();
         var refreshTokenDays = jwtOptions.Value.RefreshTokenExpirationDays;
 
-        user.RefreshToken = refreshToken;
+        user.RefreshToken = HashRefreshToken(refreshToken);
         user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(refreshTokenDays);
         await userManager.UpdateAsync(user);
 
@@ -457,7 +526,8 @@ public class AuthService(
         var expiresAt = DateTime.UtcNow.AddMinutes(jwtOptions.Value.AccessTokenExpirationMinutes);
         var userDto = MapToUserDto(user);
 
-        return new AuthResponse(accessToken, refreshToken, expiresAt, userDto, isNewUser);
+        // Security: Never expose the raw refresh token in JSON responses; clients rely on the HttpOnly cookie.
+        return new AuthResponse(accessToken, string.Empty, expiresAt, userDto, isNewUser);
     }
 
     private static UserDto MapToUserDto(ApplicationUser user)
@@ -497,20 +567,18 @@ public class AuthService(
             user.PreferredLanguage,
             user.PreferredVolumeUnit,
             user.CreatedAt,
-            preferences
+            preferences,
+            HasPassword: !string.IsNullOrEmpty(user.PasswordHash)
         );
     }
 
     private static void SetRefreshTokenCookie(HttpContext context, string token, DateTime expires)
     {
-        var isHttps = context.Request.IsHttps ||
-                      context.Request.Headers["X-Forwarded-Proto"] == "https";
-
         context.Response.Cookies.Append("refreshToken", token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = isHttps,
-            SameSite = SameSiteMode.Lax,
+            Secure = context.Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
             Expires = expires,
             Path = "/api/v1/auth"
         });
@@ -566,8 +634,8 @@ public class AuthService(
             port ??= 1883;
         }
 
-        // Check if persistent MQTT client is already actively connected to this host/port
-        var status = mqttService.GetStatus(host, port);
+        // Check if this user's persistent MQTT client is already actively connected to this host/port
+        var status = mqttService.GetStatus(userId, host, port);
         if (status.Connected)
         {
             return new MqttStatusResult(true, true, host, port.Value);

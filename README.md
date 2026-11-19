@@ -85,6 +85,8 @@ cd src/BrewYou.Web && npm install && npm run dev
 | **Backend** | `Jwt__SecretKey` | Signing key (>= 32 bytes; required outside `Development`) |
 | **Backend** | `Cors__AllowedOrigins__0` | Allowed frontend origin (`http://localhost:3000`) |
 | **Backend** | `Authentication__Google__ClientId` | Optional Google OAuth client ID |
+| **Backend** | `NetworkSecurity__AllowPrivateNetworks` | Allow LAN/private MQTT brokers (`false` default; `true` in Docker Compose via `ALLOW_PRIVATE_NETWORKS`) |
+| **Backend** | `DataProtection__CertificatePath` | Optional PKCS#12 certificate path to encrypt ASP.NET Core Data Protection keys at rest |
 | **Frontend** | `PUBLIC_API_URL` | Browser API base URL (`http://localhost:5000`) |
 | **Frontend** | `PUBLIC_APP_URL` | Public app URL for QR cellar labels (`http://localhost:3000`) |
 | **Frontend** | `services__apiservice__http__0` | Internal SSR API URL (`http://apiservice:5000` in Docker) |

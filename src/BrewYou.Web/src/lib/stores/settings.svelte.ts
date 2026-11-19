@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { SvelteURL } from 'svelte/reactivity';
 import { api } from '$lib/api/client';
 import { auth, onAuthCleared } from '$lib/stores/auth.svelte';
 import { theme, type ThemePreference as ThemeStorePreference } from '$lib/stores/theme.svelte';
@@ -251,6 +252,23 @@ export function formatGravity(
 	return formatNumber(sg, decimals);
 }
 
+export function isValidHttpUrl(raw: string | null | undefined): boolean {
+	if (!raw) return false;
+	const trimmed = raw.trim();
+	if (!trimmed) return false;
+	try {
+		const parsed = new SvelteURL(trimmed);
+		return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
+export function sanitizeHttpBaseUrl(raw: string | null | undefined): string {
+	if (!isValidHttpUrl(raw)) return '';
+	return raw!.trim().replace(/\/+$/, '');
+}
+
 class SettingsState {
 	volumeUnit = $state<VolumeUnit>('Liters');
 	grainWeightUnit = $state<GrainWeightUnit>('kg');
@@ -286,8 +304,9 @@ class SettingsState {
 	}
 
 	get resolvedAppBaseUrl(): string {
-		if (this.appBaseUrl && this.appBaseUrl.trim()) {
-			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		const safeAppUrl = sanitizeHttpBaseUrl(this.appBaseUrl);
+		if (safeAppUrl) {
+			return safeAppUrl;
 		}
 		const metaEnv =
 			typeof import.meta !== 'undefined'
@@ -321,12 +340,14 @@ class SettingsState {
 	}
 
 	get resolvedWebhookBaseUrl(): string {
-		if (this.webhookBaseUrl && this.webhookBaseUrl.trim()) {
-			return this.webhookBaseUrl.trim().replace(/\/+$/, '');
+		const safeWebhookUrl = sanitizeHttpBaseUrl(this.webhookBaseUrl);
+		if (safeWebhookUrl) {
+			return safeWebhookUrl;
 		}
 		// In most deployments (reverse proxies, LAN IP, domains), webhooks share the application base URL
-		if (this.appBaseUrl && this.appBaseUrl.trim()) {
-			return this.appBaseUrl.trim().replace(/\/+$/, '');
+		const safeAppUrl = sanitizeHttpBaseUrl(this.appBaseUrl);
+		if (safeAppUrl) {
+			return safeAppUrl;
 		}
 		const metaEnv =
 			typeof import.meta !== 'undefined'
@@ -592,10 +613,11 @@ class SettingsState {
 			if (savedMqttTopicPrefix !== null) this.mqttTopicPrefix = savedMqttTopicPrefix;
 
 			const savedAppUrl = localStorage.getItem('brewyou_app_base_url');
-			if (savedAppUrl !== null) this.appBaseUrl = savedAppUrl;
+			if (savedAppUrl !== null) this.appBaseUrl = isValidHttpUrl(savedAppUrl) ? savedAppUrl : '';
 
 			const savedWebhookUrl = localStorage.getItem('brewyou_webhook_base_url');
-			if (savedWebhookUrl !== null) this.webhookBaseUrl = savedWebhookUrl;
+			if (savedWebhookUrl !== null)
+				this.webhookBaseUrl = isValidHttpUrl(savedWebhookUrl) ? savedWebhookUrl : '';
 		}
 
 		if (auth.user?.preferences) {
@@ -670,8 +692,10 @@ class SettingsState {
 		if (pref.mqttTopicPrefix !== undefined) {
 			this.mqttTopicPrefix = pref.mqttTopicPrefix ?? 'brewyou/equipment';
 		}
-		if (pref.appBaseUrl !== undefined) this.appBaseUrl = pref.appBaseUrl ?? '';
-		if (pref.webhookBaseUrl !== undefined) this.webhookBaseUrl = pref.webhookBaseUrl ?? '';
+		if (pref.appBaseUrl !== undefined)
+			this.appBaseUrl = isValidHttpUrl(pref.appBaseUrl) ? (pref.appBaseUrl ?? '') : '';
+		if (pref.webhookBaseUrl !== undefined)
+			this.webhookBaseUrl = isValidHttpUrl(pref.webhookBaseUrl) ? (pref.webhookBaseUrl ?? '') : '';
 
 		this.persistToLocalStorage();
 
@@ -910,12 +934,31 @@ class SettingsState {
 			this.mqttTopicPrefix = topicPrefix.trim() || 'brewyou/equipment';
 		}
 		await this.syncAllToBackend();
+		// Security: Clear plaintext MQTT password from in-memory store immediately after syncing
+		this.mqttPassword = '';
 		if (this.hasMqttConfigured) {
 			await this.checkMqttStatus();
 			this.startMqttHeartbeat();
 		} else {
 			this.mqttConnected = null;
 			this.stopMqttHeartbeat();
+		}
+	}
+
+	async clearStoredMqttPassword(): Promise<void> {
+		this.mqttPassword = '';
+		if (auth.isAuthenticated) {
+			const updatedUser = await api.auth.updatePreferences({
+				clearMqttPassword: true
+			});
+			if (auth.user && updatedUser.preferences) {
+				auth.user.preferences = updatedUser.preferences;
+				this.hasMqttPassword = !!updatedUser.preferences.hasMqttPassword;
+			} else {
+				this.hasMqttPassword = false;
+			}
+		} else {
+			this.hasMqttPassword = false;
 		}
 	}
 
@@ -929,6 +972,7 @@ class SettingsState {
 		this.persistToLocalStorage();
 
 		if (auth.isAuthenticated) {
+			const pendingMqttPassword = this.mqttPassword ? this.mqttPassword : null;
 			const updatedUser = await api.auth.updatePreferences({
 				volumeUnit: this.volumeUnit,
 				weightUnit: this.weightUnit,
@@ -948,12 +992,15 @@ class SettingsState {
 				mqttHost: this.mqttHost.trim() || null,
 				mqttPort: Number(this.mqttPort) || 1883,
 				mqttUsername: this.mqttUsername.trim() || null,
-				mqttPassword: this.mqttPassword ? this.mqttPassword : null,
+				mqttPassword: pendingMqttPassword,
 				mqttCertificate: this.mqttCertificate.trim() || null,
 				mqttTopicPrefix: this.mqttTopicPrefix.trim() || 'brewyou/equipment',
 				appBaseUrl: this.appBaseUrl.trim() || null,
 				webhookBaseUrl: this.webhookBaseUrl.trim() || null
 			});
+
+			// Security: Never retain plaintext MQTT password in memory across unrelated saves
+			this.mqttPassword = '';
 
 			if (auth.user && updatedUser.preferences) {
 				auth.user.preferences = updatedUser.preferences;
@@ -983,13 +1030,25 @@ class SettingsState {
 			localStorage.setItem('brewyou_default_batch_size', String(this.defaultBatchSize));
 			localStorage.setItem('brewyou_default_efficiency', String(this.defaultEfficiency));
 			localStorage.setItem('brewyou_default_boil_time', String(this.defaultBoilTime));
-			localStorage.setItem('brewyou_mqtt_host', this.mqttHost);
-			localStorage.setItem('brewyou_mqtt_port', String(this.mqttPort));
-			localStorage.setItem('brewyou_mqtt_username', this.mqttUsername);
-			localStorage.setItem('brewyou_mqtt_certificate', this.mqttCertificate);
-			localStorage.setItem('brewyou_mqtt_topic_prefix', this.mqttTopicPrefix);
-			localStorage.setItem('brewyou_app_base_url', this.appBaseUrl);
-			localStorage.setItem('brewyou_webhook_base_url', this.webhookBaseUrl);
+			// Security: Do not duplicate infrastructure/broker settings in localStorage when authenticated
+			if (!auth.isAuthenticated) {
+				localStorage.setItem('brewyou_mqtt_host', this.mqttHost);
+				localStorage.setItem('brewyou_mqtt_port', String(this.mqttPort));
+				localStorage.setItem('brewyou_mqtt_username', this.mqttUsername);
+				localStorage.setItem('brewyou_mqtt_certificate', this.mqttCertificate);
+				localStorage.setItem('brewyou_mqtt_topic_prefix', this.mqttTopicPrefix);
+				localStorage.setItem('brewyou_app_base_url', this.appBaseUrl);
+				localStorage.setItem('brewyou_webhook_base_url', this.webhookBaseUrl);
+			} else {
+				localStorage.removeItem('brewyou_mqtt_host');
+				localStorage.removeItem('brewyou_mqtt_port');
+				localStorage.removeItem('brewyou_mqtt_username');
+				localStorage.removeItem('brewyou_mqtt_certificate');
+				localStorage.removeItem('brewyou_mqtt_password');
+				localStorage.removeItem('brewyou_mqtt_topic_prefix');
+				localStorage.removeItem('brewyou_app_base_url');
+				localStorage.removeItem('brewyou_webhook_base_url');
+			}
 		}
 	}
 
@@ -1098,6 +1157,8 @@ class SettingsState {
 		this.hasMqttPassword = false;
 		this.mqttTopicPrefix = 'brewyou/equipment';
 		this.mqttConnected = null;
+		this.appBaseUrl = '';
+		this.webhookBaseUrl = '';
 		if (browser) {
 			localStorage.removeItem('brewyou_mqtt_host');
 			localStorage.removeItem('brewyou_mqtt_port');
@@ -1105,6 +1166,8 @@ class SettingsState {
 			localStorage.removeItem('brewyou_mqtt_certificate');
 			localStorage.removeItem('brewyou_mqtt_password');
 			localStorage.removeItem('brewyou_mqtt_topic_prefix');
+			localStorage.removeItem('brewyou_app_base_url');
+			localStorage.removeItem('brewyou_webhook_base_url');
 		}
 	}
 }

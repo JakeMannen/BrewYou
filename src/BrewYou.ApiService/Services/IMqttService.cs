@@ -1,5 +1,3 @@
-using BrewYou.ApiService.Data.Entities;
-
 namespace BrewYou.ApiService.Services;
 
 public record MqttStatusInfo(
@@ -20,6 +18,8 @@ public interface IMqttService
 
     Task<bool> EnsureConnectedAsync(CancellationToken cancellationToken = default);
     Task DisconnectAsync(CancellationToken cancellationToken = default);
+    Task DisconnectUserAsync(string userId, CancellationToken cancellationToken = default);
     Task RefreshSubscriptionsAsync(CancellationToken cancellationToken = default);
+    MqttStatusInfo GetStatus(string userId, string? host = null, int? port = null);
     MqttStatusInfo GetStatus(string? host = null, int? port = null);
 }

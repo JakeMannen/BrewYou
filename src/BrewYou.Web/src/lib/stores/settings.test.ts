@@ -791,4 +791,128 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 		vi.unstubAllGlobals();
 		vi.unstubAllEnvs();
 	});
+
+	it('rejects non-HTTP(S) schemes such as javascript: and data: in appBaseUrl and webhookBaseUrl', () => {
+		const store = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => store.get(k) ?? null,
+			setItem: (k: string, v: string) => store.set(k, v),
+			removeItem: (k: string) => store.delete(k),
+			clear: () => store.clear()
+		});
+
+		settings.appBaseUrl = 'javascript:alert(1)//';
+		settings.webhookBaseUrl = 'data:text/html,<script>alert(1)</script>';
+
+		expect(settings.resolvedAppBaseUrl).not.toContain('javascript:');
+		expect(settings.resolvedWebhookBaseUrl).not.toContain('data:');
+
+		settings.hydrateFromPreferences({
+			language: 'en',
+			volumeUnit: 'Liters',
+			weightUnit: 'Metric',
+			grainWeightUnit: 'kg',
+			hopWeightUnit: 'g',
+			temperatureUnit: 'Celsius',
+			gravityUnit: 'SpecificGravity',
+			theme: 'ImperialStout',
+			defaultBatchSizeLiters: 20,
+			defaultEfficiencyPercent: 75,
+			defaultBoilTimeMinutes: 60,
+			appBaseUrl: 'javascript:alert(document.domain)',
+			webhookBaseUrl: 'vbscript:msgbox(1)'
+		});
+
+		expect(settings.appBaseUrl).toBe('');
+		expect(settings.webhookBaseUrl).toBe('');
+		vi.unstubAllGlobals();
+	});
+
+	it('clears plaintext mqttPassword after syncing and clears network URLs on logout', async () => {
+		const store = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => store.get(k) ?? null,
+			setItem: (k: string, v: string) => store.set(k, v),
+			removeItem: (k: string) => store.delete(k),
+			clear: () => store.clear()
+		});
+
+		auth.user = {
+			id: 'sec-user-1',
+			email: 'sec@brewyou.test',
+			displayName: 'Sec Brewer',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters'
+		};
+
+		const updateSpy = vi.spyOn(api.auth, 'updatePreferences').mockResolvedValue({
+			...auth.user,
+			preferences: {
+				language: 'en',
+				volumeUnit: 'Liters',
+				weightUnit: 'Metric',
+				temperatureUnit: 'Celsius',
+				gravityUnit: 'SpecificGravity',
+				theme: 'ImperialStout',
+				defaultBatchSizeLiters: 20,
+				defaultEfficiencyPercent: 75,
+				defaultBoilTimeMinutes: 60,
+				mqttHost: 'broker.example.com',
+				mqttPort: 8883,
+				hasMqttPassword: true
+			}
+		});
+
+		settings.mqttHost = 'broker.example.com';
+		settings.mqttPassword = 'plaintext-secret-password';
+		await settings.syncAllToBackend();
+
+		// Password must be wiped from memory right after syncing
+		expect(settings.mqttPassword).toBe('');
+		expect(settings.hasMqttPassword).toBe(true);
+
+		// Subsequent unrelated sync must NOT re-transmit the password
+		await settings.syncAllToBackend();
+		expect(updateSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				mqttPassword: null
+			})
+		);
+
+		// Clear stored password explicitly
+		updateSpy.mockResolvedValueOnce({
+			...auth.user,
+			preferences: {
+				language: 'en',
+				volumeUnit: 'Liters',
+				weightUnit: 'Metric',
+				temperatureUnit: 'Celsius',
+				gravityUnit: 'SpecificGravity',
+				theme: 'ImperialStout',
+				defaultBatchSizeLiters: 20,
+				defaultEfficiencyPercent: 75,
+				defaultBoilTimeMinutes: 60,
+				hasMqttPassword: false
+			}
+		});
+		await settings.clearStoredMqttPassword();
+		expect(updateSpy).toHaveBeenLastCalledWith({ clearMqttPassword: true });
+		expect(settings.hasMqttPassword).toBe(false);
+
+		// Logout cleanup clears network URLs too
+		settings.appBaseUrl = 'http://192.168.1.50:3000';
+		settings.webhookBaseUrl = 'http://192.168.1.50:5000';
+		store.set('brewyou_app_base_url', 'http://192.168.1.50:3000');
+		store.set('brewyou_webhook_base_url', 'http://192.168.1.50:5000');
+
+		settings.clearMqttSettings();
+		expect(settings.appBaseUrl).toBe('');
+		expect(settings.webhookBaseUrl).toBe('');
+		expect(store.get('brewyou_app_base_url')).toBeUndefined();
+		expect(store.get('brewyou_webhook_base_url')).toBeUndefined();
+
+		updateSpy.mockRestore();
+		auth.user = null;
+		vi.unstubAllGlobals();
+	});
 });

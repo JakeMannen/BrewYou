@@ -58,7 +58,9 @@
 		Archive,
 		Download,
 		Upload,
-		ShieldCheck
+		ShieldCheck,
+		KeyRound,
+		Trash2
 	} from '@lucide/svelte';
 
 	import { SvelteURL } from 'svelte/reactivity';
@@ -72,6 +74,16 @@
 	let isSavingProfile = $state(false);
 	let profileSuccess = $state(false);
 	let profileError = $state<string | null>(null);
+
+	// Change password form state
+	let currentPassword = $state('');
+	let newPassword = $state('');
+	let confirmNewPassword = $state('');
+	let isChangingPassword = $state(false);
+	let passwordSuccess = $state(false);
+	let passwordError = $state<string | null>(null);
+	let isClearingMqttPassword = $state(false);
+	let mqttPasswordCleared = $state(false);
 
 	// Defaults form state (in display units)
 	let defaultBatchSizeDisplay = $state(
@@ -147,7 +159,7 @@
 	let selectedBackupFileName = $state<string>('');
 	let conflictResolutionMode = $state<RestoreConflictResolutionMode>('MergeSkipExisting');
 	let sharedSetupFallbackMode = $state<SharedSetupFallbackMode>('CloneAsPersonal');
-	let collaboratorRestoreMode = $state<CollaboratorRestoreMode>('RestoreMembershipsIfAvailable');
+	let collaboratorRestoreMode = $state<CollaboratorRestoreMode>('CreateInvitesOnly');
 	let decryptionPassphrase = $state('');
 	let isPreviewingRestore = $state(false);
 	let isExecutingRestore = $state(false);
@@ -200,6 +212,7 @@
 				URL.revokeObjectURL(url);
 			}
 
+			exportPassphrase = '';
 			exportSuccess = true;
 			setTimeout(() => {
 				exportSuccess = false;
@@ -243,6 +256,7 @@
 	function clearSelectedBackupFile() {
 		selectedBackupEnvelope = null;
 		selectedBackupFileName = '';
+		decryptionPassphrase = '';
 		restorePreview = null;
 		restoreResult = null;
 		restoreError = null;
@@ -293,6 +307,7 @@
 				mqttTopicPrefix = settings.mqttTopicPrefix || 'brewyou/equipment';
 			}
 			await brewery.syncFromBackend(true);
+			decryptionPassphrase = '';
 			restoreResult = result;
 		} catch (err: unknown) {
 			restoreError = (err as Error).message || t('settings.backup.restore_error');
@@ -365,6 +380,12 @@
 		settings.startMqttHeartbeat();
 
 		return () => {
+			mqttPassword = '';
+			exportPassphrase = '';
+			decryptionPassphrase = '';
+			currentPassword = '';
+			newPassword = '';
+			confirmNewPassword = '';
 			if (typeof window !== 'undefined') {
 				window.removeEventListener('hashchange', handleHashChange);
 			}
@@ -389,6 +410,58 @@
 			}, 3500);
 		} else {
 			profileError = auth.error || 'Failed to update profile.';
+		}
+	}
+
+	async function handleChangePassword(e: SubmitEvent) {
+		e.preventDefault();
+		if (!auth.isAuthenticated) return;
+
+		passwordSuccess = false;
+		passwordError = null;
+
+		if (newPassword.length < 8) {
+			passwordError = t('settings.profile.password_min_length');
+			return;
+		}
+
+		if (newPassword !== confirmNewPassword) {
+			passwordError = t('settings.profile.password_mismatch');
+			return;
+		}
+
+		isChangingPassword = true;
+		const ok = await auth.changePassword(currentPassword, newPassword);
+		isChangingPassword = false;
+		currentPassword = '';
+		newPassword = '';
+		confirmNewPassword = '';
+
+		if (ok) {
+			passwordSuccess = true;
+			setTimeout(() => {
+				passwordSuccess = false;
+			}, 4000);
+		} else {
+			passwordError = auth.error || t('settings.profile.password_change_error');
+		}
+	}
+
+	async function handleClearMqttPassword() {
+		isClearingMqttPassword = true;
+		mqttPasswordCleared = false;
+		connectivityError = null;
+		try {
+			await settings.clearStoredMqttPassword();
+			mqttPassword = '';
+			mqttPasswordCleared = true;
+			setTimeout(() => {
+				mqttPasswordCleared = false;
+			}, 3500);
+		} catch (err: unknown) {
+			connectivityError = (err as Error).message || t('settings.connectivity.error_toast');
+		} finally {
+			isClearingMqttPassword = false;
 		}
 	}
 
@@ -439,6 +512,8 @@
 				mqttCertificate.trim(),
 				mqttTopicPrefix.trim() || 'brewyou/equipment'
 			);
+			mqttPassword = '';
+			showMqttPassword = false;
 			connectivitySuccess = true;
 			setTimeout(() => {
 				connectivitySuccess = false;
@@ -2268,8 +2343,24 @@
 									</button>
 								</div>
 								{#if settings.hasMqttPassword && !mqttPassword}
-									<span class="mt-1 block text-[11px] text-emerald-600 dark:text-emerald-400">
-										âœ“ {t('settings.connectivity.password_saved')}
+									<div class="mt-1 flex flex-wrap items-center justify-between gap-2">
+										<span class="text-[11px] text-emerald-600 dark:text-emerald-400">
+											✓ {t('settings.connectivity.password_saved')}
+										</span>
+										<button
+											type="button"
+											data-testid="clear-mqtt-password-btn"
+											disabled={isClearingMqttPassword}
+											onclick={handleClearMqttPassword}
+											class="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-red-500 transition hover:text-red-400 disabled:opacity-50"
+										>
+											<Trash2 class="h-3 w-3" />
+											<span>{t('settings.connectivity.clear_password')}</span>
+										</button>
+									</div>
+								{:else if mqttPasswordCleared}
+									<span class="mt-1 block text-[11px] text-amber-600 dark:text-amber-400">
+										{t('settings.connectivity.password_cleared')}
 									</span>
 								{/if}
 							</div>
@@ -2650,11 +2741,11 @@
 										onchange={() => void handlePreviewRestore()}
 										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-xs font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white"
 									>
-										<option value="RestoreMembershipsIfAvailable"
-											>{t('settings.backup.collaborator_existing')}</option
-										>
 										<option value="CreateInvitesOnly"
 											>{t('settings.backup.collaborator_invites')}</option
+										>
+										<option value="RestoreMembershipsIfAvailable"
+											>{t('settings.backup.collaborator_existing')}</option
 										>
 										<option value="SkipCollaborators"
 											>{t('settings.backup.collaborator_ignore')}</option
@@ -3089,6 +3180,134 @@
 							</button>
 						</div>
 					</form>
+				</section>
+
+				<!-- Change Password Card -->
+				<section
+					class="glass-panel rounded-2xl border border-zinc-200/80 p-5 sm:p-6 dark:border-white/[0.08]"
+					aria-labelledby="password-heading"
+				>
+					<div
+						class="flex items-center gap-3 border-b border-zinc-200/80 pb-4 dark:border-white/[0.08]"
+					>
+						<div
+							class="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+						>
+							<KeyRound class="h-5 w-5" />
+						</div>
+						<div>
+							<h2 id="password-heading" class="text-base font-bold text-zinc-900 dark:text-white">
+								{t('settings.profile.password_title')}
+							</h2>
+							<p class="text-xs text-zinc-500 dark:text-zinc-400">
+								{t('settings.profile.password_desc')}
+							</p>
+						</div>
+					</div>
+
+					{#if auth.user.hasPassword === false}
+						<p class="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
+							{t('settings.profile.external_signin_notice')}
+						</p>
+					{:else}
+						<form onsubmit={handleChangePassword} class="mt-5 space-y-4">
+							<div>
+								<label
+									for="current-password-input"
+									class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('settings.profile.current_password')}
+								</label>
+								<input
+									id="current-password-input"
+									data-testid="current-password-input"
+									type="password"
+									required
+									autocomplete="current-password"
+									bind:value={currentPassword}
+									class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-sm text-zinc-900 transition focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-amber-400 dark:focus:bg-zinc-900"
+								/>
+							</div>
+
+							<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+								<div>
+									<label
+										for="new-password-input"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.profile.new_password')}
+									</label>
+									<input
+										id="new-password-input"
+										data-testid="new-password-input"
+										type="password"
+										required
+										minlength={8}
+										maxlength={128}
+										autocomplete="new-password"
+										bind:value={newPassword}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-sm text-zinc-900 transition focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-amber-400 dark:focus:bg-zinc-900"
+									/>
+								</div>
+
+								<div>
+									<label
+										for="confirm-password-input"
+										class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+									>
+										{t('settings.profile.confirm_password')}
+									</label>
+									<input
+										id="confirm-password-input"
+										data-testid="confirm-password-input"
+										type="password"
+										required
+										minlength={8}
+										maxlength={128}
+										autocomplete="new-password"
+										bind:value={confirmNewPassword}
+										class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-zinc-50/50 px-3.5 py-2 text-sm text-zinc-900 transition focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-white dark:focus:border-amber-400 dark:focus:bg-zinc-900"
+									/>
+								</div>
+							</div>
+
+							{#if passwordSuccess}
+								<div
+									class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400"
+									role="status"
+								>
+									<CheckCircle2 class="h-4 w-4 flex-shrink-0" />
+									<span>{t('settings.profile.password_changed')}</span>
+								</div>
+							{/if}
+
+							{#if passwordError}
+								<div
+									class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+									role="alert"
+								>
+									<AlertCircle class="h-4 w-4 flex-shrink-0" />
+									<span>{passwordError}</span>
+								</div>
+							{/if}
+
+							<div class="flex justify-end pt-2">
+								<button
+									type="submit"
+									data-testid="change-password-btn"
+									disabled={isChangingPassword}
+									class="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400 active:scale-95 disabled:opacity-50"
+								>
+									{#if isChangingPassword}
+										<span>{t('settings.profile.changing_password')}</span>
+									{:else}
+										<KeyRound class="h-4 w-4" />
+										<span>{t('settings.profile.change_password_btn')}</span>
+									{/if}
+								</button>
+							</div>
+						</form>
+					{/if}
 				</section>
 
 				<!-- Active Session & Logout Card -->

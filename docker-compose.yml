@@ -41,6 +41,8 @@ services:
       Jwt__Audience: "BrewYouApp"
       Cors__AllowedOrigins__0: "http://localhost:3000"
       Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
+      NetworkSecurity__AllowPrivateNetworks: "${ALLOW_PRIVATE_NETWORKS:-true}"
+      NetworkSecurity__AllowLoopback: "${ALLOW_LOOPBACK_NETWORKS:-false}"
     ports:
       - "127.0.0.1:5000:5000"
     networks:

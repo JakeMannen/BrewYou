@@ -9,6 +9,8 @@ namespace BrewYou.ApiService.Endpoints;
 
 public static class BackupEndpoints
 {
+    private const long MaxBackupRequestBytes = 15 * 1024 * 1024; // 15 MB request body limit
+
     public static RouteGroupBuilder MapBackupEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/v1/backup")
@@ -66,6 +68,7 @@ public static class BackupEndpoints
             return Results.Ok(ApiResponse<RestorePreviewReportDto>.Ok(report));
         })
         .WithName("PreviewUserBackupRestore")
+        .WithMetadata(new RequestSizeLimitAttribute(MaxBackupRequestBytes))
         .Produces<ApiResponse<RestorePreviewReportDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
@@ -103,6 +106,7 @@ public static class BackupEndpoints
             return Results.Ok(ApiResponse<RestoreResultDto>.Ok(result));
         })
         .WithName("ExecuteUserBackupRestore")
+        .WithMetadata(new RequestSizeLimitAttribute(MaxBackupRequestBytes))
         .Produces<ApiResponse<RestoreResultDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)

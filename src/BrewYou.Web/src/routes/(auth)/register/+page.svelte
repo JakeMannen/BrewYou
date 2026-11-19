@@ -122,7 +122,7 @@
 					id="password"
 					type="password"
 					required
-					minlength="6"
+					minlength="8"
 					autocomplete="new-password"
 					autocapitalize="none"
 					autocorrect="off"

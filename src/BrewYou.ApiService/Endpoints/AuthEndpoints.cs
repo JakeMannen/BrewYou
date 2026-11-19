@@ -65,9 +65,11 @@ public record UpdateUserPreferencesRequest(
     string? ColorFormula = null,
     string? AbvFormula = null,
     string? AppBaseUrl = null,
-    string? WebhookBaseUrl = null);
+    string? WebhookBaseUrl = null,
+    bool? ClearMqttPassword = null);
 
 public record UpdateProfileRequest(string DisplayName);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 public record AuthResponse(string AccessToken, string RefreshToken, DateTime ExpiresAt, UserDto User, bool IsNewUser = false);
 
@@ -78,7 +80,8 @@ public record UserDto(
     string PreferredLanguage,
     VolumeUnit PreferredVolumeUnit,
     DateTime CreatedAt,
-    UserPreferencesDto Preferences);
+    UserPreferencesDto Preferences,
+    bool HasPassword = true);
 
 public record MqttStatusResult(bool Configured, bool Connected, string? Host = null, int? Port = null, string? Error = null);
 
@@ -222,9 +225,17 @@ public static class AuthEndpoints
 
         group.MapPut("/me/language", async (
             [FromBody] UpdateLanguageRequest request,
+            IValidator<UpdateLanguageRequest> validator,
             ClaimsPrincipal principal,
             IAuthService authService) =>
         {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Language validation failed.", details));
+            }
+
             var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(userId))
             {
@@ -242,6 +253,7 @@ public static class AuthEndpoints
         .RequireAuthorization()
         .WithName("UpdateUserLanguage")
         .Produces<ApiResponse<UserDto>>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
 
         group.MapPut("/me/volume-unit", async (
@@ -343,6 +355,46 @@ public static class AuthEndpoints
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
 
+        group.MapPut("/me/password", async (
+            [FromBody] ChangePasswordRequest request,
+            IValidator<ChangePasswordRequest> validator,
+            ClaimsPrincipal principal,
+            IAuthService authService,
+            HttpContext httpContext) =>
+        {
+            var validation = await validator.ValidateAsync(request);
+            if (!validation.IsValid)
+            {
+                var details = validation.Errors.Select(e => new ApiErrorDetail(e.PropertyName, e.ErrorMessage));
+                return Results.BadRequest(ApiResponse.Fail("VALIDATION_ERROR", "Password change validation failed.", details));
+            }
+
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            var result = await authService.ChangePasswordAsync(userId, request, httpContext);
+            if (!result.Succeeded)
+            {
+                if (result.ErrorCode == "USER_NOT_FOUND")
+                {
+                    return Results.NotFound(ApiResponse.Fail("USER_NOT_FOUND", result.ErrorMessage!));
+                }
+
+                var details = result.Details?.Select(d => new ApiErrorDetail("General", d));
+                return Results.BadRequest(ApiResponse.Fail(result.ErrorCode ?? "PASSWORD_CHANGE_FAILED", result.ErrorMessage!, details));
+            }
+
+            return Results.Ok(ApiResponse.Ok());
+        })
+        .RequireAuthorization()
+        .WithName("ChangeUserPassword")
+        .Produces<ApiResponse>(StatusCodes.Status200OK)
+        .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
+
         group.MapGet("/me/mqtt-status", async (
             ClaimsPrincipal principal,
             IAuthService authService,
@@ -369,6 +421,7 @@ public static class AuthEndpoints
             return Results.Ok(ApiResponse<MqttStatusResult>.Ok(result));
         })
         .RequireAuthorization()
+        .RequireRateLimiting("mqtt-status-limit")
         .WithName("GetMqttStatus")
         .Produces<ApiResponse<MqttStatusResult>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)

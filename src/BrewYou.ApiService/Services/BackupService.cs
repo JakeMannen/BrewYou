@@ -24,6 +24,14 @@ public interface IBackupService
 public class BackupService : IBackupService
 {
     private const int MaxExportedTelemetryReadings = 5000;
+    private const int MaxRestoredLabelBytes = 10 * 1024 * 1024; // 10 MB cap for restored recipe label images
+    private const int MaxRestoredSetups = 100;
+    private const int MaxRestoredEquipment = 500;
+    private const int MaxRestoredGateways = 100;
+    private const int MaxRestoredIngredients = 2000;
+    private const int MaxRestoredRecipes = 1000;
+    private const int MaxRestoredBatches = 2000;
+    private const int MaxRestoredTelemetryReadings = 10000;
 
     private readonly BrewYouDbContext _db;
     private readonly BackupMigrationPipeline _migrationPipeline;
@@ -59,386 +67,396 @@ public class BackupService : IBackupService
         byte[]? encryptionKey = null;
         BackupEncryptionMetadataDto? encryptionMeta = null;
 
-        var encryptSecrets = request.IncludeSecrets && !string.IsNullOrWhiteSpace(request.Passphrase);
-        if (encryptSecrets)
+        try
         {
-            var salt = BackupSecretProtector.GenerateSaltBase64();
-            encryptionKey = BackupSecretProtector.DeriveKey(request.Passphrase!, salt);
-            encryptionMeta = new BackupEncryptionMetadataDto(
-                SecretsEncrypted: true,
-                Algorithm: "AES-256-GCM",
-                Kdf: "PBKDF2-SHA256",
-                Iterations: BackupSecretProtector.DefaultIterations,
-                SaltBase64: salt);
-        }
-
-        // 1. User Settings
-        string? encryptedMqttPassword = null;
-        if (encryptSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(user.MqttPassword))
-        {
-            var rawMqttPassword = BackupSecretProtector.UnprotectServerSecret(user.MqttPassword, _protector);
-            if (!string.IsNullOrWhiteSpace(rawMqttPassword))
+            var encryptSecrets = request.IncludeSecrets && !string.IsNullOrWhiteSpace(request.Passphrase);
+            if (encryptSecrets)
             {
-                encryptedMqttPassword = BackupSecretProtector.EncryptSecret(rawMqttPassword, encryptionKey);
+                var salt = BackupSecretProtector.GenerateSaltBase64();
+                encryptionKey = BackupSecretProtector.DeriveKey(request.Passphrase!, salt);
+                encryptionMeta = new BackupEncryptionMetadataDto(
+                    SecretsEncrypted: true,
+                    Algorithm: "AES-256-GCM",
+                    Kdf: "PBKDF2-SHA256",
+                    Iterations: BackupSecretProtector.DefaultIterations,
+                    SaltBase64: salt);
             }
-        }
 
-        var userSettingsDto = new UserSettingsBackupDto(
-            OriginalUserId: user.Id,
-            Email: user.Email,
-            DisplayName: user.DisplayName,
-            PreferredLanguage: user.PreferredLanguage,
-            PreferredVolumeUnit: user.PreferredVolumeUnit,
-            PreferredWeightUnit: user.PreferredWeightUnit,
-            PreferredGrainWeightUnit: user.PreferredGrainWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "lb" : "kg"),
-            PreferredHopWeightUnit: user.PreferredHopWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "oz" : "g"),
-            PreferredColorUnit: user.PreferredColorUnit ?? "SRM",
-            PreferredCarbonationUnit: user.PreferredCarbonationUnit ?? "Volumes",
-            PreferredTemperatureUnit: user.PreferredTemperatureUnit,
-            PreferredGravityUnit: user.PreferredGravityUnit,
-            PreferredTheme: user.PreferredTheme,
-            PreferredBitternessFormula: user.PreferredBitternessFormula ?? "Tinseth",
-            PreferredColorFormula: user.PreferredColorFormula ?? "Morey",
-            PreferredAbvFormula: user.PreferredAbvFormula ?? "Linear",
-            DefaultBatchSizeLiters: user.DefaultBatchSizeLiters,
-            DefaultEfficiencyPercent: user.DefaultEfficiencyPercent,
-            DefaultBoilTimeMinutes: user.DefaultBoilTimeMinutes,
-            MqttHost: user.MqttHost,
-            MqttPort: user.MqttPort,
-            MqttUsername: user.MqttUsername,
-            MqttPasswordEncrypted: encryptedMqttPassword,
-            HasMqttPassword: !string.IsNullOrWhiteSpace(user.MqttPassword),
-            MqttCertificate: user.MqttCertificate,
-            MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment",
-            AppBaseUrl: user.AppBaseUrl,
-            WebhookBaseUrl: user.WebhookBaseUrl
-        );
+            // 1. User Settings
+            string? encryptedMqttPassword = null;
+            if (encryptSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(user.MqttPassword))
+            {
+                var rawMqttPassword = BackupSecretProtector.UnprotectServerSecret(user.MqttPassword, _protector);
+                if (!string.IsNullOrWhiteSpace(rawMqttPassword))
+                {
+                    encryptedMqttPassword = BackupSecretProtector.EncryptSecret(rawMqttPassword, encryptionKey);
+                }
+            }
 
-        // 2. Custom Ingredients
-        var customIngredients = await _db.Ingredients
-            .AsNoTracking()
-            .Where(i => !i.IsCatalogItem && i.CreatedByUserId == userId)
-            .OrderBy(i => i.Name)
-            .Select(i => new CustomIngredientBackupDto(
-                i.Id,
-                i.Name,
-                i.Type,
-                i.PotentialGravity,
-                i.ColorSrm,
-                i.AlphaAcidPercent,
-                i.AttenuationPercent,
-                i.Form,
-                i.Description,
-                i.CreatedAt,
-                i.FermentableCategory,
-                i.FermentabilityPercent))
-            .ToListAsync();
+            var userSettingsDto = new UserSettingsBackupDto(
+                OriginalUserId: user.Id,
+                Email: user.Email,
+                DisplayName: user.DisplayName,
+                PreferredLanguage: user.PreferredLanguage,
+                PreferredVolumeUnit: user.PreferredVolumeUnit,
+                PreferredWeightUnit: user.PreferredWeightUnit,
+                PreferredGrainWeightUnit: user.PreferredGrainWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "lb" : "kg"),
+                PreferredHopWeightUnit: user.PreferredHopWeightUnit ?? (user.PreferredWeightUnit == WeightUnit.Imperial ? "oz" : "g"),
+                PreferredColorUnit: user.PreferredColorUnit ?? "SRM",
+                PreferredCarbonationUnit: user.PreferredCarbonationUnit ?? "Volumes",
+                PreferredTemperatureUnit: user.PreferredTemperatureUnit,
+                PreferredGravityUnit: user.PreferredGravityUnit,
+                PreferredTheme: user.PreferredTheme,
+                PreferredBitternessFormula: user.PreferredBitternessFormula ?? "Tinseth",
+                PreferredColorFormula: user.PreferredColorFormula ?? "Morey",
+                PreferredAbvFormula: user.PreferredAbvFormula ?? "Linear",
+                DefaultBatchSizeLiters: user.DefaultBatchSizeLiters,
+                DefaultEfficiencyPercent: user.DefaultEfficiencyPercent,
+                DefaultBoilTimeMinutes: user.DefaultBoilTimeMinutes,
+                MqttHost: user.MqttHost,
+                MqttPort: user.MqttPort,
+                MqttUsername: user.MqttUsername,
+                MqttPasswordEncrypted: encryptedMqttPassword,
+                HasMqttPassword: !string.IsNullOrWhiteSpace(user.MqttPassword),
+                MqttCertificate: user.MqttCertificate,
+                MqttTopicPrefix: user.MqttTopicPrefix ?? "brewyou/equipment",
+                AppBaseUrl: user.AppBaseUrl,
+                WebhookBaseUrl: user.WebhookBaseUrl
+            );
 
-        // 3. Pantry Stock
-        var stocks = await _db.IngredientStocks
-            .AsNoTracking()
-            .Include(s => s.Ingredient)
-            .Where(s => s.UserId == userId && s.Ingredient != null)
-            .OrderBy(s => s.Ingredient!.Name)
-            .Select(s => new IngredientStockBackupDto(
-                s.Id,
-                s.IngredientId,
-                s.Ingredient!.Name,
-                s.Ingredient.Type,
-                s.Ingredient.IsCatalogItem,
-                s.Amount,
-                s.Unit,
-                s.LowStockAlertThreshold,
-                s.UpdatedAt,
-                new IngredientSnapshotDto(
-                    s.Ingredient.Name,
-                    s.Ingredient.Type,
-                    s.Ingredient.PotentialGravity,
-                    s.Ingredient.ColorSrm,
-                    s.Ingredient.AlphaAcidPercent,
-                    s.Ingredient.AttenuationPercent,
-                    s.Ingredient.Form,
-                    s.Ingredient.Description,
-                    s.Ingredient.FermentableCategory,
-                    s.Ingredient.FermentabilityPercent)))
-            .ToListAsync();
-
-        // 4. Owned Brewery Setups & Collaboration
-        var now = DateTime.UtcNow;
-        var ownedSetupsEntities = await _db.BrewerySetups
-            .AsNoTracking()
-            .Include(s => s.Members)
-                .ThenInclude(m => m.User)
-            .Include(s => s.Invites)
-            .Where(s => s.UserId == userId)
-            .OrderByDescending(s => s.IsDefault)
-            .ThenBy(s => s.CreatedAt)
-            .ToListAsync();
-
-        var ownedSetups = ownedSetupsEntities.Select(s => new BrewerySetupBackupDto(
-            s.Id,
-            s.Name,
-            s.Description,
-            s.IsDefault,
-            s.DefaultGrainAbsorptionRate,
-            s.DefaultBoilOffRatePerHour,
-            s.DefaultKettleTrubLossLiters,
-            s.DefaultFermenterLossLiters,
-            s.DefaultMashTunDeadSpaceLiters,
-            s.CoolingShrinkagePercent,
-            s.DefaultPackagingLossLiters,
-            s.CreatedAt,
-            s.UpdatedAt,
-            s.Members
-                .OrderBy(m => m.JoinedAt)
-                .Select(m => new BreweryMemberBackupDto(
-                    m.UserId,
-                    m.User?.Email,
-                    m.User?.DisplayName,
-                    m.Role,
-                    m.JoinedAt))
-                .ToList(),
-            s.Invites
-                .Where(i => i.AcceptedAt == null && i.ExpiresAt > now)
-                .OrderBy(i => i.CreatedAt)
-                .Select(i => new BreweryInviteBackupDto(
-                    i.InvitedEmail,
-                    i.Role,
+            // 2. Custom Ingredients
+            var customIngredients = await _db.Ingredients
+                .AsNoTracking()
+                .Where(i => !i.IsCatalogItem && i.CreatedByUserId == userId)
+                .OrderBy(i => i.Name)
+                .Select(i => new CustomIngredientBackupDto(
+                    i.Id,
+                    i.Name,
+                    i.Type,
+                    i.PotentialGravity,
+                    i.ColorSrm,
+                    i.AlphaAcidPercent,
+                    i.AttenuationPercent,
+                    i.Form,
+                    i.Description,
                     i.CreatedAt,
-                    i.ExpiresAt))
-                .ToList()
-        )).ToList();
+                    i.FermentableCategory,
+                    i.FermentabilityPercent))
+                .ToListAsync();
 
-        var ownedSetupIds = ownedSetupsEntities.Select(s => s.Id).ToHashSet();
+            // 3. Pantry Stock
+            var stocks = await _db.IngredientStocks
+                .AsNoTracking()
+                .Include(s => s.Ingredient)
+                .Where(s => s.UserId == userId && s.Ingredient != null)
+                .OrderBy(s => s.Ingredient!.Name)
+                .Select(s => new IngredientStockBackupDto(
+                    s.Id,
+                    s.IngredientId,
+                    s.Ingredient!.Name,
+                    s.Ingredient.Type,
+                    s.Ingredient.IsCatalogItem,
+                    s.Amount,
+                    s.Unit,
+                    s.LowStockAlertThreshold,
+                    s.UpdatedAt,
+                    new IngredientSnapshotDto(
+                        s.Ingredient.Name,
+                        s.Ingredient.Type,
+                        s.Ingredient.PotentialGravity,
+                        s.Ingredient.ColorSrm,
+                        s.Ingredient.AlphaAcidPercent,
+                        s.Ingredient.AttenuationPercent,
+                        s.Ingredient.Form,
+                        s.Ingredient.Description,
+                        s.Ingredient.FermentableCategory,
+                        s.Ingredient.FermentabilityPercent)))
+                .ToListAsync();
 
-        // 5. Shared Setups where user is a Collaborator
-        var sharedMembershipsEntities = await _db.BreweryMembers
-            .AsNoTracking()
-            .Include(m => m.BrewerySetup)
-                .ThenInclude(s => s!.User)
-            .Include(m => m.BrewerySetup)
-                .ThenInclude(s => s!.Equipment)
-            .Where(m => m.UserId == userId && m.BrewerySetup != null && m.BrewerySetup.UserId != userId)
-            .OrderBy(m => m.JoinedAt)
-            .ToListAsync();
+            // 4. Owned Brewery Setups & Collaboration
+            var now = DateTime.UtcNow;
+            var ownedSetupsEntities = await _db.BrewerySetups
+                .AsNoTracking()
+                .Include(s => s.Members)
+                    .ThenInclude(m => m.User)
+                .Include(s => s.Invites)
+                .Where(s => s.UserId == userId)
+                .OrderByDescending(s => s.IsDefault)
+                .ThenBy(s => s.CreatedAt)
+                .ToListAsync();
 
-        var sharedMemberships = sharedMembershipsEntities.Select(m =>
-        {
-            var s = m.BrewerySetup!;
-            var isCoOwner = m.Role == BreweryRole.Owner;
-            var canExportSharedSecrets = isCoOwner && encryptSecrets && encryptionKey != null;
+            var ownedSetups = ownedSetupsEntities.Select(s => new BrewerySetupBackupDto(
+                s.Id,
+                s.Name,
+                s.Description,
+                s.IsDefault,
+                s.DefaultGrainAbsorptionRate,
+                s.DefaultBoilOffRatePerHour,
+                s.DefaultKettleTrubLossLiters,
+                s.DefaultFermenterLossLiters,
+                s.DefaultMashTunDeadSpaceLiters,
+                s.CoolingShrinkagePercent,
+                s.DefaultPackagingLossLiters,
+                s.CreatedAt,
+                s.UpdatedAt,
+                s.Members
+                    .OrderBy(m => m.JoinedAt)
+                    .Select(m => new BreweryMemberBackupDto(
+                        m.UserId,
+                        m.User?.Email,
+                        m.User?.DisplayName,
+                        m.Role,
+                        m.JoinedAt))
+                    .ToList(),
+                s.Invites
+                    .Where(i => i.AcceptedAt == null && i.ExpiresAt > now)
+                    .OrderBy(i => i.CreatedAt)
+                    .Select(i => new BreweryInviteBackupDto(
+                        i.InvitedEmail,
+                        i.Role,
+                        i.CreatedAt,
+                        i.ExpiresAt))
+                    .ToList()
+            )).ToList();
 
-            var eqSnapshots = s.Equipment
-                .OrderBy(e => e.Name)
-                .Select(e => MapEquipmentToBackupDto(e, isCoOwner && request.IncludeSecrets, encryptionKey))
+            var ownedSetupIds = ownedSetupsEntities.Select(s => s.Id).ToHashSet();
+
+            // 5. Shared Setups where user is a Collaborator
+            var sharedMembershipsEntities = await _db.BreweryMembers
+                .AsNoTracking()
+                .Include(m => m.BrewerySetup)
+                    .ThenInclude(s => s!.User)
+                .Include(m => m.BrewerySetup)
+                    .ThenInclude(s => s!.Equipment)
+                .Where(m => m.UserId == userId && m.BrewerySetup != null && m.BrewerySetup.UserId != userId)
+                .OrderBy(m => m.JoinedAt)
+                .ToListAsync();
+
+            var sharedMemberships = sharedMembershipsEntities.Select(m =>
+            {
+                var s = m.BrewerySetup!;
+                var isCoOwner = m.Role == BreweryRole.Owner;
+                var canExportSharedSecrets = isCoOwner && encryptSecrets && encryptionKey != null;
+
+                var eqSnapshots = s.Equipment
+                    .OrderBy(e => e.Name)
+                    .Select(e => MapEquipmentToBackupDto(e, isCoOwner && request.IncludeSecrets, encryptionKey))
+                    .ToList();
+
+                return new SharedSetupMembershipBackupDto(
+                    OriginalSetupId: s.Id,
+                    SetupName: s.Name,
+                    OwnerUserId: s.UserId,
+                    OwnerEmail: isCoOwner ? s.User?.Email : MaskEmail(s.User?.Email),
+                    OwnerDisplayName: s.User?.DisplayName,
+                    MyRole: m.Role,
+                    JoinedAt: m.JoinedAt,
+                    SetupSnapshot: new BrewerySetupBackupDto(
+                        s.Id,
+                        s.Name,
+                        s.Description,
+                        IsDefault: false,
+                        s.DefaultGrainAbsorptionRate,
+                        s.DefaultBoilOffRatePerHour,
+                        s.DefaultKettleTrubLossLiters,
+                        s.DefaultFermenterLossLiters,
+                        s.DefaultMashTunDeadSpaceLiters,
+                        s.CoolingShrinkagePercent,
+                        s.DefaultPackagingLossLiters,
+                        s.CreatedAt,
+                        s.UpdatedAt),
+                    ReferencedEquipmentSnapshots: eqSnapshots
+                );
+            }).ToList();
+
+            // 6. Equipment in Owned Setups
+            var equipmentEntities = await _db.Equipment
+                .AsNoTracking()
+                .Where(e => ownedSetupIds.Contains(e.BrewerySetupId))
+                .OrderBy(e => e.CreatedAt)
+                .ToListAsync();
+
+            var equipmentDtos = equipmentEntities
+                .Select(e => MapEquipmentToBackupDto(e, request.IncludeSecrets, encryptionKey))
                 .ToList();
 
-            return new SharedSetupMembershipBackupDto(
-                OriginalSetupId: s.Id,
-                SetupName: s.Name,
-                OwnerUserId: s.UserId,
-                OwnerEmail: isCoOwner ? s.User?.Email : MaskEmail(s.User?.Email),
-                OwnerDisplayName: s.User?.DisplayName,
-                MyRole: m.Role,
-                JoinedAt: m.JoinedAt,
-                SetupSnapshot: new BrewerySetupBackupDto(
-                    s.Id,
-                    s.Name,
-                    s.Description,
-                    IsDefault: false,
-                    s.DefaultGrainAbsorptionRate,
-                    s.DefaultBoilOffRatePerHour,
-                    s.DefaultKettleTrubLossLiters,
-                    s.DefaultFermenterLossLiters,
-                    s.DefaultMashTunDeadSpaceLiters,
-                    s.CoolingShrinkagePercent,
-                    s.DefaultPackagingLossLiters,
-                    s.CreatedAt,
-                    s.UpdatedAt),
-                ReferencedEquipmentSnapshots: eqSnapshots
-            );
-        }).ToList();
+            var ownedEquipmentIds = equipmentEntities.Select(e => e.Id).ToHashSet();
 
-        // 6. Equipment in Owned Setups
-        var equipmentEntities = await _db.Equipment
-            .AsNoTracking()
-            .Where(e => ownedSetupIds.Contains(e.BrewerySetupId))
-            .OrderBy(e => e.CreatedAt)
-            .ToListAsync();
+            // 6.5 BrewLink Gateways (User-owned)
+            var gatewayEntities = await _db.BrewLinkGateways
+                .AsNoTracking()
+                .Where(g => g.UserId == userId)
+                .OrderBy(g => g.PairedAt)
+                .ToListAsync();
 
-        var equipmentDtos = equipmentEntities
-            .Select(e => MapEquipmentToBackupDto(e, request.IncludeSecrets, encryptionKey))
-            .ToList();
-
-        var ownedEquipmentIds = equipmentEntities.Select(e => e.Id).ToHashSet();
-
-        // 6.5 BrewLink Gateways (User-owned)
-        var gatewayEntities = await _db.BrewLinkGateways
-            .AsNoTracking()
-            .Where(g => g.UserId == userId)
-            .OrderBy(g => g.PairedAt)
-            .ToListAsync();
-
-        var gatewayDtos = gatewayEntities.Select(g =>
-        {
-            string? encApiToken = null;
-            string? encMqttKey = null;
-
-            if (encryptSecrets && encryptionKey != null)
+            var gatewayDtos = gatewayEntities.Select(g =>
             {
-                var rawToken = BackupSecretProtector.UnprotectServerSecret(g.ApiToken, _brewLinkProtector);
-                if (!string.IsNullOrWhiteSpace(rawToken))
-                {
-                    encApiToken = BackupSecretProtector.EncryptSecret(rawToken, encryptionKey);
-                }
+                string? encApiToken = null;
+                string? encMqttKey = null;
 
-                if (!string.IsNullOrWhiteSpace(g.MqttTopicKey))
+                if (encryptSecrets && encryptionKey != null)
                 {
-                    var rawKey = BackupSecretProtector.UnprotectServerSecret(g.MqttTopicKey, _brewLinkProtector);
-                    if (!string.IsNullOrWhiteSpace(rawKey))
+                    var rawToken = BackupSecretProtector.UnprotectServerSecret(g.ApiToken, _brewLinkProtector);
+                    if (!string.IsNullOrWhiteSpace(rawToken))
                     {
-                        encMqttKey = BackupSecretProtector.EncryptSecret(rawKey, encryptionKey);
+                        encApiToken = BackupSecretProtector.EncryptSecret(rawToken, encryptionKey);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(g.MqttTopicKey))
+                    {
+                        var rawKey = BackupSecretProtector.UnprotectServerSecret(g.MqttTopicKey, _brewLinkProtector);
+                        if (!string.IsNullOrWhiteSpace(rawKey))
+                        {
+                            encMqttKey = BackupSecretProtector.EncryptSecret(rawKey, encryptionKey);
+                        }
                     }
                 }
-            }
 
-            return new BrewLinkGatewayBackupDto(
-                g.Id,
-                g.Name,
-                g.Host,
-                g.GatewayId,
-                encApiToken,
-                encMqttKey,
-                g.PairedAt,
-                g.UpdatedAt,
-                g.ClientName
-            );
-        }).ToList();
+                return new BrewLinkGatewayBackupDto(
+                    g.Id,
+                    g.Name,
+                    g.Host,
+                    g.GatewayId,
+                    encApiToken,
+                    encMqttKey,
+                    g.PairedAt,
+                    g.UpdatedAt,
+                    g.ClientName
+                );
+            }).ToList();
 
-        // 7. Recipes (User-owned)
-        var userRecipeEntities = await _db.Recipes
-            .AsNoTracking()
-            .Include(r => r.Label)
-            .Include(r => r.Ingredients)
-                .ThenInclude(ri => ri.Ingredient)
-            .Include(r => r.MashSteps)
-            .Include(r => r.FermentationSteps)
-            .Where(r => r.UserId == userId)
-            .OrderBy(r => r.CreatedAt)
-            .ToListAsync();
-
-        var recipeDtos = userRecipeEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
-        var userRecipeIds = userRecipeEntities.Select(r => r.Id).ToHashSet();
-
-        // 8. Batches
-        var batchEntities = await _db.Batches
-            .AsNoTracking()
-            .Include(b => b.Recipe)
-            .Include(b => b.VolumeProfile)
-            .Include(b => b.Ingredients)
-            .Include(b => b.MashSteps)
-            .Include(b => b.FermentationSteps)
-            .Include(b => b.StageHistory)
-            .Include(b => b.Readings)
-            .Include(b => b.SensorAssignments)
-            .Where(b => b.UserId == userId)
-            .OrderBy(b => b.BrewDate)
-            .ThenBy(b => b.CreatedAt)
-            .ToListAsync();
-
-        var batchDtos = batchEntities.Select(MapBatchToBackupDto).ToList();
-        var batchIds = batchEntities.Select(b => b.Id).ToHashSet();
-
-        // 9. Referenced External Community Recipes
-        var externalRecipeIds = batchEntities
-            .Where(b => b.RecipeId.HasValue && !userRecipeIds.Contains(b.RecipeId.Value))
-            .Select(b => b.RecipeId!.Value)
-            .Distinct()
-            .ToList();
-
-        var referencedExternalRecipes = new List<RecipeBackupDto>();
-        if (externalRecipeIds.Count > 0)
-        {
-            var extEntities = await _db.Recipes
+            // 7. Recipes (User-owned)
+            var userRecipeEntities = await _db.Recipes
                 .AsNoTracking()
                 .Include(r => r.Label)
                 .Include(r => r.Ingredients)
                     .ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.MashSteps)
                 .Include(r => r.FermentationSteps)
-                .Where(r => externalRecipeIds.Contains(r.Id) && r.IsPublic)
+                .Where(r => r.UserId == userId)
+                .OrderBy(r => r.CreatedAt)
                 .ToListAsync();
 
-            referencedExternalRecipes = extEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
-        }
+            var recipeDtos = userRecipeEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
+            var userRecipeIds = userRecipeEntities.Select(r => r.Id).ToHashSet();
 
-        // 10. Equipment Telemetry Readings
-        var equipmentReadings = new List<EquipmentReadingBackupDto>();
-        if (request.IncludeTelemetryReadings && (ownedEquipmentIds.Count > 0 || batchIds.Count > 0))
-        {
-            var readingEntities = await _db.EquipmentReadings
+            // 8. Batches
+            var batchEntities = await _db.Batches
                 .AsNoTracking()
-                .Where(er => (er.EquipmentId.HasValue && ownedEquipmentIds.Contains(er.EquipmentId.Value)) ||
-                             (er.BatchId.HasValue && batchIds.Contains(er.BatchId.Value)))
-                .OrderByDescending(er => er.Timestamp)
-                .Take(MaxExportedTelemetryReadings)
-                .OrderBy(er => er.Timestamp)
+                .Include(b => b.Recipe)
+                .Include(b => b.VolumeProfile)
+                .Include(b => b.Ingredients)
+                .Include(b => b.MashSteps)
+                .Include(b => b.FermentationSteps)
+                .Include(b => b.StageHistory)
+                .Include(b => b.Readings)
+                .Include(b => b.SensorAssignments)
+                .Where(b => b.UserId == userId)
+                .OrderBy(b => b.BrewDate)
+                .ThenBy(b => b.CreatedAt)
                 .ToListAsync();
 
-            equipmentReadings = readingEntities.Select(er => new EquipmentReadingBackupDto(
-                er.Id,
-                er.EquipmentId ?? Guid.Empty,
-                er.BatchId,
-                er.Stage,
-                er.BatchMashStepId,
-                er.StepName,
-                er.Timestamp,
-                er.TemperatureC,
-                er.SpecificGravity,
-                er.PressureBar,
-                er.BatteryPercent,
-                er.BatteryVoltage,
-                er.TiltDegrees,
-                er.Rssi,
-                er.MetricsJson,
-                er.Source,
-                er.RawPayload,
-                er.Notes,
-                er.CreatedAt
-            )).ToList();
+            var batchDtos = batchEntities.Select(MapBatchToBackupDto).ToList();
+            var batchIds = batchEntities.Select(b => b.Id).ToHashSet();
+
+            // 9. Referenced External Community Recipes
+            var externalRecipeIds = batchEntities
+                .Where(b => b.RecipeId.HasValue && !userRecipeIds.Contains(b.RecipeId.Value))
+                .Select(b => b.RecipeId!.Value)
+                .Distinct()
+                .ToList();
+
+            var referencedExternalRecipes = new List<RecipeBackupDto>();
+            if (externalRecipeIds.Count > 0)
+            {
+                var extEntities = await _db.Recipes
+                    .AsNoTracking()
+                    .Include(r => r.Label)
+                    .Include(r => r.Ingredients)
+                        .ThenInclude(ri => ri.Ingredient)
+                    .Include(r => r.MashSteps)
+                    .Include(r => r.FermentationSteps)
+                    .Where(r => externalRecipeIds.Contains(r.Id) && r.IsPublic)
+                    .ToListAsync();
+
+                referencedExternalRecipes = extEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
+            }
+
+            // 10. Equipment Telemetry Readings
+            var equipmentReadings = new List<EquipmentReadingBackupDto>();
+            if (request.IncludeTelemetryReadings && (ownedEquipmentIds.Count > 0 || batchIds.Count > 0))
+            {
+                var readingEntities = await _db.EquipmentReadings
+                    .AsNoTracking()
+                    .Where(er => (er.EquipmentId.HasValue && ownedEquipmentIds.Contains(er.EquipmentId.Value)) ||
+                                 (er.BatchId.HasValue && batchIds.Contains(er.BatchId.Value)))
+                    .OrderByDescending(er => er.Timestamp)
+                    .Take(MaxExportedTelemetryReadings)
+                    .OrderBy(er => er.Timestamp)
+                    .ToListAsync();
+
+                equipmentReadings = readingEntities.Select(er => new EquipmentReadingBackupDto(
+                    er.Id,
+                    er.EquipmentId ?? Guid.Empty,
+                    er.BatchId,
+                    er.Stage,
+                    er.BatchMashStepId,
+                    er.StepName,
+                    er.Timestamp,
+                    er.TemperatureC,
+                    er.SpecificGravity,
+                    er.PressureBar,
+                    er.BatteryPercent,
+                    er.BatteryVoltage,
+                    er.TiltDegrees,
+                    er.Rssi,
+                    er.MetricsJson,
+                    er.Source,
+                    er.RawPayload,
+                    er.Notes,
+                    er.CreatedAt
+                )).ToList();
+            }
+
+            var payload = new BackupPayload
+            {
+                UserSettings = userSettingsDto,
+                CustomIngredients = customIngredients,
+                IngredientStocks = stocks,
+                OwnedBrewerySetups = ownedSetups,
+                SharedSetupMemberships = sharedMemberships,
+                Equipment = equipmentDtos,
+                BrewLinkGateways = gatewayDtos,
+                Recipes = recipeDtos,
+                ReferencedExternalRecipes = referencedExternalRecipes,
+                Batches = batchDtos,
+                EquipmentReadings = equipmentReadings
+            };
+
+            var serializerOptions = BackupMigrationPipeline.CreateCanonicalSerializerOptions();
+            var dataElement = JsonSerializer.SerializeToElement(payload, serializerOptions);
+            var checksum = BackupMigrationPipeline.ComputeChecksumSha256(dataElement);
+
+            _logger.LogInformation(
+                "Exported user backup for user {UserId}: {Setups} setups, {Equipment} equipment, {Recipes} recipes, {Batches} batches",
+                userId, ownedSetups.Count, equipmentDtos.Count, recipeDtos.Count, batchDtos.Count);
+
+            return new BrewYouBackupEnvelope(
+                Format: BackupSchemaConstants.FormatIdentifier,
+                SchemaVersion: BackupSchemaConstants.CurrentSchemaVersion,
+                AppVersion: BackupSchemaConstants.CurrentAppVersion,
+                ExportedAtUtc: DateTime.UtcNow,
+                ChecksumSha256: checksum,
+                Data: dataElement,
+                Encryption: encryptionMeta);
         }
-
-        var payload = new BackupPayload
+        finally
         {
-            UserSettings = userSettingsDto,
-            CustomIngredients = customIngredients,
-            IngredientStocks = stocks,
-            OwnedBrewerySetups = ownedSetups,
-            SharedSetupMemberships = sharedMemberships,
-            Equipment = equipmentDtos,
-            BrewLinkGateways = gatewayDtos,
-            Recipes = recipeDtos,
-            ReferencedExternalRecipes = referencedExternalRecipes,
-            Batches = batchDtos,
-            EquipmentReadings = equipmentReadings
-        };
-
-        var serializerOptions = BackupMigrationPipeline.CreateCanonicalSerializerOptions();
-        var dataElement = JsonSerializer.SerializeToElement(payload, serializerOptions);
-        var checksum = BackupMigrationPipeline.ComputeChecksumSha256(dataElement);
-
-        _logger.LogInformation(
-            "Exported user backup for user {UserId}: {Setups} setups, {Equipment} equipment, {Recipes} recipes, {Batches} batches",
-            userId, ownedSetups.Count, equipmentDtos.Count, recipeDtos.Count, batchDtos.Count);
-
-        return new BrewYouBackupEnvelope(
-            Format: BackupSchemaConstants.FormatIdentifier,
-            SchemaVersion: BackupSchemaConstants.CurrentSchemaVersion,
-            AppVersion: BackupSchemaConstants.CurrentAppVersion,
-            ExportedAtUtc: DateTime.UtcNow,
-            ChecksumSha256: checksum,
-            Data: dataElement,
-            Encryption: encryptionMeta);
+            if (encryptionKey != null)
+            {
+                CryptographicOperations.ZeroMemory(encryptionKey);
+            }
+        }
     }
 
     public async Task<RestorePreviewReportDto> PreviewRestoreAsync(string userId, PreviewRestoreRequest request)
@@ -452,6 +470,11 @@ public class BackupService : IBackupService
         if (!checksumVerified)
         {
             warnings.Add("Backup checksum verification did not match. The file may have been manually edited.");
+        }
+
+        if (payload != null)
+        {
+            ValidatePayloadLimits(payload, errors);
         }
 
         if (payload == null || errors.Count > 0)
@@ -476,8 +499,12 @@ public class BackupService : IBackupService
         }
 
         // Check passphrase & secret encryption status
-        var (secretsEncrypted, passphraseRequired, passphraseValid, _) = ValidateAndDeriveEncryptionKey(
+        var (secretsEncrypted, passphraseRequired, passphraseValid, previewKey) = ValidateAndDeriveEncryptionKey(
             envelope, payload, options.Passphrase, warnings);
+        if (previewKey != null)
+        {
+            CryptographicOperations.ZeroMemory(previewKey);
+        }
 
         // Compute item counts
         var collaboratorCount = payload.OwnedBrewerySetups.Sum(s => s.Members?.Count ?? 0);
@@ -604,6 +631,11 @@ public class BackupService : IBackupService
         var envelope = request.Backup;
 
         var (payload, _, migrationNotes, warnings, errors) = _migrationPipeline.MigrateAndDeserialize(envelope);
+        if (payload != null)
+        {
+            ValidatePayloadLimits(payload, errors);
+        }
+
         if (payload == null || errors.Count > 0)
         {
             return (false, null, "INVALID_BACKUP_PAYLOAD", string.Join(" ", errors));
@@ -612,18 +644,20 @@ public class BackupService : IBackupService
         var (secretsEncrypted, passphraseRequired, passphraseValid, encryptionKey) = ValidateAndDeriveEncryptionKey(
             envelope, payload, options.Passphrase, warnings);
 
-        if (secretsEncrypted && !string.IsNullOrWhiteSpace(options.Passphrase) && !passphraseValid)
+        try
         {
-            return (false, null, "INVALID_PASSPHRASE", "The provided backup passphrase is incorrect.");
-        }
+            if (secretsEncrypted && !string.IsNullOrWhiteSpace(options.Passphrase) && !passphraseValid)
+            {
+                return (false, null, "INVALID_PASSPHRASE", "The provided backup passphrase is incorrect.");
+            }
 
-        foreach (var note in migrationNotes)
-        {
-            warnings.Add(note);
-        }
+            foreach (var note in migrationNotes)
+            {
+                warnings.Add(note);
+            }
 
-        var executionStrategy = _db.Database.CreateExecutionStrategy();
-        return await executionStrategy.ExecuteAsync<(bool Succeeded, RestoreResultDto? Result, string? ErrorCode, string? ErrorMessage)>(async () =>
+            var executionStrategy = _db.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync<(bool Succeeded, RestoreResultDto? Result, string? ErrorCode, string? ErrorMessage)>(async () =>
         {
             _db.ChangeTracker.Clear();
 
@@ -1458,11 +1492,11 @@ public class BackupService : IBackupService
                             {
                                 if (existingRecipe.Label != null)
                                 {
-                                    UpdateRecipeLabelFromDto(existingRecipe.Label, recipeDto.Label);
+                                    UpdateRecipeLabelFromDto(existingRecipe.Label, recipeDto.Label, normName, warnings);
                                 }
                                 else
                                 {
-                                    var newLabel = CreateRecipeLabelFromDto(existingRecipe.Id, recipeDto.Label);
+                                    var newLabel = CreateRecipeLabelFromDto(existingRecipe.Id, recipeDto.Label, normName, warnings);
                                     if (newLabel != null)
                                     {
                                         existingRecipe.Label = newLabel;
@@ -1514,7 +1548,7 @@ public class BackupService : IBackupService
                             IsPublic = recipeDto.IsPublic,
                             CreatedAt = recipeDto.CreatedAt == default ? DateTime.UtcNow : recipeDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow,
-                            Label = CreateRecipeLabelFromDto(newRecipeId, recipeDto.Label),
+                            Label = CreateRecipeLabelFromDto(newRecipeId, recipeDto.Label, uniqueName, warnings),
                             Ingredients = await BuildRecipeIngredientsAsync(newRecipeId, recipeDto.Ingredients, ResolveIngredientAsync),
                             MashSteps = BuildRecipeMashSteps(newRecipeId, recipeDto.MashSteps),
                             FermentationSteps = BuildRecipeFermentationSteps(newRecipeId, recipeDto.FermentationSteps)
@@ -1887,6 +1921,58 @@ public class BackupService : IBackupService
                 return (false, null, "RESTORE_FAILED", $"Restore failed: {ex.Message}");
             }
         });
+        }
+        finally
+        {
+            if (encryptionKey != null)
+            {
+                CryptographicOperations.ZeroMemory(encryptionKey);
+            }
+        }
+    }
+
+    private static void ValidatePayloadLimits(BackupPayload payload, List<string> errors)
+    {
+        if (payload.OwnedBrewerySetups.Count > MaxRestoredSetups)
+        {
+            errors.Add($"Backup exceeds maximum allowed owned brewery setups ({MaxRestoredSetups}).");
+        }
+        if (payload.SharedSetupMemberships.Count > MaxRestoredSetups)
+        {
+            errors.Add($"Backup exceeds maximum allowed shared setups ({MaxRestoredSetups}).");
+        }
+        if (payload.Equipment.Count > MaxRestoredEquipment)
+        {
+            errors.Add($"Backup exceeds maximum allowed equipment items ({MaxRestoredEquipment}).");
+        }
+        if (payload.BrewLinkGateways.Count > MaxRestoredGateways)
+        {
+            errors.Add($"Backup exceeds maximum allowed BrewLink gateways ({MaxRestoredGateways}).");
+        }
+        if (payload.CustomIngredients.Count > MaxRestoredIngredients)
+        {
+            errors.Add($"Backup exceeds maximum allowed custom ingredients ({MaxRestoredIngredients}).");
+        }
+        if (payload.IngredientStocks.Count > MaxRestoredIngredients)
+        {
+            errors.Add($"Backup exceeds maximum allowed ingredient stock entries ({MaxRestoredIngredients}).");
+        }
+        if (payload.Recipes.Count > MaxRestoredRecipes)
+        {
+            errors.Add($"Backup exceeds maximum allowed recipes ({MaxRestoredRecipes}).");
+        }
+        if (payload.ReferencedExternalRecipes.Count > MaxRestoredRecipes)
+        {
+            errors.Add($"Backup exceeds maximum allowed external recipes ({MaxRestoredRecipes}).");
+        }
+        if (payload.Batches.Count > MaxRestoredBatches)
+        {
+            errors.Add($"Backup exceeds maximum allowed batches ({MaxRestoredBatches}).");
+        }
+        if (payload.EquipmentReadings.Count > MaxRestoredTelemetryReadings)
+        {
+            errors.Add($"Backup exceeds maximum allowed telemetry readings ({MaxRestoredTelemetryReadings}).");
+        }
     }
 
     private EquipmentBackupDto MapEquipmentToBackupDto(Equipment e, bool includeSecrets, byte[]? encryptionKey)
@@ -2269,9 +2355,20 @@ public class BackupService : IBackupService
         byte[]? encryptionKey,
         List<string> warnings)
     {
-        if (!string.IsNullOrWhiteSpace(s.DisplayName) && !s.DisplayName.Contains('<') && !s.DisplayName.Contains('>'))
+        if (!string.IsNullOrWhiteSpace(s.DisplayName))
         {
-            user.DisplayName = s.DisplayName.Trim();
+            var trimmedName = s.DisplayName.Trim();
+            if (trimmedName.Length <= 100 &&
+                !trimmedName.Contains('<') &&
+                !trimmedName.Contains('>') &&
+                !trimmedName.Any(char.IsControl))
+            {
+                user.DisplayName = trimmedName;
+            }
+            else
+            {
+                warnings.Add("Skipped invalid display name from backup.");
+            }
         }
 
         var validLangs = new[] { "en", "sv", "de", "fr", "es" };
@@ -2310,25 +2407,128 @@ public class BackupService : IBackupService
             user.DefaultBoilTimeMinutes = s.DefaultBoilTimeMinutes;
         }
 
-        user.MqttHost = string.IsNullOrWhiteSpace(s.MqttHost) ? null : s.MqttHost.Trim();
+        if (string.IsNullOrWhiteSpace(s.MqttHost))
+        {
+            user.MqttHost = null;
+        }
+        else
+        {
+            var trimmedHost = s.MqttHost.Trim();
+            if (trimmedHost.Length <= 255 && !trimmedHost.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+            {
+                user.MqttHost = trimmedHost;
+            }
+            else
+            {
+                user.MqttHost = null;
+                warnings.Add("Skipped invalid MQTT host from backup.");
+            }
+        }
+
         user.MqttPort = s.MqttPort is >= 1 and <= 65535 ? s.MqttPort : 1883;
-        user.MqttUsername = string.IsNullOrWhiteSpace(s.MqttUsername) ? null : s.MqttUsername.Trim();
-        user.MqttCertificate = string.IsNullOrWhiteSpace(s.MqttCertificate) ? null : s.MqttCertificate.Trim();
-        user.MqttTopicPrefix = string.IsNullOrWhiteSpace(s.MqttTopicPrefix) ? "brewyou/equipment" : s.MqttTopicPrefix.Trim().Trim('/');
-        user.AppBaseUrl = string.IsNullOrWhiteSpace(s.AppBaseUrl) ? null : s.AppBaseUrl.Trim().TrimEnd('/');
-        user.WebhookBaseUrl = string.IsNullOrWhiteSpace(s.WebhookBaseUrl) ? null : s.WebhookBaseUrl.Trim().TrimEnd('/');
+
+        if (string.IsNullOrWhiteSpace(s.MqttUsername))
+        {
+            user.MqttUsername = null;
+        }
+        else
+        {
+            var trimmedUsername = s.MqttUsername.Trim();
+            if (trimmedUsername.Length <= 100 && !trimmedUsername.Any(char.IsControl))
+            {
+                user.MqttUsername = trimmedUsername;
+            }
+            else
+            {
+                user.MqttUsername = null;
+                warnings.Add("Skipped invalid MQTT username from backup.");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(s.MqttCertificate))
+        {
+            user.MqttCertificate = null;
+        }
+        else
+        {
+            var trimmedCert = s.MqttCertificate.Trim();
+            if (trimmedCert.Length <= 16384 &&
+                trimmedCert.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal) &&
+                trimmedCert.Contains("-----END CERTIFICATE-----", StringComparison.Ordinal))
+            {
+                user.MqttCertificate = trimmedCert;
+            }
+            else
+            {
+                user.MqttCertificate = null;
+                warnings.Add("Skipped invalid MQTT certificate from backup.");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(s.MqttTopicPrefix))
+        {
+            user.MqttTopicPrefix = "brewyou/equipment";
+        }
+        else
+        {
+            var trimmedPrefix = s.MqttTopicPrefix.Trim().Trim('/');
+            if (!string.IsNullOrWhiteSpace(trimmedPrefix) &&
+                trimmedPrefix.Length <= 150 &&
+                !trimmedPrefix.Contains('+') &&
+                !trimmedPrefix.Contains('#') &&
+                !trimmedPrefix.Contains('$') &&
+                !trimmedPrefix.Any(char.IsControl))
+            {
+                user.MqttTopicPrefix = trimmedPrefix;
+            }
+            else
+            {
+                user.MqttTopicPrefix = "brewyou/equipment";
+                warnings.Add("Skipped invalid MQTT topic prefix from backup and restored default.");
+            }
+        }
+
+        user.AppBaseUrl = SanitizeHttpUrl(s.AppBaseUrl, "App base URL", warnings);
+        user.WebhookBaseUrl = SanitizeHttpUrl(s.WebhookBaseUrl, "Webhook base URL", warnings);
 
         if (!string.IsNullOrWhiteSpace(s.MqttPasswordEncrypted))
         {
             if (encryptionKey != null && BackupSecretProtector.TryDecryptSecret(s.MqttPasswordEncrypted, encryptionKey, out var plainPwd) && !string.IsNullOrWhiteSpace(plainPwd))
             {
-                user.MqttPassword = BackupSecretProtector.ProtectServerSecret(plainPwd, _protector);
+                if (plainPwd.Length <= 255)
+                {
+                    user.MqttPassword = BackupSecretProtector.ProtectServerSecret(plainPwd, _protector);
+                }
+                else
+                {
+                    warnings.Add("Skipped MQTT password from backup because it exceeds maximum length.");
+                }
             }
             else
             {
                 warnings.Add("Skipped encrypted MQTT password because no valid passphrase was provided.");
             }
         }
+    }
+
+    private static string? SanitizeHttpUrl(string? rawUrl, string fieldLabel, List<string> warnings)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+        {
+            return null;
+        }
+
+        var trimmed = rawUrl.Trim().TrimEnd('/');
+        if (trimmed.Length <= 255 &&
+            !trimmed.Any(char.IsControl) &&
+            Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            return trimmed;
+        }
+
+        warnings.Add($"Skipped invalid {fieldLabel} from backup (only absolute HTTP/HTTPS URLs up to 255 characters are permitted).");
+        return null;
     }
 
     private async Task ExecuteReplaceAllCleanupAsync(string userId)
@@ -2390,39 +2590,33 @@ public class BackupService : IBackupService
         int restoredMembers = 0;
         var generatedInvites = new List<RestoredInviteInfoDto>();
 
+        // Security: Never look up arbitrary accounts in _db.Users or silently enroll unconsented users
+        // from an untrusted backup payload. Only preserve already-existing memberships on this setup;
+        // all other collaborators require explicit invitation acceptance.
+        List<BreweryMember> existingMembers = mode == CollaboratorRestoreMode.RestoreMembershipsIfAvailable
+            ? await _db.BreweryMembers
+                .AsNoTracking()
+                .Include(m => m.User)
+                .Where(m => m.BrewerySetupId == targetSetup.Id)
+                .ToListAsync()
+            : [];
+
         if (setupDto.Members != null)
         {
             foreach (var mDto in setupDto.Members)
             {
                 if (mDto.UserId == ownerUserId) continue;
 
-                ApplicationUser? targetUser = null;
-                if (mode == CollaboratorRestoreMode.RestoreMembershipsIfAvailable)
-                {
-                    targetUser = await _db.Users.FirstOrDefaultAsync(u => u.Id == mDto.UserId);
-                    if (targetUser == null && !string.IsNullOrWhiteSpace(mDto.Email))
-                    {
-                        var normEmail = mDto.Email.Trim().ToLowerInvariant();
-                        targetUser = await _db.Users.FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normEmail);
-                    }
-                }
+                var alreadyExistingMember = mode == CollaboratorRestoreMode.RestoreMembershipsIfAvailable &&
+                    existingMembers.Any(existing =>
+                        existing.UserId == mDto.UserId ||
+                        (!string.IsNullOrWhiteSpace(mDto.Email) &&
+                         !string.IsNullOrWhiteSpace(existing.User?.Email) &&
+                         string.Equals(existing.User.Email, mDto.Email.Trim(), StringComparison.OrdinalIgnoreCase)));
 
-                if (targetUser != null && targetUser.Id != ownerUserId)
+                if (alreadyExistingMember)
                 {
-                    var alreadyMember = await _db.BreweryMembers.AnyAsync(m =>
-                        m.BrewerySetupId == targetSetup.Id && m.UserId == targetUser.Id);
-                    if (!alreadyMember)
-                    {
-                        _db.BreweryMembers.Add(new BreweryMember
-                        {
-                            Id = Guid.NewGuid(),
-                            BrewerySetupId = targetSetup.Id,
-                            UserId = targetUser.Id,
-                            Role = mDto.Role,
-                            JoinedAt = mDto.JoinedAt == default ? DateTime.UtcNow : mDto.JoinedAt
-                        });
-                        restoredMembers++;
-                    }
+                    restoredMembers++;
                 }
                 else if (!string.IsNullOrWhiteSpace(mDto.Email) && !mDto.Email.Contains('*'))
                 {
@@ -2889,15 +3083,84 @@ public class BackupService : IBackupService
         return string.Concat(email.AsSpan(0, 1), "***", email.AsSpan(atIndex - 1));
     }
 
-    private static RecipeLabel? CreateRecipeLabelFromDto(Guid recipeId, RecipeLabelBackupDto? labelDto)
+    private NormalizedImage? TryNormalizeRestoredLabelImage(
+        RecipeLabelBackupDto labelDto,
+        string recipeName,
+        List<string> warnings)
     {
-        if (labelDto == null || string.IsNullOrWhiteSpace(labelDto.ImageBase64)) return null;
-        byte[] bytes;
+        if (string.IsNullOrWhiteSpace(labelDto.ImageBase64))
+        {
+            return null;
+        }
+
+        // Guard against oversized Base64 payloads before decoding
+        if (labelDto.ImageBase64.Length > (MaxRestoredLabelBytes * 4 / 3) + 16)
+        {
+            warnings.Add($"Skipped recipe label for '{recipeName}' because image data exceeds the 10 MB limit.");
+            return null;
+        }
+
+        byte[] rawBytes;
         try
         {
-            bytes = Convert.FromBase64String(labelDto.ImageBase64);
+            rawBytes = Convert.FromBase64String(labelDto.ImageBase64);
         }
         catch
+        {
+            warnings.Add($"Skipped recipe label for '{recipeName}' because Base64 image data was malformed.");
+            return null;
+        }
+
+        if (rawBytes.Length == 0 || rawBytes.Length > MaxRestoredLabelBytes)
+        {
+            warnings.Add($"Skipped recipe label for '{recipeName}' because image data size is invalid.");
+            return null;
+        }
+
+        var processor = _imageProcessor ?? new SkiaLabelImageProcessor();
+        try
+        {
+            using var stream = new MemoryStream(rawBytes, writable: false);
+            return processor.Normalize(stream, SanitizeOriginalFileName(labelDto.OriginalFileName));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rejected invalid recipe label image during backup restore for recipe '{RecipeName}'", recipeName);
+            warnings.Add($"Skipped invalid or unsupported recipe label image for '{recipeName}'.");
+            return null;
+        }
+    }
+
+    private static string? SanitizeOriginalFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        var nameOnly = Path.GetFileName(fileName.Trim());
+        var cleaned = new string(nameOnly.Where(c => !char.IsControl(c) && c != '<' && c != '>').ToArray());
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return null;
+        }
+
+        return cleaned.Length > 200 ? cleaned[..200] : cleaned;
+    }
+
+    private RecipeLabel? CreateRecipeLabelFromDto(
+        Guid recipeId,
+        RecipeLabelBackupDto? labelDto,
+        string recipeName,
+        List<string> warnings)
+    {
+        if (labelDto == null || string.IsNullOrWhiteSpace(labelDto.ImageBase64))
+        {
+            return null;
+        }
+
+        var normalized = TryNormalizeRestoredLabelImage(labelDto, recipeName, warnings);
+        if (normalized == null)
         {
             return null;
         }
@@ -2906,50 +3169,52 @@ public class BackupService : IBackupService
         {
             Id = Guid.NewGuid(),
             RecipeId = recipeId,
-            ContentType = string.IsNullOrWhiteSpace(labelDto.ContentType) ? "image/webp" : labelDto.ContentType,
-            ImageData = bytes,
-            WidthPx = labelDto.WidthPx > 0 ? labelDto.WidthPx : 1024,
-            HeightPx = labelDto.HeightPx > 0 ? labelDto.HeightPx : 1024,
-            SizeBytes = bytes.Length,
-            Sha256 = string.IsNullOrWhiteSpace(labelDto.Sha256) ? LabelUrlSigner.ComputeSha256(bytes) : labelDto.Sha256,
+            ContentType = normalized.ContentType,
+            ImageData = normalized.Bytes,
+            WidthPx = normalized.Width,
+            HeightPx = normalized.Height,
+            SizeBytes = normalized.SizeBytes,
+            Sha256 = normalized.Sha256,
             Version = labelDto.Version > 0 ? labelDto.Version : 1,
             BottleCrop = labelDto.BottleCrop != null ? labelDto.BottleCrop.ToEntity() : LabelCrop.Default,
             RoundCrop = labelDto.RoundCrop != null ? labelDto.RoundCrop.ToEntity() : LabelCrop.Default,
             RectCrop = labelDto.RectCrop != null ? labelDto.RectCrop.ToEntity() : LabelCrop.Default,
             RectOrientation = labelDto.RectOrientation,
-            BottleWidthMm = labelDto.BottleWidthMm,
-            BottleHeightMm = labelDto.BottleHeightMm,
-            OriginalFileName = labelDto.OriginalFileName,
+            BottleWidthMm = labelDto.BottleWidthMm is >= 20m and <= 300m ? labelDto.BottleWidthMm : 90.0m,
+            BottleHeightMm = labelDto.BottleHeightMm is >= 20m and <= 300m ? labelDto.BottleHeightMm : 120.0m,
+            OriginalFileName = SanitizeOriginalFileName(labelDto.OriginalFileName),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
     }
 
-    private static void UpdateRecipeLabelFromDto(RecipeLabel target, RecipeLabelBackupDto labelDto)
+    private void UpdateRecipeLabelFromDto(
+        RecipeLabel target,
+        RecipeLabelBackupDto labelDto,
+        string recipeName,
+        List<string> warnings)
     {
         if (!string.IsNullOrWhiteSpace(labelDto.ImageBase64))
         {
-            try
+            var normalized = TryNormalizeRestoredLabelImage(labelDto, recipeName, warnings);
+            if (normalized != null)
             {
-                target.ImageData = Convert.FromBase64String(labelDto.ImageBase64);
-                target.SizeBytes = target.ImageData.Length;
-                target.Sha256 = string.IsNullOrWhiteSpace(labelDto.Sha256)
-                    ? LabelUrlSigner.ComputeSha256(target.ImageData)
-                    : labelDto.Sha256;
-                target.ContentType = string.IsNullOrWhiteSpace(labelDto.ContentType) ? "image/webp" : labelDto.ContentType;
-                target.WidthPx = labelDto.WidthPx > 0 ? labelDto.WidthPx : target.WidthPx;
-                target.HeightPx = labelDto.HeightPx > 0 ? labelDto.HeightPx : target.HeightPx;
+                target.ImageData = normalized.Bytes;
+                target.SizeBytes = normalized.SizeBytes;
+                target.Sha256 = normalized.Sha256;
+                target.ContentType = normalized.ContentType;
+                target.WidthPx = normalized.Width;
+                target.HeightPx = normalized.Height;
             }
-            catch { }
         }
         target.Version = Math.Max(target.Version + 1, labelDto.Version);
         if (labelDto.BottleCrop != null) target.BottleCrop = labelDto.BottleCrop.ToEntity();
         if (labelDto.RoundCrop != null) target.RoundCrop = labelDto.RoundCrop.ToEntity();
         if (labelDto.RectCrop != null) target.RectCrop = labelDto.RectCrop.ToEntity();
         target.RectOrientation = labelDto.RectOrientation;
-        target.BottleWidthMm = labelDto.BottleWidthMm;
-        target.BottleHeightMm = labelDto.BottleHeightMm;
-        target.OriginalFileName = labelDto.OriginalFileName ?? target.OriginalFileName;
+        if (labelDto.BottleWidthMm is >= 20m and <= 300m) target.BottleWidthMm = labelDto.BottleWidthMm;
+        if (labelDto.BottleHeightMm is >= 20m and <= 300m) target.BottleHeightMm = labelDto.BottleHeightMm;
+        target.OriginalFileName = SanitizeOriginalFileName(labelDto.OriginalFileName) ?? target.OriginalFileName;
         target.UpdatedAt = DateTime.UtcNow;
     }
 }

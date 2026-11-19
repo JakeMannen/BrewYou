@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
+	import { settings, sanitizeHttpBaseUrl } from '$lib/stores/settings.svelte';
 	import { isLocalhostUrl } from '$lib/utils/batchQr';
 	import type { EquipmentDto, TapDisplayLinkDto } from '$lib/types/api';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
@@ -56,19 +56,24 @@
 	}
 
 	let activeAppBaseUrl = $derived(
-		customAppBase.trim() ? customAppBase.trim().replace(/\/+$/, '') : settings.resolvedAppBaseUrl
+		customAppBase.trim()
+			? sanitizeHttpBaseUrl(customAppBase) || settings.resolvedAppBaseUrl
+			: settings.resolvedAppBaseUrl
 	);
 
 	let activeApiBaseUrl = $derived.by(() => {
 		if (customApiBase.trim()) {
-			return customApiBase.trim().replace(/\/+$/, '');
+			const safeCustomApi = sanitizeHttpBaseUrl(customApiBase);
+			if (safeCustomApi) return safeCustomApi;
 		}
 		if (customAppBase.trim()) {
-			const trimmed = customAppBase.trim().replace(/\/+$/, '');
-			if (!isLocalhostUrl(trimmed) && trimmed.includes(':3000')) {
-				return trimmed.replace(':3000', ':5000');
+			const trimmed = sanitizeHttpBaseUrl(customAppBase);
+			if (trimmed) {
+				if (!isLocalhostUrl(trimmed) && trimmed.includes(':3000')) {
+					return trimmed.replace(':3000', ':5000');
+				}
+				return trimmed;
 			}
-			return trimmed;
 		}
 		return settings.resolvedWebhookBaseUrl;
 	});
@@ -146,6 +151,8 @@
 		const path = extractPath(linkData.kioskUrl);
 		return `${activeAppBaseUrl}${path}`;
 	});
+
+	let safeKioskHref = $derived(sanitizeHttpBaseUrl(kioskUrl) || '#');
 
 	let fullImageUrl = $derived.by(() => {
 		if (!linkData?.imageUrl) return '';
@@ -377,9 +384,9 @@
 								{t('taps.kiosk_web_link')}
 							</span>
 							<a
-								href={kioskUrl}
+								href={safeKioskHref}
 								target="_blank"
-								rel="noreferrer"
+								rel="noopener noreferrer"
 								class="flex items-center gap-1 text-[11px] font-semibold text-amber-600 hover:text-amber-500 dark:text-amber-400"
 							>
 								<span>{t('taps.open_kiosk_tab')}</span>

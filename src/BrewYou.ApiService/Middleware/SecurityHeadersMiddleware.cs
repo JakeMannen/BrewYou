@@ -9,6 +9,18 @@ public class SecurityHeadersMiddleware(RequestDelegate next)
         context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
         context.Response.Headers.Append("X-XSS-Protection", "0");
 
+        if (!context.Request.Path.StartsWithSegments("/scalar", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.OnStarting(() =>
+            {
+                if (!context.Response.Headers.ContainsKey("Content-Security-Policy"))
+                {
+                    context.Response.Headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+                }
+                return Task.CompletedTask;
+            });
+        }
+
         await next(context);
     }
 }

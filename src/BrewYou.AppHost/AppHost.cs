@@ -14,7 +14,9 @@ var apiService = builder.AddProject<Projects.BrewYou_ApiService>("apiservice")
     .WithReference(mqtt)
     .WaitFor(mqtt)
     .WithHttpEndpoint(port: 5000)
-    .WithUrl("/scalar/v1", "Scalar");
+    .WithUrl("/scalar/v1", "Scalar")
+    .WithEnvironment("NetworkSecurity__AllowPrivateNetworks", builder.Configuration["ALLOW_PRIVATE_NETWORKS"] ?? "true")
+    .WithEnvironment("NetworkSecurity__AllowLoopback", builder.Configuration["ALLOW_LOOPBACK_NETWORKS"] ?? "false");
 
 builder.AddNpmApp("web", "../BrewYou.Web", "dev")
     .WithReference(apiService)
