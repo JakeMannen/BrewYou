@@ -141,7 +141,19 @@ builder.Services.AddHttpClient("TelemetryPoller", client =>
 .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
 {
     AllowAutoRedirect = false, // Critical SSRF defense: Prevent following redirects to internal targets
-    ConnectTimeout = TimeSpan.FromSeconds(3)
+    ConnectTimeout = TimeSpan.FromSeconds(3),
+    ConnectCallback = NetworkSecurityValidator.CreateSsrfSafeConnectCallback(allowPrivateNetworks: false, allowLoopback: false)
+});
+builder.Services.AddHttpClient("BrewLinkPoller", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+    client.MaxResponseContentBufferSize = 64 * 1024;
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AllowAutoRedirect = false,
+    ConnectTimeout = TimeSpan.FromSeconds(3),
+    ConnectCallback = NetworkSecurityValidator.CreateSsrfSafeConnectCallback(allowPrivateNetworks: true, allowLoopback: false)
 });
 builder.Services.AddSingleton<ITelemetryBroadcastService, TelemetryBroadcastService>();
 builder.Services.AddSingleton<ITelemetryThrottlingService, TelemetryThrottlingService>();
@@ -162,10 +174,20 @@ builder.Services.AddHostedService<BrewLinkWebSocketWorker>();
 // FluentValidation
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-// Rate Limiting (thwart brute-force credential stuffing)
+// Rate Limiting (thwart brute-force credential stuffing and unbounded partition DoS)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Environment.IsDevelopment() ? 5000 : 300,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
     options.AddPolicy("auth-rate-limit", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
@@ -190,12 +212,22 @@ builder.Services.AddRateLimiter(options =>
             }));
     options.AddPolicy("telemetry-rate-limit", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Request.RouteValues["token"]?.ToString()
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Environment.IsDevelopment() ? 600 : 120,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+    options.AddPolicy("test-poll-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
                           ?? httpContext.Connection.RemoteIpAddress?.ToString()
                           ?? "anonymous",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 120,
+                PermitLimit = builder.Environment.IsDevelopment() ? 200 : 20,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -226,12 +258,10 @@ builder.Services.AddRateLimiter(options =>
             }));
     options.AddPolicy("tap-display-limit", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Request.RouteValues["token"]?.ToString()
-                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                          ?? "anonymous",
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 120,
+                PermitLimit = builder.Environment.IsDevelopment() ? 600 : 120,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -326,7 +356,7 @@ app.MapBrewerySetupEndpoints();
 app.MapBreweryCollaborationEndpoints();
 app.MapBatchEndpoints();
 app.MapBackupEndpoints().RequireRateLimiting("auth-rate-limit");
-app.MapTelemetryEndpoints().RequireRateLimiting("telemetry-rate-limit");
+app.MapTelemetryEndpoints();
 app.MapBrewLinkEndpoints();
 
 // Seed initial database catalog

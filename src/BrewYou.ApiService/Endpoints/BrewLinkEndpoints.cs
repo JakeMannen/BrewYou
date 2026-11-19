@@ -98,6 +98,7 @@ public static class BrewLinkEndpoints
             };
         })
         .WithName("ProvisionBrewLinkGatewayEquipment")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
@@ -125,6 +126,7 @@ public static class BrewLinkEndpoints
             return Results.Ok(ApiResponse.Ok());
         })
         .WithName("StartBrewLinkPairing")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
@@ -150,6 +152,7 @@ public static class BrewLinkEndpoints
             return Results.Ok(ApiResponse<BrewLinkGatewayDto>.Ok(gateway));
         })
         .WithName("PairBrewLinkGateway")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BrewLinkGatewayDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
@@ -176,6 +179,7 @@ public static class BrewLinkEndpoints
             return Results.Ok(ApiResponse<BrewLinkGatewayDto>.Ok(gateway));
         })
         .WithName("UpdateBrewLinkGateway")
+        .RequireRateLimiting("batch-write")
         .Produces<ApiResponse<BrewLinkGatewayDto>>(StatusCodes.Status200OK)
         .Produces<ApiResponse>(StatusCodes.Status400BadRequest)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized);
@@ -207,6 +211,7 @@ public static class BrewLinkEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteBrewLinkGateway")
+        .RequireRateLimiting("batch-write")
         .Produces(StatusCodes.Status204NoContent)
         .Produces<ApiResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ApiResponse>(StatusCodes.Status404NotFound)

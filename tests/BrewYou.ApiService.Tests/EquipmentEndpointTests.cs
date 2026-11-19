@@ -953,29 +953,37 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
-    public async Task ExistingGateway_WithoutEquipment_AutomaticallyAppearsInEquipmentSensorsList()
+    public async Task ExistingGateway_WithoutEquipment_DoesNotMutateDatabaseOnGet()
     {
         var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
-        var gw = await CreateTestGatewayAsync(userId);
+        await CreateTestGatewayAsync(userId);
 
         var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
         env!.Success.Should().BeTrue();
-        env.Data.Should().Contain(e => e.Type == EquipmentType.Sensor && e.Subtype == EquipmentSubtype.BrewLink &&
-            e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gw.Id.ToString()));
+        env.Data.Should().NotContain(e => e.Subtype == EquipmentSubtype.BrewLink,
+            "GET /equipment must be side-effect-free and must not insert BrewLink sensor rows");
     }
 
     [Fact]
     public async Task SyncBrewLinkState_OnBrewLinkSensor_ReturnsBadRequest()
     {
-        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
         var gw = await CreateTestGatewayAsync(userId);
 
-        var response = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
-        var env = await response.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>();
-        var sensor = env!.Data!.First(e => e.Subtype == EquipmentSubtype.BrewLink);
+        var createRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewLink Gateway Sensor",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}"
+        ));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sensor = (await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
 
         var syncResponse = await client.PostAsync($"/api/v1/inventory/equipment/{sensor.Id}/brewlink/sync", null);
         syncResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -984,11 +992,19 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task BrewLinkSensor_NeverReturnsTemperatureOrTelemetryMetricsInDto()
     {
-        var (client, userId, _, _) = await CreateAuthenticatedUserAsync();
+        var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
         var gw = await CreateTestGatewayAsync(userId);
 
-        // Auto-provision sensor via equipment endpoint
-        await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
+        var createRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: "BrewLink Gateway Sensor",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}"
+        ));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -1294,11 +1310,18 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         var (client, userId, _, setupId) = await CreateAuthenticatedUserAsync();
         var gw = await CreateTestGatewayAsync(userId);
 
-        // Fetch the automatically provisioned sensor
-        var listRes = await client.GetAsync("/api/v1/inventory/equipment?type=Sensor");
-        listRes.StatusCode.Should().Be(HttpStatusCode.OK);
-        var sensors = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
-        var sensor = sensors.First(s => s.Subtype == EquipmentSubtype.BrewLink);
+        // Create the BrewLink gateway sensor explicitly
+        var createRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: gw.Name,
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.BrewLink,
+            ConnectionType: EquipmentConnectionType.BrewLink,
+            ConnectionConfigJson: $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}"
+        ));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sensor = (await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
 
         // Rename the sensor via Equipment update endpoint
         var updateReq = new UpdateEquipmentRequest(

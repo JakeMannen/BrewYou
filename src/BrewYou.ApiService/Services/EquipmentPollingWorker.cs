@@ -52,6 +52,7 @@ public class EquipmentPollingWorker : BackgroundService
 
         var pollingEquipment = await db.Equipment
             .AsNoTracking()
+            .Include(e => e.BrewerySetup)
             .Where(e => (e.ConnectionType == EquipmentConnectionType.HttpPoll ||
                          (e.ConnectionType == EquipmentConnectionType.BrewLink && !(e.Type == EquipmentType.Sensor && e.Subtype != EquipmentSubtype.BrewLink))) &&
                         !string.IsNullOrEmpty(e.ConnectionConfigJson))
@@ -91,7 +92,9 @@ public class EquipmentPollingWorker : BackgroundService
                 {
                     try
                     {
-                        var gateway = await db.BrewLinkGateways.AsNoTracking().FirstOrDefaultAsync(g => g.Id == gwGuid.Value, cancellationToken);
+                        var setupOwnerId = eq.BrewerySetup?.UserId ?? eq.UserId;
+                        var gateway = await db.BrewLinkGateways.AsNoTracking()
+                            .FirstOrDefaultAsync(g => g.Id == gwGuid.Value && g.UserId == setupOwnerId, cancellationToken);
                         if (gateway != null)
                         {
                             var tokenProtector = _serviceProvider.GetRequiredService<IDataProtectionProvider>().CreateProtector("BrewYou.BrewLinkCredentials");
@@ -100,7 +103,7 @@ public class EquipmentPollingWorker : BackgroundService
                             if (isValidHost && normalizedHost != null)
                             {
                                 var httpClientFactory = _serviceProvider.GetRequiredService<IHttpClientFactory>();
-                                var client = httpClientFactory.CreateClient("TelemetryPoller");
+                                var client = httpClientFactory.CreateClient("BrewLinkPoller");
                                 using var req = new HttpRequestMessage(HttpMethod.Get, $"{normalizedHost.TrimEnd('/')}/api/equipment");
                                 req.Headers.Add("Authorization", $"Bearer {token}");
                                 req.Headers.Add("X-BrewLink-Token", token);

@@ -552,5 +552,306 @@ public class EquipmentAdversarialTests : IClassFixture<WebApplicationFactory<Pro
         }
     }
 
+    [Fact]
+    public async Task Adversarial_H2_BrewerDeletesOwnBrewLinkSensor_DoesNotCascadeToOwnerEquipmentOrGateway()
+    {
+        var (ownerClient, ownerId, _, ownerSetupId) = await CreateUserAsync("h2_owner");
+        var (brewerClient, brewerId, brewerEmail, _) = await CreateUserAsync("h2_brewer");
+
+        // Owner invites Brewer
+        var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{ownerSetupId}/invites",
+            new InviteMemberRequest(brewerEmail, BreweryRole.Brewer));
+        inviteRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
+        var acceptRes = await brewerClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept",
+            new AcceptInviteRequest(inviteCode));
+        acceptRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Seed Owner's gateway G and Owner's Boiler linked to G
+        Guid gatewayId;
+        Guid ownerBoilerId;
+        Guid brewerSensorId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var gw = new BrewLinkGateway
+            {
+                Id = Guid.NewGuid(),
+                UserId = ownerId,
+                Name = "Owner Gateway",
+                Host = "192.168.1.50",
+                GatewayId = "AABBCCDDEEFF",
+                ApiToken = "encrypted-token"
+            };
+            db.BrewLinkGateways.Add(gw);
+            gatewayId = gw.Id;
+
+            var ownerBoiler = new Equipment
+            {
+                Id = Guid.NewGuid(),
+                UserId = ownerId,
+                BrewerySetupId = ownerSetupId,
+                Name = "Owner G30 Boiler",
+                Type = EquipmentType.Boiler,
+                Subtype = EquipmentSubtype.AllInOne,
+                Capacity = 30m,
+                CapacityLiters = 30m,
+                ConnectionType = EquipmentConnectionType.BrewLink,
+                ConnectionConfigJson = $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"112233445566\",\"slot\":1}}"
+            };
+            db.Equipment.Add(ownerBoiler);
+            ownerBoilerId = ownerBoiler.Id;
+
+            // Brewer creates/owns a BrewLink sensor pointing to Owner's gateway
+            var brewerSensor = new Equipment
+            {
+                Id = Guid.NewGuid(),
+                UserId = brewerId,
+                BrewerySetupId = ownerSetupId,
+                Name = "Brewer Rogue BrewLink Sensor",
+                Type = EquipmentType.Sensor,
+                Subtype = EquipmentSubtype.BrewLink,
+                ConnectionType = EquipmentConnectionType.BrewLink,
+                ConnectionConfigJson = $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}"
+            };
+            db.Equipment.Add(brewerSensor);
+            brewerSensorId = brewerSensor.Id;
+
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Brewer force-deletes their own BrewLink sensor
+        var deleteRes = await brewerClient.DeleteAsync($"/api/v1/inventory/equipment/{brewerSensorId}?force=true");
+        deleteRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Assert: Brewer's sensor is gone, but Owner's Boiler and Gateway MUST survive
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            (await db.Equipment.AnyAsync(e => e.Id == brewerSensorId)).Should().BeFalse();
+            (await db.Equipment.AnyAsync(e => e.Id == ownerBoilerId)).Should().BeTrue("Owner's linked BrewLink boiler must not be cascade-deleted by a Brewer");
+            (await db.BrewLinkGateways.AnyAsync(g => g.Id == gatewayId)).Should().BeTrue("Owner's gateway must survive");
+        }
+    }
+
+    [Fact]
+    public async Task Adversarial_H3_RemovedCollaborator_LosesAllAccessAndSseEvents_EvenForCreatedEquipment()
+    {
+        var (ownerClient, ownerId, _, ownerSetupId) = await CreateUserAsync("h3_owner");
+        var (collabClient, collabId, collabEmail, _) = await CreateUserAsync("h3_collab");
+
+        // Owner invites Collaborator as Brewer
+        var inviteRes = await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{ownerSetupId}/invites",
+            new InviteMemberRequest(collabEmail, BreweryRole.Brewer));
+        inviteRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var inviteCode = (await inviteRes.Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!.InviteCode;
+        (await collabClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inviteCode)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Collaborator creates equipment in Owner's setup
+        var createdEq = await CreateEquipmentAsync(
+            collabClient, ownerSetupId, "Collab Created Fermenter", EquipmentType.Fermenter, EquipmentSubtype.ConicalFermenter, 30m);
+
+        // Owner configures HttpPush on that equipment so it can ingest telemetry
+        var updateRes = await ownerClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{createdEq.Id}", new UpdateEquipmentRequest(
+            Name: createdEq.Name,
+            Type: EquipmentType.Fermenter,
+            Capacity: 30m,
+            Subtype: EquipmentSubtype.ConicalFermenter,
+            ConnectionType: EquipmentConnectionType.HttpPush));
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedWithToken = (await updateRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var pushToken = updatedWithToken.ConnectionToken!;
+
+        // Open SSE stream for collaborator BEFORE removal
+        using var sseCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var sseReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/inventory/equipment/telemetry-stream");
+        sseReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        using var sseRes = await collabClient.SendAsync(sseReq, HttpCompletionOption.ResponseHeadersRead, sseCts.Token);
+        sseRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var sseStream = await sseRes.Content.ReadAsStreamAsync(sseCts.Token);
+        using var sseReader = new StreamReader(sseStream);
+        (await sseReader.ReadLineAsync(sseCts.Token)).Should().Be(": connected");
+        await sseReader.ReadLineAsync(sseCts.Token);
+
+        // Owner removes collaborator
+        var removeRes = await ownerClient.DeleteAsync($"/api/v1/brewery-setups/{ownerSetupId}/members/{collabId}");
+        removeRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Removed collaborator must get 404 on GET, PUT, DELETE, readings, test-poll
+        (await collabClient.GetAsync($"/api/v1/inventory/equipment/{createdEq.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await collabClient.GetAsync($"/api/v1/inventory/equipment/{createdEq.Id}/readings")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await collabClient.PostAsync($"/api/v1/inventory/equipment/{createdEq.Id}/test-poll", null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await collabClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{createdEq.Id}", new UpdateEquipmentRequest(
+            Name: "Hijacked",
+            Type: EquipmentType.Fermenter,
+            Capacity: 30m))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await collabClient.DeleteAsync($"/api/v1/inventory/equipment/{createdEq.Id}?force=true")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var listRes = await collabClient.GetAsync("/api/v1/inventory/equipment");
+        var list = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        list.Should().NotContain(e => e.Id == createdEq.Id);
+
+        // Ingest telemetry via header and verify removed collaborator receives NO SSE events
+        var publicClient = _factory.CreateClient();
+        using var ingestReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment");
+        ingestReq.Headers.Add("X-BrewYou-Device-Token", pushToken);
+        ingestReq.Content = JsonContent.Create(new { temperature = 19.2, unit = "C" });
+        (await publicClient.SendAsync(ingestReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Owner creates a dummy equipment event on collaborator's own setup or wait briefly to ensure no event arrives for createdEq
+        var readTask = sseReader.ReadLineAsync(sseCts.Token).AsTask();
+        var completed = await Task.WhenAny(readTask, Task.Delay(350));
+        if (completed == readTask)
+        {
+            var line = await readTask;
+            line.Should().NotContain(createdEq.Id.ToString());
+        }
+    }
+
+    [Fact]
+    public async Task Adversarial_H3_MovingEquipmentToAnotherSetup_ClearsForeignBrewLinkGateway_AndBlocksBrewerMove()
+    {
+        var (ownerClient, ownerId, _, setup1Id) = await CreateUserAsync("move_owner");
+        var (coOwnerClient, coOwnerId, coOwnerEmail, coOwnerOwnSetupId) = await CreateUserAsync("move_coowner");
+        var (brewerClient, _, brewerEmail, brewerOwnSetupId) = await CreateUserAsync("move_brewer");
+
+        // Owner invites coOwner as Owner on Setup 1, and brewer as Brewer on Setup 1
+        var invCo = (await (await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setup1Id}/invites",
+            new InviteMemberRequest(coOwnerEmail, BreweryRole.Owner))).Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!;
+        await coOwnerClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(invCo.InviteCode));
+
+        var invBr = (await (await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{setup1Id}/invites",
+            new InviteMemberRequest(brewerEmail, BreweryRole.Brewer))).Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!;
+        await brewerClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(invBr.InviteCode));
+
+        Guid gwId;
+        Guid boilerId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var gw = new BrewLinkGateway
+            {
+                Id = Guid.NewGuid(),
+                UserId = ownerId,
+                Name = "Owner Only GW",
+                Host = "192.168.1.55",
+                GatewayId = "112233445566",
+                ApiToken = "enc"
+            };
+            db.BrewLinkGateways.Add(gw);
+            gwId = gw.Id;
+
+            var boiler = new Equipment
+            {
+                Id = Guid.NewGuid(),
+                UserId = ownerId,
+                BrewerySetupId = setup1Id,
+                Name = "Linked Boiler",
+                Type = EquipmentType.Boiler,
+                Subtype = EquipmentSubtype.AllInOne,
+                Capacity = 30m,
+                CapacityLiters = 30m,
+                ConnectionType = EquipmentConnectionType.BrewLink,
+                ConnectionConfigJson = $"{{\"brewLinkGatewayId\":\"{gw.Id}\",\"targetMac\":\"AABBCCDDEEFF\",\"slot\":1}}"
+            };
+            db.Equipment.Add(boiler);
+            boilerId = boiler.Id;
+            await db.SaveChangesAsync();
+        }
+
+        // Brewer cannot move equipment out of Setup 1 into Brewer's own setup
+        var brewerMoveRes = await brewerClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{boilerId}", new UpdateEquipmentRequest(
+            Name: "Stolen Boiler",
+            Type: EquipmentType.Boiler,
+            Capacity: 30m,
+            BrewerySetupId: brewerOwnSetupId));
+        brewerMoveRes.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // Co-Owner moves boiler from Setup 1 to Co-Owner's own setup (where Owner does not own coOwnerOwnSetupId)
+        var moveRes = await coOwnerClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{boilerId}", new UpdateEquipmentRequest(
+            Name: "Moved Boiler",
+            Type: EquipmentType.Boiler,
+            Capacity: 30m,
+            BrewerySetupId: coOwnerOwnSetupId,
+            Subtype: EquipmentSubtype.AllInOne));
+        moveRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var movedDto = (await moveRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        movedDto.BrewerySetupId.Should().Be(coOwnerOwnSetupId);
+        movedDto.ConnectionType.Should().Be(EquipmentConnectionType.None, "foreign BrewLink gateway binding must be cleared when moved to a setup with a different owner");
+        movedDto.ConnectionConfigJson.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Adversarial_L1_L2_L3_NonMemberOracle_BrewerConnectivity_AndSearchWildcards()
+    {
+        var (ownerClient, _, _, ownerSetupId) = await CreateUserAsync("l123_owner");
+        var (brewerClient, _, brewerEmail, _) = await CreateUserAsync("l123_brewer");
+        var (outsiderClient, _, _, _) = await CreateUserAsync("l123_outsider");
+
+        var boiler = await CreateEquipmentAsync(ownerClient, ownerSetupId, "Alpha Kettle", EquipmentType.Boiler, EquipmentSubtype.AllInOne, 35m);
+        await CreateEquipmentAsync(ownerClient, ownerSetupId, "Beta Fermenter", EquipmentType.Fermenter, EquipmentSubtype.Bucket, 30m);
+
+        var inv = (await (await ownerClient.PostAsJsonAsync($"/api/v1/brewery-setups/{ownerSetupId}/invites",
+            new InviteMemberRequest(brewerEmail, BreweryRole.Brewer))).Content.ReadFromJsonAsync<ApiResponse<BreweryInviteDto>>())!.Data!;
+        await brewerClient.PostAsJsonAsync("/api/v1/brewery-setups/invites/accept", new AcceptInviteRequest(inv.InviteCode));
+
+        // L1: Outsider must receive 404 (not 403 / 400 type oracle) on all equipment sub-endpoints even for a Boiler
+        (await outsiderClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}/tap-assignment", new AssignTapRequest(BatchId: Guid.NewGuid()))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}/tap-assignment")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}/keg-assignment", new AssignKegBatchRequest())).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}/keg-assignment")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}/display-link")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.PostAsync($"/api/v1/inventory/equipment/{boiler.Id}/display-link", null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}/display-link")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsiderClient.PostAsync($"/api/v1/inventory/equipment/{boiler.Id}/regenerate-token", null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // L2a: Brewer cannot create or modify connectivity
+        var brewerCreateConnRes = await brewerClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: ownerSetupId,
+            Name: "Brewer Poll Sensor",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            ConnectionType: EquipmentConnectionType.HttpPoll,
+            ConnectionConfigJson: "{\"url\":\"http://127.0.0.1:5000\"}"));
+        brewerCreateConnRes.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var brewerUpdateConnRes = await brewerClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}", new UpdateEquipmentRequest(
+            Name: boiler.Name,
+            Type: EquipmentType.Boiler,
+            Capacity: 35m,
+            ConnectionType: EquipmentConnectionType.HttpPoll,
+            ConnectionConfigJson: "{\"url\":\"http://127.0.0.1:5000\"}"));
+        brewerUpdateConnRes.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // L2b: Owner MQTT password is NOT preserved when brokerHost changes
+        var mqttCreateRes = await ownerClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: ownerSetupId,
+            Name: "MQTT Boiler",
+            Type: EquipmentType.Boiler,
+            Capacity: 35m,
+            ConnectionType: EquipmentConnectionType.Mqtt,
+            ConnectionConfigJson: "{\"brokerHost\":\"mqtt.good.local\",\"brokerPort\":1883,\"topic\":\"brew/t\",\"password\":\"super-secret\"}"));
+        mqttCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var mqttEq = (await mqttCreateRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        mqttEq.ConnectionConfigJson.Should().Contain("\"hasPassword\":true");
+
+        var mqttChangeHostRes = await ownerClient.PutAsJsonAsync($"/api/v1/inventory/equipment/{mqttEq.Id}", new UpdateEquipmentRequest(
+            Name: mqttEq.Name,
+            Type: EquipmentType.Boiler,
+            Capacity: 35m,
+            ConnectionType: EquipmentConnectionType.Mqtt,
+            ConnectionConfigJson: "{\"brokerHost\":\"attacker.evil.local\",\"brokerPort\":1883,\"topic\":\"brew/t\",\"password\":\"\"}"));
+        mqttChangeHostRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var mqttUpdated = (await mqttChangeHostRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        mqttUpdated.ConnectionConfigJson.Should().NotContain("\"hasPassword\":true");
+
+        // L3: Search with '%' or '_' must not act as wildcard matching unrelated items
+        var wildcardRes = await ownerClient.GetAsync("/api/v1/inventory/equipment?search=%25");
+        wildcardRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var wildcardList = (await wildcardRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        wildcardList.Should().BeEmpty();
+    }
+
     #endregion
 }

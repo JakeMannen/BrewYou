@@ -54,15 +54,14 @@ public class EquipmentService : IEquipmentService
     {
         var userUnit = await GetUserPreferredUnitAsync(userId);
 
-        await EnsureBrewLinkGatewaySensorsAsync(userId);
-
         var query = _db.Equipment.AsNoTracking()
             .Include(e => e.AssignedBatch)
             .Include(e => e.AssignedKeg)
                 .ThenInclude(k => k!.AssignedBatch)
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
-            .Where(e => e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))));
+            .Where(e => (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))) ||
+                        (e.BrewerySetup == null && e.UserId == userId));
 
         if (setupId.HasValue)
         {
@@ -76,10 +75,20 @@ public class EquipmentService : IEquipmentService
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
-            query = query.Where(e =>
-                EF.Functions.ILike(e.Name, $"%{term}%") ||
-                (e.Description != null && EF.Functions.ILike(e.Description, $"%{term}%")));
+            var rawTerm = search.Trim();
+            if (_db.Database.IsInMemory())
+            {
+                query = query.Where(e =>
+                    e.Name.Contains(rawTerm, StringComparison.OrdinalIgnoreCase) ||
+                    (e.Description != null && e.Description.Contains(rawTerm, StringComparison.OrdinalIgnoreCase)));
+            }
+            else
+            {
+                var term = EscapeLikePattern(rawTerm);
+                query = query.Where(e =>
+                    EF.Functions.ILike(e.Name, $"%{term}%", @"\") ||
+                    (e.Description != null && EF.Functions.ILike(e.Description, $"%{term}%", @"\")));
+            }
         }
 
         var total = await query.CountAsync();
@@ -96,7 +105,7 @@ public class EquipmentService : IEquipmentService
 
         var items = entities.Select(e =>
         {
-            var isOwner = e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+            var isOwner = EquipmentAccessHelper.IsOwner(e, userId);
             return ToDto(e, isOwner);
         }).ToList();
 
@@ -112,14 +121,16 @@ public class EquipmentService : IEquipmentService
                 .ThenInclude(k => k!.AssignedBatch)
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
-            .FirstOrDefaultAsync(e => e.Id == id && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId)))));
+            .FirstOrDefaultAsync(e => e.Id == id &&
+                ((e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))) ||
+                 (e.BrewerySetup == null && e.UserId == userId)));
 
         if (entity == null)
         {
             return (EquipmentAccessResult.NotFound, null);
         }
 
-        var isOwner = entity.UserId == userId || (entity.BrewerySetup != null && (entity.BrewerySetup.UserId == userId || entity.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+        var isOwner = EquipmentAccessHelper.IsOwner(entity, userId);
         return (EquipmentAccessResult.Success, ToDto(entity, isOwner));
     }
 
@@ -133,10 +144,12 @@ public class EquipmentService : IEquipmentService
         }
 
         BrewerySetup? targetSetup;
+        bool isSetupOwner;
         var targetSetupId = request.BrewerySetupId;
         if (targetSetupId == Guid.Empty)
         {
             targetSetup = await _db.BrewerySetups
+                .Include(s => s.Members)
                 .Where(s => s.UserId == userId)
                 .OrderByDescending(s => s.IsDefault)
                 .ThenBy(s => s.CreatedAt)
@@ -161,6 +174,7 @@ public class EquipmentService : IEquipmentService
             }
 
             targetSetupId = targetSetup.Id;
+            isSetupOwner = true;
         }
         else
         {
@@ -173,9 +187,9 @@ public class EquipmentService : IEquipmentService
                 return (EquipmentAccessResult.NotFound, null, "Brewery setup not found.");
             }
 
-            var isOwner = targetSetup.UserId == userId || targetSetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner);
+            isSetupOwner = EquipmentAccessHelper.IsSetupOwner(targetSetup, userId);
             var isBrewer = targetSetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-            if (!isOwner && !isBrewer)
+            if (!isSetupOwner && !isBrewer)
             {
                 return (EquipmentAccessResult.Forbidden, null, "Viewers cannot create equipment.");
             }
@@ -226,10 +240,19 @@ public class EquipmentService : IEquipmentService
         var connectionType = isTap
             ? EquipmentConnectionType.None
             : (isBrewLinkSensor ? EquipmentConnectionType.BrewLink : (request.ConnectionType ?? EquipmentConnectionType.None));
-        string? connectionToken = null;
+
+        if (!isSetupOwner &&
+            (connectionType != EquipmentConnectionType.None || !string.IsNullOrWhiteSpace(request.ConnectionConfigJson)))
+        {
+            return (EquipmentAccessResult.Forbidden, null, "Only brewery owners can configure equipment connectivity.");
+        }
+
+        string? plainConnectionToken = null;
+        string? connectionTokenHash = null;
         if (connectionType == EquipmentConnectionType.HttpPush)
         {
-            connectionToken = GenerateConnectionToken();
+            plainConnectionToken = GenerateConnectionToken();
+            connectionTokenHash = HashConnectionToken(plainConnectionToken);
         }
 
         string? connectionConfigJson = request.ConnectionConfigJson;
@@ -270,10 +293,11 @@ public class EquipmentService : IEquipmentService
                         return (EquipmentAccessResult.Conflict, null, "BrewLink configuration must include a valid brewLinkGatewayId and a target device (targetMac, slot, or targetName).");
                     }
 
-                    var gatewayExists = await _db.BrewLinkGateways
-                        .AnyAsync(g => g.Id == parsedGwId && (g.UserId == userId || g.UserId == targetSetup.UserId));
+                    var candidateGateway = await _db.BrewLinkGateways
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(g => g.Id == parsedGwId);
 
-                    if (!gatewayExists)
+                    if (candidateGateway == null || !EquipmentAccessHelper.GatewayBelongsToSetupOwner(candidateGateway, targetSetup, userId))
                     {
                         return (EquipmentAccessResult.Conflict, null, "The specified BrewLink gateway was not found or is not paired.");
                     }
@@ -288,7 +312,7 @@ public class EquipmentService : IEquipmentService
                     if (isBrewLinkSensor && parsedGwId != Guid.Empty)
                     {
                         var existingSensor = await _db.Equipment
-                            .FirstOrDefaultAsync(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink &&
+                            .FirstOrDefaultAsync(e => e.BrewerySetupId == targetSetupId && e.Subtype == EquipmentSubtype.BrewLink &&
                                 e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(parsedGwId.ToString()));
                         if (existingSensor != null)
                         {
@@ -296,7 +320,7 @@ public class EquipmentService : IEquipmentService
                             existingSensor.BrewerySetupId = targetSetupId;
                             existingSensor.UpdatedAt = DateTime.UtcNow;
                             await _db.SaveChangesAsync();
-                            return (EquipmentAccessResult.Success, ToDto(existingSensor, true), null);
+                            return (EquipmentAccessResult.Success, ToDto(existingSensor, isSetupOwner), null);
                         }
                     }
                 }
@@ -330,7 +354,7 @@ public class EquipmentService : IEquipmentService
             CurrentTemperatureC = (isTap || isBrewLinkSensor) ? null : request.CurrentTemperatureC,
             TemperatureUpdatedAt = (isTap || isBrewLinkSensor) ? null : (request.CurrentTemperatureC.HasValue ? DateTime.UtcNow : null),
             ConnectionType = connectionType,
-            ConnectionToken = connectionToken,
+            ConnectionToken = connectionTokenHash,
             ConnectionConfigJson = isTap ? null : ProtectConfigJson(connectionConfigJson),
             DisplayWidthPx = request.DisplayWidthPx,
             DisplayHeightPx = request.DisplayHeightPx,
@@ -353,7 +377,7 @@ public class EquipmentService : IEquipmentService
         }
 
         _logger.LogInformation("Equipment {EquipmentId} created for user {UserId} in setup {SetupId}", equipment.Id, userId, targetSetupId);
-        return (EquipmentAccessResult.Success, ToDto(equipment), null);
+        return (EquipmentAccessResult.Success, ToDto(equipment, isSetupOwner, plainConnectionToken), null);
     }
 
     public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> UpdateEquipmentAsync(
@@ -372,28 +396,68 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
         }
 
-        var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
-        if (!isMember)
+        if (!EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
         }
 
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
         if (!isOwner && !isBrewer)
         {
             return (EquipmentAccessResult.Forbidden, null, "Viewers cannot edit equipment in this brewery setup.");
         }
 
-        var targetSetupId = request.BrewerySetupId ?? equipment.BrewerySetupId;
-        if (request.BrewerySetupId.HasValue && request.BrewerySetupId.Value != equipment.BrewerySetupId)
+        var setupChanged = request.BrewerySetupId.HasValue && request.BrewerySetupId.Value != equipment.BrewerySetupId;
+        if (!isOwner)
         {
-            var setupExists = await _db.BrewerySetups.AnyAsync(s => s.Id == request.BrewerySetupId.Value && (s.UserId == userId || s.Members.Any(m => m.UserId == userId && m.Role != BreweryRole.Viewer)));
-            if (!setupExists)
+            if (setupChanged)
+            {
+                return (EquipmentAccessResult.Forbidden, null, "Only brewery owners can move equipment between setups.");
+            }
+
+            if ((request.ConnectionType.HasValue && request.ConnectionType.Value != equipment.ConnectionType) ||
+                !string.IsNullOrWhiteSpace(request.ConnectionConfigJson) ||
+                (request.Subtype == EquipmentSubtype.BrewLink && equipment.Subtype != EquipmentSubtype.BrewLink) ||
+                (request.Type == EquipmentType.Tap && equipment.ConnectionType != EquipmentConnectionType.None))
+            {
+                return (EquipmentAccessResult.Forbidden, null, "Only brewery owners can configure equipment connectivity.");
+            }
+        }
+
+        var targetSetupId = request.BrewerySetupId ?? equipment.BrewerySetupId;
+        if (setupChanged)
+        {
+            var targetSetup = await _db.BrewerySetups
+                .Include(s => s.Members)
+                .FirstOrDefaultAsync(s => s.Id == request.BrewerySetupId!.Value &&
+                    (s.UserId == userId || s.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
+            if (targetSetup == null)
             {
                 return (EquipmentAccessResult.NotFound, null, "Brewery setup not found.");
             }
-            equipment.BrewerySetupId = request.BrewerySetupId.Value;
+
+            equipment.BrewerySetupId = targetSetup.Id;
+            equipment.BrewerySetup = targetSetup;
+            isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+
+            // Decouple tap/keg linkages when moving across setups
+            if (equipment.Type == EquipmentType.Tap && equipment.AssignedKegId.HasValue)
+            {
+                equipment.AssignedKegId = null;
+                equipment.AssignedKeg = null;
+            }
+            else if (equipment.Type == EquipmentType.Keg)
+            {
+                var attachedTaps = await _db.Equipment
+                    .Where(e => e.AssignedKegId == id && e.BrewerySetupId != targetSetup.Id)
+                    .ToListAsync();
+                foreach (var tap in attachedTaps)
+                {
+                    tap.AssignedKegId = null;
+                    tap.AssignedKeg = null;
+                }
+            }
         }
 
         var normalizedName = NormalizeEquipmentName(request.Name);
@@ -460,6 +524,7 @@ public class EquipmentService : IEquipmentService
             equipment.DisplayOrientation = request.DisplayOrientation.Value;
         }
 
+        string? newlyGeneratedPlainToken = null;
         if (equipment.Type == EquipmentType.Tap)
         {
             equipment.ConnectionType = EquipmentConnectionType.None;
@@ -474,21 +539,31 @@ public class EquipmentService : IEquipmentService
             equipment.LastTelemetryAt = null;
             equipment.LatestMetricsJson = null;
         }
-        else
+        else if (isOwner)
         {
             if (request.ConnectionType.HasValue)
             {
                 equipment.ConnectionType = request.ConnectionType.Value;
-                if (equipment.ConnectionType == EquipmentConnectionType.HttpPush && string.IsNullOrEmpty(equipment.ConnectionToken))
-                {
-                    equipment.ConnectionToken = GenerateConnectionToken();
-                }
             }
 
             isBrewLinkSensor = equipment.Type == EquipmentType.Sensor && equipment.Subtype == EquipmentSubtype.BrewLink;
             if (isBrewLinkSensor)
             {
                 equipment.ConnectionType = EquipmentConnectionType.BrewLink;
+            }
+
+            if (equipment.ConnectionType == EquipmentConnectionType.HttpPush)
+            {
+                if (string.IsNullOrEmpty(equipment.ConnectionToken))
+                {
+                    newlyGeneratedPlainToken = GenerateConnectionToken();
+                    equipment.ConnectionToken = HashConnectionToken(newlyGeneratedPlainToken);
+                }
+            }
+            else
+            {
+                // Always clear HttpPush token when connection type changes away from HttpPush
+                equipment.ConnectionToken = null;
             }
 
             if (equipment.ConnectionType == EquipmentConnectionType.BrewLink)
@@ -529,21 +604,35 @@ public class EquipmentService : IEquipmentService
                             return (EquipmentAccessResult.Conflict, null, "BrewLink configuration must include a valid brewLinkGatewayId and a target device (targetMac, slot, or targetName).");
                         }
 
-                        var setupOwnerId = equipment.BrewerySetup?.UserId ?? equipment.UserId;
-                        var gatewayExists = await _db.BrewLinkGateways
-                            .AnyAsync(g => g.Id == parsedGwId && (g.UserId == userId || g.UserId == setupOwnerId));
+                        var candidateGateway = await _db.BrewLinkGateways
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(g => g.Id == parsedGwId);
 
-                        if (!gatewayExists)
-                        {
-                            return (EquipmentAccessResult.Conflict, null, "The specified BrewLink gateway was not found or is not paired.");
-                        }
+                        var gatewayBelongsToTarget = candidateGateway != null &&
+                            EquipmentAccessHelper.GatewayBelongsToSetupOwner(candidateGateway, equipment.BrewerySetup, equipment.UserId);
 
-                        if (!string.IsNullOrWhiteSpace(macStr))
+                        if (!gatewayBelongsToTarget)
                         {
-                            var normalizedMac = BrewLinkService.NormalizeMac(macStr);
-                            node!["targetMac"] = normalizedMac;
+                            // If equipment was moved to a setup with a different owner and caller didn't specify a new gateway config, clear the binding
+                            if (setupChanged && request.ConnectionConfigJson == null && !isBrewLinkSensor)
+                            {
+                                equipment.ConnectionType = EquipmentConnectionType.None;
+                                equipment.ConnectionConfigJson = null;
+                            }
+                            else
+                            {
+                                return (EquipmentAccessResult.Conflict, null, "The specified BrewLink gateway was not found or is not paired.");
+                            }
                         }
-                        equipment.ConnectionConfigJson = node!.ToJsonString();
+                        else
+                        {
+                            if (!string.IsNullOrWhiteSpace(macStr))
+                            {
+                                var normalizedMac = BrewLinkService.NormalizeMac(macStr);
+                                node!["targetMac"] = normalizedMac;
+                            }
+                            equipment.ConnectionConfigJson = node!.ToJsonString();
+                        }
                     }
                     catch (Exception ex) when (ex is not ArgumentException)
                     {
@@ -559,6 +648,10 @@ public class EquipmentService : IEquipmentService
             {
                 equipment.ConnectionConfigJson = ProtectConfigJson(request.ConnectionConfigJson, equipment.ConnectionConfigJson);
             }
+            else if (equipment.ConnectionType == EquipmentConnectionType.None)
+            {
+                equipment.ConnectionConfigJson = null;
+            }
 
             if (isBrewLinkSensor)
             {
@@ -572,6 +665,14 @@ public class EquipmentService : IEquipmentService
                 equipment.LastTelemetryAt = null;
             }
             else if (request.CurrentTemperatureC.HasValue)
+            {
+                equipment.CurrentTemperatureC = request.CurrentTemperatureC.Value;
+                equipment.TemperatureUpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            if (request.CurrentTemperatureC.HasValue && !isBrewLinkSensor)
             {
                 equipment.CurrentTemperatureC = request.CurrentTemperatureC.Value;
                 equipment.TemperatureUpdatedAt = DateTime.UtcNow;
@@ -617,7 +718,7 @@ public class EquipmentService : IEquipmentService
         }
 
         _logger.LogInformation("Equipment {EquipmentId} updated by user {UserId}", equipment.Id, userId);
-        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner), null);
+        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner, newlyGeneratedPlainToken), null);
     }
 
     public async Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId, bool force = false)
@@ -627,19 +728,12 @@ public class EquipmentService : IEquipmentService
                 .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == id);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return EquipmentAccessResult.NotFound;
         }
 
-        var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
-        if (!isMember)
-        {
-            return EquipmentAccessResult.NotFound;
-        }
-
-        var isOwnerOrCreator = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        if (!isOwnerOrCreator)
+        if (!EquipmentAccessHelper.CanDelete(equipment, userId))
         {
             return EquipmentAccessResult.Forbidden;
         }
@@ -651,9 +745,19 @@ public class EquipmentService : IEquipmentService
             BrewLinkLifecycleHelper.TryParseBrewLinkConfig(equipment.ConnectionConfigJson, out var parsedGwId, out _, out _) &&
             parsedGwId.HasValue)
         {
-            itemsToDelete = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, parsedGwId.Value, equipment);
-            gatewayToDelete = await _db.BrewLinkGateways
-                .FirstOrDefaultAsync(g => g.Id == parsedGwId.Value && (g.UserId == userId || g.UserId == equipment.UserId));
+            var ownedGateway = await _db.BrewLinkGateways
+                .FirstOrDefaultAsync(g => g.Id == parsedGwId.Value && g.UserId == userId);
+
+            if (ownedGateway != null)
+            {
+                itemsToDelete = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, parsedGwId.Value, ownedGateway.UserId, equipment);
+                gatewayToDelete = ownedGateway;
+            }
+            else
+            {
+                // Non-gateway-owner deleting a BrewLink sensor deletes only the primary item
+                itemsToDelete = [equipment];
+            }
         }
         else
         {
@@ -698,7 +802,9 @@ public class EquipmentService : IEquipmentService
         var equipment = await _db.Equipment.AsNoTracking()
             .Include(e => e.BrewerySetup)
                 .ThenInclude(s => s!.Members)
-            .FirstOrDefaultAsync(e => e.Id == equipmentId && (e.UserId == userId || (e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId)))));
+            .FirstOrDefaultAsync(e => e.Id == equipmentId &&
+                ((e.BrewerySetup != null && (e.BrewerySetup.UserId == userId || e.BrewerySetup.Members.Any(m => m.UserId == userId))) ||
+                 (e.BrewerySetup == null && e.UserId == userId)));
 
         if (equipment == null)
         {
@@ -710,7 +816,12 @@ public class EquipmentService : IEquipmentService
             BrewLinkLifecycleHelper.TryParseBrewLinkConfig(equipment.ConnectionConfigJson, out var parsedGwId, out _, out _) &&
             parsedGwId.HasValue)
         {
-            targetGroup = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, parsedGwId.Value, equipment);
+            var ownedGateway = await _db.BrewLinkGateways.AsNoTracking()
+                .FirstOrDefaultAsync(g => g.Id == parsedGwId.Value && g.UserId == userId);
+
+            targetGroup = ownedGateway != null
+                ? await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, parsedGwId.Value, ownedGateway.UserId, equipment)
+                : [equipment];
         }
         else
         {
@@ -823,7 +934,7 @@ public class EquipmentService : IEquipmentService
         return _urlSigner.BuildDefaultImageUrl("", "card", 640, DefaultLabelGenerator.CurrentSha256);
     }
 
-    private EquipmentDto ToDto(Equipment e, bool isOwner = true)
+    private EquipmentDto ToDto(Equipment e, bool isOwner = true, string? plaintextConnectionToken = null)
     {
         var assignedKeg = e.AssignedKeg;
         if (assignedKeg == null && e.AssignedKegId.HasValue)
@@ -874,7 +985,7 @@ public class EquipmentService : IEquipmentService
         var effectiveAssignedAt = assignedKeg?.AssignedAt ?? e.AssignedAt;
         var batchLabelUrl = effectiveBatch != null ? ResolveBatchLabelUrl(effectiveBatch) : null;
 
-        return BuildDto(e, isOwner, effectiveBatch, effectiveAssignedAt, assignedKegSummary, assignedKeg, batchLabelUrl);
+        return BuildDto(e, isOwner, effectiveBatch, effectiveAssignedAt, assignedKegSummary, assignedKeg, batchLabelUrl, plaintextConnectionToken);
     }
 
     internal static EquipmentDto ToBasicEquipmentDto(Equipment e, bool isOwner = true) =>
@@ -887,7 +998,8 @@ public class EquipmentService : IEquipmentService
         DateTime? effectiveAssignedAt,
         AssignedKegSummaryDto? assignedKegSummary,
         Equipment? assignedKeg,
-        string? effectiveBatchLabelUrl)
+        string? effectiveBatchLabelUrl,
+        string? plaintextConnectionToken = null)
     {
         var fillPercentage = e.CapacityLiters > 0
             ? Math.Round(Math.Clamp((e.CurrentVolumeLiters / e.CapacityLiters) * 100m, 0m, 100m), 1)
@@ -920,7 +1032,12 @@ public class EquipmentService : IEquipmentService
 
         var effectiveConnectionToken = e.Type == EquipmentType.Tap || !isOwner
             ? null
-            : e.ConnectionToken;
+            : plaintextConnectionToken;
+
+        var hasConnectionToken = e.Type != EquipmentType.Tap &&
+            isOwner &&
+            e.ConnectionType == EquipmentConnectionType.HttpPush &&
+            !string.IsNullOrEmpty(e.ConnectionToken);
 
         var effectiveConnectionConfigJson = e.Type == EquipmentType.Tap || !isOwner
             ? null
@@ -999,7 +1116,8 @@ public class EquipmentService : IEquipmentService
             e.AssignedKegId,
             assignedKegSummary,
             e.AssignedBatchId,
-            fillLevelPercent
+            fillLevelPercent,
+            hasConnectionToken
         );
     }
 
@@ -1041,19 +1159,32 @@ public class EquipmentService : IEquipmentService
                 {
                     obj["password"] = _protector.Protect(rawPassword);
                 }
-                else if (existingConfigJson != null)
+                else
                 {
-                    try
+                    var preserved = false;
+                    if (existingConfigJson != null)
                     {
-                        var existingNode = JsonNode.Parse(existingConfigJson);
-                        if (existingNode is JsonObject existingObj && existingObj.ContainsKey("password") && existingObj["password"] != null)
+                        try
                         {
-                            obj["password"] = existingObj["password"]!.DeepClone();
+                            var existingNode = JsonNode.Parse(existingConfigJson);
+                            if (existingNode is JsonObject existingObj &&
+                                existingObj.ContainsKey("password") &&
+                                existingObj["password"] != null &&
+                                ConfigTargetMatches(obj, existingObj))
+                            {
+                                obj["password"] = existingObj["password"]!.DeepClone();
+                                preserved = true;
+                            }
+                        }
+                        catch
+                        {
+                            // ignore parse error
                         }
                     }
-                    catch
+
+                    if (!preserved)
                     {
-                        // ignore parse error
+                        obj.Remove("password");
                     }
                 }
                 return obj.ToJsonString();
@@ -1064,6 +1195,20 @@ public class EquipmentService : IEquipmentService
         {
             return configJson;
         }
+    }
+
+    private static bool ConfigTargetMatches(JsonObject current, JsonObject existing)
+    {
+        var currentHost = (current["brokerHost"] ?? current["BrokerHost"])?.ToString()?.Trim();
+        var existingHost = (existing["brokerHost"] ?? existing["BrokerHost"])?.ToString()?.Trim();
+        var currentPort = (current["brokerPort"] ?? current["BrokerPort"])?.ToString()?.Trim();
+        var existingPort = (existing["brokerPort"] ?? existing["BrokerPort"])?.ToString()?.Trim();
+        var currentUrl = (current["url"] ?? current["Url"])?.ToString()?.Trim();
+        var existingUrl = (existing["url"] ?? existing["Url"])?.ToString()?.Trim();
+
+        return string.Equals(currentHost, existingHost, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(currentPort, existingPort, StringComparison.Ordinal) &&
+               string.Equals(currentUrl, existingUrl, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? NewToken)> RegenerateConnectionTokenAsync(
@@ -1077,9 +1222,15 @@ public class EquipmentService : IEquipmentService
                 .ThenInclude(k => k!.AssignedBatch)
             .FirstOrDefaultAsync(e => e.Id == id);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (EquipmentAccessResult.NotFound, null, null);
+        }
+
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        if (!isOwner)
+        {
+            return (EquipmentAccessResult.Forbidden, null, null);
         }
 
         if (equipment.Type == EquipmentType.Tap)
@@ -1087,26 +1238,14 @@ public class EquipmentService : IEquipmentService
             return (EquipmentAccessResult.InvalidTapAssignment, null, null);
         }
 
-        var isMember = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId)));
-        if (!isMember)
-        {
-            return (EquipmentAccessResult.NotFound, null, null);
-        }
-
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        if (!isOwner)
-        {
-            return (EquipmentAccessResult.Forbidden, null, null);
-        }
-
         var newToken = GenerateConnectionToken();
-        equipment.ConnectionToken = newToken;
+        equipment.ConnectionToken = HashConnectionToken(newToken);
         equipment.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
         _logger.LogInformation("Connection token regenerated for equipment {EquipmentId} by user {UserId}", id, userId);
 
-        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner: true), newToken);
+        return (EquipmentAccessResult.Success, ToDto(equipment, isOwner: true, plaintextConnectionToken: newToken), newToken);
     }
 
     public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> AssignTapAsync(
@@ -1118,22 +1257,22 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.AssignedKeg).ThenInclude(k => k!.AssignedBatch)
             .FirstOrDefaultAsync(e => e.Id == tapId);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
+        }
+
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
+
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "You do not have permission to manage this tap.");
         }
 
         if (equipment.Type != EquipmentType.Tap)
         {
             return (EquipmentAccessResult.InvalidTapAssignment, null, "Only tap equipment can be assigned a batch or keg.");
-        }
-
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-
-        if (!isOwner && !isBrewer)
-        {
-            return (EquipmentAccessResult.Forbidden, null, "You do not have permission to manage this tap.");
         }
 
         // Unassignment case
@@ -1159,19 +1298,19 @@ public class EquipmentService : IEquipmentService
                 .Include(k => k.BrewerySetup).ThenInclude(s => s!.Members)
                 .FirstOrDefaultAsync(k => k.Id == request.KegId.Value);
 
-            if (keg == null)
+            if (keg == null || !EquipmentAccessHelper.IsMember(keg, userId))
             {
                 return (EquipmentAccessResult.NotFound, null, "Keg not found.");
+            }
+
+            if (keg.BrewerySetupId != equipment.BrewerySetupId)
+            {
+                return (EquipmentAccessResult.Forbidden, null, "Keg does not belong to the same brewery setup as the tap.");
             }
 
             if (keg.Type != EquipmentType.Keg)
             {
                 return (EquipmentAccessResult.InvalidTapAssignment, null, "Selected equipment is not a keg.");
-            }
-
-            if (keg.BrewerySetupId != equipment.BrewerySetupId && keg.UserId != equipment.UserId)
-            {
-                return (EquipmentAccessResult.Forbidden, null, "Keg does not belong to the same brewery setup as the tap.");
             }
 
             equipment.AssignedKegId = keg.Id;
@@ -1188,15 +1327,16 @@ public class EquipmentService : IEquipmentService
 
         // Direct Batch case
         var batch = await _db.Batches
+            .Include(b => b.BrewerySetup).ThenInclude(s => s!.Members)
             .Include(b => b.Recipe).ThenInclude(r => r!.Label)
             .FirstOrDefaultAsync(b => b.Id == request.BatchId!.Value);
 
-        if (batch == null)
+        if (batch == null || (batch.BrewerySetup != null && !(batch.BrewerySetup.UserId == userId || batch.BrewerySetup.Members.Any(m => m.UserId == userId))) || (batch.BrewerySetup == null && batch.UserId != userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Batch not found.");
         }
 
-        if (batch.BrewerySetupId != equipment.BrewerySetupId && batch.UserId != equipment.UserId)
+        if (batch.BrewerySetupId != equipment.BrewerySetupId)
         {
             return (EquipmentAccessResult.Forbidden, null, "Batch does not belong to the same brewery setup as the tap.");
         }
@@ -1234,22 +1374,22 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.AssignedBatch)
             .FirstOrDefaultAsync(e => e.Id == kegId);
 
-        if (keg == null)
+        if (keg == null || !EquipmentAccessHelper.IsMember(keg, userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Keg not found.");
+        }
+
+        var isOwner = EquipmentAccessHelper.IsOwner(keg, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(keg, userId);
+
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "You do not have permission to manage this keg.");
         }
 
         if (keg.Type != EquipmentType.Keg)
         {
             return (EquipmentAccessResult.InvalidTapAssignment, null, "Selected equipment is not a keg.");
-        }
-
-        var isOwner = keg.UserId == userId || (keg.BrewerySetup != null && (keg.BrewerySetup.UserId == userId || keg.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = keg.BrewerySetup != null && keg.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-
-        if (!isOwner && !isBrewer)
-        {
-            return (EquipmentAccessResult.Forbidden, null, "You do not have permission to manage this keg.");
         }
 
         // Kick / Clear keg
@@ -1269,15 +1409,16 @@ public class EquipmentService : IEquipmentService
 
         // Fill keg with batch
         var batch = await _db.Batches
+            .Include(b => b.BrewerySetup).ThenInclude(s => s!.Members)
             .Include(b => b.Recipe).ThenInclude(r => r!.Label)
             .FirstOrDefaultAsync(b => b.Id == request.BatchId.Value);
 
-        if (batch == null)
+        if (batch == null || (batch.BrewerySetup != null && !(batch.BrewerySetup.UserId == userId || batch.BrewerySetup.Members.Any(m => m.UserId == userId))) || (batch.BrewerySetup == null && batch.UserId != userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Batch not found.");
         }
 
-        if (batch.BrewerySetupId != keg.BrewerySetupId && batch.UserId != keg.UserId)
+        if (batch.BrewerySetupId != keg.BrewerySetupId)
         {
             return (EquipmentAccessResult.Forbidden, null, "Batch does not belong to the same brewery setup as the keg.");
         }
@@ -1338,21 +1479,21 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.BrewerySetup).ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == tapId);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
+        }
+
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "Access denied.");
         }
 
         if (equipment.Type != EquipmentType.Tap)
         {
             return (EquipmentAccessResult.InvalidTapAssignment, null, "Equipment is not a tap.");
-        }
-
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-        if (!isOwner && !isBrewer)
-        {
-            return (EquipmentAccessResult.Forbidden, null, "Access denied.");
         }
 
         if (!equipment.DisplayLinkEnabled || string.IsNullOrEmpty(equipment.DisplayTokenProtected))
@@ -1383,21 +1524,21 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.BrewerySetup).ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == tapId);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (EquipmentAccessResult.NotFound, null, "Equipment not found.");
+        }
+
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, null, "Access denied.");
         }
 
         if (equipment.Type != EquipmentType.Tap)
         {
             return (EquipmentAccessResult.InvalidTapAssignment, null, "Equipment is not a tap.");
-        }
-
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-        if (!isOwner && !isBrewer)
-        {
-            return (EquipmentAccessResult.Forbidden, null, "Access denied.");
         }
 
         var tokenBytes = RandomNumberGenerator.GetBytes(32);
@@ -1429,21 +1570,21 @@ public class EquipmentService : IEquipmentService
             .Include(e => e.BrewerySetup).ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == tapId);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (EquipmentAccessResult.NotFound, "Equipment not found.");
+        }
+
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
+        if (!isOwner && !isBrewer)
+        {
+            return (EquipmentAccessResult.Forbidden, "Access denied.");
         }
 
         if (equipment.Type != EquipmentType.Tap)
         {
             return (EquipmentAccessResult.InvalidTapAssignment, "Equipment is not a tap.");
-        }
-
-        var isOwner = equipment.UserId == userId || (equipment.BrewerySetup != null && (equipment.BrewerySetup.UserId == userId || equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-        var isBrewer = equipment.BrewerySetup != null && equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
-        if (!isOwner && !isBrewer)
-        {
-            return (EquipmentAccessResult.Forbidden, "Access denied.");
         }
 
         equipment.DisplayLinkEnabled = false;
@@ -1725,6 +1866,19 @@ public class EquipmentService : IEquipmentService
         return Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
     }
 
+    public static string HashConnectionToken(string plainToken)
+    {
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(plainToken.Trim()))).ToLowerInvariant();
+    }
+
+    private static string EscapeLikePattern(string value)
+    {
+        return value
+            .Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("%", @"\%", StringComparison.Ordinal)
+            .Replace("_", @"\_", StringComparison.Ordinal);
+    }
+
     public static string NormalizeEquipmentName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -1733,68 +1887,5 @@ public class EquipmentService : IEquipmentService
         }
 
         return MultipleWhitespaceRegex.Replace(name.Trim(), " ");
-    }
-
-    private async Task EnsureBrewLinkGatewaySensorsAsync(string userId)
-    {
-        var userGateways = await _db.BrewLinkGateways.AsNoTracking()
-            .Where(g => g.UserId == userId)
-            .ToListAsync();
-
-        if (userGateways.Count == 0) return;
-
-        var defaultSetup = await _db.BrewerySetups
-            .Where(s => s.UserId == userId)
-            .OrderByDescending(s => s.IsDefault)
-            .ThenBy(s => s.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (defaultSetup == null) return;
-
-        var existingSensors = await _db.Equipment
-            .Where(e => e.UserId == userId && e.Subtype == EquipmentSubtype.BrewLink && e.ConnectionConfigJson != null)
-            .ToListAsync();
-
-        bool changesMade = false;
-        foreach (var gw in userGateways)
-        {
-            var gwIdStr = gw.Id.ToString();
-            var matched = existingSensors.Any(e => e.ConnectionConfigJson != null && e.ConnectionConfigJson.Contains(gwIdStr));
-            if (!matched)
-            {
-                var eqName = string.IsNullOrWhiteSpace(gw.Name) ? "BrewLink" : gw.Name;
-                var baseName = eqName;
-                var counter = 1;
-                while (await _db.Equipment.AnyAsync(e => e.BrewerySetupId == defaultSetup.Id && e.Name.ToLower() == eqName.ToLower()))
-                {
-                    eqName = $"{baseName} ({++counter})";
-                }
-
-                var sensor = new Equipment
-                {
-                    UserId = userId,
-                    BrewerySetupId = defaultSetup.Id,
-                    Name = eqName,
-                    Type = EquipmentType.Sensor,
-                    Subtype = EquipmentSubtype.BrewLink,
-                    ConnectionType = EquipmentConnectionType.BrewLink,
-                    ConnectionConfigJson = $"{{\"brewLinkGatewayId\":\"{gw.Id}\"}}",
-                    Capacity = 0m,
-                    CapacityLiters = 0m,
-                    CurrentVolume = 0m,
-                    CurrentVolumeLiters = 0m,
-                    Unit = VolumeUnit.Liters,
-                    CreatedAt = gw.PairedAt,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _db.Equipment.Add(sensor);
-                changesMade = true;
-            }
-        }
-
-        if (changesMade)
-        {
-            await _db.SaveChangesAsync();
-        }
     }
 }

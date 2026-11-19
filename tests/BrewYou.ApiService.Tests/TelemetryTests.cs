@@ -71,17 +71,6 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         return gw;
     }
 
-    private async Task<string> AssignEquipmentTokenAsync(Guid equipmentId)
-    {
-        var token = "test-token-" + Guid.NewGuid().ToString("N");
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
-        var entity = await db.Equipment.FindAsync(equipmentId);
-        entity!.ConnectionToken = token;
-        await db.SaveChangesAsync();
-        return token;
-    }
-
     [Fact]
     public void ParseTemperature_GenericJsonCelsius_ExtractsCorrectly()
     {
@@ -1748,7 +1737,6 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         ));
         eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
-        var token = await AssignEquipmentTokenAsync(eq.Id);
 
         var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
         throttler.Reset(eq.Id);
@@ -1766,18 +1754,21 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         initialLine.Should().Be(": connected");
         await reader.ReadLineAsync();
 
-        // 2. Ingest Frame 1 (initial reading)
-        var publicClient = _factory.CreateClient();
-        var frame1 = new
+        // 2. Ingest Frame 1 (initial reading) via BrewLink ingestion
+        using (var scope = _factory.Services.CreateScope())
         {
-            current_temp_c = 65.0,
-            target_temp_c = 65.0,
-            heat_active = true,
-            heat_power_pct = 100,
-            pump_active = true
-        };
-        var res1 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", frame1);
-        res1.StatusCode.Should().Be(HttpStatusCode.OK);
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            using var doc1 = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                current_temp_c = 65.0,
+                target_temp_c = 65.0,
+                heat_active = true,
+                heat_power_pct = 100,
+                pump_active = true
+            }));
+            var res1 = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, doc1.RootElement);
+            res1.Status.Should().Be(TelemetryIngestStatus.Success);
+        }
 
         // Read SSE event 1
         var event1 = await reader.ReadLineAsync();
@@ -1799,16 +1790,20 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         readings1.Should().HaveCount(1);
 
         // 3. Ingest Frame 2 (rapid frame: |ΔT| = 0.1°C < 0.5°C, no discrete state changes)
-        var frame2 = new
+        using (var scope = _factory.Services.CreateScope())
         {
-            current_temp_c = 65.1,
-            target_temp_c = 65.0,
-            heat_active = true,
-            heat_power_pct = 100,
-            pump_active = true
-        };
-        var res2 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", frame2);
-        res2.StatusCode.Should().Be(HttpStatusCode.OK);
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            using var doc2 = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                current_temp_c = 65.1,
+                target_temp_c = 65.0,
+                heat_active = true,
+                heat_power_pct = 100,
+                pump_active = true
+            }));
+            var res2 = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, doc2.RootElement);
+            res2.Status.Should().Be(TelemetryIngestStatus.Success);
+        }
 
         // Read SSE event 2 immediately!
         var event2 = await reader.ReadLineAsync();
@@ -1870,44 +1865,47 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         ));
         eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
-        var token = await AssignEquipmentTokenAsync(eq.Id);
 
         var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
         throttler.Reset(eq.Id);
 
-        var publicClient = _factory.CreateClient();
+        async Task IngestBrewLink(object payload)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+            var res = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, doc.RootElement);
+            res.Status.Should().Be(TelemetryIngestStatus.Success);
+        }
 
         // 1. Initial Frame: 60.0°C -> Persisted (count = 1)
-        var res1 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", new
+        await IngestBrewLink(new
         {
             current_temp_c = 60.0,
             heat_active = true
         });
-        res1.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var readings1 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
         readings1.Should().HaveCount(1);
 
         // 2. Small delta: 60.2°C (|ΔT| = 0.2°C < 0.5°C) -> Throttled (count = 1)
-        var res2 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", new
+        await IngestBrewLink(new
         {
             current_temp_c = 60.2,
             heat_active = true
         });
-        res2.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var readings2 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
         readings2.Should().HaveCount(1);
 
         // 3. Significant delta: 60.6°C (|ΔT| = 0.6°C >= 0.5°C) -> Persisted immediately! (count = 2)
-        var res3 = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", new
+        await IngestBrewLink(new
         {
             current_temp_c = 60.6,
             heat_active = true
         });
-        res3.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var readings3 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
@@ -1932,17 +1930,17 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         ));
         eqRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var eq = (await eqRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
-        var token = await AssignEquipmentTokenAsync(eq.Id);
 
         var throttler = _factory.Services.GetRequiredService<ITelemetryThrottlingService>();
         throttler.Reset(eq.Id);
 
-        var publicClient = _factory.CreateClient();
-
         async Task IngestAndAssertCount(object payload, int expectedCount)
         {
-            var res = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{token}", payload);
-            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var scope = _factory.Services.CreateScope();
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+            var res = await telemetryService.IngestBrewLinkTelemetryAsync(eq.Id, doc.RootElement);
+            res.Status.Should().Be(TelemetryIngestStatus.Success);
 
             var readings = (await (await client.GetAsync($"/api/v1/inventory/equipment/{eq.Id}/readings"))
                 .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentReadingDto>>>())!.Data!;
@@ -2050,7 +2048,6 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         ));
         boilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var boiler = (await boilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
-        var boilerToken = await AssignEquipmentTokenAsync(boiler.Id);
 
         var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
             RecipeId: null,
@@ -2086,20 +2083,24 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         await reader.ReadLineAsync();
 
         // Ingest BrewLink telemetry
-        var publicClient = _factory.CreateClient();
-        var ingestRes = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{boilerToken}", new
+        using (var scope = _factory.Services.CreateScope())
         {
-            @event = "telemetry",
-            state = new
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(new
             {
-                current_temp_c = 65.4,
-                target_temp_c = 65.0,
-                heat_active = true,
-                pump_active = true,
-                stage = new { step_index = 1, step_name = "Saccharification" }
-            }
-        });
-        ingestRes.StatusCode.Should().Be(HttpStatusCode.OK);
+                @event = "telemetry",
+                state = new
+                {
+                    current_temp_c = 65.4,
+                    target_temp_c = 65.0,
+                    heat_active = true,
+                    pump_active = true,
+                    stage = new { step_index = 1, step_name = "Saccharification" }
+                }
+            }));
+            var ingestRes = await telemetryService.IngestBrewLinkTelemetryAsync(boiler.Id, doc.RootElement);
+            ingestRes.Status.Should().Be(TelemetryIngestStatus.Success);
+        }
 
         // Read batch SSE event
         var eventLine = await reader.ReadLineAsync();
@@ -2304,5 +2305,90 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         var eqReadings = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}/equipment-readings?stage=Ferment"))
             .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
         eqReadings.Should().ContainSingle(r => r.Source == "Manual" && r.SpecificGravity == 1.022m && r.TemperatureC == 19.8m);
+    }
+
+    [Fact]
+    public async Task M3_HttpPushToken_HashedInDb_OmittedOnGet_ClearedOnTypeChange_AndStaleTokenRejected()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        var createRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Token Lifecycle Fermenter {Guid.NewGuid():N}",
+            Type: EquipmentType.Fermenter,
+            Capacity: 30m,
+            ConnectionType: EquipmentConnectionType.HttpPush));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = (await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var plainToken = created.ConnectionToken!;
+        plainToken.Should().NotBeNullOrWhiteSpace();
+        created.HasConnectionToken.Should().BeTrue();
+
+        // DB stores SHA-256 hash, never plaintext
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var entity = await db.Equipment.FindAsync(created.Id);
+            entity!.ConnectionToken.Should().NotBe(plainToken);
+            entity.ConnectionToken.Should().Be(EquipmentService.HashConnectionToken(plainToken));
+        }
+
+        // GET never exposes plaintext ConnectionToken
+        var getDto = (await (await client.GetAsync($"/api/v1/inventory/equipment/{created.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        getDto.ConnectionToken.Should().BeNull();
+        getDto.HasConnectionToken.Should().BeTrue();
+
+        // Header-based ingest succeeds
+        var publicClient = _factory.CreateClient();
+        using var headerReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment");
+        headerReq.Headers.Add("X-BrewYou-Device-Token", plainToken);
+        headerReq.Content = JsonContent.Create(new { temperature = 20.5, unit = "C" });
+        (await publicClient.SendAsync(headerReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Deprecated path endpoint returns Deprecation: true header
+        var pathRes = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{plainToken}", new { temperature = 20.6, unit = "C" });
+        pathRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        pathRes.Headers.GetValues("Deprecation").Should().Contain("true");
+
+        // Switch HttpPush -> None clears token
+        var switchRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{created.Id}", new UpdateEquipmentRequest(
+            Name: created.Name,
+            Type: EquipmentType.Fermenter,
+            Capacity: 30m,
+            ConnectionType: EquipmentConnectionType.None));
+        switchRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var switched = (await switchRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        switched.HasConnectionToken.Should().BeFalse();
+
+        // Stale token ingest returns 404 NotFound
+        var stalePathRes = await publicClient.PostAsJsonAsync($"/api/v1/telemetry/equipment/{plainToken}", new { temperature = 21.0, unit = "C" });
+        stalePathRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        using var staleHeaderReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment");
+        staleHeaderReq.Headers.Add("X-BrewYou-Device-Token", plainToken);
+        staleHeaderReq.Content = JsonContent.Create(new { temperature = 21.0, unit = "C" });
+        (await publicClient.SendAsync(staleHeaderReq)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task H1_TestPoll_DoesNotExposeRawExceptionOrResponseSnippet()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+        var createRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Poll Safe Error {Guid.NewGuid():N}",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            ConnectionType: EquipmentConnectionType.HttpPoll,
+            ConnectionConfigJson: "{\"url\":\"http://127.0.0.1:5000/secret\"}"));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eq = (await createRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var pollRes = await client.PostAsync($"/api/v1/inventory/equipment/{eq.Id}/test-poll", null);
+        pollRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = (await pollRes.Content.ReadFromJsonAsync<ApiResponse<TelemetryPollResult>>())!.Data!;
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("prohibited");
     }
 }

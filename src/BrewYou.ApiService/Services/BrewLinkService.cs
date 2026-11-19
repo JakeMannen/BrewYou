@@ -359,7 +359,7 @@ public partial class BrewLinkService : IBrewLinkService
             return (false, false, "BrewLink gateway not found.");
         }
 
-        var itemsToDelete = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, gateway.Id, ct: ct);
+        var itemsToDelete = await BrewLinkLifecycleHelper.FindBrewLinkGatewayGroupAsync(_db, gateway.Id, gateway.UserId, ct: ct);
 
         if (!force && await BrewLinkLifecycleHelper.HasActiveBatchesForEquipmentGroupAsync(_db, itemsToDelete, ct))
         {
@@ -841,18 +841,13 @@ public partial class BrewLinkService : IBrewLinkService
                 .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == equipmentId, ct);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (BrewLinkSendResult.NotFound, null, "Equipment not found.");
         }
 
-        var isOwner = equipment.UserId == userId ||
-                      (equipment.BrewerySetup != null &&
-                       (equipment.BrewerySetup.UserId == userId ||
-                        equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-
-        var isBrewer = equipment.BrewerySetup != null &&
-                       equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
 
         if (!isOwner && !isBrewer)
         {
@@ -906,9 +901,14 @@ public partial class BrewLinkService : IBrewLinkService
             return (BrewLinkSendResult.BadRequest, null, "Could not parse BrewLink configuration.");
         }
 
-        // Look up paired gateway (owned by caller or setup owner)
-        var gateway = await _db.BrewLinkGateways
-            .FirstOrDefaultAsync(g => g.Id == gatewayId && (g.UserId == userId || g.UserId == equipment.UserId), ct);
+        // Look up paired gateway owned by the setup owner
+        var candidateGateway = await _db.BrewLinkGateways
+            .FirstOrDefaultAsync(g => g.Id == gatewayId, ct);
+
+        var gateway = candidateGateway != null &&
+                      EquipmentAccessHelper.GatewayBelongsToSetupOwner(candidateGateway, equipment.BrewerySetup, equipment.UserId)
+            ? candidateGateway
+            : null;
 
         if (gateway == null)
         {
@@ -1362,18 +1362,13 @@ public partial class BrewLinkService : IBrewLinkService
                 .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == equipmentId, ct);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (BrewLinkSendResult.NotFound, null, "Equipment not found.");
         }
 
-        var isOwner = equipment.UserId == userId ||
-                      (equipment.BrewerySetup != null &&
-                       (equipment.BrewerySetup.UserId == userId ||
-                        equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-
-        var isBrewer = equipment.BrewerySetup != null &&
-                       equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
 
         if (!isOwner && !isBrewer)
         {
@@ -1418,8 +1413,13 @@ public partial class BrewLinkService : IBrewLinkService
                 $"Action '{request.Action.Trim()}' is rejected while the controller is in recipe auto mode (auto_mode: true).");
         }
 
-        var gateway = await _db.BrewLinkGateways
-            .FirstOrDefaultAsync(g => g.Id == gatewayId && (g.UserId == userId || g.UserId == equipment.UserId), ct);
+        var candidateGateway = await _db.BrewLinkGateways
+            .FirstOrDefaultAsync(g => g.Id == gatewayId, ct);
+
+        var gateway = candidateGateway != null &&
+                      EquipmentAccessHelper.GatewayBelongsToSetupOwner(candidateGateway, equipment.BrewerySetup, equipment.UserId)
+            ? candidateGateway
+            : null;
 
         if (gateway == null)
         {
@@ -1629,18 +1629,13 @@ public partial class BrewLinkService : IBrewLinkService
                 .ThenInclude(s => s!.Members)
             .FirstOrDefaultAsync(e => e.Id == equipmentId, ct);
 
-        if (equipment == null)
+        if (equipment == null || !EquipmentAccessHelper.IsMember(equipment, userId))
         {
             return (BrewLinkSendResult.NotFound, null, "Equipment not found.");
         }
 
-        var isOwner = equipment.UserId == userId ||
-                      (equipment.BrewerySetup != null &&
-                       (equipment.BrewerySetup.UserId == userId ||
-                        equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Owner)));
-
-        var isBrewer = equipment.BrewerySetup != null &&
-                       equipment.BrewerySetup.Members.Any(m => m.UserId == userId && m.Role == BreweryRole.Brewer);
+        var isOwner = EquipmentAccessHelper.IsOwner(equipment, userId);
+        var isBrewer = EquipmentAccessHelper.IsBrewer(equipment, userId);
 
         if (!isOwner && !isBrewer)
         {
@@ -1664,8 +1659,13 @@ public partial class BrewLinkService : IBrewLinkService
             return (BrewLinkSendResult.BadRequest, null, configError ?? "Invalid BrewLink connection configuration.");
         }
 
-        var gateway = await _db.BrewLinkGateways
-            .FirstOrDefaultAsync(g => g.Id == gatewayId && (g.UserId == userId || g.UserId == equipment.UserId), ct);
+        var candidateGateway = await _db.BrewLinkGateways
+            .FirstOrDefaultAsync(g => g.Id == gatewayId, ct);
+
+        var gateway = candidateGateway != null &&
+                      EquipmentAccessHelper.GatewayBelongsToSetupOwner(candidateGateway, equipment.BrewerySetup, equipment.UserId)
+            ? candidateGateway
+            : null;
 
         if (gateway == null)
         {
@@ -1918,27 +1918,7 @@ public partial class BrewLinkService : IBrewLinkService
             Connected: canonical?.Connected
         );
 
-        var targetUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { equipment.UserId };
-
-        if (equipment.BrewerySetup != null)
-        {
-            if (!string.IsNullOrEmpty(equipment.BrewerySetup.UserId))
-            {
-                targetUserIds.Add(equipment.BrewerySetup.UserId);
-            }
-            if (equipment.BrewerySetup.Members != null)
-            {
-                foreach (var member in equipment.BrewerySetup.Members)
-                {
-                    if (!string.IsNullOrEmpty(member.UserId))
-                    {
-                        targetUserIds.Add(member.UserId);
-                    }
-                }
-            }
-        }
-
-        foreach (var uid in targetUserIds)
+        foreach (var uid in EquipmentAccessHelper.GetAuthorizedSetupUserIds(equipment))
         {
             _broadcastService.BroadcastEquipmentReading(uid, update);
         }

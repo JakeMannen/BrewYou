@@ -273,7 +273,7 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         var targetEquip = (await targetEquipRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
         targetEquip.Should().HaveCount(2);
         targetEquip.Should().Contain(e => e.Name == "BrewZilla 65L Gen4" && e.BoilOffRatePerHour == 4.2m);
-        targetEquip.Should().Contain(e => e.Name == "FermZilla Conical 27L" && !string.IsNullOrEmpty(e.ConnectionToken));
+        targetEquip.Should().Contain(e => e.Name == "FermZilla Conical 27L" && e.HasConnectionToken && e.ConnectionToken == null);
 
         var targetBatchesRes = await targetClient.GetAsync("/api/v1/batches");
         var targetBatches = (await targetBatchesRes.Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
@@ -1751,5 +1751,90 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         var legacyRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/restore",
             new ExecuteRestoreRequest(legacyEnv, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.MergeSkipExisting)));
         legacyRes.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Restore_M1_WithForeignOrUnmappedBrewLinkGatewayId_NeutralizesBindingAndAddsWarning()
+    {
+        var (_, victimId, _) = await CreateAuthenticatedUserAsync("Victim Gateway Owner");
+        var (attackerClient, _, _) = await CreateAuthenticatedUserAsync("Attacker Restorer");
+
+        Guid victimGatewayId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var victimGw = new BrewLinkGateway
+            {
+                Id = Guid.NewGuid(),
+                UserId = victimId,
+                Name = "Victim Gateway",
+                Host = "192.168.1.99",
+                GatewayId = "DEAD11223344",
+                ApiToken = "encrypted"
+            };
+            db.BrewLinkGateways.Add(victimGw);
+            await db.SaveChangesAsync();
+            victimGatewayId = victimGw.Id;
+        }
+
+        var craftedSetupId = Guid.NewGuid();
+        var craftedEqId = Guid.NewGuid();
+        var craftedDataJson = $$"""
+        {
+          "ownedBrewerySetups": [
+            {
+              "id": "{{craftedSetupId}}",
+              "name": "Attacker Setup",
+              "isDefault": true
+            }
+          ],
+          "equipment": [
+            {
+              "id": "{{craftedEqId}}",
+              "brewerySetupId": "{{craftedSetupId}}",
+              "name": "Hijacked G30",
+              "type": "Boiler",
+              "subtype": "AllInOne",
+              "capacity": 30.0,
+              "unit": "Liters",
+              "capacityLiters": 30.0,
+              "connectionType": "BrewLink",
+              "connectionConfigJson": "{\"brewLinkGatewayId\":\"{{victimGatewayId}}\",\"targetMac\":\"AABBCCDDEEFF\",\"slot\":1}"
+            },
+            {
+              "id": "{{Guid.NewGuid()}}",
+              "brewerySetupId": "{{craftedSetupId}}",
+              "name": "HardwareId Spoof G30",
+              "type": "Boiler",
+              "subtype": "AllInOne",
+              "capacity": 30.0,
+              "unit": "Liters",
+              "capacityLiters": 30.0,
+              "connectionType": "BrewLink",
+              "connectionConfigJson": "{\"brewLinkGatewayId\":\"DEAD11223344\",\"targetMac\":\"AABBCCDDEEFF\",\"slot\":1}"
+            }
+          ]
+        }
+        """;
+
+        var craftedElem = JsonSerializer.Deserialize<JsonElement>(craftedDataJson);
+        var craftedEnv = new BrewYouBackupEnvelope(
+            BackupSchemaConstants.FormatIdentifier,
+            BackupSchemaConstants.CurrentSchemaVersion,
+            "1.6.1",
+            DateTime.UtcNow,
+            BackupMigrationPipeline.ComputeChecksumSha256(craftedElem),
+            craftedElem);
+
+        var restoreRes = await attackerClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(craftedEnv, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.MergeOverwriteExisting)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restoreData = (await restoreRes.Content.ReadFromJsonAsync<ApiResponse<RestoreResultDto>>())!.Data!;
+        restoreData.Warnings.Should().Contain(w => w.Contains("Cleared unmapped BrewLink gateway binding"));
+
+        var equipList = (await (await attackerClient.GetAsync("/api/v1/inventory/equipment"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
+        equipList.Should().Contain(e => e.Name == "Hijacked G30" && e.ConnectionType == EquipmentConnectionType.None && e.ConnectionConfigJson == null);
+        equipList.Should().Contain(e => e.Name == "HardwareId Spoof G30" && e.ConnectionType == EquipmentConnectionType.None && e.ConnectionConfigJson == null);
     }
 }

@@ -259,10 +259,10 @@ public class BackupService : IBackupService
             );
         }).ToList();
 
-        // 6. Equipment in Owned Setups (or directly created by user)
+        // 6. Equipment in Owned Setups
         var equipmentEntities = await _db.Equipment
             .AsNoTracking()
-            .Where(e => e.UserId == userId || ownedSetupIds.Contains(e.BrewerySetupId))
+            .Where(e => ownedSetupIds.Contains(e.BrewerySetupId))
             .OrderBy(e => e.CreatedAt)
             .ToListAsync();
 
@@ -1180,24 +1180,41 @@ public class BackupService : IBackupService
                     var (restoredToken, restoredConfigJson) = await RestoreEquipmentSecretsAsync(
                         eqDto, encryptionKey, existingEq?.Id, warnings);
 
-                    if (eqDto.ConnectionType == EquipmentConnectionType.BrewLink && !string.IsNullOrWhiteSpace(restoredConfigJson))
+                    var isTap = eqDto.Type == EquipmentType.Tap;
+                    var effectiveConnectionType = isTap ? EquipmentConnectionType.None : eqDto.ConnectionType;
+                    var brewLinkBindingCleared = false;
+
+                    if (!isTap && (effectiveConnectionType == EquipmentConnectionType.BrewLink || eqDto.Subtype == EquipmentSubtype.BrewLink))
                     {
-                        try
+                        var mapped = false;
+                        if (!string.IsNullOrWhiteSpace(restoredConfigJson))
                         {
-                            var node = JsonNode.Parse(restoredConfigJson) as JsonObject;
-                            if (node != null && node["brewLinkGatewayId"] != null)
+                            try
                             {
-                                var oldGwStr = node["brewLinkGatewayId"]!.GetValue<string>();
-                                if (Guid.TryParse(oldGwStr, out var oldGwId) && gatewayIdMap.TryGetValue(oldGwId, out var newGwId))
+                                var node = JsonNode.Parse(restoredConfigJson) as JsonObject;
+                                if (node != null &&
+                                    node["brewLinkGatewayId"] is JsonValue gwVal &&
+                                    gwVal.TryGetValue<string>(out var oldGwStr) &&
+                                    Guid.TryParse(oldGwStr, out var oldGwId) &&
+                                    gatewayIdMap.TryGetValue(oldGwId, out var newGwId))
                                 {
                                     node["brewLinkGatewayId"] = newGwId.ToString();
                                     restoredConfigJson = node.ToJsonString();
+                                    mapped = true;
                                 }
                             }
+                            catch
+                            {
+                                // Invalid JSON falls through to neutralization
+                            }
                         }
-                        catch
+
+                        if (!mapped)
                         {
-                            // ignore json parse error
+                            effectiveConnectionType = EquipmentConnectionType.None;
+                            restoredConfigJson = null;
+                            brewLinkBindingCleared = true;
+                            warnings.Add($"Cleared unmapped BrewLink gateway binding for '{eqDto.Name}'.");
                         }
                     }
 
@@ -1230,7 +1247,6 @@ public class BackupService : IBackupService
                             existingEq.Name = normName;
                             existingEq.Type = eqDto.Type;
                             existingEq.Subtype = eqDto.Subtype;
-                            var isTap = eqDto.Type == EquipmentType.Tap;
                             existingEq.Capacity = eqDto.Capacity;
                             existingEq.Unit = eqDto.Unit;
                             existingEq.CapacityLiters = eqDto.CapacityLiters;
@@ -1248,7 +1264,7 @@ public class BackupService : IBackupService
                             existingEq.TemperatureUpdatedAt = isTap ? null : eqDto.TemperatureUpdatedAt;
                             existingEq.LastTelemetryAt = isTap ? null : eqDto.LastTelemetryAt;
                             existingEq.LatestMetricsJson = isTap ? null : eqDto.LatestMetricsJson;
-                            existingEq.ConnectionType = isTap ? EquipmentConnectionType.None : eqDto.ConnectionType;
+                            existingEq.ConnectionType = effectiveConnectionType;
                             if (isTap)
                             {
                                 existingEq.ConnectionToken = null;
@@ -1256,8 +1272,27 @@ public class BackupService : IBackupService
                             }
                             else
                             {
-                                if (restoredToken != null) existingEq.ConnectionToken = restoredToken;
-                                if (restoredConfigJson != null) existingEq.ConnectionConfigJson = restoredConfigJson;
+                                if (effectiveConnectionType != EquipmentConnectionType.HttpPush)
+                                {
+                                    existingEq.ConnectionToken = null;
+                                }
+                                else if (restoredToken != null)
+                                {
+                                    existingEq.ConnectionToken = restoredToken;
+                                }
+                                else if (string.IsNullOrEmpty(existingEq.ConnectionToken))
+                                {
+                                    existingEq.ConnectionToken = EquipmentService.HashConnectionToken(EquipmentService.GenerateConnectionToken());
+                                }
+
+                                if (brewLinkBindingCleared)
+                                {
+                                    existingEq.ConnectionConfigJson = null;
+                                }
+                                else if (restoredConfigJson != null)
+                                {
+                                    existingEq.ConnectionConfigJson = restoredConfigJson;
+                                }
                             }
                             existingEq.Description = eqDto.Description;
                             existingEq.Notes = eqDto.Notes;
@@ -1292,7 +1327,6 @@ public class BackupService : IBackupService
                     {
                         var idTaken = await _db.Equipment.AnyAsync(e => e.Id == eqDto.Id);
                         var uniqueName = EnsureUniqueEquipmentName(normName, targetSetupId, existingUserEquipment);
-                        var isTap = eqDto.Type == EquipmentType.Tap;
 
                         var newEq = new Equipment
                         {
@@ -1319,8 +1353,8 @@ public class BackupService : IBackupService
                             TemperatureUpdatedAt = isTap ? null : eqDto.TemperatureUpdatedAt,
                             LastTelemetryAt = isTap ? null : eqDto.LastTelemetryAt,
                             LatestMetricsJson = isTap ? null : eqDto.LatestMetricsJson,
-                            ConnectionType = isTap ? EquipmentConnectionType.None : eqDto.ConnectionType,
-                            ConnectionToken = isTap ? null : restoredToken,
+                            ConnectionType = effectiveConnectionType,
+                            ConnectionToken = effectiveConnectionType == EquipmentConnectionType.HttpPush ? restoredToken : null,
                             ConnectionConfigJson = isTap ? null : restoredConfigJson,
                             Description = eqDto.Description,
                             Notes = eqDto.Notes,
@@ -1857,11 +1891,8 @@ public class BackupService : IBackupService
 
     private EquipmentBackupDto MapEquipmentToBackupDto(Equipment e, bool includeSecrets, byte[]? encryptionKey)
     {
+        // ConnectionToken is stored as a one-way SHA-256 hash and cannot be exported in plaintext.
         string? encryptedToken = null;
-        if (includeSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(e.ConnectionToken))
-        {
-            encryptedToken = BackupSecretProtector.EncryptSecret(e.ConnectionToken, encryptionKey);
-        }
 
         string? displayTokenEncrypted = null;
         if (includeSecrets && encryptionKey != null && !string.IsNullOrWhiteSpace(e.DisplayTokenProtected))
@@ -2514,33 +2545,37 @@ public class BackupService : IBackupService
         List<string> warnings)
     {
         string? token = null;
-        if (!string.IsNullOrWhiteSpace(eqDto.ConnectionTokenEncrypted))
+        if (eqDto.ConnectionType == EquipmentConnectionType.HttpPush)
         {
-            if (encryptionKey != null && BackupSecretProtector.TryDecryptSecret(eqDto.ConnectionTokenEncrypted, encryptionKey, out var decryptedToken) && !string.IsNullOrWhiteSpace(decryptedToken))
+            if (!string.IsNullOrWhiteSpace(eqDto.ConnectionTokenEncrypted))
             {
-                var tokenTaken = await _db.Equipment.AnyAsync(e =>
-                    e.ConnectionToken == decryptedToken &&
-                    (!existingEquipmentId.HasValue || e.Id != existingEquipmentId.Value));
-
-                if (tokenTaken)
+                if (encryptionKey != null && BackupSecretProtector.TryDecryptSecret(eqDto.ConnectionTokenEncrypted, encryptionKey, out var decryptedToken) && !string.IsNullOrWhiteSpace(decryptedToken))
                 {
-                    token = EquipmentService.GenerateConnectionToken();
-                    warnings.Add($"Regenerated webhook connection token for '{eqDto.Name}' because the original token was already in use.");
+                    var hashedToken = EquipmentService.HashConnectionToken(decryptedToken);
+                    var tokenTaken = await _db.Equipment.AnyAsync(e =>
+                        e.ConnectionToken == hashedToken &&
+                        (!existingEquipmentId.HasValue || e.Id != existingEquipmentId.Value));
+
+                    if (tokenTaken)
+                    {
+                        token = EquipmentService.HashConnectionToken(EquipmentService.GenerateConnectionToken());
+                        warnings.Add($"Regenerated webhook connection token for '{eqDto.Name}' because the original token was already in use.");
+                    }
+                    else
+                    {
+                        token = hashedToken;
+                    }
                 }
                 else
                 {
-                    token = decryptedToken;
+                    token = EquipmentService.HashConnectionToken(EquipmentService.GenerateConnectionToken());
+                    warnings.Add($"Generated a new webhook connection token for '{eqDto.Name}' (original secret was encrypted).");
                 }
             }
-            else if (eqDto.ConnectionType == EquipmentConnectionType.HttpPush)
+            else if (!existingEquipmentId.HasValue)
             {
-                token = EquipmentService.GenerateConnectionToken();
-                warnings.Add($"Generated a new webhook connection token for '{eqDto.Name}' (original secret was encrypted).");
+                token = EquipmentService.HashConnectionToken(EquipmentService.GenerateConnectionToken());
             }
-        }
-        else if (eqDto.ConnectionType == EquipmentConnectionType.HttpPush && !existingEquipmentId.HasValue)
-        {
-            token = EquipmentService.GenerateConnectionToken();
         }
 
         var (restoredConfig, failedDecrypt) = BackupSecretProtector.RestoreConfigJsonFromBackup(
