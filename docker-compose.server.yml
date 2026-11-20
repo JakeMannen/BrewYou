@@ -1,0 +1,117 @@
+name: brewyou
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    container_name: brewyou-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-brewyou-db}
+      POSTGRES_USER: ${DB_USER:-brewyou}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-brewyou_dev_password}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - brewyou_pgdata:/var/lib/postgresql
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-brewyou} -d $${POSTGRES_DB:-brewyou-db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  apiservice:
+    image: ghcr.io/jakemannen/brewyou/brewyou-apiservice:${BREWYOU_TAG:-latest}
+    container_name: brewyou-apiservice
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "5000"
+      ConnectionStrings__brewyou-db: "Host=postgres;Port=5432;Database=${DB_NAME:-brewyou-db};Username=${DB_USER:-brewyou};Password=${DB_PASSWORD:-brewyou_dev_password}"
+      ConnectionStrings__mqtt: "tcp://mqtt:1883"
+      Jwt__SecretKey: "${JWT_SECRET:?JWT_SECRET must be set for server deployments}"
+      Jwt__Issuer: "BrewYou"
+      Jwt__Audience: "BrewYouApp"
+      Cors__AllowedOrigins__0: "${PUBLIC_APP_URL:-http://localhost:3000}"
+      Authentication__Google__ClientId: "${GOOGLE_CLIENT_ID:-}"
+      NetworkSecurity__AllowPrivateNetworks: "${ALLOW_PRIVATE_NETWORKS:-true}"
+      NetworkSecurity__AllowLoopback: "${ALLOW_LOOPBACK_NETWORKS:-false}"
+    ports:
+      - "${API_PORT:-5000}:5000"
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/alive || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  web:
+    image: ghcr.io/jakemannen/brewyou/brewyou-web:${BREWYOU_TAG:-latest}
+    container_name: brewyou-web
+    restart: unless-stopped
+    depends_on:
+      apiservice:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      services__apiservice__http__0: "http://apiservice:5000"
+      PUBLIC_API_URL: "${PUBLIC_API_URL:-}"
+      PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
+      PUBLIC_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: brewyou-mqtt
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "listener 1883" > /tmp/mosquitto.conf
+        echo "allow_anonymous true" >> /tmp/mosquitto.conf
+        echo "persistence true" >> /tmp/mosquitto.conf
+        echo "persistence_location /mosquitto/data/" >> /tmp/mosquitto.conf
+        exec /docker-entrypoint.sh /usr/sbin/mosquitto -c /tmp/mosquitto.conf
+    volumes:
+      - brewyou_mqttdata:/mosquitto/data
+    networks:
+      - brewyou-network
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t 'healthcheck' -E || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  brewyou_pgdata:
+    name: brewyou_pgdata
+  brewyou_mqttdata:
+    name: brewyou_mqttdata
+
+networks:
+  brewyou-network:
+    name: brewyou-network
+    driver: bridge

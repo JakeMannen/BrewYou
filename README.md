@@ -46,10 +46,14 @@ dotnet run --project src/BrewYou.AppHost
 ### Option B: Docker Compose
 
 ```bash
+# Local development build (loopback-bound)
 docker compose up --build
 
 # Optional profiles: mqtt, pgadmin, tools
 docker compose --profile mqtt --profile tools up --build
+
+# Server / Portainer deployment (pre-built GHCR images + MQTT)
+JWT_SECRET="your-32+-char-secret" docker compose -f docker-compose.server.yml up -d
 ```
 
 ### Option C: Manual Local Run

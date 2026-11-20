@@ -375,10 +375,10 @@ class SettingsState {
 		if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
 			return envUrl.trim().replace(/\/+$/, '');
 		}
-		if (typeof window !== 'undefined' && window.location?.origin) {
-			const origin = window.location.origin;
-			const base = origin.includes(':3000') ? origin.replace(':3000', ':5000') : origin;
-			return base.replace(/\/+$/, '');
+		if (typeof window !== 'undefined' && window.location?.hostname) {
+			const protocol = window.location.protocol || 'http:';
+			const hostname = window.location.hostname;
+			return `${protocol}//${hostname}:5000`;
 		}
 		return 'http://localhost:5000';
 	}

@@ -15,6 +15,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -311,8 +313,23 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 
-// CORS: Strictly allow configured frontend origins or localhost/127.0.0.1 in development
-var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+// CORS: Strictly allow configured frontend origins or localhost/127.0.0.1/private LAN when permitted
+var rawOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var configuredOrigins = rawOrigins
+    .Where(o => !string.IsNullOrWhiteSpace(o))
+    .Select(o =>
+    {
+        var trimmed = o.Trim().TrimEnd('/');
+        return trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : $"http://{trimmed}";
+    })
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
+var allowPrivateNetworks = builder.Configuration.GetValue<bool>("NetworkSecurity:AllowPrivateNetworks") || builder.Environment.IsDevelopment();
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -321,20 +338,62 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(configuredOrigins);
         }
-        else
+
+        policy.SetIsOriginAllowed(origin =>
         {
-            policy.SetIsOriginAllowed(origin =>
+            if (configuredOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
             {
-                if (builder.Environment.IsDevelopment())
+                return true;
+            }
+
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            var host = uri.Host;
+            if (host is "localhost" or "127.0.0.1" or "::1")
+            {
+                return true;
+            }
+
+            if (allowPrivateNetworks)
+            {
+                if (host.EndsWith(".local", StringComparison.OrdinalIgnoreCase) ||
+                    host.EndsWith(".lan", StringComparison.OrdinalIgnoreCase) ||
+                    host.EndsWith(".home.arpa", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                    return true;
+                }
+
+                if (IPAddress.TryParse(host, out var ip))
+                {
+                    if (ip.IsIPv4MappedToIPv6)
                     {
-                        return uri.Host is "localhost" or "127.0.0.1";
+                        ip = ip.MapToIPv4();
+                    }
+
+                    if (IPAddress.IsLoopback(ip))
+                    {
+                        return true;
+                    }
+
+                    var b = ip.GetAddressBytes();
+                    if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                        if (b[0] == 10 ||
+                            (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+                            (b[0] == 192 && b[1] == 168))
+                        {
+                            return true;
+                        }
                     }
                 }
-                return false;
-            });
-        }
+            }
+
+            return false;
+        });
 
         policy.AllowAnyHeader()
               .AllowAnyMethod()
