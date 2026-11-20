@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { api, setClientAuthToken, getClientAuthToken } from './client';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+	api,
+	setClientAuthToken,
+	getClientAuthToken,
+	getApiBaseUrl,
+	resolveApiUrl
+} from './client';
 
 describe('API Client', () => {
 	beforeEach(() => {
@@ -490,6 +496,61 @@ describe('API Client', () => {
 
 			const accepted = await api.breweryCollaboration.acceptInvite({ code: 'code-xyz' });
 			expect(accepted).toEqual(setupDto);
+		});
+	});
+
+	describe('Dynamic API Base & URL Resolution', () => {
+		let originalWindow: unknown;
+
+		beforeEach(() => {
+			originalWindow = (globalThis as Record<string, unknown>).window;
+		});
+
+		afterEach(() => {
+			if (originalWindow === undefined) {
+				delete (globalThis as Record<string, unknown>).window;
+			} else {
+				(globalThis as Record<string, unknown>).window = originalWindow;
+			}
+		});
+
+		it('resolves explicit window.__API_URL__ override when present', () => {
+			(globalThis as Record<string, unknown>).window = {
+				__API_URL__: 'http://custom-proxy:8080/',
+				location: { protocol: 'http:', hostname: 'localhost' }
+			};
+			expect(getApiBaseUrl()).toBe('http://custom-proxy:8080');
+		});
+
+		it('resolves dynamic API URL from window.location.hostname for LAN IP', () => {
+			(globalThis as Record<string, unknown>).window = {
+				location: {
+					protocol: 'http:',
+					hostname: '192.168.15.13',
+					port: '3300'
+				}
+			};
+			expect(getApiBaseUrl()).toBe('http://192.168.15.13:5000');
+		});
+
+		it('resolves dynamic API URL from window.location.hostname for custom hostname', () => {
+			(globalThis as Record<string, unknown>).window = {
+				location: {
+					protocol: 'http:',
+					hostname: 'min-server.local',
+					port: '3000'
+				}
+			};
+			expect(getApiBaseUrl()).toBe('http://min-server.local:5000');
+		});
+
+		it('correctly resolves relative and absolute API paths', () => {
+			expect(resolveApiUrl('https://external-api.com/status')).toBe(
+				'https://external-api.com/status'
+			);
+			expect(resolveApiUrl(null)).toBe('');
+			expect(resolveApiUrl('/api/v1/recipes')).toMatch(/\/api\/v1\/recipes$/);
+			expect(resolveApiUrl('api/v1/recipes')).toMatch(/\/api\/v1\/recipes$/);
 		});
 	});
 });
