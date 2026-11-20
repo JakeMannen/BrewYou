@@ -8,7 +8,7 @@ var db = postgres.AddDatabase("brewyou-db");
 var mqtt = builder.AddMosquitto("mqtt", port: 1883)
     .WithDataVolume("brewyou_mqttdata");
 
-var apiService = builder.AddProject<Projects.BrewYou_ApiService>("apiservice")
+var apiService = builder.AddDotnetProject("apiservice", "../BrewYou.ApiService/BrewYou.ApiService.csproj")
     .WithReference(db)
     .WaitFor(db)
     .WithReference(mqtt)
