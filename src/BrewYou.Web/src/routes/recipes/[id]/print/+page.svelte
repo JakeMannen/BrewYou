@@ -703,6 +703,61 @@
 						</tbody>
 					</table>
 				</div>
+
+				{#if recipe.waterPlan}
+					{@const wp = recipe.waterPlan}
+					<div class="mt-3 border-t border-zinc-200 pt-2.5 text-xs" data-testid="print-water-plan">
+						<div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+							<span class="font-bold text-zinc-800 uppercase">
+								{t('water.recipe_plan_title')}
+								{#if wp.sourceProfileName || wp.targetProfileName}
+									({wp.sourceProfileName || t('water.custom_inline')} → {wp.targetProfileName ||
+										t('water.custom_inline')})
+								{/if}
+							</span>
+							<span class="font-mono text-[11px] text-zinc-700">
+								{t('water.so4_cl_ratio')}: {wp.sulfateToChlorideRatio != null
+									? `${wp.sulfateToChlorideRatio}:1`
+									: '—'} ·
+								{t('water.residual_alkalinity')}: {wp.residualAlkalinityPpm} ppm ·
+								{t('water.predicted_mash_ph')}: {wp.predictedMashPh}
+							</span>
+						</div>
+						<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+							<div class="rounded border border-zinc-200 p-2 print:border-zinc-400">
+								<div class="mb-1 font-bold text-zinc-700">{t('water.mash_salts')}</div>
+								<div class="font-mono text-[11px] leading-relaxed">
+									Gypsum: {formatNumber(wp.mashGypsumGrams * scaleFactor, 1)} g · CaCl₂: {formatNumber(
+										wp.mashCalciumChlorideGrams * scaleFactor,
+										1
+									)} g · Epsom: {formatNumber(wp.mashEpsomSaltGrams * scaleFactor, 1)} g ·
+									{t('water.lactic_acid_ml')}: {formatNumber(
+										wp.mashAcidAmountMlOrG * scaleFactor,
+										1
+									)}
+								</div>
+							</div>
+							<div class="rounded border border-zinc-200 p-2 print:border-zinc-400">
+								<div class="mb-1 font-bold text-zinc-700">{t('water.sparge_salts')}</div>
+								<div class="font-mono text-[11px] leading-relaxed">
+									Gypsum: {formatNumber(wp.spargeGypsumGrams * scaleFactor, 1)} g · CaCl₂: {formatNumber(
+										wp.spargeCalciumChlorideGrams * scaleFactor,
+										1
+									)} g · Epsom: {formatNumber(wp.spargeEpsomSaltGrams * scaleFactor, 1)} g ·
+									{t('water.lactic_acid_ml')}: {formatNumber(
+										wp.spargeAcidAmountMlOrG * scaleFactor,
+										1
+									)}
+								</div>
+							</div>
+						</div>
+						<div class="mt-2 flex items-center gap-3 text-[11px]">
+							<span class="font-semibold text-zinc-700">{t('water.measured_mash_ph_writein')}:</span
+							>
+							<div class="h-4 w-28 border-b border-dashed border-zinc-500"></div>
+						</div>
+					</div>
+				{/if}
 			</section>
 
 			<!-- Stage 1: Mash Schedule & Grain Bill -->

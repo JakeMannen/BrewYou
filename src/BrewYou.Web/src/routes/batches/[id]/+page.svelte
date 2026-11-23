@@ -35,6 +35,7 @@
 	import BatchEditModal from '$lib/components/batches/BatchEditModal.svelte';
 	import BatchQrModal from '$lib/components/batches/BatchQrModal.svelte';
 	import BrewStationHudModal from '$lib/components/batches/BrewStationHudModal.svelte';
+	import BatchTastingsCard from '$lib/components/batches/BatchTastingsCard.svelte';
 	import BrewLinkInteractionModal from '$lib/components/brewery/BrewLinkInteractionModal.svelte';
 	import BrewLinkControlPanel from '$lib/components/brewery/BrewLinkControlPanel.svelte';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
@@ -46,6 +47,7 @@
 	import {
 		ArrowRight,
 		CheckCircle2,
+		FlaskConical,
 		Flame,
 		Play,
 		Pause,
@@ -286,6 +288,51 @@
 	let showAdvanceModal = $state(false);
 	let advancing = $state(false);
 	let advanceError = $state<string | null>(null);
+
+	// Harvest Yeast Slurry Modal
+	let showHarvestModal = $state(false);
+	let harvesting = $state(false);
+	let harvestError = $state<string | null>(null);
+	let harvestSuccess = $state<string | null>(null);
+	let harvestStrainName = $state('');
+	let harvestVolumeMl = $state(400);
+	let harvestDensity = $state(1.2);
+	let harvestLocation = $state('');
+	let harvestNotes = $state('');
+
+	function openHarvestModal() {
+		if (!batch) return;
+		const yeastIng = batch.ingredients.find((i) => i.type === 'Yeast');
+		harvestStrainName = batch.yeastBankStrainName ?? yeastIng?.name ?? `${batch.name} Yeast`;
+		harvestVolumeMl = 400;
+		harvestDensity = 1.2;
+		harvestLocation = '';
+		harvestNotes = '';
+		harvestError = null;
+		showHarvestModal = true;
+	}
+
+	async function submitHarvestYeast(e: Event) {
+		e.preventDefault();
+		if (!batch) return;
+		harvesting = true;
+		harvestError = null;
+		try {
+			await api.yeastBank.harvestFromBatch(batch.id, {
+				strainName: harvestStrainName.trim() || undefined,
+				volumeMl: harvestVolumeMl,
+				estimatedDensityBillionPerMl: harvestDensity,
+				storageLocation: harvestLocation.trim() || undefined,
+				notes: harvestNotes.trim() || undefined
+			});
+			showHarvestModal = false;
+			harvestSuccess = t('yeast.harvest_success');
+		} catch (err) {
+			harvestError = err instanceof Error ? err.message : t('common.error');
+		} finally {
+			harvesting = false;
+		}
+	}
 	let nextStage = $state<BrewStage>('Boil');
 	let advanceMeasuredOgStr = $state('');
 	let advanceMeasuredFgStr = $state('');
@@ -2343,6 +2390,16 @@
 
 				<button
 					type="button"
+					onclick={openHarvestModal}
+					title={t('yeast.harvest_slurry')}
+					class="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:text-amber-300"
+				>
+					<FlaskConical class="h-4 w-4 text-amber-500" />
+					<span class="hidden md:inline">{t('yeast.harvest_slurry')}</span>
+				</button>
+
+				<button
+					type="button"
 					data-testid="batch-detail-qr-btn"
 					onclick={() => (showQrModal = true)}
 					title={t('batches.qr.open_title')}
@@ -3926,9 +3983,145 @@
 					/>
 				</div>
 			{/if}
+
+			{#if harvestSuccess}
+				<div
+					class="mt-4 rounded-xl bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+				>
+					{harvestSuccess}
+				</div>
+			{/if}
+
+			{#if batch.yeastBankStrainName || batch.measuredMashPh != null}
+				<div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
+					{#if batch.yeastBankStrainName}
+						<span
+							class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+						>
+							<FlaskConical class="h-3.5 w-3.5" />
+							{batch.yeastBankStrainName}
+							{#if batch.yeastGeneration}(Gen {batch.yeastGeneration}){/if}
+						</span>
+					{/if}
+					{#if batch.measuredMashPh != null}
+						<span
+							class="rounded-full bg-sky-100 px-3 py-1 font-medium text-sky-800 dark:bg-sky-950/50 dark:text-sky-200"
+						>
+							{t('water.measured_mash_ph_writein')}: {batch.measuredMashPh}
+						</span>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="mt-6">
+				<BatchTastingsCard
+					batchId={batch.id}
+					tastings={batch.tastings ?? []}
+					summary={batch.tastingSummary}
+					onChanged={loadBatch}
+				/>
+			</div>
 		</div>
 	{/if}
 </div>
+
+{#if showHarvestModal && batch}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+		role="dialog"
+		aria-modal="true"
+	>
+		<form
+			onsubmit={submitHarvestYeast}
+			class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+		>
+			<div class="mb-4 flex items-center justify-between">
+				<h3 class="text-base font-bold text-zinc-900 dark:text-white">
+					{t('yeast.harvest_slurry')}
+				</h3>
+				<button
+					type="button"
+					onclick={() => (showHarvestModal = false)}
+					class="text-zinc-400 hover:text-zinc-600"
+				>
+					<X class="h-4 w-4" />
+				</button>
+			</div>
+
+			{#if harvestError}
+				<div class="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{harvestError}</div>
+			{/if}
+
+			<div class="space-y-3 text-xs">
+				<label class="block font-medium text-zinc-700 dark:text-zinc-300">
+					{t('yeast.strain_name')}
+					<input
+						type="text"
+						required
+						bind:value={harvestStrainName}
+						class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+					/>
+				</label>
+				<div class="grid grid-cols-2 gap-3">
+					<label class="block font-medium text-zinc-700 dark:text-zinc-300">
+						{t('yeast.volume_ml')}
+						<input
+							type="number"
+							step="10"
+							min="10"
+							bind:value={harvestVolumeMl}
+							class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+						/>
+					</label>
+					<label class="block font-medium text-zinc-700 dark:text-zinc-300">
+						{t('yeast.slurry_density')}
+						<input
+							type="number"
+							step="0.1"
+							min="0.2"
+							bind:value={harvestDensity}
+							class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+						/>
+					</label>
+				</div>
+				<label class="block font-medium text-zinc-700 dark:text-zinc-300">
+					{t('yeast.storage_location')}
+					<input
+						type="text"
+						bind:value={harvestLocation}
+						class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+					/>
+				</label>
+				<label class="block font-medium text-zinc-700 dark:text-zinc-300">
+					{t('common.notes')}
+					<input
+						type="text"
+						bind:value={harvestNotes}
+						class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+					/>
+				</label>
+			</div>
+
+			<div class="mt-5 flex justify-end gap-2">
+				<button
+					type="button"
+					onclick={() => (showHarvestModal = false)}
+					class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
+				>
+					{t('common.cancel')}
+				</button>
+				<button
+					type="submit"
+					disabled={harvesting}
+					class="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
+				>
+					<CheckCircle2 class="h-3.5 w-3.5" />
+					{t('yeast.save_harvest')}
+				</button>
+			</div>
+		</form>
+	</div>
+{/if}
 
 <!-- Advance Stage Modal -->
 {#if showAdvanceModal && batch}

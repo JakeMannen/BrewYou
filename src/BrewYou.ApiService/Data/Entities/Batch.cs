@@ -65,6 +65,13 @@ public class Batch
     public decimal? BrewhouseEfficiency { get; set; }
     public decimal? MeasuredBatchSizeLiters { get; set; }
     public decimal? PitchTemperatureC { get; set; }
+    public decimal? MeasuredMashPh { get; set; }
+
+    // Yeast pitch & slurry lineage
+    public Guid? YeastBankEntryId { get; set; }
+    public YeastBankEntry? YeastBankEntry { get; set; }
+    public decimal? YeastPitchRateMillionPerMlPlato { get; set; }
+    public decimal? YeastStarterVolumeLiters { get; set; }
 
     // Equipment assignments
     public Guid? HltId { get; set; }
@@ -97,4 +104,5 @@ public class Batch
     public ICollection<BatchSensorAssignment> SensorAssignments { get; set; } = new List<BatchSensorAssignment>();
     public ICollection<Equipment> Taps { get; set; } = new List<Equipment>();
     public BatchVolumeProfile? VolumeProfile { get; set; }
+    public ICollection<BatchTasting> Tastings { get; set; } = new List<BatchTasting>();
 }

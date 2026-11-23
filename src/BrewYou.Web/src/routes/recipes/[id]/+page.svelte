@@ -7,6 +7,7 @@
 	import { auth } from '$lib/stores/auth.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n/index.svelte';
+	import RecipeWaterPlanCard from '$lib/components/recipes/RecipeWaterPlanCard.svelte';
 	import {
 		getLocalizedFermentableCategory,
 		getLocalizedIngredientName,
@@ -1198,6 +1199,16 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if recipe.waterPlan}
+		<div class="mt-6">
+			<RecipeWaterPlanCard
+				waterPlan={recipe.waterPlan}
+				batchSizeLiters={recipe.batchSizeLiters}
+				readonly={true}
+			/>
+		</div>
+	{/if}
 
 	<DeleteRecipeModal
 		open={isDeleteModalOpen}

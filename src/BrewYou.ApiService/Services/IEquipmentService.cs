@@ -23,7 +23,8 @@ public record CreateEquipmentRequest(
     string? ConnectionConfigJson = null,
     int? DisplayWidthPx = null,
     int? DisplayHeightPx = null,
-    DisplayOrientation? DisplayOrientation = null
+    DisplayOrientation? DisplayOrientation = null,
+    decimal? DefaultEfficiencyPercent = null
 );
 
 public record UpdateEquipmentRequest(
@@ -45,7 +46,8 @@ public record UpdateEquipmentRequest(
     string? ConnectionConfigJson = null,
     int? DisplayWidthPx = null,
     int? DisplayHeightPx = null,
-    DisplayOrientation? DisplayOrientation = null
+    DisplayOrientation? DisplayOrientation = null,
+    decimal? DefaultEfficiencyPercent = null
 );
 
 public record TapAssignedBatchDto(
@@ -112,7 +114,8 @@ public record EquipmentDto(
     AssignedKegSummaryDto? AssignedKeg = null,
     Guid? AssignedBatchId = null,
     decimal? FillLevelPercent = null,
-    bool HasConnectionToken = false
+    bool HasConnectionToken = false,
+    decimal? DefaultEfficiencyPercent = null
 );
 
 public record EquipmentActiveBatchDto(

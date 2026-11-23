@@ -129,6 +129,11 @@ public class Equipment
     public decimal? PackagingLossLiters { get; set; }
 
     /// <summary>
+    /// Calibrated/default brewhouse efficiency (%) override for boilers / mash tuns. Null = inherit from BrewerySetup.
+    /// </summary>
+    public decimal? DefaultEfficiencyPercent { get; set; }
+
+    /// <summary>
     /// Current live temperature in Celsius. Null if sensor not attached or reading not yet received.
     /// </summary>
     public decimal? CurrentTemperatureC { get; set; }

@@ -10,11 +10,14 @@
 		EquipmentDto,
 		CreateBatchRequest,
 		RecipeFermentationStepOutputDto,
-		RecipeMashStepOutputDto
+		RecipeMashStepOutputDto,
+		YeastBankEntryDto
 	} from '$lib/types/api';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { brewery } from '$lib/stores/brewery.svelte';
 	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
 	import { estimateEquipmentStrikeTempC } from '$lib/calculators/calculators';
+	import { calculateYeastPitch } from '$lib/calculators/yeast';
 	import { calculateWaterRequirements, scaleGrainWeightKg } from '$lib/calculators/volume';
 	import type { TargetVolumeBasis } from '$lib/calculators/volume';
 	import {
@@ -102,6 +105,26 @@
 	let pitchTemperatureC = $state<number | null>(null);
 	let pitchTempStr = $state('');
 	let notes = $state('');
+	let yeastBankEntries = $state<YeastBankEntryDto[]>([]);
+	let selectedYeastBankId = $state('');
+	let yeastSlurryVolumeUsedMl = $state<number | null>(null);
+	let yeastPitchRate = $state(0.75);
+	let yeastStarterVolumeLiters = $state<number | null>(null);
+	const pitchPreview = $derived.by(() => {
+		const bank = yeastBankEntries.find((y) => y.id === selectedYeastBankId);
+		return calculateYeastPitch({
+			batchVolumeLiters: targetBatchSizeLiters,
+			originalGravity: targetOg,
+			styleCategory: 'Custom',
+			customPitchRateMillionPerMlPlato: yeastPitchRate,
+			yeastForm: selectedYeastBankId ? 'Slurry' : 'Liquid',
+			packageAgeDays: bank?.ageDays ?? 0,
+			baseViabilityPercent: bank?.baseViabilityPercent ?? 95,
+			slurryDensityBillionPerMl: bank?.estimatedDensityBillionPerMl ?? 1.0,
+			packsAvailable: 1,
+			starterMethod: selectedYeastBankId ? 'None' : 'StirPlate'
+		});
+	});
 	let recipeBaseBatchSizeLiters = $state(20.0);
 	let baseRecipeGrainKg = $state(4.5);
 
@@ -165,6 +188,12 @@
 				customKettleTrub = selectedBoiler.trubLossLiters ?? 1.5;
 				if (brewhouseTopology === '1V' || brewhouseTopology === '2V_AIO_HLT') {
 					customMashTunDeadSpace = selectedBoiler.mashTunDeadSpaceLiters ?? 0.0;
+				}
+				if (isAdHoc || !selectedRecipeId) {
+					efficiencyPercent =
+						selectedBoiler.defaultEfficiencyPercent ??
+						brewery.activeSetup?.defaultEfficiencyPercent ??
+						72.0;
 				}
 			}
 		}
@@ -486,11 +515,17 @@
 					: null;
 
 		try {
-			const [recipeList, equipList, codeRes] = await Promise.all([
+			const [recipeList, equipList, codeRes, bankList] = await Promise.all([
 				api.recipes.list(),
 				api.equipment.list(),
-				api.batches.getNextCode(validUrlBrewDate)
+				api.batches.getNextCode(validUrlBrewDate),
+				api.yeastBank.list('Available').catch(() => [] as YeastBankEntryDto[])
 			]);
+			yeastBankEntries = bankList;
+			const urlYeastBankId = page.url.searchParams.get('yeastBankId');
+			if (urlYeastBankId && bankList.some((b) => b.id === urlYeastBankId)) {
+				selectedYeastBankId = urlYeastBankId;
+			}
 			recipes = [...recipeList].sort((a, b) =>
 				a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
 			);
@@ -680,6 +715,10 @@
 				hltId: effectiveHltId,
 				fermenterId: selectedFermenterId || null,
 				pitchTemperatureC: pitchTemperatureC,
+				yeastBankEntryId: selectedYeastBankId || null,
+				yeastSlurryVolumeUsedMl: selectedYeastBankId ? yeastSlurryVolumeUsedMl : null,
+				yeastPitchRateMillionPerMlPlato: yeastPitchRate || null,
+				yeastStarterVolumeLiters: yeastStarterVolumeLiters || null,
 				customMashSteps:
 					recipeMashSteps.length > 0
 						? recipeMashSteps.map((s) => ({
@@ -1372,6 +1411,30 @@
 							>
 								{t('batches.equipment.capacity', { liters: selectedBoiler.capacityLiters })}
 							</span>
+							{#if selectedBoiler.defaultEfficiencyPercent != null}
+								<span
+									class="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
+								>
+									{t('calibration.boiler_calibrated_eff', {
+										eff: formatNumber(selectedBoiler.defaultEfficiencyPercent, 1)
+									})}
+								</span>
+								{#if !isAdHoc && selectedRecipeId && Math.abs(efficiencyPercent - selectedBoiler.defaultEfficiencyPercent) >= 0.1}
+									<button
+										type="button"
+										onclick={() => {
+											if (selectedBoiler.defaultEfficiencyPercent != null) {
+												efficiencyPercent = selectedBoiler.defaultEfficiencyPercent;
+											}
+										}}
+										class="rounded-lg border border-indigo-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-zinc-900 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+									>
+										{t('calibration.use_boiler_eff', {
+											eff: formatNumber(selectedBoiler.defaultEfficiencyPercent, 1)
+										})}
+									</button>
+								{/if}
+							{/if}
 							{#if !isPastBrewDate && selectedBoiler.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
@@ -2400,6 +2463,121 @@
 						</div>
 					</div>
 				{/if}
+
+				<!-- Yeast Bank & Pitch Rate Planning -->
+				<div class="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+					<div
+						class="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-amber-700 dark:text-amber-300"
+					>
+						<span>{t('yeast.pitch_plan_title')}</span>
+						<span class="font-mono">
+							{t('yeast.target_cells')}: {pitchPreview.requiredCellsBillions} B · {selectedYeastBankId
+								? `${pitchPreview.requiredSlurryMl} mL`
+								: `${pitchPreview.dryPacksRecommended} ${t('yeast.dry_packs_short')}`}
+						</span>
+					</div>
+					<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+						<div>
+							<label
+								for="batch-yeast-bank"
+								class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+							>
+								{t('yeast.bank_slurry_optional')}
+							</label>
+							<select
+								id="batch-yeast-bank"
+								value={selectedYeastBankId}
+								onchange={(e) => {
+									selectedYeastBankId = e.currentTarget.value;
+									if (selectedYeastBankId) {
+										const calc = calculateYeastPitch({
+											batchVolumeLiters: targetBatchSizeLiters,
+											originalGravity: targetOg,
+											styleCategory: 'Custom',
+											customPitchRateMillionPerMlPlato: yeastPitchRate,
+											yeastForm: 'Slurry',
+											packageAgeDays:
+												yeastBankEntries.find((y) => y.id === selectedYeastBankId)?.ageDays ?? 0,
+											baseViabilityPercent:
+												yeastBankEntries.find((y) => y.id === selectedYeastBankId)
+													?.baseViabilityPercent ?? 95,
+											slurryDensityBillionPerMl:
+												yeastBankEntries.find((y) => y.id === selectedYeastBankId)
+													?.estimatedDensityBillionPerMl ?? 1.0,
+											packsAvailable: 1,
+											starterMethod: 'None'
+										});
+										yeastSlurryVolumeUsedMl = calc.requiredSlurryMl;
+									} else {
+										yeastSlurryVolumeUsedMl = null;
+									}
+								}}
+								class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+							>
+								<option value="">{t('yeast.fresh_pack_none')}</option>
+								{#each yeastBankEntries as yb (yb.id)}
+									<option value={yb.id}>
+										{yb.strainName} (Gen {yb.generation}, {yb.volumeMl} mL, {yb.currentEstimatedViabilityPercent}%)
+									</option>
+								{/each}
+							</select>
+						</div>
+
+						<div>
+							<label
+								for="batch-pitch-rate"
+								class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+							>
+								{t('yeast.custom_pitch_rate')}
+							</label>
+							<input
+								id="batch-pitch-rate"
+								type="number"
+								step="0.05"
+								min="0.25"
+								max="3.0"
+								bind:value={yeastPitchRate}
+								class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+							/>
+						</div>
+
+						{#if selectedYeastBankId}
+							<div>
+								<label
+									for="batch-slurry-used"
+									class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+								>
+									{t('yeast.slurry_to_deduct_ml')}
+								</label>
+								<input
+									id="batch-slurry-used"
+									type="number"
+									step="10"
+									min="0"
+									bind:value={yeastSlurryVolumeUsedMl}
+									class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+							</div>
+						{:else}
+							<div>
+								<label
+									for="batch-starter-vol"
+									class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+								>
+									{t('yeast.starter_volume_override')}
+								</label>
+								<input
+									id="batch-starter-vol"
+									type="number"
+									step="0.25"
+									min="0"
+									bind:value={yeastStarterVolumeLiters}
+									class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+								/>
+							</div>
+						{/if}
+					</div>
+				</div>
 
 				<!-- Notes -->
 				<div class="space-y-1.5">

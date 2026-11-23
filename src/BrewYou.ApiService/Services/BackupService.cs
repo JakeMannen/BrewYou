@@ -216,7 +216,8 @@ public class BackupService : IBackupService
                         i.Role,
                         i.CreatedAt,
                         i.ExpiresAt))
-                    .ToList()
+                    .ToList(),
+                s.DefaultEfficiencyPercent
             )).ToList();
 
             var ownedSetupIds = ownedSetupsEntities.Select(s => s.Id).ToHashSet();
@@ -264,7 +265,8 @@ public class BackupService : IBackupService
                         s.CoolingShrinkagePercent,
                         s.DefaultPackagingLossLiters,
                         s.CreatedAt,
-                        s.UpdatedAt),
+                        s.UpdatedAt,
+                        DefaultEfficiencyPercent: s.DefaultEfficiencyPercent),
                     ReferencedEquipmentSnapshots: eqSnapshots
                 );
             }).ToList();
@@ -329,6 +331,7 @@ public class BackupService : IBackupService
             var userRecipeEntities = await _db.Recipes
                 .AsNoTracking()
                 .Include(r => r.Label)
+                .Include(r => r.WaterPlan)
                 .Include(r => r.Ingredients)
                     .ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.MashSteps)
@@ -351,6 +354,7 @@ public class BackupService : IBackupService
                 .Include(b => b.StageHistory)
                 .Include(b => b.Readings)
                 .Include(b => b.SensorAssignments)
+                .Include(b => b.Tastings)
                 .Where(b => b.UserId == userId)
                 .OrderBy(b => b.BrewDate)
                 .ThenBy(b => b.CreatedAt)
@@ -372,6 +376,7 @@ public class BackupService : IBackupService
                 var extEntities = await _db.Recipes
                     .AsNoTracking()
                     .Include(r => r.Label)
+                    .Include(r => r.WaterPlan)
                     .Include(r => r.Ingredients)
                         .ThenInclude(ri => ri.Ingredient)
                     .Include(r => r.MashSteps)
@@ -381,6 +386,55 @@ public class BackupService : IBackupService
 
                 referencedExternalRecipes = extEntities.Select(r => MapRecipeToBackupDto(r, request.IncludeLabelImages)).ToList();
             }
+
+            // 9b. User-owned Water Profiles & Yeast Bank Entries
+            var waterProfileEntities = await _db.WaterProfiles
+                .AsNoTracking()
+                .Where(w => !w.IsPreset && w.UserId == userId)
+                .OrderBy(w => w.Name)
+                .ToListAsync();
+
+            var waterProfileDtos = waterProfileEntities.Select(w => new WaterProfileBackupDto(
+                w.Id,
+                w.Name,
+                w.Description,
+                w.Category,
+                w.CalciumPpm,
+                w.MagnesiumPpm,
+                w.SodiumPpm,
+                w.SulfatePpm,
+                w.ChloridePpm,
+                w.BicarbonatePpm,
+                w.Ph,
+                w.CreatedAt,
+                w.UpdatedAt)).ToList();
+
+            var yeastBankEntities = await _db.YeastBankEntries
+                .AsNoTracking()
+                .Where(y => y.UserId == userId)
+                .OrderBy(y => y.HarvestDate)
+                .ToListAsync();
+
+            var yeastBankDtos = yeastBankEntities.Select(y => new YeastBankEntryBackupDto(
+                y.Id,
+                y.IngredientId,
+                y.StrainName,
+                y.LabOrBrand,
+                y.ProductCode,
+                y.Form,
+                y.Generation,
+                y.HarvestDate,
+                y.SourceBatchId,
+                y.SourceBatchName,
+                y.SourceBatchCode,
+                y.VolumeMl,
+                y.EstimatedDensityBillionPerMl,
+                y.BaseViabilityPercent,
+                y.StorageLocation,
+                y.Status,
+                y.Notes,
+                y.CreatedAt,
+                y.UpdatedAt)).ToList();
 
             // 10. Equipment Telemetry Readings
             var equipmentReadings = new List<EquipmentReadingBackupDto>();
@@ -430,7 +484,9 @@ public class BackupService : IBackupService
                 Recipes = recipeDtos,
                 ReferencedExternalRecipes = referencedExternalRecipes,
                 Batches = batchDtos,
-                EquipmentReadings = equipmentReadings
+                EquipmentReadings = equipmentReadings,
+                WaterProfiles = waterProfileDtos,
+                YeastBankEntries = yeastBankDtos
             };
 
             var serializerOptions = BackupMigrationPipeline.CreateCanonicalSerializerOptions();
@@ -522,7 +578,10 @@ public class BackupService : IBackupService
             Collaborators: collaboratorCount,
             PendingInvites: inviteCount,
             Labels: payload.Recipes.Count(r => r.Label != null),
-            Taps: payload.Equipment.Count(e => e.Type == EquipmentType.Tap)
+            Taps: payload.Equipment.Count(e => e.Type == EquipmentType.Tap),
+            WaterProfiles: payload.WaterProfiles.Count,
+            YeastBankEntries: payload.YeastBankEntries.Count,
+            Tastings: payload.Batches.Sum(b => b.Tastings?.Count ?? 0)
         );
 
         // Compute conflicts against current user database state
@@ -681,6 +740,9 @@ public class BackupService : IBackupService
                 int batchesCreated = 0, batchesUpdated = 0, batchesSkipped = 0;
                 int readingsRestored = 0;
                 int collaboratorsRestored = 0;
+                int waterProfilesRestored = 0;
+                int yeastBankRestored = 0;
+                int tastingsRestored = 0;
                 var generatedInvites = new List<RestoredInviteInfoDto>();
 
                 // Handle ReplaceAll clean-slate mode
@@ -704,6 +766,8 @@ public class BackupService : IBackupService
                 var recipeIdMap = new Dictionary<Guid, Guid>();
                 var batchIdMap = new Dictionary<Guid, Guid>();
                 var batchMashStepIdMap = new Dictionary<Guid, Guid>();
+                var waterProfileIdMap = new Dictionary<Guid, Guid>();
+                var yeastBankIdMap = new Dictionary<Guid, Guid>();
 
                 // 2. Restore Custom Ingredients
                 var catalogIngredients = await _db.Ingredients
@@ -948,6 +1012,7 @@ public class BackupService : IBackupService
                             existingSetup.DefaultMashTunDeadSpaceLiters = setupDto.DefaultMashTunDeadSpaceLiters;
                             existingSetup.CoolingShrinkagePercent = setupDto.CoolingShrinkagePercent;
                             existingSetup.DefaultPackagingLossLiters = setupDto.DefaultPackagingLossLiters;
+                            existingSetup.DefaultEfficiencyPercent = setupDto.DefaultEfficiencyPercent;
                             existingSetup.UpdatedAt = DateTime.UtcNow;
                             setupsUpdated++;
                         }
@@ -975,6 +1040,7 @@ public class BackupService : IBackupService
                             DefaultMashTunDeadSpaceLiters = setupDto.DefaultMashTunDeadSpaceLiters,
                             CoolingShrinkagePercent = setupDto.CoolingShrinkagePercent,
                             DefaultPackagingLossLiters = setupDto.DefaultPackagingLossLiters,
+                            DefaultEfficiencyPercent = setupDto.DefaultEfficiencyPercent,
                             CreatedAt = setupDto.CreatedAt == default ? DateTime.UtcNow : setupDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow
                         };
@@ -1046,6 +1112,7 @@ public class BackupService : IBackupService
                                 DefaultMashTunDeadSpaceLiters = sharedDto.SetupSnapshot.DefaultMashTunDeadSpaceLiters,
                                 CoolingShrinkagePercent = sharedDto.SetupSnapshot.CoolingShrinkagePercent,
                                 DefaultPackagingLossLiters = sharedDto.SetupSnapshot.DefaultPackagingLossLiters,
+                                DefaultEfficiencyPercent = sharedDto.SetupSnapshot.DefaultEfficiencyPercent,
                                 CreatedAt = DateTime.UtcNow,
                                 UpdatedAt = DateTime.UtcNow
                             };
@@ -1073,6 +1140,7 @@ public class BackupService : IBackupService
                                     TrubLossLiters = snapEq.TrubLossLiters,
                                     MashTunDeadSpaceLiters = snapEq.MashTunDeadSpaceLiters,
                                     PackagingLossLiters = snapEq.PackagingLossLiters,
+                                    DefaultEfficiencyPercent = snapEq.DefaultEfficiencyPercent,
                                     ConnectionType = EquipmentConnectionType.None,
                                     Description = snapEq.Description,
                                     Notes = snapEq.Notes,
@@ -1290,6 +1358,7 @@ public class BackupService : IBackupService
                             existingEq.TrubLossLiters = eqDto.TrubLossLiters;
                             existingEq.MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters;
                             existingEq.PackagingLossLiters = eqDto.PackagingLossLiters;
+                            existingEq.DefaultEfficiencyPercent = eqDto.DefaultEfficiencyPercent;
                             existingEq.CurrentTemperatureC = isTap ? null : eqDto.CurrentTemperatureC;
                             existingEq.CurrentSpecificGravity = isTap ? null : eqDto.CurrentSpecificGravity;
                             existingEq.CurrentPressureBar = isTap ? null : eqDto.CurrentPressureBar;
@@ -1379,6 +1448,7 @@ public class BackupService : IBackupService
                             TrubLossLiters = eqDto.TrubLossLiters,
                             MashTunDeadSpaceLiters = eqDto.MashTunDeadSpaceLiters,
                             PackagingLossLiters = eqDto.PackagingLossLiters,
+                            DefaultEfficiencyPercent = eqDto.DefaultEfficiencyPercent,
                             CurrentTemperatureC = isTap ? null : eqDto.CurrentTemperatureC,
                             CurrentSpecificGravity = isTap ? null : eqDto.CurrentSpecificGravity,
                             CurrentPressureBar = isTap ? null : eqDto.CurrentPressureBar,
@@ -1440,6 +1510,79 @@ public class BackupService : IBackupService
                     await _db.SaveChangesAsync();
                 }
 
+                // 6b. Restore Water Profiles (Presets mapped by ID/Name + User-owned Profiles)
+                var allPresetWaterProfiles = await _db.WaterProfiles
+                    .AsNoTracking()
+                    .Where(w => w.IsPreset)
+                    .ToListAsync();
+                foreach (var preset in allPresetWaterProfiles)
+                {
+                    waterProfileIdMap[preset.Id] = preset.Id;
+                }
+
+                var existingUserWaterProfiles = await _db.WaterProfiles
+                    .Where(w => !w.IsPreset && w.UserId == userId)
+                    .ToListAsync();
+
+                foreach (var wpDto in payload.WaterProfiles ?? [])
+                {
+                    var normName = wpDto.Name.Trim();
+                    if (string.IsNullOrEmpty(normName)) normName = "Water Profile";
+                    var normCat = string.Equals(wpDto.Category, "Source", StringComparison.OrdinalIgnoreCase) ? "Source" : "Target";
+
+                    var existingWp = existingUserWaterProfiles.FirstOrDefault(w =>
+                        w.Id == wpDto.Id ||
+                        (string.Equals(w.Name, normName, StringComparison.OrdinalIgnoreCase) && w.Category == normCat));
+
+                    if (existingWp != null)
+                    {
+                        waterProfileIdMap[wpDto.Id] = existingWp.Id;
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        {
+                            existingWp.Name = normName;
+                            existingWp.Description = wpDto.Description;
+                            existingWp.Category = normCat;
+                            existingWp.CalciumPpm = wpDto.CalciumPpm;
+                            existingWp.MagnesiumPpm = wpDto.MagnesiumPpm;
+                            existingWp.SodiumPpm = wpDto.SodiumPpm;
+                            existingWp.SulfatePpm = wpDto.SulfatePpm;
+                            existingWp.ChloridePpm = wpDto.ChloridePpm;
+                            existingWp.BicarbonatePpm = wpDto.BicarbonatePpm;
+                            existingWp.Ph = wpDto.Ph;
+                            existingWp.UpdatedAt = DateTime.UtcNow;
+                            waterProfilesRestored++;
+                        }
+                    }
+                    else
+                    {
+                        var idTaken = await _db.WaterProfiles.AnyAsync(w => w.Id == wpDto.Id);
+                        var newWp = new WaterProfile
+                        {
+                            Id = idTaken ? Guid.NewGuid() : wpDto.Id,
+                            UserId = userId,
+                            Name = normName,
+                            Description = wpDto.Description,
+                            Category = normCat,
+                            IsPreset = false,
+                            CalciumPpm = wpDto.CalciumPpm,
+                            MagnesiumPpm = wpDto.MagnesiumPpm,
+                            SodiumPpm = wpDto.SodiumPpm,
+                            SulfatePpm = wpDto.SulfatePpm,
+                            ChloridePpm = wpDto.ChloridePpm,
+                            BicarbonatePpm = wpDto.BicarbonatePpm,
+                            Ph = wpDto.Ph,
+                            CreatedAt = wpDto.CreatedAt == default ? DateTime.UtcNow : wpDto.CreatedAt,
+                            UpdatedAt = DateTime.UtcNow
+                        };
+                        _db.WaterProfiles.Add(newWp);
+                        existingUserWaterProfiles.Add(newWp);
+                        waterProfileIdMap[wpDto.Id] = newWp.Id;
+                        waterProfilesRestored++;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
                 // 7. Resolve Referenced External Recipes & Restore User Recipes
                 foreach (var extRecipe in payload.ReferencedExternalRecipes)
                 {
@@ -1454,6 +1597,7 @@ public class BackupService : IBackupService
 
                 var existingUserRecipes = await _db.Recipes
                     .Include(r => r.Label)
+                    .Include(r => r.WaterPlan)
                     .Include(r => r.Ingredients)
                     .Include(r => r.MashSteps)
                     .Include(r => r.FermentationSteps)
@@ -1517,6 +1661,18 @@ public class BackupService : IBackupService
                             _db.RecipeIngredients.AddRange(newRecipeIngredients);
                             _db.RecipeMashSteps.AddRange(newRecipeMashSteps);
                             _db.RecipeFermentationSteps.AddRange(newRecipeFermentationSteps);
+
+                            if (recipeDto.WaterPlan != null)
+                            {
+                                if (existingRecipe.WaterPlan != null)
+                                {
+                                    _db.RecipeWaterPlans.Remove(existingRecipe.WaterPlan);
+                                }
+                                var restoredPlan = CreateRecipeWaterPlanFromBackup(existingRecipe.Id, recipeDto.WaterPlan, waterProfileIdMap, allPresetWaterProfiles);
+                                existingRecipe.WaterPlan = restoredPlan;
+                                _db.RecipeWaterPlans.Add(restoredPlan);
+                            }
+
                             recipesUpdated++;
                         }
                         else
@@ -1549,6 +1705,9 @@ public class BackupService : IBackupService
                             CreatedAt = recipeDto.CreatedAt == default ? DateTime.UtcNow : recipeDto.CreatedAt,
                             UpdatedAt = DateTime.UtcNow,
                             Label = CreateRecipeLabelFromDto(newRecipeId, recipeDto.Label, uniqueName, warnings),
+                            WaterPlan = recipeDto.WaterPlan != null
+                                ? CreateRecipeWaterPlanFromBackup(newRecipeId, recipeDto.WaterPlan, waterProfileIdMap, allPresetWaterProfiles)
+                                : null,
                             Ingredients = await BuildRecipeIngredientsAsync(newRecipeId, recipeDto.Ingredients, ResolveIngredientAsync),
                             MashSteps = BuildRecipeMashSteps(newRecipeId, recipeDto.MashSteps),
                             FermentationSteps = BuildRecipeFermentationSteps(newRecipeId, recipeDto.FermentationSteps)
@@ -1576,8 +1735,11 @@ public class BackupService : IBackupService
                     .Include(b => b.StageHistory)
                     .Include(b => b.Readings)
                     .Include(b => b.SensorAssignments)
+                    .Include(b => b.Tastings)
                     .Where(b => b.UserId == userId)
                     .ToListAsync();
+
+                var pendingBatchYeastLinks = new Dictionary<Guid, Guid>();
 
                 foreach (var batchDto in payload.Batches)
                 {
@@ -1639,6 +1801,9 @@ public class BackupService : IBackupService
                             existingBatch.BrewhouseEfficiency = batchDto.BrewhouseEfficiency;
                             existingBatch.MeasuredBatchSizeLiters = batchDto.MeasuredBatchSizeLiters;
                             existingBatch.PitchTemperatureC = batchDto.PitchTemperatureC;
+                            existingBatch.MeasuredMashPh = batchDto.MeasuredMashPh;
+                            existingBatch.YeastPitchRateMillionPerMlPlato = batchDto.YeastPitchRateMillionPerMlPlato;
+                            existingBatch.YeastStarterVolumeLiters = batchDto.YeastStarterVolumeLiters;
                             existingBatch.BoilerId = mappedBoilerId;
                             existingBatch.FermenterId = mappedFermenterId;
                             existingBatch.PackagingVesselId = mappedPkgId;
@@ -1659,6 +1824,7 @@ public class BackupService : IBackupService
                             _db.BatchStageHistories.RemoveRange(existingBatch.StageHistory);
                             _db.BatchReadings.RemoveRange(existingBatch.Readings);
                             _db.BatchSensorAssignments.RemoveRange(existingBatch.SensorAssignments);
+                            _db.BatchTastings.RemoveRange(existingBatch.Tastings);
                             await _db.SaveChangesAsync();
 
                             PopulateBatchChildren(existingBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap, eligibleSensorEquipmentIds);
@@ -1672,6 +1838,12 @@ public class BackupService : IBackupService
                             _db.BatchStageHistories.AddRange(existingBatch.StageHistory);
                             _db.BatchReadings.AddRange(existingBatch.Readings);
                             _db.BatchSensorAssignments.AddRange(existingBatch.SensorAssignments);
+                            _db.BatchTastings.AddRange(existingBatch.Tastings);
+                            tastingsRestored += existingBatch.Tastings.Count;
+                            if (batchDto.YeastBankEntryId.HasValue)
+                            {
+                                pendingBatchYeastLinks[existingBatch.Id] = batchDto.YeastBankEntryId.Value;
+                            }
                             batchesUpdated++;
                         }
                         else
@@ -1719,6 +1891,9 @@ public class BackupService : IBackupService
                             BrewhouseEfficiency = batchDto.BrewhouseEfficiency,
                             MeasuredBatchSizeLiters = batchDto.MeasuredBatchSizeLiters,
                             PitchTemperatureC = batchDto.PitchTemperatureC,
+                            MeasuredMashPh = batchDto.MeasuredMashPh,
+                            YeastPitchRateMillionPerMlPlato = batchDto.YeastPitchRateMillionPerMlPlato,
+                            YeastStarterVolumeLiters = batchDto.YeastStarterVolumeLiters,
                             BoilerId = mappedBoilerId,
                             FermenterId = mappedFermenterId,
                             PackagingVesselId = mappedPkgId,
@@ -1731,14 +1906,129 @@ public class BackupService : IBackupService
                         };
 
                         PopulateBatchChildren(newBatch, batchDto, ingredientIdMap, equipmentIdMap, batchMashStepIdMap, eligibleSensorEquipmentIds);
+                        tastingsRestored += newBatch.Tastings.Count;
                         _db.Batches.Add(newBatch);
                         existingUserBatches.Add(newBatch);
                         batchIdMap[batchDto.Id] = newBatch.Id;
+                        if (batchDto.YeastBankEntryId.HasValue)
+                        {
+                            pendingBatchYeastLinks[newBatch.Id] = batchDto.YeastBankEntryId.Value;
+                        }
                         batchesCreated++;
                     }
                 }
 
                 await _db.SaveChangesAsync();
+
+                // 8b. Restore Yeast Bank Entries (after Batches & Ingredients so SourceBatchId and IngredientId remap cleanly)
+                var existingUserYeastEntries = await _db.YeastBankEntries
+                    .Where(y => y.UserId == userId)
+                    .ToListAsync();
+
+                var catalogIdsSet = catalogIngredients.Select(c => c.Id).ToHashSet();
+
+                foreach (var ybDto in payload.YeastBankEntries ?? [])
+                {
+                    var normStrain = string.IsNullOrWhiteSpace(ybDto.StrainName) ? "House Yeast" : ybDto.StrainName.Trim();
+                    Guid? mappedIngredientId = null;
+                    if (ybDto.IngredientId.HasValue)
+                    {
+                        if (ingredientIdMap.TryGetValue(ybDto.IngredientId.Value, out var mIngId))
+                        {
+                            mappedIngredientId = mIngId;
+                        }
+                        else if (catalogIdsSet.Contains(ybDto.IngredientId.Value) || ingredientIdMap.ContainsValue(ybDto.IngredientId.Value))
+                        {
+                            mappedIngredientId = ybDto.IngredientId.Value;
+                        }
+                    }
+
+                    Guid? mappedSourceBatchId = ybDto.SourceBatchId.HasValue && batchIdMap.TryGetValue(ybDto.SourceBatchId.Value, out var mBatchId)
+                        ? mBatchId
+                        : null;
+
+                    var existingYb = existingUserYeastEntries.FirstOrDefault(y =>
+                        y.Id == ybDto.Id ||
+                        (string.Equals(y.StrainName, normStrain, StringComparison.OrdinalIgnoreCase) &&
+                         y.Generation == ybDto.Generation &&
+                         y.HarvestDate == ybDto.HarvestDate));
+
+                    if (existingYb != null)
+                    {
+                        yeastBankIdMap[ybDto.Id] = existingYb.Id;
+                        if (options.ConflictResolution == RestoreConflictResolutionMode.MergeOverwriteExisting)
+                        {
+                            existingYb.IngredientId = mappedIngredientId;
+                            existingYb.StrainName = normStrain;
+                            existingYb.LabOrBrand = ybDto.LabOrBrand;
+                            existingYb.ProductCode = ybDto.ProductCode;
+                            existingYb.Form = ybDto.Form;
+                            existingYb.Generation = ybDto.Generation;
+                            existingYb.HarvestDate = ybDto.HarvestDate == default ? DateTime.UtcNow : ybDto.HarvestDate;
+                            existingYb.SourceBatchId = mappedSourceBatchId;
+                            existingYb.SourceBatchName = ybDto.SourceBatchName;
+                            existingYb.SourceBatchCode = ybDto.SourceBatchCode;
+                            existingYb.VolumeMl = ybDto.VolumeMl;
+                            existingYb.EstimatedDensityBillionPerMl = ybDto.EstimatedDensityBillionPerMl;
+                            existingYb.BaseViabilityPercent = ybDto.BaseViabilityPercent;
+                            existingYb.StorageLocation = ybDto.StorageLocation;
+                            existingYb.Status = ybDto.Status;
+                            existingYb.Notes = ybDto.Notes;
+                            existingYb.UpdatedAt = DateTime.UtcNow;
+                            yeastBankRestored++;
+                        }
+                    }
+                    else
+                    {
+                        var idTaken = await _db.YeastBankEntries.AnyAsync(y => y.Id == ybDto.Id);
+                        var newYb = new YeastBankEntry
+                        {
+                            Id = idTaken ? Guid.NewGuid() : ybDto.Id,
+                            UserId = userId,
+                            IngredientId = mappedIngredientId,
+                            StrainName = normStrain,
+                            LabOrBrand = ybDto.LabOrBrand,
+                            ProductCode = ybDto.ProductCode,
+                            Form = ybDto.Form,
+                            Generation = ybDto.Generation,
+                            HarvestDate = ybDto.HarvestDate == default ? DateTime.UtcNow : ybDto.HarvestDate,
+                            SourceBatchId = mappedSourceBatchId,
+                            SourceBatchName = ybDto.SourceBatchName,
+                            SourceBatchCode = ybDto.SourceBatchCode,
+                            VolumeMl = ybDto.VolumeMl,
+                            EstimatedDensityBillionPerMl = ybDto.EstimatedDensityBillionPerMl,
+                            BaseViabilityPercent = ybDto.BaseViabilityPercent,
+                            StorageLocation = ybDto.StorageLocation,
+                            Status = ybDto.Status,
+                            Notes = ybDto.Notes,
+                            CreatedAt = ybDto.CreatedAt == default ? DateTime.UtcNow : ybDto.CreatedAt,
+                            UpdatedAt = DateTime.UtcNow
+                        };
+                        _db.YeastBankEntries.Add(newYb);
+                        existingUserYeastEntries.Add(newYb);
+                        yeastBankIdMap[ybDto.Id] = newYb.Id;
+                        yeastBankRestored++;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
+                // Link batches that pitched a restored yeast bank entry
+                if (pendingBatchYeastLinks.Count > 0)
+                {
+                    foreach (var (targetBatchId, archiveYbId) in pendingBatchYeastLinks)
+                    {
+                        if (yeastBankIdMap.TryGetValue(archiveYbId, out var targetYbId))
+                        {
+                            var bEntity = existingUserBatches.FirstOrDefault(b => b.Id == targetBatchId);
+                            if (bEntity != null)
+                            {
+                                bEntity.YeastBankEntryId = targetYbId;
+                            }
+                        }
+                    }
+                    await _db.SaveChangesAsync();
+                }
 
                 // Resolve equipment batch assignments (taps and kegs)
                 if (pendingEquipmentBatchAssignments.Count > 0)
@@ -1893,7 +2183,10 @@ public class BackupService : IBackupService
                     BatchesUpdated: batchesUpdated,
                     BatchesSkipped: batchesSkipped,
                     TelemetryReadingsRestored: readingsRestored,
-                    CollaboratorsRestored: collaboratorsRestored
+                    CollaboratorsRestored: collaboratorsRestored,
+                    WaterProfilesRestored: waterProfilesRestored,
+                    YeastBankEntriesRestored: yeastBankRestored,
+                    TastingsRestored: tastingsRestored
                 );
 
                 _logger.LogInformation(
@@ -2034,7 +2327,8 @@ public class BackupService : IBackupService
             displayTokenEncrypted,
             e.AssignedBatchId,
             e.AssignedAt,
-            e.AssignedKegId
+            e.AssignedKegId,
+            e.DefaultEfficiencyPercent
         );
     }
 
@@ -2124,7 +2418,55 @@ public class BackupService : IBackupService
                 fs.TriggerGravity,
                 fs.Notes
             )).ToList(),
-            labelDto
+            labelDto,
+            r.WaterPlan != null ? new RecipeWaterPlanBackupDto(
+                r.WaterPlan.Id,
+                r.WaterPlan.SourceProfileId,
+                r.WaterPlan.SourceProfileName,
+                r.WaterPlan.SourceCalciumPpm,
+                r.WaterPlan.SourceMagnesiumPpm,
+                r.WaterPlan.SourceSodiumPpm,
+                r.WaterPlan.SourceSulfatePpm,
+                r.WaterPlan.SourceChloridePpm,
+                r.WaterPlan.SourceBicarbonatePpm,
+                r.WaterPlan.SourcePh,
+                r.WaterPlan.TargetProfileId,
+                r.WaterPlan.TargetProfileName,
+                r.WaterPlan.TargetCalciumPpm,
+                r.WaterPlan.TargetMagnesiumPpm,
+                r.WaterPlan.TargetSodiumPpm,
+                r.WaterPlan.TargetSulfatePpm,
+                r.WaterPlan.TargetChloridePpm,
+                r.WaterPlan.TargetBicarbonatePpm,
+                r.WaterPlan.TargetMashPh,
+                r.WaterPlan.MashGypsumGrams,
+                r.WaterPlan.MashCalciumChlorideGrams,
+                r.WaterPlan.MashEpsomSaltGrams,
+                r.WaterPlan.MashTableSaltGrams,
+                r.WaterPlan.MashBakingSodaGrams,
+                r.WaterPlan.MashChalkGrams,
+                r.WaterPlan.MashAcidType,
+                r.WaterPlan.MashAcidAmountMlOrG,
+                r.WaterPlan.SpargeGypsumGrams,
+                r.WaterPlan.SpargeCalciumChlorideGrams,
+                r.WaterPlan.SpargeEpsomSaltGrams,
+                r.WaterPlan.SpargeTableSaltGrams,
+                r.WaterPlan.SpargeBakingSodaGrams,
+                r.WaterPlan.SpargeChalkGrams,
+                r.WaterPlan.SpargeAcidType,
+                r.WaterPlan.SpargeAcidAmountMlOrG,
+                r.WaterPlan.ResultingCalciumPpm,
+                r.WaterPlan.ResultingMagnesiumPpm,
+                r.WaterPlan.ResultingSodiumPpm,
+                r.WaterPlan.ResultingSulfatePpm,
+                r.WaterPlan.ResultingChloridePpm,
+                r.WaterPlan.ResultingBicarbonatePpm,
+                r.WaterPlan.SulfateToChlorideRatio,
+                r.WaterPlan.ResidualAlkalinityPpm,
+                r.WaterPlan.PredictedMashPh,
+                r.WaterPlan.Notes,
+                r.WaterPlan.UpdatedAt
+            ) : null
         );
     }
 
@@ -2271,7 +2613,33 @@ public class BackupService : IBackupService
                 sa.BatchMashStepId,
                 sa.CreatedAt
             )).ToList(),
-            RecipeName: b.Recipe?.Name ?? b.RecipeName
+            RecipeName: b.Recipe?.Name ?? b.RecipeName,
+            MeasuredMashPh: b.MeasuredMashPh,
+            YeastBankEntryId: b.YeastBankEntryId,
+            YeastPitchRateMillionPerMlPlato: b.YeastPitchRateMillionPerMlPlato,
+            YeastStarterVolumeLiters: b.YeastStarterVolumeLiters,
+            Tastings: b.Tastings.OrderBy(t => t.TastedAt).Select(t => new BatchTastingBackupDto(
+                t.Id,
+                t.TastedAt,
+                t.SampleSource,
+                t.AromaScore,
+                t.AromaNotes,
+                t.AppearanceScore,
+                t.AppearanceNotes,
+                t.FlavorScore,
+                t.FlavorNotes,
+                t.MouthfeelScore,
+                t.MouthfeelNotes,
+                t.OverallScore,
+                t.OverallNotes,
+                t.TotalScore,
+                t.StarRating,
+                t.WouldRebrew,
+                t.OffFlavors.ToList(),
+                t.ServingTemperatureC,
+                t.CreatedAt,
+                t.UpdatedAt
+            )).ToList()
         );
     }
 
@@ -2536,6 +2904,22 @@ public class BackupService : IBackupService
         var userBatches = await _db.Batches.Where(b => b.UserId == userId).ToListAsync();
         var userBatchIds = userBatches.Select(b => b.Id).ToList();
 
+        // Clear YeastBankEntries before removing Batches & Ingredients to keep FKs clean across InMemory & PostgreSQL
+        var userYeastBank = await _db.YeastBankEntries.Where(y => y.UserId == userId).ToListAsync();
+        foreach (var yb in userYeastBank)
+        {
+            yb.SourceBatchId = null;
+            yb.IngredientId = null;
+        }
+        foreach (var b in userBatches)
+        {
+            b.YeastBankEntryId = null;
+        }
+        _db.YeastBankEntries.RemoveRange(userYeastBank);
+
+        var batchTastings = await _db.BatchTastings.Where(t => userBatchIds.Contains(t.BatchId) || t.UserId == userId).ToListAsync();
+        _db.BatchTastings.RemoveRange(batchTastings);
+
         var batchSensorAssignments = await _db.BatchSensorAssignments
             .Where(sa => userBatchIds.Contains(sa.BatchId))
             .ToListAsync();
@@ -2545,6 +2929,9 @@ public class BackupService : IBackupService
 
         var userRecipes = await _db.Recipes.Where(r => r.UserId == userId).ToListAsync();
         _db.Recipes.RemoveRange(userRecipes);
+
+        var userWaterProfiles = await _db.WaterProfiles.Where(w => !w.IsPreset && w.UserId == userId).ToListAsync();
+        _db.WaterProfiles.RemoveRange(userWaterProfiles);
 
         var userStocks = await _db.IngredientStocks.Where(s => s.UserId == userId).ToListAsync();
         _db.IngredientStocks.RemoveRange(userStocks);
@@ -3029,6 +3416,104 @@ public class BackupService : IBackupService
             });
         }
         batch.SensorAssignments = sensorAssignments;
+
+        batch.Tastings = (dto.Tastings ?? []).Select(t => new BatchTasting
+        {
+            Id = Guid.NewGuid(),
+            BatchId = batch.Id,
+            UserId = batch.UserId,
+            TastedAt = t.TastedAt == default ? DateTime.UtcNow : t.TastedAt,
+            SampleSource = t.SampleSource,
+            AromaScore = t.AromaScore,
+            AromaNotes = t.AromaNotes,
+            AppearanceScore = t.AppearanceScore,
+            AppearanceNotes = t.AppearanceNotes,
+            FlavorScore = t.FlavorScore,
+            FlavorNotes = t.FlavorNotes,
+            MouthfeelScore = t.MouthfeelScore,
+            MouthfeelNotes = t.MouthfeelNotes,
+            OverallScore = t.OverallScore,
+            OverallNotes = t.OverallNotes,
+            TotalScore = t.TotalScore,
+            StarRating = Math.Clamp(t.StarRating, 1, 5),
+            WouldRebrew = t.WouldRebrew,
+            OffFlavors = OffFlavorCatalog.NormalizeKeys(t.OffFlavors),
+            ServingTemperatureC = t.ServingTemperatureC,
+            CreatedAt = t.CreatedAt == default ? DateTime.UtcNow : t.CreatedAt,
+            UpdatedAt = t.UpdatedAt == default ? DateTime.UtcNow : t.UpdatedAt
+        }).ToList();
+    }
+
+    private static RecipeWaterPlan CreateRecipeWaterPlanFromBackup(
+        Guid recipeId,
+        RecipeWaterPlanBackupDto wp,
+        Dictionary<Guid, Guid> waterProfileIdMap,
+        List<WaterProfile> presets)
+    {
+        Guid? ResolveProfile(Guid? archiveId, string? snapshotName)
+        {
+            if (archiveId.HasValue && waterProfileIdMap.TryGetValue(archiveId.Value, out var mapped))
+            {
+                return mapped;
+            }
+            if (!string.IsNullOrWhiteSpace(snapshotName))
+            {
+                var presetMatch = presets.FirstOrDefault(p => string.Equals(p.Name, snapshotName.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (presetMatch != null) return presetMatch.Id;
+            }
+            return null;
+        }
+
+        return new RecipeWaterPlan
+        {
+            Id = Guid.NewGuid(),
+            RecipeId = recipeId,
+            SourceProfileId = ResolveProfile(wp.SourceProfileId, wp.SourceProfileName),
+            SourceProfileName = wp.SourceProfileName,
+            SourceCalciumPpm = wp.SourceCalciumPpm,
+            SourceMagnesiumPpm = wp.SourceMagnesiumPpm,
+            SourceSodiumPpm = wp.SourceSodiumPpm,
+            SourceSulfatePpm = wp.SourceSulfatePpm,
+            SourceChloridePpm = wp.SourceChloridePpm,
+            SourceBicarbonatePpm = wp.SourceBicarbonatePpm,
+            SourcePh = wp.SourcePh,
+            TargetProfileId = ResolveProfile(wp.TargetProfileId, wp.TargetProfileName),
+            TargetProfileName = wp.TargetProfileName,
+            TargetCalciumPpm = wp.TargetCalciumPpm,
+            TargetMagnesiumPpm = wp.TargetMagnesiumPpm,
+            TargetSodiumPpm = wp.TargetSodiumPpm,
+            TargetSulfatePpm = wp.TargetSulfatePpm,
+            TargetChloridePpm = wp.TargetChloridePpm,
+            TargetBicarbonatePpm = wp.TargetBicarbonatePpm,
+            TargetMashPh = wp.TargetMashPh,
+            MashGypsumGrams = wp.MashGypsumGrams,
+            MashCalciumChlorideGrams = wp.MashCalciumChlorideGrams,
+            MashEpsomSaltGrams = wp.MashEpsomSaltGrams,
+            MashTableSaltGrams = wp.MashTableSaltGrams,
+            MashBakingSodaGrams = wp.MashBakingSodaGrams,
+            MashChalkGrams = wp.MashChalkGrams,
+            MashAcidType = wp.MashAcidType,
+            MashAcidAmountMlOrG = wp.MashAcidAmountMlOrG,
+            SpargeGypsumGrams = wp.SpargeGypsumGrams,
+            SpargeCalciumChlorideGrams = wp.SpargeCalciumChlorideGrams,
+            SpargeEpsomSaltGrams = wp.SpargeEpsomSaltGrams,
+            SpargeTableSaltGrams = wp.SpargeTableSaltGrams,
+            SpargeBakingSodaGrams = wp.SpargeBakingSodaGrams,
+            SpargeChalkGrams = wp.SpargeChalkGrams,
+            SpargeAcidType = wp.SpargeAcidType,
+            SpargeAcidAmountMlOrG = wp.SpargeAcidAmountMlOrG,
+            ResultingCalciumPpm = wp.ResultingCalciumPpm,
+            ResultingMagnesiumPpm = wp.ResultingMagnesiumPpm,
+            ResultingSodiumPpm = wp.ResultingSodiumPpm,
+            ResultingSulfatePpm = wp.ResultingSulfatePpm,
+            ResultingChloridePpm = wp.ResultingChloridePpm,
+            ResultingBicarbonatePpm = wp.ResultingBicarbonatePpm,
+            SulfateToChlorideRatio = wp.SulfateToChlorideRatio,
+            ResidualAlkalinityPpm = wp.ResidualAlkalinityPpm,
+            PredictedMashPh = wp.PredictedMashPh,
+            Notes = wp.Notes,
+            UpdatedAt = wp.UpdatedAt == default ? DateTime.UtcNow : wp.UpdatedAt
+        };
     }
 
     private static string EnsureUniqueSetupName(string desiredName, List<BrewerySetup> existing)

@@ -104,6 +104,7 @@ class BreweryState {
 						currentUserRole: s.currentUserRole,
 						isOwner: s.isOwner,
 						memberCount: s.memberCount,
+						defaultEfficiencyPercent: s.defaultEfficiencyPercent,
 						createdAt: s.createdAt
 					}));
 
@@ -194,6 +195,7 @@ class BreweryState {
 						currentUserRole: remote.currentUserRole ?? 'Owner',
 						isOwner: remote.isOwner ?? true,
 						memberCount: remote.memberCount ?? 1,
+						defaultEfficiencyPercent: remote.defaultEfficiencyPercent,
 						createdAt: remote.createdAt
 					};
 					this.setups = [...this.setups, newSetup];

@@ -528,6 +528,15 @@ public class IngredientService(BrewYouDbContext db) : IIngredientService
             db.IngredientStocks.RemoveRange(stocks);
         }
 
+        // 4b. Explicitly decouple YeastBankEntries referencing this ingredient (preserving StrainName)
+        var linkedYeastEntries = await db.YeastBankEntries
+            .Where(y => y.IngredientId == id)
+            .ToListAsync();
+        foreach (var entry in linkedYeastEntries)
+        {
+            entry.IngredientId = null;
+        }
+
         // 5. Remove the ingredient itself
         db.Ingredients.Remove(ingredient);
 

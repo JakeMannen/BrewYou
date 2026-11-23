@@ -46,6 +46,11 @@ public class BrewerySetup
     /// </summary>
     public decimal DefaultPackagingLossLiters { get; set; } = 0.5m;
 
+    /// <summary>
+    /// Default brewhouse efficiency percentage for this setup (e.g. 72%).
+    /// </summary>
+    public decimal DefaultEfficiencyPercent { get; set; } = 72.0m;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
