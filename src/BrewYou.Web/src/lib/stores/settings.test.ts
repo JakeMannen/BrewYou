@@ -915,4 +915,87 @@ describe('Decoupled Weights & Regional Presets in Settings Store', () => {
 		auth.user = null;
 		vi.unstubAllGlobals();
 	});
+
+	it('disconnects MQTT via clearMqttSettings flag and resets local MQTT broker state', async () => {
+		auth.user = {
+			id: 'mqtt-user-1',
+			email: 'mqtt@brewyou.test',
+			displayName: 'MQTT Brewer',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters'
+		};
+
+		const updateSpy = vi.spyOn(api.auth, 'updatePreferences').mockResolvedValue({
+			...auth.user,
+			preferences: {
+				language: 'en',
+				volumeUnit: 'Liters',
+				weightUnit: 'Metric',
+				temperatureUnit: 'Celsius',
+				gravityUnit: 'SpecificGravity',
+				theme: 'ImperialStout',
+				defaultBatchSizeLiters: 20,
+				defaultEfficiencyPercent: 75,
+				defaultBoilTimeMinutes: 60,
+				mqttHost: null,
+				mqttPort: null,
+				mqttUsername: null,
+				hasMqttPassword: false,
+				mqttCertificate: null,
+				mqttTopicPrefix: 'brewyou/equipment'
+			}
+		});
+
+		settings.mqttHost = 'mqtt.example.com';
+		settings.mqttPort = 8883;
+		settings.mqttUsername = 'sensor';
+		settings.hasMqttPassword = true;
+		settings.mqttCertificate = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----';
+		settings.mqttTopicPrefix = 'custom/prefix';
+		settings.mqttConnected = true;
+
+		await settings.disconnectMqtt();
+
+		expect(updateSpy).toHaveBeenLastCalledWith({ clearMqttSettings: true });
+		expect(settings.hasMqttConfigured).toBe(false);
+		expect(settings.mqttHost).toBe('');
+		expect(settings.mqttPort).toBe(1883);
+		expect(settings.mqttUsername).toBe('');
+		expect(settings.hasMqttPassword).toBe(false);
+		expect(settings.mqttCertificate).toBe('');
+		expect(settings.mqttTopicPrefix).toBe('brewyou/equipment');
+		expect(settings.mqttConnected).toBeNull();
+
+		// Saving an empty MQTT host also triggers disconnect
+		settings.mqttHost = 'mqtt.example.com';
+		await settings.setMqttSettings('   ', 1883);
+		expect(updateSpy).toHaveBeenLastCalledWith({ clearMqttSettings: true });
+		expect(settings.hasMqttConfigured).toBe(false);
+
+		updateSpy.mockRestore();
+		auth.user = null;
+	});
+
+	it('resolves webhook base URL to API port when appBaseUrl or browser runs on web port :3000 or custom web port like :3300', () => {
+		settings.appBaseUrl = 'http://192.168.1.150:3000';
+		settings.webhookBaseUrl = '';
+		expect(settings.resolvedWebhookBaseUrl).toBe('http://192.168.1.150:5000');
+
+		settings.appBaseUrl = '';
+		vi.stubEnv('PUBLIC_APP_URL', 'http://localhost:3000');
+		vi.stubEnv('PUBLIC_API_URL', '');
+		vi.stubGlobal('window', {
+			location: {
+				origin: 'http://192.168.15.13:3300',
+				protocol: 'http:',
+				hostname: '192.168.15.13',
+				port: '3300'
+			}
+		});
+		expect(settings.resolvedAppBaseUrl).toBe('http://192.168.15.13:3300');
+		expect(settings.resolvedWebhookBaseUrl).toBe('http://192.168.15.13:5000');
+
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
 });

@@ -66,7 +66,8 @@ public record UpdateUserPreferencesRequest(
     string? AbvFormula = null,
     string? AppBaseUrl = null,
     string? WebhookBaseUrl = null,
-    bool? ClearMqttPassword = null);
+    bool? ClearMqttPassword = null,
+    bool? ClearMqttSettings = null);
 
 public record UpdateProfileRequest(string DisplayName);
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);

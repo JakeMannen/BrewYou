@@ -29,6 +29,7 @@
 	import { isVesselFillable } from './vessel-geometry';
 	import { ALL_IN_ONE_PRESETS } from './equipment-presets';
 	import { isLocalhostUrl } from '$lib/utils/batchQr';
+	import { copyTextToClipboard } from '$lib/utils/clipboard';
 	import BrewLinkGatewayManager from './BrewLinkGatewayManager.svelte';
 	import {
 		X,
@@ -209,6 +210,10 @@
 
 	let isRegeneratingToken = $state(false);
 	let showRegenerateTokenModal = $state(false);
+	let tokenGeneratedNotice = $state(false);
+	let tokenRegenerateError = $state<string | null>(null);
+	let savedEquipment = $state<EquipmentDto | null>(null);
+	let activeEquipment = $derived(savedEquipment ?? equipment);
 	let isTestingPoll = $state(false);
 	let testPollMessage = $state<{ type: 'success' | 'error'; text: string } | null>(null);
 	let copiedWebhook = $state(false);
@@ -223,7 +228,7 @@
 		const trimmed = name.trim().toLowerCase();
 		if (!trimmed) return false;
 		return existingEquipment.some((item) => {
-			if (equipment && item.id === equipment.id) return false;
+			if (activeEquipment && item.id === activeEquipment.id) return false;
 			if (
 				item.brewerySetupId &&
 				brewery.activeSetupId &&
@@ -337,6 +342,11 @@
 
 	$effect(() => {
 		if (open) {
+			savedEquipment = null;
+			tokenGeneratedNotice = false;
+			tokenRegenerateError = null;
+			copiedWebhook = false;
+			copiedToken = false;
 			if (equipment) {
 				name = equipment.name;
 				type = equipment.type;
@@ -711,41 +721,43 @@
 
 	async function copyWebhookUrl() {
 		if (!webhookUrl) return;
-		try {
-			await navigator.clipboard.writeText(webhookUrl);
+		const copied = await copyTextToClipboard(webhookUrl, dialogPanel);
+		if (copied) {
 			copiedWebhook = true;
 			setTimeout(() => {
 				copiedWebhook = false;
 			}, 2500);
-		} catch (err) {
-			console.error('Failed to copy webhook URL:', err);
 		}
 	}
 
 	async function copyWebhookToken() {
 		if (!connectionToken) return;
-		try {
-			await navigator.clipboard.writeText(connectionToken);
+		const copied = await copyTextToClipboard(connectionToken, dialogPanel);
+		if (copied) {
 			copiedToken = true;
 			setTimeout(() => {
 				copiedToken = false;
 			}, 2500);
-		} catch (err) {
-			console.error('Failed to copy webhook token:', err);
 		}
 	}
 
 	async function handleConfirmRegenerateToken() {
-		if (!equipment || isRegeneratingToken) return;
+		if (!activeEquipment || isRegeneratingToken) return;
 
 		isRegeneratingToken = true;
+		tokenRegenerateError = null;
+		tokenGeneratedNotice = false;
 		try {
-			const updated = await api.equipment.regenerateToken(equipment.id);
+			const updated = await api.equipment.regenerateToken(activeEquipment.id);
+			savedEquipment = updated;
 			connectionToken = updated.connectionToken ?? null;
 			hasConnectionToken = Boolean(updated.hasConnectionToken || updated.connectionToken);
+			onSaved(updated);
 			showRegenerateTokenModal = false;
 		} catch (err: unknown) {
-			errorMessage = (err as Error).message || t('equipment.err_regenerate_failed');
+			const msg = (err as Error).message || t('equipment.err_regenerate_failed');
+			tokenRegenerateError = msg;
+			errorMessage = msg;
 			showRegenerateTokenModal = false;
 		} finally {
 			isRegeneratingToken = false;
@@ -753,7 +765,7 @@
 	}
 
 	async function handleTestPoll() {
-		if (!equipment) {
+		if (!activeEquipment) {
 			testPollMessage = { type: 'error', text: t('equipment.poll_save_first') };
 			return;
 		}
@@ -765,7 +777,7 @@
 		isTestingPoll = true;
 		testPollMessage = null;
 		try {
-			await api.equipment.update(equipment.id, {
+			await api.equipment.update(activeEquipment.id, {
 				name: name.trim(),
 				type,
 				capacity: typeof capacity === 'number' ? capacity : Number(capacity),
@@ -777,7 +789,7 @@
 				})
 			});
 
-			const result = await api.equipment.testPoll(equipment.id);
+			const result = await api.equipment.testPoll(activeEquipment.id);
 			if (result.success && result.temperatureC != null) {
 				const displayTemp =
 					settings.temperatureUnit === 'Fahrenheit'
@@ -853,11 +865,12 @@
 		}
 
 		isSubmitting = true;
+		const hadTokenBeforeSave = Boolean(connectionToken);
 
 		try {
 			let configJson: string | null = null;
 			if (!isSetupOwner) {
-				connectionType = equipment?.connectionType ?? 'None';
+				connectionType = activeEquipment?.connectionType ?? 'None';
 				configJson = null;
 			} else if (connectionType === 'HttpPoll') {
 				configJson = JSON.stringify({
@@ -925,8 +938,8 @@
 			}
 
 			let savedItem: EquipmentDto;
-			if (equipment) {
-				savedItem = await api.equipment.update(equipment.id, {
+			if (activeEquipment) {
+				savedItem = await api.equipment.update(activeEquipment.id, {
 					name: name.trim(),
 					type,
 					subtype,
@@ -1032,7 +1045,20 @@
 					})
 					.catch(() => {});
 			}
-			onClose();
+
+			if (
+				savedItem.connectionType === 'HttpPush' &&
+				savedItem.connectionToken &&
+				!hadTokenBeforeSave
+			) {
+				savedEquipment = savedItem;
+				connectionToken = savedItem.connectionToken;
+				hasConnectionToken = true;
+				tokenGeneratedNotice = true;
+				tokenRegenerateError = null;
+			} else {
+				onClose();
+			}
 		} catch (err: unknown) {
 			if (
 				(err instanceof ApiClientError && (err.code === 'DUPLICATE_NAME' || err.status === 409)) ||
@@ -1108,7 +1134,7 @@
 			>
 				<div>
 					<h2 id="equipment-modal-title" class="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-						{equipment ? t('equipment.edit_title') : t('equipment.add_title')}
+						{activeEquipment ? t('equipment.edit_title') : t('equipment.add_title')}
 					</h2>
 					<div class="mt-1 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
 						<Building2 class="h-3.5 w-3.5 shrink-0" />
@@ -1750,9 +1776,10 @@
 											<Wifi class="h-3.5 w-3.5" />
 											<span>{t('equipment.webhook_instructions_title')}</span>
 										</div>
-										{#if equipment}
+										{#if activeEquipment && activeEquipment.connectionType === 'HttpPush'}
 											<button
 												type="button"
+												data-testid="regenerate-token-btn"
 												onclick={() => (showRegenerateTokenModal = true)}
 												disabled={isRegeneratingToken}
 												class="flex items-center gap-1 text-[11px] font-semibold text-zinc-500 hover:text-amber-600 dark:text-zinc-400 dark:hover:text-amber-400"
@@ -1765,6 +1792,28 @@
 									<p class="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
 										{t('equipment.webhook_instructions_desc')}
 									</p>
+
+									{#if tokenGeneratedNotice}
+										<div
+											data-testid="webhook-token-generated-banner"
+											role="status"
+											class="mt-2 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-300"
+										>
+											<Check class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+											<span>{t('equipment.webhook_token_generated_notice')}</span>
+										</div>
+									{/if}
+
+									{#if tokenRegenerateError}
+										<div
+											data-testid="webhook-token-error-banner"
+											role="alert"
+											class="mt-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] font-medium text-red-700 dark:text-red-300"
+										>
+											<AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+											<span>{tokenRegenerateError}</span>
+										</div>
+									{/if}
 
 									{#if connectionToken}
 										{#if isWebhookLocalhost}
@@ -1839,11 +1888,13 @@
 											<input
 												type="text"
 												readonly
+												data-testid="webhook-url-input"
 												value={webhookUrl}
 												class="h-8 min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
 											/>
 											<button
 												type="button"
+												data-testid="copy-webhook-url-btn"
 												onclick={copyWebhookUrl}
 												class="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
 											>
@@ -1865,11 +1916,13 @@
 											<input
 												type="text"
 												readonly
+												data-testid="webhook-token-input"
 												value={connectionToken}
 												class="h-8 min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 font-mono text-xs text-zinc-700 select-all dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
 											/>
 											<button
 												type="button"
+												data-testid="copy-webhook-token-btn"
 												onclick={copyWebhookToken}
 												class="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-bold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
 											>
@@ -1897,7 +1950,7 @@
 									<div class="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
 										<span>
 											{t('equipment.supported_formats')}: <code>Tilt</code>, <code>iSpindel</code>,
-											<code>Generic JSON</code>
+											<code>{t('equipment.generic_json')}</code>
 										</span>
 									</div>
 								</div>
@@ -2507,7 +2560,7 @@
 						disabled={isSubmitting}
 						class="rounded-xl px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
 					>
-						{t('common.cancel')}
+						{tokenGeneratedNotice ? t('common.done') : t('common.cancel')}
 					</button>
 					<button
 						type="submit"
@@ -2518,7 +2571,7 @@
 						{#if isSubmitting}
 							<Loader2 class="h-4 w-4 animate-spin" />
 						{/if}
-						{equipment ? t('equipment.save_changes') : t('equipment.create_btn')}
+						{activeEquipment ? t('equipment.save_changes') : t('equipment.create_btn')}
 					</button>
 				</div>
 			</form>

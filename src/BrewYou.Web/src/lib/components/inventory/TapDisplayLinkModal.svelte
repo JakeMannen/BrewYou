@@ -3,6 +3,7 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings, sanitizeHttpBaseUrl } from '$lib/stores/settings.svelte';
 	import { isLocalhostUrl } from '$lib/utils/batchQr';
+	import { copyTextToClipboard } from '$lib/utils/clipboard';
 	import type { EquipmentDto, TapDisplayLinkDto } from '$lib/types/api';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import {
@@ -167,14 +168,12 @@
 	});
 
 	async function copyToClipboard(text: string, key: string) {
-		try {
-			await navigator.clipboard.writeText(text);
+		const copied = await copyTextToClipboard(text);
+		if (copied) {
 			copiedKey = key;
 			setTimeout(() => {
 				if (copiedKey === key) copiedKey = null;
 			}, 2000);
-		} catch {
-			// Clipboard API failed
 		}
 	}
 
