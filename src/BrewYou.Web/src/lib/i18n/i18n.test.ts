@@ -562,6 +562,24 @@ describe('i18n Translation Engine', () => {
 		);
 	});
 
+	it('translates webhook supported formats and MQTT disconnect labels cleanly across locales', () => {
+		i18n.setLocale('en');
+		expect(t('equipment.supported_formats')).toBe('Compatible devices & JSON payloads');
+		expect(t('equipment.generic_json')).toBe('Generic JSON');
+		expect(t('settings.connectivity.disconnect')).toBe('Disconnect');
+
+		i18n.setLocale('sv');
+		expect(t('equipment.supported_formats')).toBe('Kompatibla enheter och JSON-format');
+		expect(t('equipment.generic_json')).toBe('Generisk JSON');
+		expect(t('settings.connectivity.disconnect')).toBe('Koppla från');
+
+		for (const loc of ['de', 'fr', 'es'] as const) {
+			i18n.setLocale(loc);
+			expect(t('equipment.supported_formats')).not.toContain('Tilt');
+			expect(t('equipment.supported_formats')).not.toContain('iSpindel');
+		}
+	});
+
 	it('falls back to English when a key is absent', () => {
 		i18n.setLocale('de');
 		expect(t('nonexistent.key')).toBe('nonexistent.key');

@@ -351,46 +351,58 @@ public class AuthService(
             user.DefaultBoilTimeMinutes = request.DefaultBoilTimeMinutes.Value;
         }
 
-        if (request.MqttHost != null)
+        if (request.ClearMqttSettings == true)
         {
-            user.MqttHost = string.IsNullOrWhiteSpace(request.MqttHost) ? null : request.MqttHost.Trim();
-        }
-
-        if (request.MqttPort.HasValue)
-        {
-            user.MqttPort = request.MqttPort.Value;
-        }
-
-        if (request.MqttUsername != null)
-        {
-            user.MqttUsername = string.IsNullOrWhiteSpace(request.MqttUsername) ? null : request.MqttUsername.Trim();
-        }
-
-        if (request.ClearMqttPassword == true)
-        {
+            user.MqttHost = null;
+            user.MqttPort = null;
+            user.MqttUsername = null;
             user.MqttPassword = null;
+            user.MqttCertificate = null;
+            user.MqttTopicPrefix = "brewyou/equipment";
         }
-        else if (request.MqttPassword != null)
+        else
         {
-            if (string.IsNullOrWhiteSpace(request.MqttPassword))
+            if (request.MqttHost != null)
+            {
+                user.MqttHost = string.IsNullOrWhiteSpace(request.MqttHost) ? null : request.MqttHost.Trim();
+            }
+
+            if (request.MqttPort.HasValue)
+            {
+                user.MqttPort = request.MqttPort.Value;
+            }
+
+            if (request.MqttUsername != null)
+            {
+                user.MqttUsername = string.IsNullOrWhiteSpace(request.MqttUsername) ? null : request.MqttUsername.Trim();
+            }
+
+            if (request.ClearMqttPassword == true)
             {
                 user.MqttPassword = null;
             }
-            else
+            else if (request.MqttPassword != null)
             {
-                user.MqttPassword = _protector.Protect(request.MqttPassword);
+                if (string.IsNullOrWhiteSpace(request.MqttPassword))
+                {
+                    user.MqttPassword = null;
+                }
+                else
+                {
+                    user.MqttPassword = _protector.Protect(request.MqttPassword);
+                }
             }
-        }
 
-        if (request.MqttCertificate != null)
-        {
-            user.MqttCertificate = string.IsNullOrWhiteSpace(request.MqttCertificate) ? null : request.MqttCertificate.Trim();
-        }
+            if (request.MqttCertificate != null)
+            {
+                user.MqttCertificate = string.IsNullOrWhiteSpace(request.MqttCertificate) ? null : request.MqttCertificate.Trim();
+            }
 
-        if (request.MqttTopicPrefix != null)
-        {
-            var trimmed = request.MqttTopicPrefix.Trim().Trim('/');
-            user.MqttTopicPrefix = string.IsNullOrWhiteSpace(trimmed) ? "brewyou/equipment" : trimmed;
+            if (request.MqttTopicPrefix != null)
+            {
+                var trimmed = request.MqttTopicPrefix.Trim().Trim('/');
+                user.MqttTopicPrefix = string.IsNullOrWhiteSpace(trimmed) ? "brewyou/equipment" : trimmed;
+            }
         }
 
         if (request.AppBaseUrl != null)
@@ -403,7 +415,8 @@ public class AuthService(
             user.WebhookBaseUrl = string.IsNullOrWhiteSpace(request.WebhookBaseUrl) ? null : request.WebhookBaseUrl.Trim().TrimEnd('/');
         }
 
-        var mqttChanged = request.MqttHost != null ||
+        var mqttChanged = request.ClearMqttSettings == true ||
+                          request.MqttHost != null ||
                           request.MqttPort.HasValue ||
                           request.MqttUsername != null ||
                           request.MqttPassword != null ||

@@ -339,6 +339,7 @@ export interface UpdateUserPreferencesRequest {
 	appBaseUrl?: string | null;
 	webhookBaseUrl?: string | null;
 	clearMqttPassword?: boolean | null;
+	clearMqttSettings?: boolean | null;
 }
 
 export interface MqttStatusResponse {

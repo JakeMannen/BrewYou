@@ -555,6 +555,43 @@ public class UserSettingsSecurityTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Fact]
+    public async Task UpdateUserPreferences_ClearMqttSettings_ClearsBrokerConfigurationAndPreservesOtherPreferences()
+    {
+        var (client, _, _) = await CreateAuthenticatedUserAsync("Mqtt Disconnect Brewer");
+
+        var setRes = await client.PutAsJsonAsync("/api/v1/auth/me/preferences", new UpdateUserPreferencesRequest(
+            VolumeUnit: VolumeUnit.Gallons,
+            MqttHost: "broker.brewyou.example",
+            MqttPort: 8883,
+            MqttUsername: "brewer",
+            MqttPassword: "SuperSecretMqttPassword",
+            MqttCertificate: "-----BEGIN CERTIFICATE-----\nMIIBtest\n-----END CERTIFICATE-----",
+            MqttTopicPrefix: "cellar/sensors",
+            AppBaseUrl: "https://brew.example.com"));
+        setRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var clearRes = await client.PutAsJsonAsync("/api/v1/auth/me/preferences", new UpdateUserPreferencesRequest(
+            ClearMqttSettings: true));
+        clearRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var afterClear = (await clearRes.Content.ReadFromJsonAsync<ApiResponse<UserDto>>())!.Data!;
+
+        afterClear.Preferences.MqttHost.Should().BeNull();
+        afterClear.Preferences.MqttPort.Should().BeNull();
+        afterClear.Preferences.MqttUsername.Should().BeNull();
+        afterClear.Preferences.HasMqttPassword.Should().BeFalse();
+        afterClear.Preferences.MqttCertificate.Should().BeNull();
+        afterClear.Preferences.MqttTopicPrefix.Should().Be("brewyou/equipment");
+        afterClear.Preferences.VolumeUnit.Should().Be(VolumeUnit.Gallons);
+        afterClear.Preferences.AppBaseUrl.Should().Be("https://brew.example.com");
+
+        var statusRes = await client.GetAsync("/api/v1/auth/me/mqtt-status");
+        statusRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var status = (await statusRes.Content.ReadFromJsonAsync<ApiResponse<MqttStatusResult>>())!.Data!;
+        status.Configured.Should().BeFalse();
+        status.Connected.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ApiResponse_IncludesStrictContentSecurityPolicyHeader()
     {
         var (client, _, _) = await CreateAuthenticatedUserAsync("Csp Brewer");

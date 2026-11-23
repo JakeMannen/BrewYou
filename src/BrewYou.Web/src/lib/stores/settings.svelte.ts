@@ -344,11 +344,6 @@ class SettingsState {
 		if (safeWebhookUrl) {
 			return safeWebhookUrl;
 		}
-		// In most deployments (reverse proxies, LAN IP, domains), webhooks share the application base URL
-		const safeAppUrl = sanitizeHttpBaseUrl(this.appBaseUrl);
-		if (safeAppUrl) {
-			return safeAppUrl;
-		}
 		const metaEnv =
 			typeof import.meta !== 'undefined'
 				? (import.meta as unknown as { env?: Record<string, string> }).env
@@ -356,24 +351,46 @@ class SettingsState {
 		const envUrl =
 			metaEnv?.PUBLIC_API_URL ||
 			(typeof process !== 'undefined' ? process.env?.PUBLIC_API_URL : undefined);
-		if (
-			envUrl &&
-			typeof envUrl === 'string' &&
-			envUrl.trim().length > 0 &&
-			!isLocalhostUrl(envUrl)
-		) {
-			return envUrl.trim().replace(/\/+$/, '');
+		const safeEnvApiUrl = sanitizeHttpBaseUrl(envUrl);
+
+		const resolveForAppUrl = (candidate: string): string => {
+			try {
+				const parsed = new SvelteURL(candidate);
+				const isWebPort =
+					parsed.port === '3000' ||
+					(typeof window !== 'undefined' &&
+						window.location?.port &&
+						parsed.port === window.location.port &&
+						parsed.port !== '80' &&
+						parsed.port !== '443' &&
+						parsed.port !== '5000');
+				if (isWebPort) {
+					if (safeEnvApiUrl && !isLocalhostUrl(safeEnvApiUrl)) {
+						return safeEnvApiUrl;
+					}
+					return `${parsed.protocol}//${parsed.hostname}:5000`;
+				}
+			} catch {
+				// fallback below
+			}
+			return candidate;
+		};
+
+		// In most reverse-proxy / domain deployments, webhooks share the application base URL
+		const safeAppUrl = sanitizeHttpBaseUrl(this.appBaseUrl);
+		if (safeAppUrl) {
+			return resolveForAppUrl(safeAppUrl);
+		}
+		if (safeEnvApiUrl && !isLocalhostUrl(safeEnvApiUrl)) {
+			return safeEnvApiUrl;
 		}
 		// If application base URL resolved to a custom non-localhost address
 		const resolvedApp = this.resolvedAppBaseUrl;
 		if (resolvedApp && !isLocalhostUrl(resolvedApp)) {
-			if (resolvedApp.includes(':3000')) {
-				return resolvedApp.replace(':3000', ':5000');
-			}
-			return resolvedApp;
+			return resolveForAppUrl(resolvedApp);
 		}
-		if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
-			return envUrl.trim().replace(/\/+$/, '');
+		if (safeEnvApiUrl) {
+			return safeEnvApiUrl;
 		}
 		if (typeof window !== 'undefined' && window.location?.hostname) {
 			const protocol = window.location.protocol || 'http:';
@@ -920,6 +937,10 @@ class SettingsState {
 		certificate?: string,
 		topicPrefix?: string
 	): Promise<void> {
+		if (!host.trim()) {
+			await this.disconnectMqtt();
+			return;
+		}
 		this.mqttHost = host;
 		this.mqttPort = port;
 		this.mqttUsername = username ?? '';
@@ -942,6 +963,34 @@ class SettingsState {
 		} else {
 			this.mqttConnected = null;
 			this.stopMqttHeartbeat();
+		}
+	}
+
+	async disconnectMqtt(): Promise<void> {
+		this.mqttPassword = '';
+		if (auth.isAuthenticated) {
+			const updatedUser = await api.auth.updatePreferences({
+				clearMqttSettings: true
+			});
+			if (auth.user && updatedUser.preferences) {
+				auth.user.preferences = updatedUser.preferences;
+			}
+		}
+		this.stopMqttHeartbeat();
+		this.mqttHost = '';
+		this.mqttPort = 1883;
+		this.mqttUsername = '';
+		this.mqttCertificate = '';
+		this.hasMqttPassword = false;
+		this.mqttTopicPrefix = 'brewyou/equipment';
+		this.mqttConnected = null;
+		if (browser && !auth.isAuthenticated) {
+			localStorage.removeItem('brewyou_mqtt_host');
+			localStorage.removeItem('brewyou_mqtt_port');
+			localStorage.removeItem('brewyou_mqtt_username');
+			localStorage.removeItem('brewyou_mqtt_certificate');
+			localStorage.removeItem('brewyou_mqtt_password');
+			localStorage.removeItem('brewyou_mqtt_topic_prefix');
 		}
 	}
 

@@ -52,6 +52,7 @@
 		ChevronDown,
 		Radio,
 		Wifi,
+		WifiOff,
 		Eye,
 		EyeOff,
 		Info,
@@ -114,9 +115,11 @@
 	let mqttTopicPrefix = $state(settings.mqttTopicPrefix || 'brewyou/equipment');
 	let showMqttPassword = $state(false);
 	let isSavingConnectivity = $state(false);
+	let isDisconnectingMqtt = $state(false);
 	let isTestingMqtt = $state(false);
 	let testMqttMessage = $state<{ text: string; ok: boolean } | null>(null);
 	let connectivitySuccess = $state(false);
+	let mqttDisconnectedSuccess = $state(false);
 	let connectivityError = $state<string | null>(null);
 
 	// Network hostnames form state
@@ -504,6 +507,7 @@
 				throw new Error('MQTT port must be between 1 and 65,535.');
 			}
 
+			mqttDisconnectedSuccess = false;
 			await settings.setMqttSettings(
 				mqttHost.trim(),
 				portNum || 1883,
@@ -514,14 +518,53 @@
 			);
 			mqttPassword = '';
 			showMqttPassword = false;
-			connectivitySuccess = true;
-			setTimeout(() => {
-				connectivitySuccess = false;
-			}, 3500);
+			if (!mqttHost.trim()) {
+				mqttPort = 1883;
+				mqttUsername = '';
+				mqttCertificate = '';
+				mqttTopicPrefix = 'brewyou/equipment';
+				mqttDisconnectedSuccess = true;
+				setTimeout(() => {
+					mqttDisconnectedSuccess = false;
+				}, 3500);
+			} else {
+				connectivitySuccess = true;
+				setTimeout(() => {
+					connectivitySuccess = false;
+				}, 3500);
+			}
 		} catch (err: unknown) {
 			connectivityError = (err as Error).message || t('settings.connectivity.error_toast');
 		} finally {
 			isSavingConnectivity = false;
+		}
+	}
+
+	async function handleDisconnectMqtt() {
+		isDisconnectingMqtt = true;
+		connectivitySuccess = false;
+		mqttDisconnectedSuccess = false;
+		connectivityError = null;
+		testMqttMessage = null;
+
+		try {
+			await settings.disconnectMqtt();
+			mqttHost = '';
+			mqttPort = 1883;
+			mqttUsername = '';
+			mqttPassword = '';
+			mqttCertificate = '';
+			mqttTopicPrefix = 'brewyou/equipment';
+			showMqttPassword = false;
+			mqttPasswordCleared = false;
+			mqttDisconnectedSuccess = true;
+			setTimeout(() => {
+				mqttDisconnectedSuccess = false;
+			}, 3500);
+		} catch (err: unknown) {
+			connectivityError = (err as Error).message || t('settings.connectivity.error_toast');
+		} finally {
+			isDisconnectingMqtt = false;
 		}
 	}
 
@@ -2419,6 +2462,17 @@
 						</div>
 					{/if}
 
+					{#if mqttDisconnectedSuccess}
+						<div
+							data-testid="mqtt-disconnected-toast"
+							class="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300"
+							role="status"
+						>
+							<WifiOff class="h-4 w-4 flex-shrink-0" />
+							<span>{t('settings.connectivity.disconnected_toast')}</span>
+						</div>
+					{/if}
+
 					{#if connectivityError}
 						<div
 							class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
@@ -2445,29 +2499,48 @@
 						</div>
 					{/if}
 
-					<div class="flex items-center justify-between gap-3 pt-2">
-						<button
-							type="button"
-							data-testid="test-connectivity-btn"
-							disabled={isTestingMqtt || !mqttHost.trim()}
-							onclick={handleTestConnectivity}
-							class="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3.5 py-2 text-xs font-semibold text-zinc-700 shadow-xs transition hover:bg-zinc-50 active:scale-95 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-						>
-							{#if isTestingMqtt}
-								<span
-									class="h-3 w-3 animate-spin rounded-full border-2 border-amber-500 border-t-transparent"
-								></span>
-								<span>{t('settings.connectivity.testing')}</span>
-							{:else}
-								<Wifi class="h-3.5 w-3.5 text-amber-500" />
-								<span>{t('settings.connectivity.test_connection')}</span>
+					<div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+						<div class="flex flex-wrap items-center gap-2">
+							<button
+								type="button"
+								data-testid="test-connectivity-btn"
+								disabled={isTestingMqtt || isDisconnectingMqtt || !mqttHost.trim()}
+								onclick={handleTestConnectivity}
+								class="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3.5 py-2 text-xs font-semibold text-zinc-700 shadow-xs transition hover:bg-zinc-50 active:scale-95 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+							>
+								{#if isTestingMqtt}
+									<span
+										class="h-3 w-3 animate-spin rounded-full border-2 border-amber-500 border-t-transparent"
+									></span>
+									<span>{t('settings.connectivity.testing')}</span>
+								{:else}
+									<Wifi class="h-3.5 w-3.5 text-amber-500" />
+									<span>{t('settings.connectivity.test_connection')}</span>
+								{/if}
+							</button>
+
+							{#if settings.hasMqttConfigured}
+								<button
+									type="button"
+									data-testid="disconnect-mqtt-btn"
+									disabled={isDisconnectingMqtt || isSavingConnectivity}
+									onclick={handleDisconnectMqtt}
+									class="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs font-semibold text-red-600 shadow-xs transition hover:bg-red-500/20 active:scale-95 disabled:opacity-50 dark:text-red-400"
+								>
+									<WifiOff class="h-3.5 w-3.5" />
+									<span>
+										{isDisconnectingMqtt
+											? t('settings.connectivity.disconnecting')
+											: t('settings.connectivity.disconnect')}
+									</span>
+								</button>
 							{/if}
-						</button>
+						</div>
 
 						<button
 							type="submit"
 							data-testid="save-connectivity-btn"
-							disabled={isSavingConnectivity}
+							disabled={isSavingConnectivity || isDisconnectingMqtt}
 							class="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-zinc-950 shadow-sm transition hover:bg-amber-400 active:scale-95 disabled:opacity-50"
 						>
 							{#if isSavingConnectivity}
