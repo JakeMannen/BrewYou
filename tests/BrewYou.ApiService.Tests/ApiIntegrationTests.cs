@@ -2,6 +2,7 @@ using BrewYou.ApiService.Common;
 using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Endpoints;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using System.Net;
 using System.Net.Http.Headers;
@@ -182,5 +183,46 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         createdRecipe.Name.Should().Be("Citra West Coast Pale Ale");
         createdRecipe.Ingredients.Should().HaveCount(3);
         createdRecipe.OriginalGravity.Should().Be(calcResult.OriginalGravity);
+    }
+
+    [Fact]
+    public async Task AlivenessEndpoint_ReturnsHealthy()
+    {
+        var response = await _client.GetAsync("/alive");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var content = await response.Content.ReadAsStringAsync();
+        content.Should().Be("Healthy");
+    }
+
+    [Fact]
+    public async Task AlivenessEndpoint_ReturnsHealthy_InProductionEnvironment()
+    {
+        var prodFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.UseSetting("Jwt:SecretKey", "ProductionSecretKey_MustBeAtLeast32BytesLong!!");
+        });
+        var prodClient = prodFactory.CreateClient();
+
+        var response = await prodClient.GetAsync("/alive");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var content = await response.Content.ReadAsStringAsync();
+        content.Should().Be("Healthy");
+    }
+
+    [Theory]
+    [InlineData("http://localhost:3000")]
+    [InlineData("http://192.168.15.13:3300")]
+    [InlineData("http://min-server.local:3300")]
+    [InlineData("http://10.0.0.5:8080")]
+    public async Task Cors_AllowsPrivateNetworkAndLocalOrigins(string origin)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/api/v1/ingredients");
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("Access-Control-Request-Method", "GET");
+
+        var response = await _client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        response.Headers.GetValues("Access-Control-Allow-Origin").Should().Contain(origin);
     }
 }

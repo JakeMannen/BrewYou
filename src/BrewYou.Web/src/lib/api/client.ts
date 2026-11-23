@@ -96,24 +96,49 @@ interface CustomWindow extends Window {
 	__API_URL__?: string;
 }
 
-const API_BASE =
-	typeof window !== 'undefined'
-		? (window as unknown as CustomWindow).__API_URL__ ||
-			import.meta.env.PUBLIC_API_URL ||
-			'http://localhost:5000'
-		: process.env.services__apiservice__http__0 ||
-			process.env.services__apiservice__https__0 ||
-			process.env.PUBLIC_API_URL ||
-			'http://localhost:5000';
-
 export function getApiBaseUrl(): string {
-	return API_BASE;
+	if (typeof window !== 'undefined') {
+		const win = window as unknown as CustomWindow;
+		if (typeof win.__API_URL__ === 'string' && win.__API_URL__.trim().length > 0) {
+			return win.__API_URL__.trim().replace(/\/+$/, '');
+		}
+
+		const metaEnv =
+			typeof import.meta !== 'undefined'
+				? (import.meta as unknown as { env?: Record<string, string> }).env
+				: undefined;
+		const envUrl = metaEnv?.PUBLIC_API_URL;
+		if (typeof envUrl === 'string' && envUrl.trim().length > 0) {
+			const trimmed = envUrl.trim().replace(/\/+$/, '');
+			const isLocalhostEnv = trimmed.includes('://localhost') || trimmed.includes('://127.0.0.1');
+			const isLocalhostWindow =
+				window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1';
+			if (!isLocalhostEnv || isLocalhostWindow) {
+				return trimmed;
+			}
+		}
+
+		if (window.location && window.location.hostname) {
+			const protocol = window.location.protocol || 'http:';
+			const hostname = window.location.hostname;
+			return `${protocol}//${hostname}:5000`;
+		}
+	}
+
+	const serverEnv =
+		typeof process !== 'undefined' && process.env
+			? process.env.services__apiservice__http__0 ||
+				process.env.services__apiservice__https__0 ||
+				process.env.PUBLIC_API_URL
+			: undefined;
+
+	return (serverEnv || 'http://localhost:5000').replace(/\/+$/, '');
 }
 
 export function resolveApiUrl(path: string | null | undefined): string {
 	if (!path) return '';
 	if (path.startsWith('http://') || path.startsWith('https://')) return path;
-	const base = API_BASE.replace(/\/+$/, '');
+	const base = getApiBaseUrl();
 	const cleanPath = path.startsWith('/') ? path : `/${path}`;
 	return `${base}${cleanPath}`;
 }
@@ -163,7 +188,7 @@ async function attemptTokenRefresh(): Promise<string | null> {
 
 	refreshPromise = (async () => {
 		try {
-			const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+			const res = await fetch(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -219,7 +244,7 @@ async function request<T>(path: string, options: RequestInit = {}, isRetry = fal
 		headers.set('Authorization', `Bearer ${token}`);
 	}
 
-	const res = await fetch(`${API_BASE}${path}`, {
+	const res = await fetch(`${getApiBaseUrl()}${path}`, {
 		...options,
 		headers,
 		credentials: 'include'
@@ -517,7 +542,7 @@ export const api = {
 			onError?: (err: Error) => void;
 			signal?: AbortSignal;
 		}): Promise<void> {
-			const url = `${API_BASE}/api/v1/inventory/equipment/telemetry-stream`;
+			const url = `${getApiBaseUrl()}/api/v1/inventory/equipment/telemetry-stream`;
 
 			const headers: Record<string, string> = {
 				Accept: 'text/event-stream'
@@ -1056,7 +1081,7 @@ export const api = {
 			const query = new URLSearchParams();
 			if (options.stage) query.set('stage', options.stage);
 			const qs = query.toString() ? `?${query.toString()}` : '';
-			const url = `${API_BASE}/api/v1/batches/${id}/telemetry-stream${qs}`;
+			const url = `${getApiBaseUrl()}/api/v1/batches/${id}/telemetry-stream${qs}`;
 
 			const headers: Record<string, string> = {
 				Accept: 'text/event-stream'
