@@ -308,11 +308,16 @@ class SettingsState {
 		if (safeAppUrl) {
 			return safeAppUrl;
 		}
+		const winAppUrl =
+			typeof window !== 'undefined'
+				? (window as unknown as { __APP_URL__?: string }).__APP_URL__
+				: undefined;
 		const metaEnv =
 			typeof import.meta !== 'undefined'
 				? (import.meta as unknown as { env?: Record<string, string> }).env
 				: undefined;
 		const envUrl =
+			winAppUrl ||
 			metaEnv?.PUBLIC_APP_URL ||
 			(typeof process !== 'undefined' ? process.env?.PUBLIC_APP_URL : undefined);
 		if (
@@ -344,11 +349,16 @@ class SettingsState {
 		if (safeWebhookUrl) {
 			return safeWebhookUrl;
 		}
+		const winApiUrl =
+			typeof window !== 'undefined'
+				? (window as unknown as { __API_URL__?: string }).__API_URL__
+				: undefined;
 		const metaEnv =
 			typeof import.meta !== 'undefined'
 				? (import.meta as unknown as { env?: Record<string, string> }).env
 				: undefined;
 		const envUrl =
+			winApiUrl ||
 			metaEnv?.PUBLIC_API_URL ||
 			(typeof process !== 'undefined' ? process.env?.PUBLIC_API_URL : undefined);
 		const safeEnvApiUrl = sanitizeHttpBaseUrl(envUrl);

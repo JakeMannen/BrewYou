@@ -45,12 +45,17 @@ export function isLocalhostUrl(urlString: string): boolean {
  * and defaults to `http://localhost:3000` in SSR / test environments.
  */
 export function getAppBaseUrl(): string {
+	const winAppUrl =
+		typeof window !== 'undefined'
+			? (window as unknown as { __APP_URL__?: string }).__APP_URL__
+			: undefined;
 	const metaEnv =
 		typeof import.meta !== 'undefined'
 			? (import.meta as unknown as { env?: Record<string, string> }).env
 			: undefined;
 
 	const configured =
+		winAppUrl ||
 		metaEnv?.PUBLIC_APP_URL ||
 		(typeof process !== 'undefined' ? process.env?.PUBLIC_APP_URL : undefined);
 

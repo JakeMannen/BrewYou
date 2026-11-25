@@ -1,6 +1,6 @@
 <script lang="ts">
 	import './layout.css';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import { auth } from '$lib/stores/auth.svelte';
@@ -27,12 +27,23 @@
 	import AuthSplashCurtain from '$lib/components/auth/AuthSplashCurtain.svelte';
 	import LoginModal from '$lib/components/auth/LoginModal.svelte';
 	import BreweryOnboardingModal from '$lib/components/brewery/BreweryOnboardingModal.svelte';
+	import { applyRuntimeConfigToWindow } from '$lib/config/runtime';
 	import { goto } from '$app/navigation';
 
-	let { children } = $props();
+	let { children, data } = $props();
 	let sidebarCollapsed = $state(false);
 	let mobileMenuOpen = $state(false);
 	let isHydrated = $state(false);
+
+	if (browser) {
+		untrack(() => applyRuntimeConfigToWindow(data?.runtimeConfig));
+	}
+
+	$effect(() => {
+		if (browser && data?.runtimeConfig) {
+			applyRuntimeConfigToWindow(data.runtimeConfig);
+		}
+	});
 
 	let isTapKiosk = $derived(page.url.pathname.startsWith('/tap/'));
 

@@ -41,6 +41,7 @@ services:
       Jwt__Audience: "BrewYouApp"
       Cors__AllowedOrigins__0: "http://localhost:3000"
       Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
+      Authentication__Google__ClientId: "${GOOGLE_CLIENT_ID:-}"
       NetworkSecurity__AllowPrivateNetworks: "${ALLOW_PRIVATE_NETWORKS:-true}"
       NetworkSecurity__AllowLoopback: "${ALLOW_LOOPBACK_NETWORKS:-false}"
     ports:
@@ -69,6 +70,7 @@ services:
       services__apiservice__http__0: "http://apiservice:5000"
       PUBLIC_API_URL: "${PUBLIC_API_URL:-http://localhost:5000}"
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
+      PUBLIC_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
     ports:
       - "127.0.0.1:3000:3000"
     networks:

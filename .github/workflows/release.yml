@@ -236,6 +236,7 @@ jobs:
                 Jwt__Audience: "BrewYouApp"
                 Cors__AllowedOrigins__0: "http://localhost:3000"
                 Cors__AllowedOrigins__1: "http://127.0.0.1:3000"
+                Authentication__Google__ClientId: "${GOOGLE_CLIENT_ID:-}"
               ports:
                 - "127.0.0.1:5000:5000"
               healthcheck:
@@ -256,6 +257,7 @@ jobs:
                 HOST: "0.0.0.0"
                 services__apiservice__http__0: "http://apiservice:5000"
                 PUBLIC_API_URL: "http://localhost:5000"
+                PUBLIC_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
               ports:
                 - "127.0.0.1:3000:3000"
               healthcheck:
