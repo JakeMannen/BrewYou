@@ -4,7 +4,7 @@
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/)
 [![SvelteKit 2](https://img.shields.io/badge/SvelteKit-2.0-ff3e00.svg)](https://kit.svelte.dev/)
 [![Svelte 5](<https://img.shields.io/badge/Svelte-5.0_(Runes)-ff3e00.svg>)](https://svelte.dev/)
-[![.NET Aspire](https://img.shields.io/badge/.NET_Aspire-13.5-512bd4.svg)](https://learn.microsoft.com/dotnet/aspire/)
+[![.NET Aspire](https://img.shields.io/badge/.NET_Aspire-17.0-512bd4.svg)](https://learn.microsoft.com/dotnet/aspire/)
 [![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18.6-336791.svg)](https://www.postgresql.org/)
 
 **BrewYou** is a 100% free and open-source fullstack craft brewing platform for homebrewers and small breweries — covering recipe formulation, multi-rig brew day execution, IoT fermentation telemetry, and taproom dispensing. All features are universally accessible with no paywalls, tiers, or subscriptions.
@@ -26,7 +26,7 @@
 | **Frontend** | SvelteKit 2, Svelte 5 (Runes), TypeScript, Tailwind CSS v4, Vite |
 | **Backend API** | .NET 10, ASP.NET Core Minimal APIs, FluentValidation, Scalar OpenAPI |
 | **Data & IoT** | Entity Framework Core 10, PostgreSQL 18.6, Eclipse Mosquitto MQTT |
-| **Orchestration** | .NET Aspire 13.5 (`src/BrewYou.AppHost`), Docker Compose |
+| **Orchestration** | .NET Aspire 17.0 (`src/BrewYou.AppHost`), Docker Compose |
 
 ## Getting Started
 
