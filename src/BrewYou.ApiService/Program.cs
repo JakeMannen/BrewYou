@@ -134,6 +134,12 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection(GoogleAuthOptions.SectionName));
+builder.Services.PostConfigure<GoogleAuthOptions>(options =>
+{
+    options.ClientId = (string.IsNullOrWhiteSpace(options.ClientId)
+        ? builder.Configuration["GOOGLE_CLIENT_ID"]
+        : options.ClientId)?.Trim() ?? string.Empty;
+});
 builder.Services.AddScoped<IGoogleAuthValidator, GoogleAuthValidator>();
 
 // Domain Services

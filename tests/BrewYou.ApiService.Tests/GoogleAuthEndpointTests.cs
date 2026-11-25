@@ -5,7 +5,9 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -210,5 +212,45 @@ public class GoogleAuthEndpointTests : IClassFixture<GoogleAuthTestFactory>
         meEnvelope!.Success.Should().BeTrue();
         meEnvelope.Data!.Email.Should().Be(testEmail);
         meEnvelope.Data.DisplayName.Should().Be("Authed Google Brewer");
+    }
+
+    [Fact]
+    public void GoogleAuthOptions_FallsBackToGoogleClientIdEnvVar_WhenSectionClientIdIsEmpty()
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Authentication:Google:ClientId"] = "",
+                        ["GOOGLE_CLIENT_ID"] = "  env-google-client-id.apps.googleusercontent.com  "
+                    });
+                });
+            });
+
+        var options = factory.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
+        options.ClientId.Should().Be("env-google-client-id.apps.googleusercontent.com");
+    }
+
+    [Fact]
+    public void GoogleAuthOptions_PrefersExplicitAuthenticationSection_OverGoogleClientIdFallback()
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Authentication:Google:ClientId"] = "  explicit-section-client-id  ",
+                        ["GOOGLE_CLIENT_ID"] = "fallback-google-client-id"
+                    });
+                });
+            });
+
+        var options = factory.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
+        options.ClientId.Should().Be("explicit-section-client-id");
     }
 }

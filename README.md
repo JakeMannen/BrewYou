@@ -93,9 +93,10 @@ cd src/BrewYou.Web && npm install && npm run dev
 | **Backend** | `DataProtection__CertificatePath` | Optional PKCS#12 certificate path to encrypt ASP.NET Core Data Protection keys at rest |
 | **Frontend** | `PUBLIC_API_URL` | Browser API base URL (`http://localhost:5000`) |
 | **Frontend** | `PUBLIC_APP_URL` | Public app URL for QR cellar labels (`http://localhost:3000`) |
+| **Frontend** | `PUBLIC_GOOGLE_CLIENT_ID` | Optional Google OAuth client ID (set via `GOOGLE_CLIENT_ID` in Docker Compose) |
 | **Frontend** | `services__apiservice__http__0` | Internal SSR API URL (`http://apiservice:5000` in Docker) |
 
-For Docker Compose overrides, see the defaults in [docker-compose.yml](docker-compose.yml) (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`).
+For Docker Compose overrides, see the defaults in [docker-compose.yml](docker-compose.yml) and [docker-compose.server.yml](docker-compose.server.yml) (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`).
 
 ## API & Type Synchronization
 
