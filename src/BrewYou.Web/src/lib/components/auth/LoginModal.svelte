@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { auth } from '$lib/stores/auth.svelte';
+	import { isGoogleAuthAvailable } from '$lib/auth/gis';
 	import { i18n, t, type LocaleCode } from '$lib/i18n/index.svelte';
 	import { LogIn, UserPlus, AlertCircle, Globe } from '@lucide/svelte';
 	import GoogleSignInButton from '$lib/components/auth/GoogleSignInButton.svelte';
@@ -24,6 +26,11 @@
 	let submitting = $state(false);
 
 	let modalElement = $state<HTMLDivElement | null>(null);
+	let googleAuthAvailable = $state(isGoogleAuthAvailable());
+
+	onMount(() => {
+		googleAuthAvailable = isGoogleAuthAvailable();
+	});
 
 	function switchMode(newMode: AuthMode) {
 		modeOverride = newMode;
@@ -224,22 +231,24 @@
 			</div>
 		{/if}
 
-		<!-- Google OAuth Action -->
-		<div class="space-y-3">
-			<GoogleSignInButton
-				mode={mode === 'signup' ? 'signup' : 'signin'}
-				onSuccess={handleOAuthSuccess}
-			/>
+		{#if googleAuthAvailable}
+			<!-- Google OAuth Action -->
+			<div class="space-y-3">
+				<GoogleSignInButton
+					mode={mode === 'signup' ? 'signup' : 'signin'}
+					onSuccess={handleOAuthSuccess}
+				/>
 
-			<div class="relative flex items-center justify-center">
-				<div class="w-full border-t border-zinc-200/80 dark:border-zinc-800"></div>
-				<span
-					class="absolute bg-white px-3 text-[10px] font-semibold tracking-wider text-zinc-400 uppercase dark:bg-zinc-950 dark:text-zinc-500"
-				>
-					{t('auth.or_divider')}
-				</span>
+				<div class="relative flex items-center justify-center">
+					<div class="w-full border-t border-zinc-200/80 dark:border-zinc-800"></div>
+					<span
+						class="absolute bg-white px-3 text-[10px] font-semibold tracking-wider text-zinc-400 uppercase dark:bg-zinc-950 dark:text-zinc-500"
+					>
+						{t('auth.or_divider')}
+					</span>
+				</div>
 			</div>
-		</div>
+		{/if}
 
 		<!-- Primary Form -->
 		<form id="auth-form-panel" onsubmit={handleSubmit} class="space-y-3.5">
