@@ -4,6 +4,7 @@
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
+	import { scanBrewLinkGateways } from '$lib/utils/brewlink';
 	import type { BrewLinkGatewayDto, BrewLinkDiscoveredGatewayDto } from '$lib/types/api';
 
 	interface Props {
@@ -18,13 +19,12 @@
 	let isLoadingGateways = $state(false);
 	let discoveredGateways = $state<BrewLinkDiscoveredGatewayDto[]>([]);
 	let isDiscoveringGateways = $state(false);
+	let discoverError = $state<string | null>(null);
+	let scanAbortController: AbortController | null = null;
 	let claimingGatewayId = $state<string | null>(null);
 	let pairingHost = $state('');
 	let pairingPin = $state('');
 	let pairingName = $state('');
-	let isRequestingPin = $state(false);
-	let requestPinSuccess = $state(false);
-	let requestPinError = $state<string | null>(null);
 	let isPairing = $state(false);
 	let pairingError = $state<string | null>(null);
 
@@ -58,13 +58,31 @@
 	}
 
 	async function discoverGateways() {
+		scanAbortController?.abort();
+		const controller = new AbortController();
+		scanAbortController = controller;
 		isDiscoveringGateways = true;
+		discoverError = null;
 		try {
-			discoveredGateways = await api.brewlink.discoverGateways();
+			const results = await scanBrewLinkGateways(() => api.brewlink.discoverGateways(), {
+				signal: controller.signal,
+				onUpdate: (gateways) => {
+					discoveredGateways = gateways;
+				}
+			});
+			if (!controller.signal.aborted) {
+				discoveredGateways = results;
+			}
 		} catch (err: unknown) {
-			console.error('Failed to discover BrewLink gateways', err);
+			if (!controller.signal.aborted) {
+				console.error('Failed to discover BrewLink gateways', err);
+				discoverError = (err as Error).message || t('settings.brewlink.scan_error');
+			}
 		} finally {
-			isDiscoveringGateways = false;
+			if (scanAbortController === controller) {
+				scanAbortController = null;
+				isDiscoveringGateways = false;
+			}
 		}
 	}
 
@@ -84,24 +102,6 @@
 			pairingError = (err as Error).message || 'Failed to pair gateway';
 		} finally {
 			claimingGatewayId = null;
-		}
-	}
-
-	async function handleRequestPin() {
-		requestPinError = null;
-		requestPinSuccess = false;
-		if (!pairingHost.trim()) {
-			requestPinError = t('settings.brewlink.host_label');
-			return;
-		}
-		isRequestingPin = true;
-		try {
-			await api.brewlink.startPairing(pairingHost.trim());
-			requestPinSuccess = true;
-		} catch (err: unknown) {
-			requestPinError = (err as Error).message || 'Failed to request PIN';
-		} finally {
-			isRequestingPin = false;
 		}
 	}
 
@@ -133,7 +133,6 @@
 			pairingHost = '';
 			pairingPin = '';
 			pairingName = '';
-			requestPinSuccess = false;
 			await loadGateways();
 			if (paired) {
 				onGatewayPaired?.(paired);
@@ -207,6 +206,9 @@
 
 	onMount(() => {
 		void loadGateways();
+		return () => {
+			scanAbortController?.abort();
+		};
 	});
 </script>
 
@@ -361,7 +363,15 @@
 			</button>
 		</div>
 
-		{#if discoveredGateways.length === 0}
+		{#if discoverError}
+			<div
+				class="mt-2 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+				role="alert"
+			>
+				<AlertCircle class="h-4 w-4 shrink-0" />
+				<span>{discoverError}</span>
+			</div>
+		{:else if discoveredGateways.length === 0}
 			<p class="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
 				{t('settings.brewlink.no_broadcasts')}
 			</p>
@@ -426,27 +436,12 @@
 		<div class="mt-3 space-y-3">
 			<!-- Host / IP -->
 			<div>
-				<div class="flex items-center justify-between gap-2">
-					<label
-						for="mgr-brewlink-host-input"
-						class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
-					>
-						{t('settings.brewlink.host_label')} *
-					</label>
-					<button
-						type="button"
-						data-testid="brewlink-request-pin-btn"
-						disabled={isRequestingPin || !pairingHost.trim()}
-						onclick={handleRequestPin}
-						class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 shadow-2xs hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-					>
-						{#if isRequestingPin}
-							<Loader2 class="h-3 w-3 animate-spin" />
-						{:else}
-							{t('settings.brewlink.request_pin_btn')}
-						{/if}
-					</button>
-				</div>
+				<label
+					for="mgr-brewlink-host-input"
+					class="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300"
+				>
+					{t('settings.brewlink.host_label')} *
+				</label>
 				<input
 					id="mgr-brewlink-host-input"
 					data-testid="brewlink-host-input"
@@ -520,24 +515,6 @@
 					class="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 transition focus:border-sky-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
 				/>
 			</div>
-
-			{#if requestPinSuccess}
-				<div
-					class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300"
-				>
-					<Check class="h-4 w-4 shrink-0 text-emerald-500" />
-					<span>{t('settings.brewlink.pin_requested')}</span>
-				</div>
-			{/if}
-
-			{#if requestPinError}
-				<div
-					class="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
-				>
-					<AlertCircle class="h-4 w-4 shrink-0" />
-					<span>{requestPinError}</span>
-				</div>
-			{/if}
 
 			{#if pairingError}
 				<div
