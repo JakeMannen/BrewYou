@@ -1,4 +1,66 @@
-import type { BrewLinkControlAction } from '$lib/types/api';
+import type { BrewLinkControlAction, BrewLinkDiscoveredGatewayDto } from '$lib/types/api';
+
+export interface BrewLinkScanOptions {
+	maxAttempts?: number;
+	intervalMs?: number;
+	signal?: AbortSignal;
+	onUpdate?: (gateways: BrewLinkDiscoveredGatewayDto[]) => void;
+	delayFn?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+function defaultAbortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) {
+			resolve();
+			return;
+		}
+		const onAbort = () => {
+			clearTimeout(timer);
+			resolve();
+		};
+		const timer = setTimeout(() => {
+			signal?.removeEventListener('abort', onAbort);
+			resolve();
+		}, ms);
+		signal?.addEventListener('abort', onAbort, { once: true });
+	});
+}
+
+/**
+ * Actively polls BrewLink discovery across multiple 2-second broadcast intervals.
+ * Returns immediately as soon as one or more broadcasting gateways are detected.
+ */
+export async function scanBrewLinkGateways(
+	fetchGateways: () => Promise<BrewLinkDiscoveredGatewayDto[]>,
+	options: BrewLinkScanOptions = {}
+): Promise<BrewLinkDiscoveredGatewayDto[]> {
+	const maxAttempts = Math.max(1, options.maxAttempts ?? 5);
+	const intervalMs = Math.max(0, options.intervalMs ?? 1500);
+	const delayFn = options.delayFn ?? defaultAbortableDelay;
+	const { signal, onUpdate } = options;
+
+	let latest: BrewLinkDiscoveredGatewayDto[] = [];
+
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		if (signal?.aborted) {
+			break;
+		}
+
+		latest = await fetchGateways();
+		if (signal?.aborted) {
+			break;
+		}
+
+		onUpdate?.(latest);
+		if (latest.length > 0 || attempt === maxAttempts - 1) {
+			break;
+		}
+
+		await delayFn(intervalMs, signal);
+	}
+
+	return latest;
+}
 
 export interface ParsedInteraction {
 	required: boolean;

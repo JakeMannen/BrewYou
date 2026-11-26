@@ -167,14 +167,25 @@ public partial class BrewLinkService : IBrewLinkService
 
                 if (response.StatusCode == HttpStatusCode.Gone)
                 {
+                    _discoveryService?.RemoveBeaconsByHost(normalizedHost);
                     return (false, null, "Pairing window expired. Hold the BOOT button on the gateway for 3 seconds (or request a new PIN) and try again.");
                 }
 
                 if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
                 {
+                    if (response.StatusCode == HttpStatusCode.Forbidden || string.IsNullOrEmpty(cleanPin))
+                    {
+                        _discoveryService?.RemoveBeaconsByHost(normalizedHost);
+                    }
+
                     return string.IsNullOrEmpty(cleanPin)
                         ? (false, null, "Pairing window is not active on the gateway. Hold the physical BOOT button for 3 seconds to open the 60-second pairing window.")
                         : (false, null, "Invalid or expired pairing PIN. Please request a new PIN from the gateway.");
+                }
+
+                if (response.StatusCode == HttpStatusCode.InternalServerError)
+                {
+                    return (false, null, "Gateway could not save pairing credentials (PAIRING_SAVE_FAILED). The pairing window remains open — please retry.");
                 }
 
                 return (false, null, $"Pairing failed with status {response.StatusCode}.");
@@ -248,6 +259,7 @@ public partial class BrewLinkService : IBrewLinkService
             _logger.LogInformation("Successfully paired BrewLink gateway {GatewayId} for user {UserId}", cleanGatewayId, userId);
 
             await EnsureGatewayEquipmentAsync(userId, existing, ct);
+            await ReconcileGatewayConnectivityBestEffortAsync(ct);
 
             return (true, ToDto(existing), null);
         }
@@ -306,6 +318,7 @@ public partial class BrewLinkService : IBrewLinkService
         }
 
         await _db.SaveChangesAsync(ct);
+        await ReconcileGatewayConnectivityBestEffortAsync(ct);
         return (true, ToDto(gateway), null);
     }
 
@@ -381,6 +394,7 @@ public partial class BrewLinkService : IBrewLinkService
             return (false, true, "Cannot delete BrewLink gateway due to active entity references.");
         }
 
+        await ReconcileGatewayConnectivityBestEffortAsync(ct);
         return (true, false, null);
     }
 
@@ -2453,5 +2467,40 @@ public partial class BrewLinkService : IBrewLinkService
         }
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task ReconcileGatewayConnectivityBestEffortAsync(CancellationToken ct)
+    {
+        if (_serviceProvider == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var appLifetime = _serviceProvider.GetService<IHostApplicationLifetime>();
+            var lifetimeToken = appLifetime?.ApplicationStopping ?? CancellationToken.None;
+
+            var wsManager = _serviceProvider.GetService<IBrewLinkWebSocketManager>();
+            if (wsManager != null)
+            {
+                var allGateways = await _db.BrewLinkGateways
+                    .AsNoTracking()
+                    .ToListAsync(ct);
+                await wsManager.ReconcileGatewaysAsync(allGateways, lifetimeToken);
+            }
+
+            var mqttService = _serviceProvider.GetService<IMqttService>();
+            if (mqttService != null && mqttService.IsConnected)
+            {
+                using var mqttCts = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetimeToken);
+                mqttCts.CancelAfter(TimeSpan.FromSeconds(3));
+                await mqttService.RefreshSubscriptionsAsync(mqttCts.Token);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Best-effort post-pairing WebSocket/MQTT reconciliation did not complete immediately.");
+        }
     }
 }

@@ -58,11 +58,12 @@ public sealed class BrewLinkWebSocketManager : IBrewLinkWebSocketManager, IDispo
 
         var gatewayMap = gateways.ToDictionary(g => g.Id);
 
-        // 1. Remove obsolete or updated sessions
+        // 1. Remove obsolete or updated sessions (including rotated API tokens on re-pair)
         foreach (var (id, session) in _sessions)
         {
             if (!gatewayMap.TryGetValue(id, out var current) ||
-                !string.Equals(session.Gateway.Host, current.Host, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(session.Gateway.Host, current.Host, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(session.Gateway.ApiToken, current.ApiToken, StringComparison.Ordinal))
             {
                 if (_sessions.TryRemove(id, out var removed))
                 {
