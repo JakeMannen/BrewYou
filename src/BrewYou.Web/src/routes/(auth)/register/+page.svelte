@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { auth } from '$lib/stores/auth.svelte';
+	import { isGoogleAuthAvailable } from '$lib/auth/gis';
 	import { t } from '$lib/i18n/index.svelte';
 	import { UserPlus, AlertCircle } from '@lucide/svelte';
 	import GoogleSignInButton from '$lib/components/auth/GoogleSignInButton.svelte';
@@ -9,6 +11,11 @@
 	let password = $state('');
 	let displayName = $state('');
 	let submitting = $state(false);
+	let googleAuthAvailable = $state(false);
+
+	onMount(() => {
+		googleAuthAvailable = isGoogleAuthAvailable();
+	});
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
@@ -68,16 +75,18 @@
 			</div>
 		{/if}
 
-		<GoogleSignInButton mode="signup" onSuccess={handleOAuthSuccess} />
+		{#if googleAuthAvailable}
+			<GoogleSignInButton mode="signup" onSuccess={handleOAuthSuccess} />
 
-		<div class="relative flex items-center justify-center">
-			<div class="w-full border-t border-zinc-200 dark:border-zinc-800"></div>
-			<span
-				class="absolute bg-[var(--panel-bg)] px-3 text-[11px] font-semibold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
-			>
-				{t('auth.or_divider')}
-			</span>
-		</div>
+			<div class="relative flex items-center justify-center">
+				<div class="w-full border-t border-zinc-200 dark:border-zinc-800"></div>
+				<span
+					class="absolute bg-[var(--panel-bg)] px-3 text-[11px] font-semibold tracking-wider text-zinc-500 uppercase dark:text-zinc-400"
+				>
+					{t('auth.or_divider')}
+				</span>
+			</div>
+		{/if}
 
 		<form onsubmit={handleSubmit} class="space-y-4">
 			<div>
