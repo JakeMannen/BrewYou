@@ -20,6 +20,7 @@
 	let discoveredGateways = $state<BrewLinkDiscoveredGatewayDto[]>([]);
 	let isDiscoveringGateways = $state(false);
 	let discoverError = $state<string | null>(null);
+	let claimError = $state<string | null>(null);
 	let scanAbortController: AbortController | null = null;
 	let claimingGatewayId = $state<string | null>(null);
 	let pairingHost = $state('');
@@ -63,6 +64,7 @@
 		scanAbortController = controller;
 		isDiscoveringGateways = true;
 		discoverError = null;
+		claimError = null;
 		try {
 			const results = await scanBrewLinkGateways(() => api.brewlink.discoverGateways(), {
 				signal: controller.signal,
@@ -87,6 +89,10 @@
 	}
 
 	async function handleClaimDiscoveredGateway(beacon: BrewLinkDiscoveredGatewayDto) {
+		scanAbortController?.abort();
+		scanAbortController = null;
+		isDiscoveringGateways = false;
+		claimError = null;
 		pairingError = null;
 		claimingGatewayId = beacon.gatewayId;
 		try {
@@ -99,7 +105,8 @@
 				onGatewayPaired?.(paired);
 			}
 		} catch (err: unknown) {
-			pairingError = (err as Error).message || 'Failed to pair gateway';
+			claimError = (err as Error).message || 'Failed to pair gateway';
+			discoveredGateways = await api.brewlink.discoverGateways().catch(() => discoveredGateways);
 		} finally {
 			claimingGatewayId = null;
 		}
@@ -418,6 +425,16 @@
 						</button>
 					</div>
 				{/each}
+			</div>
+		{/if}
+
+		{#if claimError}
+			<div
+				class="mt-2 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400"
+				role="alert"
+			>
+				<AlertCircle class="h-4 w-4 shrink-0" />
+				<span>{claimError}</span>
 			</div>
 		{/if}
 	</div>

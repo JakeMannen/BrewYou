@@ -1,5 +1,10 @@
+using BrewYou.ApiService.Data;
+using BrewYou.ApiService.Data.Entities;
 using BrewYou.ApiService.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -180,5 +185,148 @@ public class BrewLinkDiscoveryTests
         {
             await worker.StopAsync(CancellationToken.None);
         }
+    }
+
+    [Theory]
+    [InlineData("""{"gateway_id":"C44F331A8B20","ip":"192.168.1.50"}""")]
+    [InlineData("""{"event":"","gateway_id":"C44F331A8B20","ip":"192.168.1.50"}""")]
+    [InlineData("""{"event":"telemetry","gateway_id":"C44F331A8B20","ip":"192.168.1.50"}""")]
+    public void IngestBeaconJson_WithoutBrewLinkPairingEvent_IsIgnored(string payload)
+    {
+        var service = new BrewLinkDiscoveryService(NullLogger<BrewLinkDiscoveryService>.Instance);
+
+        service.IngestBeaconJson(payload, "192.168.1.50").Should().BeFalse();
+        service.GetActiveBeacons().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void IngestBeaconJson_HonorsClaimUrlPortWhenHttpPortOmitted_AndRemovesByHost()
+    {
+        var service = new BrewLinkDiscoveryService(NullLogger<BrewLinkDiscoveryService>.Instance);
+
+        var payload = """
+            {
+              "event": "brewlink_pairing",
+              "gateway_id": "C44F331A8B20",
+              "name": "SoftAP BrewLink",
+              "ip": "192.168.4.1",
+              "claim_url": "http://192.168.4.1:8080/api/pair/claim",
+              "remaining_sec": 55
+            }
+            """;
+
+        service.IngestBeaconJson(payload).Should().BeTrue();
+        var beacon = service.GetActiveBeacons().Should().ContainSingle().Subject;
+        beacon.HttpPort.Should().Be(8080);
+        beacon.Host.Should().Be("192.168.4.1:8080");
+
+        service.RemoveBeaconsByHost("http://192.168.4.1:8080");
+        service.GetActiveBeacons().Should().BeEmpty();
+    }
+
+    private sealed class RecordingWebSocketManager : IBrewLinkWebSocketManager
+    {
+        public List<List<BrewLinkGateway>> ReconciledSnapshots { get; } = [];
+        public bool IsGatewayConnected(Guid gatewayId) => false;
+        public Task DisconnectAllAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task ReconcileGatewaysAsync(IEnumerable<BrewLinkGateway> gateways, CancellationToken ct = default)
+        {
+            ReconciledSnapshots.Add(gateways.ToList());
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task PairGateway_FromDiscoveredBeacon_ImmediatelyReconcilesWebSocket_AndHandles403And500()
+    {
+        var dbOptions = new DbContextOptionsBuilder<BrewYouDbContext>()
+            .UseInMemoryDatabase($"BrewLinkScanPairTest_{Guid.NewGuid():N}")
+            .Options;
+        await using var db = new BrewYouDbContext(dbOptions);
+
+        var discovery = new BrewLinkDiscoveryService(NullLogger<BrewLinkDiscoveryService>.Instance);
+        var wsManager = new RecordingWebSocketManager();
+        var services = new ServiceCollection();
+        services.AddSingleton<IBrewLinkWebSocketManager>(wsManager);
+        await using var serviceProvider = services.BuildServiceProvider();
+
+        var httpHandler = new FakeBrewLinkHttpMessageHandler();
+        using var httpClient = new HttpClient(httpHandler);
+        var dataProtection = new EphemeralDataProtectionProvider();
+
+        var brewLinkService = new BrewLinkService(
+            db,
+            httpClient,
+            dataProtection,
+            NullLogger<BrewLinkService>.Instance,
+            discoveryService: discovery,
+            serviceProvider: serviceProvider);
+
+        var beaconJson = JsonSerializer.Serialize(new
+        {
+            @event = "brewlink_pairing",
+            gateway_id = "C44F331A8B20",
+            name = "BrewLink Gateway",
+            ip = "192.168.4.1",
+            http_port = 80,
+            claim_url = "http://192.168.4.1/api/pair/claim",
+            ws_url = "ws://192.168.4.1/ws",
+            remaining_sec = 58
+        });
+
+        // 1. 500 PAIRING_SAVE_FAILED keeps beacon active and returns retryable guidance
+        discovery.IngestBeaconJson(beaconJson).Should().BeTrue();
+        httpHandler.Handler = _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent("""{"error":"PAIRING_SAVE_FAILED"}""")
+        };
+        var saveFailed = await brewLinkService.PairGatewayAsync("user-1", new PairBrewLinkRequest("192.168.4.1", null, "BrewLink Gateway"));
+        saveFailed.Succeeded.Should().BeFalse();
+        saveFailed.ErrorMessage.Should().Contain("PAIRING_SAVE_FAILED");
+        discovery.GetActiveBeacons().Should().ContainSingle();
+
+        // 2. 403 PAIRING_WINDOW_CLOSED evicts stale beacon
+        httpHandler.Handler = _ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{"error":"PAIRING_WINDOW_CLOSED"}""")
+        };
+        var windowClosed = await brewLinkService.PairGatewayAsync("user-1", new PairBrewLinkRequest("192.168.4.1", null, "BrewLink Gateway"));
+        windowClosed.Succeeded.Should().BeFalse();
+        discovery.GetActiveBeacons().Should().BeEmpty();
+
+        // 3. Successful code-free claim removes beacon and immediately reconciles WebSocket connectivity
+        discovery.IngestBeaconJson(beaconJson).Should().BeTrue();
+        httpHandler.RecordedRequests.Clear();
+        httpHandler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                status = "paired",
+                gateway_id = "C44F331A8B20",
+                client_name = "BrewYou-A4F2",
+                api_token = "bl_8f3a9e2c4b1d6e7f8a0b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f",
+                ws_url = "ws://192.168.4.1/ws",
+                mqtt_broker_uri = "mqtt://192.168.1.100:1883",
+                mqtt_topic_key = "tk_a1b2c3d4e5f6a7b8",
+                mqtt_topic_prefix = "brewlink/tk_a1b2c3d4e5f6a7b8/"
+            }))
+        };
+
+        var paired = await brewLinkService.PairGatewayAsync("user-1", new PairBrewLinkRequest("192.168.4.1", null, "BrewLink Gateway"));
+        paired.Succeeded.Should().BeTrue();
+        paired.Gateway!.GatewayId.Should().Be("C44F331A8B20");
+        discovery.GetActiveBeacons().Should().BeEmpty();
+
+        var claimReq = httpHandler.RecordedRequests.Should().ContainSingle().Subject;
+        claimReq.Request.RequestUri!.ToString().Should().Be("http://192.168.4.1/api/pair/claim");
+        Encoding.UTF8.GetByteCount(claimReq.Body!).Should().BeLessThan(256);
+        claimReq.Body.Should().Be("{\"client_name\":\"BrewYou\"}");
+
+        wsManager.ReconciledSnapshots.Should().ContainSingle();
+        wsManager.ReconciledSnapshots[0].Should().ContainSingle(g =>
+            g.GatewayId == "C44F331A8B20" &&
+            g.Host == "192.168.4.1" &&
+            g.ClientName == "BrewYou-A4F2");
     }
 }

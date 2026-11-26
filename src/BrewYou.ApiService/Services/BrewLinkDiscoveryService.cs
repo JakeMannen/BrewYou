@@ -26,6 +26,7 @@ public interface IBrewLinkDiscoveryService
     bool IngestBeaconJson(string jsonPayload, string? senderIp = null);
     List<BrewLinkDiscoveredGatewayDto> GetActiveBeacons(ISet<string>? pairedGatewayIds = null);
     void RemoveBeacon(string gatewayId);
+    void RemoveBeaconsByHost(string host);
     void Clear();
 }
 
@@ -77,9 +78,8 @@ public class BrewLinkDiscoveryService : IBrewLinkDiscoveryService
                 return false;
             }
 
-            if (TryGetStringProperty(root, out var evt, "event") &&
-                !string.IsNullOrWhiteSpace(evt) &&
-                !string.Equals(evt.Trim(), "brewlink_pairing", StringComparison.OrdinalIgnoreCase))
+            if (!TryGetStringProperty(root, out var evt, "event") ||
+                !string.Equals(evt?.Trim(), "brewlink_pairing", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -120,22 +120,26 @@ public class BrewLinkDiscoveryService : IBrewLinkDiscoveryService
             }
 
             var httpPort = 80;
+            var hasExplicitPort = false;
             if (TryGetPropertyIgnoreCase(root, out var portProp, "http_port", "httpPort") &&
                 TryGetIntValue(portProp, out var parsedPort) &&
                 parsedPort is > 0 and <= 65535)
             {
                 httpPort = parsedPort;
+                hasExplicitPort = true;
             }
 
             var claimUrl = TryGetStringProperty(root, out var rawClaimUrl, "claim_url", "claimUrl")
                 ? rawClaimUrl?.Trim()
                 : null;
-            if (string.IsNullOrWhiteSpace(ip) &&
-                !string.IsNullOrWhiteSpace(claimUrl) &&
+            if (!string.IsNullOrWhiteSpace(claimUrl) &&
                 Uri.TryCreate(claimUrl, UriKind.Absolute, out var claimUri))
             {
-                ip = NormalizeIp(claimUri.Host);
-                if (!claimUri.IsDefaultPort && claimUri.Port > 0)
+                if (string.IsNullOrWhiteSpace(ip))
+                {
+                    ip = NormalizeIp(claimUri.Host);
+                }
+                if (!hasExplicitPort && !claimUri.IsDefaultPort && claimUri.Port > 0)
                 {
                     httpPort = claimUri.Port;
                 }
@@ -320,6 +324,29 @@ public class BrewLinkDiscoveryService : IBrewLinkDiscoveryService
         if (!string.IsNullOrWhiteSpace(gatewayId))
         {
             _beacons.TryRemove(gatewayId.Trim().ToUpperInvariant(), out _);
+        }
+    }
+
+    public void RemoveBeaconsByHost(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return;
+        }
+
+        var normalized = host.Trim();
+        if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
+        {
+            normalized = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        }
+
+        foreach (var kvp in _beacons)
+        {
+            if (string.Equals(kvp.Value.Host, normalized, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(kvp.Value.Ip, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                _beacons.TryRemove(kvp.Key, out _);
+            }
         }
     }
 
