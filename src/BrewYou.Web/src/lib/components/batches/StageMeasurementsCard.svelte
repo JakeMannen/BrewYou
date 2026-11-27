@@ -2,6 +2,7 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
+	import { isPackagingVesselEquipment } from '$lib/utils/batchEdit';
 	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
 	import {
 		calculateBoilTimeAdjustment,
@@ -25,6 +26,8 @@
 	}
 
 	let { stage, batch, equipmentList = [], onSave, class: className = '' }: Props = $props();
+
+	let packagingVessels = $derived(equipmentList.filter((e) => isPackagingVesselEquipment(e)));
 
 	let isEditing = $state(false);
 	let saving = $state(false);
@@ -721,7 +724,7 @@
 							bind:value={draftPackagingVesselId}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						>
-							{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+							{#if batch.packagingVesselId && !packagingVessels.some((e) => e.id === batch.packagingVesselId)}
 								<option value={batch.packagingVesselId} disabled>
 									{batch.packagingVesselName
 										? `${batch.packagingVesselName} (${t('common.deleted')})`
@@ -729,7 +732,7 @@
 								</option>
 							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
-							{#each equipmentList.filter((e) => e.type === 'Keg') as keg}
+							{#each packagingVessels as keg (keg.id)}
 								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
 							{/each}
 						</select>
@@ -781,7 +784,7 @@
 							bind:value={draftPackagingVesselId}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						>
-							{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+							{#if batch.packagingVesselId && !packagingVessels.some((e) => e.id === batch.packagingVesselId)}
 								<option value={batch.packagingVesselId} disabled>
 									{batch.packagingVesselName
 										? `${batch.packagingVesselName} (${t('common.deleted')})`
@@ -789,7 +792,7 @@
 								</option>
 							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
-							{#each equipmentList.filter((e) => e.type === 'Keg') as keg}
+							{#each packagingVessels as keg (keg.id)}
 								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
 							{/each}
 						</select>

@@ -949,7 +949,10 @@ public partial class BrewLinkService : IBrewLinkService
                 .Include(b => b.Ingredients)
                 .Include(b => b.MashSteps)
                 .Include(b => b.FermentationSteps)
-                .FirstOrDefaultAsync(b => b.Id == request.BatchId.Value, ct);
+                .FirstOrDefaultAsync(b =>
+                    b.Id == request.BatchId.Value &&
+                    (b.UserId == userId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)),
+                    ct);
 
             if (batch == null)
             {
@@ -965,7 +968,10 @@ public partial class BrewLinkService : IBrewLinkService
                     .ThenInclude(ri => ri.Ingredient)
                 .Include(r => r.MashSteps)
                 .Include(r => r.FermentationSteps)
-                .FirstOrDefaultAsync(r => r.Id == request.RecipeId!.Value, ct);
+                .FirstOrDefaultAsync(r =>
+                    r.Id == request.RecipeId!.Value &&
+                    (r.UserId == userId || r.IsPublic),
+                    ct);
 
             if (recipe == null)
             {

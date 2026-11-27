@@ -193,8 +193,8 @@ public class TelemetryService : ITelemetryService
         if (shouldPersist)
         {
             _db.EquipmentReadings.Add(reading);
-            await _db.SaveChangesAsync();
         }
+        await _db.SaveChangesAsync();
 
         _logger.LogInformation("Updated temperature to {TempC} °C (gravity: {Gravity}, pressure: {Pressure}) for equipment {EquipmentId} ({EquipmentName}) via {Source} (Persisted: {Persisted})",
             finalTempC, recordedGravity, pressure, equipment.Id, equipment.Name, reading.Source, shouldPersist);
@@ -356,8 +356,8 @@ public class TelemetryService : ITelemetryService
         if (shouldPersist)
         {
             _db.EquipmentReadings.Add(reading);
-            await _db.SaveChangesAsync();
         }
+        await _db.SaveChangesAsync();
 
         _logger.LogInformation("Updated temperature to {TempC} °C via MQTT for equipment {EquipmentId} ({EquipmentName}) (Persisted: {Persisted})",
             tempC.Value, equipment.Id, equipment.Name, shouldPersist);
@@ -505,8 +505,8 @@ public class TelemetryService : ITelemetryService
         if (shouldPersist)
         {
             _db.EquipmentReadings.Add(reading);
-            await _db.SaveChangesAsync();
         }
+        await _db.SaveChangesAsync();
 
         _logger.LogInformation("Updated temperature to {TempC} °C for equipment {EquipmentId} ({EquipmentName}) via {Source} (Persisted: {Persisted})",
             finalTempC, equipment.Id, equipment.Name, reading.Source, shouldPersist);
@@ -822,8 +822,8 @@ public class TelemetryService : ITelemetryService
                 if (shouldPersist)
                 {
                     _db.EquipmentReadings.Add(reading);
-                    await _db.SaveChangesAsync();
                 }
+                await _db.SaveChangesAsync();
             }
 
             return new TelemetryPollResult(true, finalTempC, null);
@@ -892,7 +892,7 @@ public class TelemetryService : ITelemetryService
             .Include(b => b.FermentationSteps)
             .Include(b => b.Readings)
             .Include(b => b.SensorAssignments)
-            .FirstOrDefaultAsync(b =>
+            .Where(b =>
                 (b.UserId == equipment.UserId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
                 (b.Status == BatchStatus.Brewing || b.Status == BatchStatus.Fermenting || b.Status == BatchStatus.Conditioning) &&
                 (
@@ -903,7 +903,10 @@ public class TelemetryService : ITelemetryService
                     (isEligibleTelemetrySensor && b.SensorAssignments.Any(sa =>
                         sa.EquipmentId == equipment.Id &&
                         (sa.Stage == null || sa.Stage == b.CurrentStage)))
-                ));
+                ))
+            .OrderByDescending(b => b.UpdatedAt)
+            .ThenByDescending(b => b.CreatedAt)
+            .FirstOrDefaultAsync();
 
         if (activeBatch != null)
         {
@@ -1013,6 +1016,9 @@ public class TelemetryService : ITelemetryService
             }
             else if (equipment.Id == activeBatch.FermenterId && (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition))
             {
+                var fermenterSupersededBySensor = activeBatch.CurrentStage == BrewStage.Ferment &&
+                    activeBatch.SensorAssignments.Any(sa => sa.Stage == BrewStage.Ferment || sa.Stage == null);
+
                 reading.BatchId = activeBatch.Id;
                 reading.Stage = activeBatch.CurrentStage;
 
@@ -1021,7 +1027,7 @@ public class TelemetryService : ITelemetryService
                 {
                     reading.StepName = activeFermStep.Name;
                     targetTempC = activeFermStep.TargetTemperatureC;
-                    if (!activeFermStep.IsCompleted)
+                    if (!activeFermStep.IsCompleted && !fermenterSupersededBySensor)
                     {
                         activeFermStep.ActualTemperatureC = tempC;
                     }
@@ -1044,10 +1050,20 @@ public class TelemetryService : ITelemetryService
                 reading.StepName = "Package";
             }
 
-            // If reading is associated with a fermentation or conditioning stage batch and carries gravity, update live metrics and persist throttled BatchReading
+            // If reading is associated with a fermentation or conditioning stage batch and carries gravity,
+            // update live metrics and persist throttled BatchReading — respecting fermentation sensor precedence during Ferment.
+            var hasAssignedFermentationSensor = activeBatch.CurrentStage == BrewStage.Ferment &&
+                activeBatch.SensorAssignments.Any(sa => sa.Stage == BrewStage.Ferment || sa.Stage == null);
+            var isAssignedFermentationSensor = hasAssignedFermentationSensor &&
+                activeBatch.SensorAssignments.Any(sa =>
+                    sa.EquipmentId == equipment.Id &&
+                    (sa.Stage == BrewStage.Ferment || sa.Stage == null));
+            var allowGravityUpdate = !hasAssignedFermentationSensor || isAssignedFermentationSensor;
+
             if (reading.BatchId.HasValue &&
                 (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition) &&
-                gravity.HasValue)
+                gravity.HasValue &&
+                allowGravityUpdate)
             {
                 recordedGravity = gravity.Value;
                 activeBatch.CurrentGravity = gravity.Value;

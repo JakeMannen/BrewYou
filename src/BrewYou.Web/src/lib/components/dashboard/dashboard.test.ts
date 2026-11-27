@@ -314,6 +314,26 @@ describe('Dashboard Operational Logic & Calculations', () => {
 			expect(subtype).toBe('ConicalFermenter');
 		});
 
+		it('returns undefined when batch has no assigned equipment or assigned ID is absent (does not pick an unrelated vessel)', () => {
+			expect(
+				getBatchEquipment(
+					{ ...baseBatch, currentStage: 'Ferment', status: 'Fermenting', fermenterId: null },
+					testEquipment
+				)
+			).toBeUndefined();
+			expect(
+				getBatchEquipment(
+					{
+						...baseBatch,
+						currentStage: 'Ferment',
+						status: 'Fermenting',
+						fermenterId: 'other-setup-ferm'
+					},
+					testEquipment
+				)
+			).toBeUndefined();
+		});
+
 		it('falls back to default subtypes when equipment record is not found', () => {
 			const emptyEquip: EquipmentDto[] = [];
 			expect(getBatchEquipment({ ...baseBatch, currentStage: 'Boil' }, emptyEquip)).toBeUndefined();

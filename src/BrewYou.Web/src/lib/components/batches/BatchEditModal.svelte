@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings, celsiusToFahrenheit, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
+	import { isBatchTelemetrySensor } from '$lib/components/inventory/vessel-geometry';
+	import {
+		buildEquipmentIdUpdate,
+		buildFermentationSensorAssignmentsUpdate,
+		getPrimaryFermentationSensorAssignment,
+		isPackagingVesselEquipment
+	} from '$lib/utils/batchEdit';
 	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import type {
 		BatchDetailDto,
@@ -32,11 +39,24 @@
 	let draftMeasuredFg = $derived(parseDecimal(draftMeasuredFgStr));
 	let draftMeasuredBatchSize = $derived(parseDecimal(draftMeasuredBatchSizeStr));
 	let draftPitchTempDisplay = $derived(parseDecimal(draftPitchTempDisplayStr));
+	let draftFermenterId = $state('');
+	let draftFermentationSensorId = $state('');
 	let draftPackagingVesselId = $state('');
 	let draftNotes = $state('');
 
 	let saving = $state(false);
 	let errorMessage = $state<string | null>(null);
+
+	let fermenters = $derived(equipmentList.filter((e) => e.type === 'Fermenter'));
+	let fermentationSensors = $derived(equipmentList.filter((e) => isBatchTelemetrySensor(e)));
+	let packagingVessels = $derived(equipmentList.filter((e) => isPackagingVesselEquipment(e)));
+	let initialFermentationSensor = $derived(
+		batch ? getPrimaryFermentationSensorAssignment(batch) : null
+	);
+
+	function getSubtypeName(subtype: string): string {
+		return t(`equipment.subtypes.${subtype}`) || subtype;
+	}
 
 	const editableStatuses: BatchStatus[] = [
 		'Planned',
@@ -63,6 +83,8 @@
 						: batch.pitchTemperatureC
 					: null;
 			draftPitchTempDisplayStr = formatDecimalInput(initialPitchDisplay, 1);
+			draftFermenterId = batch.fermenterId ?? '';
+			draftFermentationSensorId = getPrimaryFermentationSensorAssignment(batch)?.equipmentId ?? '';
 			draftPackagingVesselId = batch.packagingVesselId ?? '';
 			draftNotes = batch.notes ?? '';
 			saving = false;
@@ -187,12 +209,25 @@
 			if (pitchTempC !== null) {
 				req.pitchTemperatureC = pitchTempC;
 			}
-			if (draftPackagingVesselId !== (batch.packagingVesselId ?? '')) {
-				req.packagingVesselId = draftPackagingVesselId
-					? draftPackagingVesselId
-					: batch.packagingVesselId
-						? '00000000-0000-0000-0000-000000000000'
-						: null;
+			const fermenterUpdate = buildEquipmentIdUpdate(draftFermenterId, batch.fermenterId);
+			if (fermenterUpdate !== undefined) {
+				req.fermenterId = fermenterUpdate;
+			}
+
+			const sensorAssignmentsUpdate = buildFermentationSensorAssignmentsUpdate(
+				batch,
+				draftFermentationSensorId
+			);
+			if (sensorAssignmentsUpdate !== undefined) {
+				req.sensorAssignments = sensorAssignmentsUpdate;
+			}
+
+			const packagingUpdate = buildEquipmentIdUpdate(
+				draftPackagingVesselId,
+				batch.packagingVesselId
+			);
+			if (packagingUpdate !== undefined) {
+				req.packagingVesselId = packagingUpdate;
 			}
 
 			await onSave(req);
@@ -413,6 +448,64 @@
 						/>
 					</div>
 
+					<div>
+						<label
+							for="edit-batch-fermenter"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.equipment.select_fermenter')}
+						</label>
+						<select
+							id="edit-batch-fermenter"
+							name="fermenterId"
+							data-testid="edit-batch-fermenter-select"
+							bind:value={draftFermenterId}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						>
+							{#if batch.fermenterId && !fermenters.some((e) => e.id === batch.fermenterId)}
+								<option value={batch.fermenterId} disabled>
+									{batch.fermenterName
+										? `${batch.fermenterName} (${t('common.deleted')})`
+										: t('batches.workspace.deleted_vessel')}
+								</option>
+							{/if}
+							<option value="">{t('batches.workspace.no_fermenter_assigned')}</option>
+							{#each fermenters as fermenter (fermenter.id)}
+								<option value={fermenter.id}>{fermenter.name} ({fermenter.capacity}L)</option>
+							{/each}
+						</select>
+					</div>
+
+					<div>
+						<label
+							for="edit-batch-fermentation-sensor"
+							class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+						>
+							{t('batches.equipment.select_fermentation_sensor')}
+						</label>
+						<select
+							id="edit-batch-fermentation-sensor"
+							name="fermentationSensorId"
+							data-testid="edit-batch-fermentation-sensor-select"
+							bind:value={draftFermentationSensorId}
+							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+						>
+							{#if initialFermentationSensor && !fermentationSensors.some((s) => s.id === initialFermentationSensor.equipmentId)}
+								<option value={initialFermentationSensor.equipmentId} disabled>
+									{initialFermentationSensor.equipmentName
+										? `${initialFermentationSensor.equipmentName} (${t('common.deleted')})`
+										: t('batches.workspace.deleted_vessel')}
+								</option>
+							{/if}
+							<option value="">{t('batches.workspace.none_assigned')}</option>
+							{#each fermentationSensors as sensor (sensor.id)}
+								<option value={sensor.id}>
+									{sensor.name} [{getSubtypeName(sensor.subtype)}]
+								</option>
+							{/each}
+						</select>
+					</div>
+
 					<div class="sm:col-span-2">
 						<label
 							for="edit-batch-packaging-vessel"
@@ -426,7 +519,7 @@
 							bind:value={draftPackagingVesselId}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						>
-							{#if batch.packagingVesselId && !equipmentList.some((e) => e.id === batch.packagingVesselId)}
+							{#if batch.packagingVesselId && !packagingVessels.some((e) => e.id === batch.packagingVesselId)}
 								<option value={batch.packagingVesselId} disabled>
 									{batch.packagingVesselName
 										? `${batch.packagingVesselName} (${t('common.deleted')})`
@@ -434,7 +527,7 @@
 								</option>
 							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
-							{#each equipmentList.filter((e) => e.type === 'Keg') as keg (keg.id)}
+							{#each packagingVessels as keg (keg.id)}
 								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
 							{/each}
 						</select>

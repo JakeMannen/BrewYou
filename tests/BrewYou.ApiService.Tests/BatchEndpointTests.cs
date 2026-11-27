@@ -2504,4 +2504,204 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
         kegAfterReopen.AssignedBatchId.Should().BeNull();
     }
+
+    [Fact]
+    public async Task GetBatches_InProgressBatch_ReturnsVesselTempCInSummary()
+    {
+        var (client, _, boilerId, fermenterId, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        // Give the boiler a live temperature before starting the batch
+        var updateBoilerRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{boilerId}",
+            new UpdateEquipmentRequest("Grainfather G40", EquipmentType.Boiler, 45m, CurrentTemperatureC: 66.8m));
+        updateBoilerRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-VTEMP-{Guid.NewGuid():N}"[..16], "Live Temp Pale Ale", "Pale Ale",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.052m, 1.011m, 5.4m, 35m, 6m, 60, 75m,
+            boilerId, fermenterId));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await createRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. In-progress Mash batch returns the boiler's live vessel temperature in GET /api/v1/batches
+        var listMashRes = await client.GetAsync("/api/v1/batches");
+        listMashRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var mashSummaries = (await listMashRes.Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        mashSummaries.Should().ContainSingle(b => b.Id == batch.Id && b.VesselTempC == 66.8m);
+
+        // 2. Advance to Ferment and log a fermentation reading with temperature
+        var advRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.052m));
+        advRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var readRes = await client.PostAsJsonAsync($"/api/v1/batches/{batch.Id}/readings",
+            new AddBatchReadingRequest(DateTime.UtcNow, 1.030m, 19.4m, "Active fermentation sample"));
+        readRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var listFermRes = await client.GetAsync("/api/v1/batches");
+        listFermRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fermSummaries = (await listFermRes.Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        fermSummaries.Should().ContainSingle(b => b.Id == batch.Id && b.VesselTempC == 19.4m && b.FermentationSensorId == null);
+
+        // 3. Assign a fermentation sensor with its own temperature -> sensor temp takes precedence over fermenter temp
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var defaultSetupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!.First(s => s.IsDefault).Id;
+
+        var sensorRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "iSpindel Blue", EquipmentType.Sensor, 0m,
+                Subtype: EquipmentSubtype.ISpindel, CurrentTemperatureC: 21.2m));
+        sensorRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sensorId = (await sensorRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!.Id;
+
+        var assignRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(sensorId, BrewStage.Ferment, null) });
+        assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var listSensorRes = await client.GetAsync("/api/v1/batches");
+        listSensorRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var sensorSummaries = (await listSensorRes.Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        sensorSummaries.Should().ContainSingle(b =>
+            b.Id == batch.Id &&
+            b.VesselTempC == 21.2m &&
+            b.FermentationSensorId == sensorId &&
+            b.FermentationSensorName == "iSpindel Blue");
+    }
+
+    [Fact]
+    public async Task UpdateBatch_CanChangeOrClearFermenterAndFermentationSensor_ReconcilingVolumeAndPreservingOtherSensors()
+    {
+        var (client, _, boilerId, fermenter1Id, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var defaultSetupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!.First(s => s.IsDefault).Id;
+
+        var ferm2Res = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "SS Conical 30L #2", EquipmentType.Fermenter, 30m, CurrentTemperatureC: 18.5m));
+        ferm2Res.StatusCode.Should().Be(HttpStatusCode.Created);
+        var fermenter2Id = (await ferm2Res.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!.Id;
+
+        var sensor1Res = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "iSpindel Wrong", EquipmentType.Sensor, 0m,
+                Subtype: EquipmentSubtype.ISpindel, CurrentTemperatureC: 23.0m));
+        var sensor1Id = (await sensor1Res.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!.Id;
+
+        var sensor2Res = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "iSpindel Right", EquipmentType.Sensor, 0m,
+                Subtype: EquipmentSubtype.ISpindel, CurrentTemperatureC: 19.6m));
+        var sensor2Id = (await sensor2Res.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!.Id;
+
+        var mashSensorRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "Mash Probe", EquipmentType.Sensor, 0m,
+                Subtype: EquipmentSubtype.GenericSensor, CurrentTemperatureC: 67.0m));
+        var mashSensorId = (await mashSensorRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!.Id;
+
+        var createRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-SWAP-{Guid.NewGuid():N}"[..16], "Swappable IPA", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.056m, 1.012m, 5.8m, 45m, 8m, 60, 75m,
+            boilerId, fermenter1Id,
+            SensorAssignments: new List<BatchSensorAssignmentInput>
+            {
+                new(mashSensorId, BrewStage.Mash, null),
+                new(sensor1Id, BrewStage.Ferment, null)
+            }));
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await createRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // Advance into Ferment -> fermenter1 gets volume
+        var advRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.056m));
+        advRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Edit batch: swap to fermenter2 and sensor2 while keeping mashSensor
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(
+            FermenterId: fermenter2Id,
+            SensorAssignments: new List<BatchSensorAssignmentInput>
+            {
+                new(mashSensorId, BrewStage.Mash, null),
+                new(sensor2Id, BrewStage.Ferment, null)
+            }));
+        updateRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = (await updateRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        updated.FermenterId.Should().Be(fermenter2Id);
+        updated.FermenterName.Should().Be("SS Conical 30L #2");
+        updated.SensorAssignments.Should().HaveCount(2);
+        updated.SensorAssignments.Should().Contain(sa => sa.EquipmentId == mashSensorId && sa.Stage == BrewStage.Mash);
+        updated.SensorAssignments.Should().Contain(sa => sa.EquipmentId == sensor2Id && sa.Stage == BrewStage.Ferment);
+
+        // Old fermenter volume is reset and new fermenter volume is filled
+        var eq1 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{fermenter1Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        var eq2 = (await (await client.GetAsync($"/api/v1/inventory/equipment/{fermenter2Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+        eq1.CurrentVolumeLiters.Should().Be(0m);
+        eq2.CurrentVolumeLiters.Should().Be(20m);
+
+        // Summary now reflects sensor2 temperature
+        var summaryAfterSwap = (await (await client.GetAsync("/api/v1/batches"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!
+            .Single(b => b.Id == batch.Id);
+        summaryAfterSwap.VesselTempC.Should().Be(19.6m);
+        summaryAfterSwap.FermentationSensorId.Should().Be(sensor2Id);
+
+        // Edit batch: clear fermentation sensor (preserving mash sensor) -> falls back to fermenter2 temperature
+        var clearSensorRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(
+            SensorAssignments: new List<BatchSensorAssignmentInput>
+            {
+                new(mashSensorId, BrewStage.Mash, null)
+            }));
+        clearSensorRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var summaryAfterClear = (await (await client.GetAsync("/api/v1/batches"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!
+            .Single(b => b.Id == batch.Id);
+        summaryAfterClear.VesselTempC.Should().Be(18.5m);
+        summaryAfterClear.FermentationSensorId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SensorAssignmentValidation_RejectsMissingDuplicatesAndActiveBatchConflicts()
+    {
+        var (client, _, boilerId, fermenter1Id, _) = await CreateAuthenticatedUserWithEquipmentAsync();
+
+        var setupsRes = await client.GetAsync("/api/v1/brewery-setups");
+        var defaultSetupId = (await setupsRes.Content.ReadFromJsonAsync<ApiResponse<List<BrewerySetupDto>>>())!.Data!.First(s => s.IsDefault).Id;
+
+        var sensorRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment",
+            new CreateEquipmentRequest(defaultSetupId, "iSpindel Exclusive", EquipmentType.Sensor, 0m,
+                Subtype: EquipmentSubtype.ISpindel, CurrentTemperatureC: 20.0m));
+        var sensorId = (await sensorRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!.Id;
+
+        var batch1Res = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-S1-{Guid.NewGuid():N}"[..16], "Batch 1", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.055m, 1.012m, 5.6m, 40m, 8m, 60, 75m,
+            boilerId, fermenter1Id,
+            SensorAssignments: new List<BatchSensorAssignmentInput> { new(sensorId, BrewStage.Ferment, null) }));
+        batch1Res.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch1 = (await batch1Res.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // 1. Missing/unknown sensor returns 404 NotFound without wiping existing assignment
+        var missingRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch1.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(Guid.NewGuid(), BrewStage.Ferment, null) });
+        missingRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var batch1AfterMissing = (await (await client.GetAsync($"/api/v1/batches/{batch1.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        batch1AfterMissing.SensorAssignments.Should().ContainSingle(sa => sa.EquipmentId == sensorId);
+
+        // 2. Duplicate sensor assignment returns 400 BadRequest
+        var dupRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch1.Id}/sensors",
+            new List<BatchSensorAssignmentInput>
+            {
+                new(sensorId, BrewStage.Ferment, null),
+                new(sensorId, BrewStage.Ferment, null)
+            });
+        dupRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // 3. Second active batch attempting to claim the same sensor on overlapping stage returns 409 Conflict
+        var batch2Res = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-S2-{Guid.NewGuid():N}"[..16], "Batch 2", "Stout",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.060m, 1.014m, 6.0m, 35m, 35m, 60, 75m,
+            null, null,
+            SensorAssignments: new List<BatchSensorAssignmentInput> { new(sensorId, BrewStage.Ferment, null) }));
+        batch2Res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
 }

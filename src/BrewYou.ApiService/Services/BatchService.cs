@@ -54,6 +54,9 @@ public class BatchService : IBatchService
             .Include(b => b.MashTun)
             .Include(b => b.Boiler)
             .Include(b => b.Fermenter)
+            .Include(b => b.PackagingVessel)
+            .Include(b => b.SensorAssignments)
+                .ThenInclude(sa => sa.Equipment)
             .Where(b => b.UserId == userId);
 
         if (status.HasValue)
@@ -92,54 +95,377 @@ public class BatchService : IBatchService
             .ToListAsync();
 
         var batchIds = batches.Select(b => b.Id).ToList();
-        var latestGravityByBatch = batchIds.Count > 0
-            ? (await _db.BatchReadings
+        var batchReadings = batchIds.Count > 0
+            ? await _db.BatchReadings
                 .AsNoTracking()
                 .Where(r => batchIds.Contains(r.BatchId))
-                .Select(r => new { r.BatchId, r.Timestamp, r.SpecificGravity })
+                .Select(r => new BatchReadingSummary(r.BatchId, r.Timestamp, r.SpecificGravity, r.TemperatureC))
+                .ToListAsync()
+            : new List<BatchReadingSummary>();
+
+        var latestBatchReadingByBatch = batchReadings
+            .GroupBy(r => r.BatchId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(r => r.Timestamp).First());
+
+        var latestBatchReadingTempByBatch = batchReadings
+            .Where(r => r.TemperatureC.HasValue)
+            .GroupBy(r => r.BatchId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(r => r.Timestamp).First());
+
+        var equipmentReadingsByBatch = batchIds.Count > 0
+            ? (await _db.EquipmentReadings
+                .AsNoTracking()
+                .Where(r => r.BatchId.HasValue && batchIds.Contains(r.BatchId.Value))
+                .Select(r => new EquipmentReadingSummary(r.BatchId!.Value, r.EquipmentId, r.Stage, r.Timestamp, r.TemperatureC, r.SpecificGravity))
                 .ToListAsync())
                 .GroupBy(r => r.BatchId)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderByDescending(r => r.Timestamp).First().SpecificGravity)
-            : new Dictionary<Guid, decimal>();
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<EquipmentReadingSummary>)g.ToList())
+            : new Dictionary<Guid, IReadOnlyList<EquipmentReadingSummary>>();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var items = batches.Select(b => new BatchSummaryDto(
-            b.Id,
-            b.BatchCode,
-            b.Name,
-            b.RecipeId,
-            b.BeerStyle,
-            b.Status,
-            b.CurrentStage,
-            b.BrewDate,
-            Math.Max(0, today.DayNumber - b.BrewDate.DayNumber),
-            b.TargetOg,
-            b.MeasuredOg,
-            b.CurrentGravity ?? (latestGravityByBatch.TryGetValue(b.Id, out var latestSg) ? latestSg : null),
-            b.TargetFg,
-            b.MeasuredFg,
-            b.AlcoholByVolume,
-            b.TargetColorSrm,
-            null, // vessel temp computed from latest reading
-            b.FermenterId,
-            b.Fermenter?.Name,
-            b.TargetBatchSizeLiters,
-            b.MeasuredBatchSizeLiters,
-            b.CreatedAt,
-            b.UpdatedAt,
-            b.HltId,
-            b.Hlt?.Name,
-            b.MashTunId,
-            b.MashTun?.Name,
-            b.BoilerId,
-            b.Boiler?.Name,
-            b.Recipe?.Name ?? b.RecipeName
-        )).ToList();
+        var items = batches.Select(b =>
+        {
+            equipmentReadingsByBatch.TryGetValue(b.Id, out var eqReadings);
+            latestBatchReadingByBatch.TryGetValue(b.Id, out var latestBatchReading);
+            latestBatchReadingTempByBatch.TryGetValue(b.Id, out var latestBatchTempReading);
+            var vesselTempC = ResolveVesselTempC(b, eqReadings, latestBatchTempReading);
+            var currentGravity = ResolveCurrentGravity(b, eqReadings, latestBatchReading);
+            var alcoholByVolume = b.AlcoholByVolume;
+            if (currentGravity.HasValue && (alcoholByVolume == null || currentGravity != b.CurrentGravity))
+            {
+                var effectiveOg = b.MeasuredOg ?? (b.TargetOg > 1.000m ? b.TargetOg : (decimal?)null);
+                if (effectiveOg.HasValue && effectiveOg.Value > currentGravity.Value)
+                {
+                    alcoholByVolume = BrewingCalculator.CalculateActualAbv(effectiveOg.Value, currentGravity.Value);
+                }
+            }
+
+            var fermentationSensor = b.SensorAssignments
+                .Where(sa => sa.Equipment != null && (sa.Stage == BrewStage.Ferment || sa.Stage == null))
+                .OrderBy(sa => sa.Stage == BrewStage.Ferment ? 0 : 1)
+                .ThenBy(sa => sa.CreatedAt)
+                .Select(sa => sa.Equipment)
+                .FirstOrDefault();
+
+            return new BatchSummaryDto(
+                b.Id,
+                b.BatchCode,
+                b.Name,
+                b.RecipeId,
+                b.BeerStyle,
+                b.Status,
+                b.CurrentStage,
+                b.BrewDate,
+                Math.Max(0, today.DayNumber - b.BrewDate.DayNumber),
+                b.TargetOg,
+                b.MeasuredOg,
+                currentGravity,
+                b.TargetFg,
+                b.MeasuredFg,
+                alcoholByVolume,
+                b.TargetColorSrm,
+                vesselTempC,
+                b.FermenterId,
+                b.Fermenter?.Name,
+                b.TargetBatchSizeLiters,
+                b.MeasuredBatchSizeLiters,
+                b.CreatedAt,
+                b.UpdatedAt,
+                b.HltId,
+                b.Hlt?.Name,
+                b.MashTunId,
+                b.MashTun?.Name,
+                b.BoilerId,
+                b.Boiler?.Name,
+                b.Recipe?.Name ?? b.RecipeName,
+                fermentationSensor?.Id,
+                fermentationSensor?.Name
+            );
+        }).ToList();
 
         var meta = new PaginationMeta(page, limit, total, totalPages);
         return (items, meta);
+    }
+
+    private sealed record BatchReadingSummary(Guid BatchId, DateTime Timestamp, decimal SpecificGravity, decimal? TemperatureC);
+    private sealed record EquipmentReadingSummary(Guid BatchId, Guid? EquipmentId, BrewStage? Stage, DateTime Timestamp, decimal TemperatureC, decimal? SpecificGravity);
+
+    private static decimal? ResolveCurrentGravity(
+        Batch batch,
+        IReadOnlyList<EquipmentReadingSummary>? equipmentReadings,
+        BatchReadingSummary? latestBatchReading)
+    {
+        var isActive = batch.Status is BatchStatus.Brewing or BatchStatus.Fermenting or BatchStatus.Conditioning;
+
+        if (!isActive || batch.CurrentStage != BrewStage.Ferment)
+        {
+            return batch.CurrentGravity ?? latestBatchReading?.SpecificGravity;
+        }
+
+        decimal? bestGravity = null;
+        var bestTimestamp = DateTime.MinValue;
+
+        void Consider(decimal? gravity, DateTime? timestamp)
+        {
+            if (!gravity.HasValue)
+            {
+                return;
+            }
+
+            var candidateTs = timestamp ?? DateTime.MinValue;
+            if (!bestGravity.HasValue || candidateTs >= bestTimestamp)
+            {
+                bestGravity = gravity.Value;
+                bestTimestamp = candidateTs;
+            }
+        }
+
+        // In fermentation stage, current gravity comes from a selected fermentation sensor if one is assigned
+        // (ignoring the fermenter equipment); otherwise it comes from the fermenter equipment / batch readings.
+        var fermentationSensors = batch.SensorAssignments
+            .Where(sa => sa.Equipment != null && (sa.Stage == BrewStage.Ferment || sa.Stage == null))
+            .Select(sa => sa.Equipment!)
+            .ToList();
+
+        if (fermentationSensors.Count > 0)
+        {
+            var sensorIds = fermentationSensors.Select(s => s.Id).ToHashSet();
+
+            foreach (var sensor in fermentationSensors)
+            {
+                if (sensor.CurrentSpecificGravity is { } sensorSg)
+                {
+                    Consider(sensorSg, sensor.LastTelemetryAt ?? sensor.TemperatureUpdatedAt);
+                }
+            }
+
+            var latestSensorReading = equipmentReadings?
+                .Where(r =>
+                    r.SpecificGravity.HasValue &&
+                    r.EquipmentId.HasValue &&
+                    sensorIds.Contains(r.EquipmentId.Value) &&
+                    (r.Stage == BrewStage.Ferment || r.Stage == null))
+                .OrderByDescending(r => r.Timestamp)
+                .FirstOrDefault();
+
+            if (latestSensorReading != null)
+            {
+                Consider(latestSensorReading.SpecificGravity, latestSensorReading.Timestamp);
+            }
+
+            return bestGravity ?? batch.CurrentGravity ?? latestBatchReading?.SpecificGravity;
+        }
+
+        if (batch.Fermenter?.CurrentSpecificGravity is { } fermenterSg &&
+            (!batch.Fermenter.AssignedBatchId.HasValue || batch.Fermenter.AssignedBatchId.Value == batch.Id))
+        {
+            Consider(fermenterSg, batch.Fermenter.LastTelemetryAt ?? batch.Fermenter.TemperatureUpdatedAt);
+        }
+
+        var latestFermenterReading = equipmentReadings?
+            .Where(r =>
+                r.SpecificGravity.HasValue &&
+                (r.Stage == BrewStage.Ferment || r.Stage == null) &&
+                (!r.EquipmentId.HasValue || (batch.FermenterId.HasValue && r.EquipmentId.Value == batch.FermenterId.Value)))
+            .OrderByDescending(r => r.Timestamp)
+            .FirstOrDefault();
+
+        if (latestFermenterReading != null)
+        {
+            Consider(latestFermenterReading.SpecificGravity, latestFermenterReading.Timestamp);
+        }
+
+        if (latestBatchReading != null)
+        {
+            Consider(latestBatchReading.SpecificGravity, latestBatchReading.Timestamp);
+        }
+
+        return bestGravity ?? batch.CurrentGravity;
+    }
+
+    private static decimal? ResolveVesselTempC(
+        Batch batch,
+        IReadOnlyList<EquipmentReadingSummary>? equipmentReadings,
+        BatchReadingSummary? latestBatchReadingWithTemp)
+    {
+        var isActive = batch.Status is BatchStatus.Brewing or BatchStatus.Fermenting or BatchStatus.Conditioning;
+
+        if (!isActive)
+        {
+            if (batch.Status == BatchStatus.Planned)
+            {
+                return null;
+            }
+
+            // For completed/archived batches, never read live vessel temperature because the equipment may be reused.
+            var latestRecordedEq = equipmentReadings?
+                .OrderByDescending(r => r.Timestamp)
+                .FirstOrDefault();
+
+            if (latestRecordedEq != null && latestBatchReadingWithTemp?.TemperatureC is { } completedBatchTemp)
+            {
+                return latestRecordedEq.Timestamp >= latestBatchReadingWithTemp.Timestamp
+                    ? latestRecordedEq.TemperatureC
+                    : completedBatchTemp;
+            }
+
+            return latestRecordedEq?.TemperatureC ?? latestBatchReadingWithTemp?.TemperatureC;
+        }
+
+        decimal? bestTemp = null;
+        var bestTimestamp = DateTime.MinValue;
+
+        void Consider(decimal? tempC, DateTime? timestamp)
+        {
+            if (!tempC.HasValue)
+            {
+                return;
+            }
+
+            var candidateTs = timestamp ?? DateTime.MinValue;
+            if (!bestTemp.HasValue || candidateTs >= bestTimestamp)
+            {
+                bestTemp = tempC.Value;
+                bestTimestamp = candidateTs;
+            }
+        }
+
+        // In fermentation stage, vessel temperature comes exclusively from a selected fermentation sensor
+        // if one is assigned to the batch; otherwise it comes from the fermenter equipment itself.
+        if (batch.CurrentStage == BrewStage.Ferment)
+        {
+            var fermentationSensors = batch.SensorAssignments
+                .Where(sa => sa.Equipment != null && (sa.Stage == BrewStage.Ferment || sa.Stage == null))
+                .Select(sa => sa.Equipment!)
+                .ToList();
+
+            if (fermentationSensors.Count > 0)
+            {
+                var sensorIds = fermentationSensors.Select(s => s.Id).ToHashSet();
+
+                foreach (var sensor in fermentationSensors)
+                {
+                    if (sensor.CurrentTemperatureC is { } sensorTemp)
+                    {
+                        Consider(sensorTemp, sensor.TemperatureUpdatedAt ?? sensor.LastTelemetryAt);
+                    }
+                }
+
+                var latestSensorReading = equipmentReadings?
+                    .Where(r =>
+                        r.EquipmentId.HasValue &&
+                        sensorIds.Contains(r.EquipmentId.Value) &&
+                        (r.Stage == BrewStage.Ferment || r.Stage == null))
+                    .OrderByDescending(r => r.Timestamp)
+                    .FirstOrDefault();
+
+                if (latestSensorReading != null)
+                {
+                    Consider(latestSensorReading.TemperatureC, latestSensorReading.Timestamp);
+                }
+
+                return bestTemp;
+            }
+
+            if (batch.Fermenter?.CurrentTemperatureC is { } fermenterTemp &&
+                (!batch.Fermenter.AssignedBatchId.HasValue || batch.Fermenter.AssignedBatchId.Value == batch.Id))
+            {
+                Consider(fermenterTemp, batch.Fermenter.TemperatureUpdatedAt ?? batch.Fermenter.LastTelemetryAt);
+            }
+
+            var latestFermenterReading = equipmentReadings?
+                .Where(r =>
+                    (r.Stage == BrewStage.Ferment || r.Stage == null) &&
+                    (!r.EquipmentId.HasValue || (batch.FermenterId.HasValue && r.EquipmentId.Value == batch.FermenterId.Value)))
+                .OrderByDescending(r => r.Timestamp)
+                .FirstOrDefault();
+
+            if (latestFermenterReading != null)
+            {
+                Consider(latestFermenterReading.TemperatureC, latestFermenterReading.Timestamp);
+            }
+
+            if (latestBatchReadingWithTemp?.TemperatureC is { } fermBatchTemp)
+            {
+                Consider(fermBatchTemp, latestBatchReadingWithTemp.Timestamp);
+            }
+
+            return bestTemp;
+        }
+
+        // 1. Live temperature from the active stage's primary vessel
+        Equipment? activeVessel = batch.CurrentStage switch
+        {
+            BrewStage.Mash => (batch.MashTun?.CurrentTemperatureC.HasValue == true ? batch.MashTun : null)
+                              ?? (batch.Boiler?.CurrentTemperatureC.HasValue == true ? batch.Boiler : null)
+                              ?? batch.MashTun
+                              ?? batch.Boiler,
+            BrewStage.Boil => batch.Boiler,
+            BrewStage.Condition => batch.Fermenter,
+            BrewStage.Package => batch.PackagingVessel,
+            _ => null
+        };
+
+        if (activeVessel?.CurrentTemperatureC is { } vesselTemp &&
+            (!activeVessel.AssignedBatchId.HasValue || activeVessel.AssignedBatchId.Value == batch.Id))
+        {
+            Consider(vesselTemp, activeVessel.TemperatureUpdatedAt ?? activeVessel.LastTelemetryAt);
+        }
+
+        // 2. Live temperature from assigned auxiliary sensors scoped to this stage (or all stages)
+        foreach (var assignment in batch.SensorAssignments)
+        {
+            var sensor = assignment.Equipment;
+            if (sensor?.CurrentTemperatureC is { } sensorTemp &&
+                (assignment.Stage == null || assignment.Stage == batch.CurrentStage))
+            {
+                Consider(sensorTemp, sensor.TemperatureUpdatedAt ?? sensor.LastTelemetryAt);
+            }
+        }
+
+        // 3. Latest EquipmentReading recorded for this batch in the current stage (or unstaged) from currently assigned equipment
+        var stageAllowedEquipmentIds = new HashSet<Guid>();
+        if (batch.CurrentStage == BrewStage.Mash)
+        {
+            if (batch.MashTunId.HasValue) stageAllowedEquipmentIds.Add(batch.MashTunId.Value);
+            if (batch.BoilerId.HasValue) stageAllowedEquipmentIds.Add(batch.BoilerId.Value);
+        }
+        else if (activeVessel != null)
+        {
+            stageAllowedEquipmentIds.Add(activeVessel.Id);
+        }
+
+        foreach (var assignment in batch.SensorAssignments)
+        {
+            if (assignment.Stage == null || assignment.Stage == batch.CurrentStage)
+            {
+                stageAllowedEquipmentIds.Add(assignment.EquipmentId);
+            }
+        }
+
+        var latestStageEquipmentReading = equipmentReadings?
+            .Where(r =>
+                (r.Stage == batch.CurrentStage || r.Stage == null) &&
+                (!r.EquipmentId.HasValue || stageAllowedEquipmentIds.Contains(r.EquipmentId.Value)))
+            .OrderByDescending(r => r.Timestamp)
+            .FirstOrDefault();
+
+        if (latestStageEquipmentReading != null)
+        {
+            Consider(latestStageEquipmentReading.TemperatureC, latestStageEquipmentReading.Timestamp);
+        }
+
+        // 4. Latest manual/hydrometer BatchReading carrying a temperature
+        if (latestBatchReadingWithTemp?.TemperatureC is { } readingTemp)
+        {
+            Consider(readingTemp, latestBatchReadingWithTemp.Timestamp);
+        }
+
+        return bestTemp;
     }
 
     private IQueryable<Batch> QueryBatchWithDetails()
@@ -175,7 +501,19 @@ public class BatchService : IBatchService
             return (BatchAccessResult.NotFound, null);
         }
 
-        return (BatchAccessResult.Success, MapToDetailDto(batch));
+        var eqReadings = await _db.EquipmentReadings
+            .AsNoTracking()
+            .Where(r => r.BatchId == batch.Id)
+            .Select(r => new EquipmentReadingSummary(r.BatchId!.Value, r.EquipmentId, r.Stage, r.Timestamp, r.TemperatureC, r.SpecificGravity))
+            .ToListAsync();
+
+        var latestBatchReading = batch.Readings
+            .OrderByDescending(r => r.Timestamp)
+            .Select(r => new BatchReadingSummary(r.BatchId, r.Timestamp, r.SpecificGravity, r.TemperatureC))
+            .FirstOrDefault();
+
+        var resolvedGravity = ResolveCurrentGravity(batch, eqReadings, latestBatchReading);
+        return (BatchAccessResult.Success, MapToDetailDto(batch, resolvedCurrentGravity: resolvedGravity));
     }
 
     public async Task<string> GetNextBatchCodeAsync(string userId, DateOnly? date = null)
@@ -645,12 +983,12 @@ public class BatchService : IBatchService
         // 7.5 Attach Auxiliary Sensor Assignments
         if (request.SensorAssignments != null)
         {
-            var (sensorsValid, validatedAssignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
+            var (sensorResult, validatedAssignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
                 batch, request.SensorAssignments, userId, allowRecipeMashStepFallback: true);
 
-            if (!sensorsValid)
+            if (sensorResult != BatchAccessResult.Success)
             {
-                return (BatchAccessResult.ValidationFailed, null, sensorErr);
+                return (sensorResult, null, sensorErr);
             }
 
             foreach (var assignment in validatedAssignments)
@@ -1743,12 +2081,12 @@ public class BatchService : IBatchService
         List<BatchSensorAssignment>? validatedSensorAssignments = null;
         if (request.SensorAssignments != null)
         {
-            var (sensorsValid, assignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
+            var (sensorResult, assignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
                 batch, request.SensorAssignments, userId);
 
-            if (!sensorsValid)
+            if (sensorResult != BatchAccessResult.Success)
             {
-                return (BatchAccessResult.ValidationFailed, null, sensorErr);
+                return (sensorResult, null, sensorErr);
             }
             validatedSensorAssignments = assignments;
         }
@@ -2450,15 +2788,23 @@ public class BatchService : IBatchService
                equipment.Subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor;
     }
 
-    private async Task<(bool IsValid, List<BatchSensorAssignment> Assignments, string? ErrorMessage)> ValidateAndBuildSensorAssignmentsAsync(
+    private async Task<(BatchAccessResult Result, List<BatchSensorAssignment> Assignments, string? ErrorMessage)> ValidateAndBuildSensorAssignmentsAsync(
         Batch batch,
         IEnumerable<BatchSensorAssignmentInput> inputs,
         string userId,
         bool allowRecipeMashStepFallback = false)
     {
         var assignments = new List<BatchSensorAssignment>();
+        var seenKeys = new HashSet<(Guid EquipmentId, BrewStage? Stage, Guid? BatchMashStepId)>();
+        var checkOccupancy = batch.Status is BatchStatus.Brewing or BatchStatus.Fermenting or BatchStatus.Conditioning;
+
         foreach (var sa in inputs)
         {
+            if (sa.BatchMashStepId.HasValue && sa.Stage.HasValue && sa.Stage.Value != BrewStage.Mash)
+            {
+                return (BatchAccessResult.ValidationFailed, [], "Mash step sensor assignments must use the Mash stage.");
+            }
+
             BatchMashStep? matchedStep = null;
             if (sa.BatchMashStepId.HasValue)
             {
@@ -2468,37 +2814,64 @@ public class BatchService : IBatchService
 
                 if (matchedStep == null)
                 {
-                    return (false, [], "Specified mash step does not belong to this batch.");
+                    return (BatchAccessResult.ValidationFailed, [], "Specified mash step does not belong to this batch.");
                 }
             }
 
             var sensorEq = await GetAccessibleEquipment(userId).FirstOrDefaultAsync(e => e.Id == sa.EquipmentId);
-            if (sensorEq != null)
+            if (sensorEq == null)
             {
-                if (!IsEligibleBatchTelemetrySensor(sensorEq))
-                {
-                    var message = sensorEq.Subtype == EquipmentSubtype.BrewLink
-                        ? "BrewLink gateway equipment cannot be assigned as a batch telemetry sensor."
-                        : $"Equipment '{sensorEq.Name}' is not a valid telemetry sensor. Only iSpindel, Tilt, and Generic Sensor equipment can be assigned.";
-                    return (false, [], message);
-                }
-
-                assignments.Add(new BatchSensorAssignment
-                {
-                    BatchId = batch.Id,
-                    EquipmentId = sensorEq.Id,
-                    Equipment = sensorEq,
-                    Stage = sa.Stage,
-                    BatchMashStepId = matchedStep?.Id,
-                    BatchMashStep = matchedStep
-                });
+                return (BatchAccessResult.NotFound, [], "Specified sensor equipment was not found or is not accessible.");
             }
+
+            if (!IsEligibleBatchTelemetrySensor(sensorEq))
+            {
+                var message = sensorEq.Subtype == EquipmentSubtype.BrewLink
+                    ? "BrewLink gateway equipment cannot be assigned as a batch telemetry sensor."
+                    : $"Equipment '{sensorEq.Name}' is not a valid telemetry sensor. Only iSpindel, Tilt, and Generic Sensor equipment can be assigned.";
+                return (BatchAccessResult.ValidationFailed, [], message);
+            }
+
+            var key = (sensorEq.Id, sa.Stage, matchedStep?.Id);
+            if (!seenKeys.Add(key))
+            {
+                return (BatchAccessResult.ValidationFailed, [], $"Duplicate sensor assignment specified for '{sensorEq.Name}'.");
+            }
+
+            if (checkOccupancy)
+            {
+                var targetStage = sa.Stage;
+                var occupiedByOtherBatch = await _db.BatchSensorAssignments
+                    .AsNoTracking()
+                    .AnyAsync(existing =>
+                        existing.EquipmentId == sensorEq.Id &&
+                        existing.BatchId != batch.Id &&
+                        (existing.Batch.Status == BatchStatus.Brewing ||
+                         existing.Batch.Status == BatchStatus.Fermenting ||
+                         existing.Batch.Status == BatchStatus.Conditioning) &&
+                        (existing.Stage == null || targetStage == null || existing.Stage == targetStage));
+
+                if (occupiedByOtherBatch)
+                {
+                    return (BatchAccessResult.Conflict, [], $"Sensor '{sensorEq.Name}' is currently assigned to another active batch.");
+                }
+            }
+
+            assignments.Add(new BatchSensorAssignment
+            {
+                BatchId = batch.Id,
+                EquipmentId = sensorEq.Id,
+                Equipment = sensorEq,
+                Stage = sa.Stage,
+                BatchMashStepId = matchedStep?.Id,
+                BatchMashStep = matchedStep
+            });
         }
 
-        return (true, assignments, null);
+        return (BatchAccessResult.Success, assignments, null);
     }
 
-    private static BatchDetailDto MapToDetailDto(Batch b, string? boilerSyncStatus = null, string? boilerSyncWarning = null)
+    private static BatchDetailDto MapToDetailDto(Batch b, string? boilerSyncStatus = null, string? boilerSyncWarning = null, decimal? resolvedCurrentGravity = null)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var latestReading = b.Readings.OrderByDescending(r => r.Timestamp).FirstOrDefault();
@@ -2564,7 +2937,7 @@ public class BatchService : IBatchService
             BoilTimeMinutes: b.BoilTimeMinutes,
             EfficiencyPercent: b.EfficiencyPercent,
             MeasuredOg: b.MeasuredOg,
-            CurrentGravity: b.CurrentGravity ?? latestReading?.SpecificGravity,
+            CurrentGravity: resolvedCurrentGravity ?? b.CurrentGravity ?? latestReading?.SpecificGravity,
             MeasuredFg: b.MeasuredFg,
             AlcoholByVolume: b.AlcoholByVolume,
             BrewhouseEfficiency: b.BrewhouseEfficiency,
@@ -2983,12 +3356,12 @@ public class BatchService : IBatchService
             return (BatchAccessResult.Conflict, null, "Archived batches cannot be modified.");
         }
 
-        var (sensorsValid, validatedAssignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
+        var (sensorResult, validatedAssignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
             batch, sensorInputs, userId);
 
-        if (!sensorsValid)
+        if (sensorResult != BatchAccessResult.Success)
         {
-            return (BatchAccessResult.ValidationFailed, null, sensorErr);
+            return (sensorResult, null, sensorErr);
         }
 
         _db.BatchSensorAssignments.RemoveRange(batch.SensorAssignments);

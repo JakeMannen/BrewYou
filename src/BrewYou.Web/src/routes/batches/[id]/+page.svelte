@@ -39,6 +39,12 @@
 	import BrewLinkControlPanel from '$lib/components/brewery/BrewLinkControlPanel.svelte';
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
 	import { extractInteraction, getInteractionActions } from '$lib/utils/brewlink';
+	import {
+		getPrimaryFermentationSensorAssignment,
+		isPackagingVesselEquipment,
+		resolveActiveStageSensorAssignment
+	} from '$lib/utils/batchEdit';
+	import { isBatchInProgress, shouldApplyTelemetryToBatch } from '$lib/utils/batchTelemetry';
 	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
 	import { calculateActualAbv } from '$lib/calculators/brewing';
@@ -273,13 +279,71 @@
 
 	async function handleSaveStageMeasurements(req: UpdateBatchRequest) {
 		if (!batch) return;
-		const [updated, eq] = await Promise.all([
-			api.batches.update(batch.id, req),
-			api.equipment.list().catch(() => equipmentList)
-		]);
+		const prevStage = batch.currentStage;
+		const prevBrewLinkId = activeStageBrewLinkEquipment?.id ?? null;
+		const prevEquipmentSignature = JSON.stringify({
+			hltId: batch.hltId ?? null,
+			mashTunId: batch.mashTunId ?? null,
+			boilerId: batch.boilerId ?? null,
+			fermenterId: batch.fermenterId ?? null,
+			packagingVesselId: batch.packagingVesselId ?? null,
+			sensors: (batch.sensorAssignments ?? []).map((s) => `${s.equipmentId}:${s.stage ?? ''}`)
+		});
+
+		const updated = await api.batches.update(batch.id, req);
+		const eq = await api.equipment.list().catch(() => equipmentList);
 		batch = updated;
 		equipmentList = eq;
 		recalculateBatchAbv();
+
+		if (updated.currentStage !== prevStage) {
+			inspectedStage = updated.currentStage;
+			determineNextStage(updated.currentStage);
+		}
+
+		const nextEquipmentSignature = JSON.stringify({
+			hltId: updated.hltId ?? null,
+			mashTunId: updated.mashTunId ?? null,
+			boilerId: updated.boilerId ?? null,
+			fermenterId: updated.fermenterId ?? null,
+			packagingVesselId: updated.packagingVesselId ?? null,
+			sensors: (updated.sensorAssignments ?? []).map((s) => `${s.equipmentId}:${s.stage ?? ''}`)
+		});
+		if (nextEquipmentSignature !== prevEquipmentSignature) {
+			try {
+				batchEquipmentReadings = await api.batches.getEquipmentReadings(updated.id);
+			} catch {
+				// Non-fatal refresh error
+			}
+		}
+
+		if (isBatchInProgress(updated)) {
+			startLiveTelemetryStream();
+			if (!isPastBatch) {
+				startBrewLinkAutoSync();
+				const nextBrewLink = activeStageBrewLinkEquipment;
+				if (nextBrewLink && nextBrewLink.id !== prevBrewLinkId) {
+					try {
+						const res = await api.equipment.syncBrewLinkState(nextBrewLink.id);
+						if (res && (res.temperatureC != null || res.metricsJson)) {
+							handleEquipmentUpdate({
+								...nextBrewLink,
+								currentTemperatureC: res.temperatureC ?? nextBrewLink.currentTemperatureC,
+								latestMetricsJson: res.metricsJson ?? nextBrewLink.latestMetricsJson,
+								temperatureUpdatedAt: new Date().toISOString()
+							});
+						}
+					} catch {
+						// Gateway offline or transient sync error
+					}
+				}
+			} else {
+				stopBrewLinkAutoSync();
+			}
+		} else {
+			stopLiveTelemetryStream();
+			stopBrewLinkAutoSync();
+		}
 	}
 
 	// Advance Stage Modal
@@ -319,17 +383,25 @@
 	let newReadingEquipmentId = $state<string>('');
 	let newReadingCalibrateTemp = $state(false);
 
+	let activeFermentorSensorAssignment = $derived(
+		resolveActiveStageSensorAssignment(batch, inspectedStage)
+	);
+
 	let activeFermentorSensor = $derived.by(() => {
-		if (!batch?.sensorAssignments || batch.sensorAssignments.length === 0) return null;
-		const assignment = batch.sensorAssignments.find(
-			(sa) => sa.stage === inspectedStage || sa.stage === null
-		);
-		if (!assignment) return null;
-		return equipmentList.find((e) => e.id === assignment.equipmentId) ?? null;
+		if (!activeFermentorSensorAssignment) return null;
+		return equipmentList.find((e) => e.id === activeFermentorSensorAssignment.equipmentId) ?? null;
 	});
 
-	let fermentorSensorName = $derived(activeFermentorSensor?.name ?? batch?.fermenterName ?? null);
-	let fermentorSensorSubtype = $derived(activeFermentorSensor?.subtype ?? null);
+	let fermentorSensorName = $derived(
+		activeFermentorSensor?.name ??
+			activeFermentorSensorAssignment?.equipmentName ??
+			batch?.fermenterName ??
+			null
+	);
+	let fermentorSensorSubtype = $derived(
+		activeFermentorSensor?.subtype ?? activeFermentorSensorAssignment?.equipmentSubtype ?? null
+	);
+	let packagingVessels = $derived(equipmentList.filter((e) => isPackagingVesselEquipment(e)));
 
 	let assignedHlt = $derived.by(() => {
 		const b = batch;
@@ -624,8 +696,26 @@
 			batchEquipmentReadings.push(reading);
 		}
 
+		if (!batch || !isBatchInProgress(batch)) {
+			return;
+		}
+
+		const primaryFermentationSensorId =
+			getPrimaryFermentationSensorAssignment(batch)?.equipmentId ?? null;
+		const allowBatchMetricsUpdate = shouldApplyTelemetryToBatch(
+			{
+				currentStage: batch.currentStage,
+				fermentationSensorId: primaryFermentationSensorId
+			},
+			reading.equipmentId
+		);
+
 		// If reading carries specificGravity, update batch metrics and batch.readings
-		if (reading.specificGravity !== null && reading.specificGravity !== undefined && batch) {
+		if (
+			allowBatchMetricsUpdate &&
+			reading.specificGravity !== null &&
+			reading.specificGravity !== undefined
+		) {
 			batch.currentGravity = reading.specificGravity;
 			recalculateBatchAbv();
 			const readingTimeMs = new Date(reading.timestamp).getTime();
@@ -653,14 +743,15 @@
 		}
 
 		// If this reading belongs to a mash step, update actual temperature in batch.mashSteps
-		if (reading.batchMashStepId && batch?.mashSteps) {
+		if (reading.batchMashStepId && batch.mashSteps) {
 			const step = batch.mashSteps.find((s) => s.id === reading.batchMashStepId);
 			if (step) {
 				step.actualTemperatureC = reading.temperatureC;
 			}
 		} else if (
+			allowBatchMetricsUpdate &&
 			(reading.stage === 'Ferment' || reading.stage === 'Condition') &&
-			batch?.fermentationSteps?.length
+			batch.fermentationSteps?.length
 		) {
 			const activeFerm =
 				[...batch.fermentationSteps]
@@ -2664,10 +2755,12 @@
 
 					{#if showBatchBrewLinkControls}
 						<div class="mt-4 border-t border-sky-500/20 pt-4">
-							<BrewLinkControlPanel
-								equipment={activeStageBrewLinkEquipment}
-								onUpdate={handleEquipmentUpdate}
-							/>
+							{#key activeStageBrewLinkEquipment.id}
+								<BrewLinkControlPanel
+									equipment={activeStageBrewLinkEquipment}
+									onUpdate={handleEquipmentUpdate}
+								/>
+							{/key}
 						</div>
 					{/if}
 				</div>
@@ -4337,8 +4430,15 @@
 								bind:value={advancePackagingVesselId}
 								class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 							>
+								{#if batch?.packagingVesselId && !packagingVessels.some((e) => e.id === batch?.packagingVesselId)}
+									<option value={batch.packagingVesselId} disabled>
+										{batch.packagingVesselName
+											? `${batch.packagingVesselName} (${t('common.deleted')})`
+											: t('batches.workspace.deleted_vessel')}
+									</option>
+								{/if}
 								<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
-								{#each equipmentList.filter((e) => e.type === 'Keg') as keg}
+								{#each packagingVessels as keg (keg.id)}
 									<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
 								{/each}
 							</select>

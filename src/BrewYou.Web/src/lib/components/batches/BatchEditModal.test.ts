@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { BatchDetailDto, BatchStatus, UpdateBatchRequest } from '$lib/types/api';
+import {
+	EMPTY_GUID,
+	buildEquipmentIdUpdate,
+	buildFermentationSensorAssignmentsUpdate,
+	getPrimaryFermentationSensorAssignment,
+	isPackagingVesselEquipment,
+	resolveActiveStageSensorAssignment
+} from '$lib/utils/batchEdit';
 
 export interface PostFinishBatchForm {
 	name: string;
@@ -260,6 +268,149 @@ describe('BatchEditModal — Post-Finish Batch Record Editing Logic (R2)', () =>
 				brewDate: '2036-12-31'
 			};
 			expect(validatePostFinishBatchForm(futureForm).isValid).toBe(true);
+		});
+	});
+
+	describe('Fermenter & Fermentation Sensor Editing Helpers', () => {
+		it('omits unchanged equipment IDs, sends new IDs on swap, and sends EMPTY_GUID on clear', () => {
+			expect(buildEquipmentIdUpdate('ferm-1', 'ferm-1')).toBeUndefined();
+			expect(buildEquipmentIdUpdate('', null)).toBeUndefined();
+			expect(buildEquipmentIdUpdate('ferm-2', 'ferm-1')).toBe('ferm-2');
+			expect(buildEquipmentIdUpdate('ferm-2', null)).toBe('ferm-2');
+			expect(buildEquipmentIdUpdate('', 'ferm-1')).toBe(EMPTY_GUID);
+		});
+
+		it('resolves primary fermentation sensor preferring Ferment-scoped over global assignment', () => {
+			const batchWithBoth: Pick<BatchDetailDto, 'sensorAssignments'> = {
+				sensorAssignments: [
+					{
+						id: 'sa-global',
+						equipmentId: 'sensor-global',
+						equipmentName: 'Global Probe',
+						stage: null,
+						batchMashStepId: null
+					},
+					{
+						id: 'sa-ferm',
+						equipmentId: 'sensor-ferm',
+						equipmentName: 'iSpindel',
+						stage: 'Ferment',
+						batchMashStepId: null
+					}
+				]
+			};
+
+			expect(getPrimaryFermentationSensorAssignment(batchWithBoth)?.equipmentId).toBe(
+				'sensor-ferm'
+			);
+			expect(
+				getPrimaryFermentationSensorAssignment({
+					sensorAssignments: [batchWithBoth.sensorAssignments[0]]
+				})?.equipmentId
+			).toBe('sensor-global');
+			expect(getPrimaryFermentationSensorAssignment({ sensorAssignments: [] })).toBeNull();
+		});
+
+		it('swaps or clears fermentation sensor while preserving non-fermentation sensor assignments', () => {
+			const batch: Pick<BatchDetailDto, 'sensorAssignments'> = {
+				sensorAssignments: [
+					{
+						id: 'sa-mash',
+						equipmentId: 'probe-mash',
+						equipmentName: 'Mash Probe',
+						stage: 'Mash',
+						batchMashStepId: 'step-1'
+					},
+					{
+						id: 'sa-ferm',
+						equipmentId: 'ispindel-old',
+						equipmentName: 'Old iSpindel',
+						stage: 'Ferment',
+						batchMashStepId: null
+					}
+				]
+			};
+
+			// Unchanged -> undefined (not sent)
+			expect(buildFermentationSensorAssignmentsUpdate(batch, 'ispindel-old')).toBeUndefined();
+
+			// Swap to new sensor -> preserves Mash probe and replaces Ferment sensor
+			expect(buildFermentationSensorAssignmentsUpdate(batch, 'ispindel-new')).toEqual([
+				{ equipmentId: 'probe-mash', stage: 'Mash', batchMashStepId: 'step-1' },
+				{ equipmentId: 'ispindel-new', stage: 'Ferment', batchMashStepId: null }
+			]);
+
+			// Clear fermentation sensor -> preserves Mash probe and removes Ferment sensor
+			expect(buildFermentationSensorAssignmentsUpdate(batch, '')).toEqual([
+				{ equipmentId: 'probe-mash', stage: 'Mash', batchMashStepId: 'step-1' }
+			]);
+		});
+
+		it('preserves unrelated global (stage: null) sensor when swapping or clearing an explicit Ferment sensor', () => {
+			const batch: Pick<BatchDetailDto, 'sensorAssignments'> = {
+				sensorAssignments: [
+					{
+						id: 'sa-global',
+						equipmentId: 'probe-global',
+						equipmentName: 'Global Probe',
+						stage: null,
+						batchMashStepId: null
+					},
+					{
+						id: 'sa-ferm',
+						equipmentId: 'ispindel-old',
+						equipmentName: 'Old iSpindel',
+						stage: 'Ferment',
+						batchMashStepId: null
+					}
+				]
+			};
+
+			expect(buildFermentationSensorAssignmentsUpdate(batch, 'ispindel-new')).toEqual([
+				{ equipmentId: 'probe-global', stage: null, batchMashStepId: null },
+				{ equipmentId: 'ispindel-new', stage: 'Ferment', batchMashStepId: null }
+			]);
+
+			expect(buildFermentationSensorAssignmentsUpdate(batch, '')).toEqual([
+				{ equipmentId: 'probe-global', stage: null, batchMashStepId: null }
+			]);
+		});
+
+		it('resolves active stage sensor preferring stage-specific, then Ferment in Condition, then global', () => {
+			const batch: Pick<BatchDetailDto, 'sensorAssignments'> = {
+				sensorAssignments: [
+					{
+						id: 'sa-global',
+						equipmentId: 'probe-global',
+						equipmentName: 'Global Probe',
+						stage: null,
+						batchMashStepId: null
+					},
+					{
+						id: 'sa-ferm',
+						equipmentId: 'ispindel-1',
+						equipmentName: 'iSpindel',
+						stage: 'Ferment',
+						batchMashStepId: null
+					}
+				]
+			};
+
+			expect(resolveActiveStageSensorAssignment(batch, 'Ferment')?.equipmentId).toBe('ispindel-1');
+			expect(resolveActiveStageSensorAssignment(batch, 'Condition')?.equipmentId).toBe(
+				'ispindel-1'
+			);
+			expect(resolveActiveStageSensorAssignment(batch, 'Mash')?.equipmentId).toBe('probe-global');
+		});
+
+		it('recognizes both Kegs and fillable Other vessels as packaging vessels', () => {
+			expect(isPackagingVesselEquipment({ type: 'Keg', subtype: 'Cornelius' })).toBe(true);
+			expect(isPackagingVesselEquipment({ type: 'Other', subtype: 'Carboy' })).toBe(true);
+			expect(isPackagingVesselEquipment({ type: 'Other', subtype: 'Minikeg' })).toBe(true);
+			expect(isPackagingVesselEquipment({ type: 'Other', subtype: 'GenericSensor' })).toBe(false);
+			expect(isPackagingVesselEquipment({ type: 'Fermenter', subtype: 'ConicalFermenter' })).toBe(
+				false
+			);
 		});
 	});
 });

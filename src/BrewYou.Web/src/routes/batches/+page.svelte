@@ -6,7 +6,11 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber } from '$lib/utils/formatNumber';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { calculateActualAbv } from '$lib/calculators/brewing';
+	import {
+		applyBrewLinkSyncTempToBatches,
+		applyEquipmentTelemetryToBatches,
+		getActiveStageVesselIds
+	} from '$lib/utils/batchTelemetry';
 	import type { BatchSummaryDto, BatchStatus, EquipmentTelemetryUpdateDto } from '$lib/types/api';
 	import BeerGlass from '$lib/components/brewery/BeerGlass.svelte';
 	import BrewStageTracker, {
@@ -45,32 +49,7 @@
 				await api.equipment.streamTelemetry({
 					signal,
 					onReading: (reading: EquipmentTelemetryUpdateDto) => {
-						const bIdx = batches.findIndex(
-							(b) =>
-								b.id === reading.batchId ||
-								(b.fermenterId && b.fermenterId === reading.equipmentId) ||
-								(b.boilerId && b.boilerId === reading.equipmentId) ||
-								(b.mashTunId && b.mashTunId === reading.equipmentId) ||
-								(b.hltId && b.hltId === reading.equipmentId)
-						);
-						if (bIdx >= 0) {
-							const nextGravity = reading.specificGravity ?? batches[bIdx].currentGravity;
-							let nextAbv = batches[bIdx].alcoholByVolume;
-							const og = batches[bIdx].measuredOg ?? batches[bIdx].targetOg;
-							if (nextGravity && og && og > nextGravity) {
-								nextAbv = Number(
-									calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2)
-								);
-							}
-							const nextBatches = [...batches];
-							nextBatches[bIdx] = {
-								...nextBatches[bIdx],
-								vesselTempC: reading.temperatureC ?? nextBatches[bIdx].vesselTempC,
-								currentGravity: nextGravity,
-								alcoholByVolume: nextAbv
-							};
-							batches = nextBatches;
-						}
+						batches = applyEquipmentTelemetryToBatches(batches, reading, settings.abvFormula);
 					},
 					onError: () => {
 						// Stream disconnected or errored; retry
@@ -111,50 +90,14 @@
 		if (brewLinkSyncInterval || isUnmounted || !auth.isAuthenticated) return;
 		brewLinkSyncInterval = setInterval(async () => {
 			if (document.visibilityState === 'hidden' || !auth.isAuthenticated || isUnmounted) return;
-			const activeBatches = batches.filter(
-				(b) =>
-					b.status === 'Brewing' ||
-					b.status === 'Fermenting' ||
-					b.status === 'Conditioning' ||
-					b.currentStage === 'Mash' ||
-					b.currentStage === 'Boil' ||
-					b.currentStage === 'Ferment' ||
-					b.currentStage === 'Condition'
-			);
-			if (activeBatches.length === 0) return;
-
-			const eqIds: string[] = [];
-			for (const b of activeBatches) {
-				if (b.boilerId && !eqIds.includes(b.boilerId)) eqIds.push(b.boilerId);
-				if (b.mashTunId && !eqIds.includes(b.mashTunId)) eqIds.push(b.mashTunId);
-				if (b.hltId && !eqIds.includes(b.hltId)) eqIds.push(b.hltId);
-				if (b.fermenterId && !eqIds.includes(b.fermenterId)) eqIds.push(b.fermenterId);
-			}
+			const eqIds = getActiveStageVesselIds(batches);
+			if (eqIds.length === 0) return;
 
 			for (const eqId of eqIds) {
 				try {
 					const res = await api.equipment.syncBrewLinkState(eqId);
 					if (res && res.temperatureC != null) {
-						let updatedAny = false;
-						const next = [...batches];
-						for (let i = 0; i < next.length; i++) {
-							const b = next[i];
-							if (
-								b.boilerId === eqId ||
-								b.mashTunId === eqId ||
-								b.hltId === eqId ||
-								b.fermenterId === eqId
-							) {
-								next[i] = {
-									...b,
-									vesselTempC: res.temperatureC
-								};
-								updatedAny = true;
-							}
-						}
-						if (updatedAny) {
-							batches = next;
-						}
+						batches = applyBrewLinkSyncTempToBatches(batches, eqId, res.temperatureC);
 					}
 				} catch {
 					// Equipment not BrewLink or gateway offline
@@ -550,9 +493,11 @@
 								<span class="block text-[10px] font-semibold tracking-wider text-zinc-400 uppercase"
 									>{t('batches.vessel_temp')}</span
 								>
-								<span class="font-mono text-sm font-bold text-cyan-600 dark:text-cyan-400"
+								<span
+									data-testid="batch-card-vessel-temp"
+									class="font-mono text-sm font-bold text-cyan-600 dark:text-cyan-400"
 									>{batch.vesselTempC !== null && batch.vesselTempC !== undefined
-										? `${batch.vesselTempC}°C`
+										? settings.formatTemperature(batch.vesselTempC)
 										: '—'}</span
 								>
 							</div>
