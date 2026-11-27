@@ -1762,6 +1762,283 @@ public class BatchServiceTests
         dtoSent.BoilerSyncWarning.Should().BeNull();
     }
 
+    [Fact]
+    public async Task GetBatchesAsync_ResolvesVesselTempForInProgressBatchesAcrossStagesSensorsAndReadings()
+    {
+        var userId = $"brewer_vtemp_{Guid.NewGuid():N}";
+        var now = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(now);
+
+        var mashTun = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Mash Tun 1",
+            Type = EquipmentType.Boiler,
+            Subtype = EquipmentSubtype.MashTun,
+            CurrentTemperatureC = 66.4m,
+            TemperatureUpdatedAt = now.AddMinutes(-1)
+        };
+        var boiler = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Boil Kettle 1",
+            Type = EquipmentType.Boiler,
+            Subtype = EquipmentSubtype.AllInOne,
+            CurrentTemperatureC = 99.6m,
+            TemperatureUpdatedAt = now.AddMinutes(-1)
+        };
+        var passiveFermenter = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Passive Conical",
+            Type = EquipmentType.Fermenter,
+            Subtype = EquipmentSubtype.ConicalFermenter,
+            CurrentTemperatureC = null
+        };
+        var liveFermenter = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Glycol Conical",
+            Type = EquipmentType.Fermenter,
+            Subtype = EquipmentSubtype.ConicalFermenter,
+            CurrentTemperatureC = 19.2m,
+            TemperatureUpdatedAt = now,
+            CurrentSpecificGravity = 1.032m,
+            LastTelemetryAt = now
+        };
+        var staleFermenter = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Stale Conical",
+            Type = EquipmentType.Fermenter,
+            Subtype = EquipmentSubtype.ConicalFermenter,
+            CurrentTemperatureC = 17.5m,
+            TemperatureUpdatedAt = now.AddHours(-6),
+            CurrentSpecificGravity = 1.040m,
+            LastTelemetryAt = now.AddHours(-6)
+        };
+        var ispindel = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "iSpindel Red",
+            Type = EquipmentType.Sensor,
+            Subtype = EquipmentSubtype.ISpindel,
+            CurrentTemperatureC = 20.8m,
+            TemperatureUpdatedAt = now.AddMinutes(-2),
+            CurrentSpecificGravity = 1.016m,
+            LastTelemetryAt = now.AddMinutes(-2)
+        };
+        var silentSensor = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Tilt Pending",
+            Type = EquipmentType.Sensor,
+            Subtype = EquipmentSubtype.Tilt,
+            CurrentTemperatureC = null
+        };
+
+        _db.Equipment.AddRange(mashTun, boiler, passiveFermenter, liveFermenter, staleFermenter, ispindel, silentSensor);
+
+        // 1. Mash batch with MashTun live temp (prefers MashTun over Boiler)
+        var mashBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-01",
+            Name = "Mash Batch",
+            Status = BatchStatus.Brewing,
+            CurrentStage = BrewStage.Mash,
+            BrewDate = today,
+            MashTunId = mashTun.Id,
+            BoilerId = boiler.Id
+        };
+
+        // 2. Boil batch with live Boiler temp
+        var boilBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-02",
+            Name = "Boil Batch",
+            Status = BatchStatus.Brewing,
+            CurrentStage = BrewStage.Boil,
+            BrewDate = today,
+            BoilerId = boiler.Id
+        };
+
+        // 3. Ferment batch with BOTH liveFermenter (newer) and assigned iSpindel sensor (older) -> sensor wins
+        var sensorBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-03",
+            Name = "Sensor Ferment Batch",
+            Status = BatchStatus.Fermenting,
+            CurrentStage = BrewStage.Ferment,
+            BrewDate = today.AddDays(-2),
+            FermenterId = liveFermenter.Id
+        };
+        sensorBatch.SensorAssignments.Add(new BatchSensorAssignment
+        {
+            BatchId = sensorBatch.Id,
+            EquipmentId = ispindel.Id,
+            Stage = BrewStage.Ferment
+        });
+
+        // 3b. Ferment batch with assigned sensor that has not reported yet + liveFermenter -> null (does not fall back to fermenter)
+        var silentSensorBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-03B",
+            Name = "Silent Sensor Ferment Batch",
+            Status = BatchStatus.Fermenting,
+            CurrentStage = BrewStage.Ferment,
+            BrewDate = today.AddDays(-1),
+            FermenterId = liveFermenter.Id
+        };
+        silentSensorBatch.SensorAssignments.Add(new BatchSensorAssignment
+        {
+            BatchId = silentSensorBatch.Id,
+            EquipmentId = silentSensor.Id,
+            Stage = BrewStage.Ferment
+        });
+
+        // 4. Ferment batch with newer manual BatchReading overriding older Fermenter live temp
+        var manualReadingBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-04",
+            Name = "Manual Reading Ferment Batch",
+            Status = BatchStatus.Fermenting,
+            CurrentStage = BrewStage.Ferment,
+            BrewDate = today.AddDays(-3),
+            FermenterId = staleFermenter.Id
+        };
+
+        // 5. Ferment batch with live Fermenter temp newer than older BatchReading
+        var liveFermentBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-05",
+            Name = "Live Ferment Batch",
+            Status = BatchStatus.Fermenting,
+            CurrentStage = BrewStage.Ferment,
+            BrewDate = today.AddDays(-1),
+            FermenterId = liveFermenter.Id
+        };
+
+        // 6. Ferment batch with only an earlier Mash EquipmentReading and no live ferment temp -> null
+        var stageIsolatedBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-06",
+            Name = "Stage Isolated Batch",
+            Status = BatchStatus.Fermenting,
+            CurrentStage = BrewStage.Ferment,
+            BrewDate = today,
+            FermenterId = passiveFermenter.Id
+        };
+
+        // 7. Completed batch referencing liveFermenter -> must NOT read live equipment temp (uses own last reading)
+        var completedBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-07",
+            Name = "Completed Batch",
+            Status = BatchStatus.Completed,
+            CurrentStage = BrewStage.Package,
+            BrewDate = today.AddDays(-20),
+            FermenterId = liveFermenter.Id
+        };
+
+        // 8. Planned batch referencing live Boiler -> must return null
+        var plannedBatch = new Batch
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BatchCode = "B-VT-08",
+            Name = "Planned Batch",
+            Status = BatchStatus.Planned,
+            CurrentStage = BrewStage.Mash,
+            BrewDate = today.AddDays(5),
+            BoilerId = boiler.Id
+        };
+
+        _db.Batches.AddRange(
+            mashBatch, boilBatch, sensorBatch, silentSensorBatch, manualReadingBatch,
+            liveFermentBatch, stageIsolatedBatch, completedBatch, plannedBatch);
+
+        _db.BatchReadings.AddRange(
+            new BatchReading
+            {
+                BatchId = manualReadingBatch.Id,
+                Timestamp = now.AddMinutes(-5),
+                SpecificGravity = 1.020m,
+                TemperatureC = 21.3m
+            },
+            new BatchReading
+            {
+                BatchId = liveFermentBatch.Id,
+                Timestamp = now.AddHours(-2),
+                SpecificGravity = 1.025m,
+                TemperatureC = 18.0m
+            },
+            new BatchReading
+            {
+                BatchId = completedBatch.Id,
+                Timestamp = now.AddDays(-10),
+                SpecificGravity = 1.010m,
+                TemperatureC = 4.5m
+            });
+
+        _db.EquipmentReadings.Add(new EquipmentReading
+        {
+            BatchId = stageIsolatedBatch.Id,
+            EquipmentId = boiler.Id,
+            Stage = BrewStage.Mash,
+            TemperatureC = 67.0m,
+            Timestamp = now.AddHours(-3),
+            Source = "Manual"
+        });
+
+        await _db.SaveChangesAsync();
+
+        // Act
+        var (summaries, _) = await _batchService.GetBatchesAsync(userId, null, null, 1, 20);
+        var byId = summaries.ToDictionary(s => s.Id);
+
+        // Assert
+        byId[mashBatch.Id].VesselTempC.Should().Be(66.4m);
+        byId[boilBatch.Id].VesselTempC.Should().Be(99.6m);
+        byId[sensorBatch.Id].VesselTempC.Should().Be(20.8m);
+        byId[sensorBatch.Id].CurrentGravity.Should().Be(1.016m);
+        byId[sensorBatch.Id].FermentationSensorId.Should().Be(ispindel.Id);
+        byId[sensorBatch.Id].FermentationSensorName.Should().Be("iSpindel Red");
+        byId[silentSensorBatch.Id].VesselTempC.Should().BeNull();
+        byId[silentSensorBatch.Id].CurrentGravity.Should().BeNull();
+        byId[silentSensorBatch.Id].FermentationSensorId.Should().Be(silentSensor.Id);
+        byId[manualReadingBatch.Id].VesselTempC.Should().Be(21.3m);
+        byId[manualReadingBatch.Id].CurrentGravity.Should().Be(1.020m);
+        byId[liveFermentBatch.Id].VesselTempC.Should().Be(19.2m);
+        byId[liveFermentBatch.Id].CurrentGravity.Should().Be(1.032m);
+        byId[liveFermentBatch.Id].FermentationSensorId.Should().BeNull();
+        byId[stageIsolatedBatch.Id].VesselTempC.Should().BeNull();
+        byId[completedBatch.Id].VesselTempC.Should().Be(4.5m);
+        byId[plannedBatch.Id].VesselTempC.Should().BeNull();
+    }
+
     private sealed class StubBrewLinkService(BrewLinkSendResult result, string? errorMessage) : IBrewLinkService
     {
         public Task<(BrewLinkSendResult Result, BrewLinkCommandResultDto? CommandResult, string? ErrorMessage)> SendRecipeToEquipmentAsync(

@@ -1452,4 +1452,56 @@ public class BrewLinkEndpointsTests : IClassFixture<BrewLinkTestFactory>, IDispo
         created.TemperatureUpdatedAt.Should().BeNull();
         created.LatestMetricsJson.Should().BeNull();
     }
+
+    [Fact]
+    public async Task SendRecipeToEquipment_RejectsOtherUsersBatchAndPrivateRecipe()
+    {
+        // Victim user owns a private batch and private recipe
+        var (victimClient, _, _, _) = await CreateAuthenticatedUserAsync();
+
+        var victimRecipeRes = await victimClient.PostAsJsonAsync("/api/v1/recipes", new CreateRecipeRequest(
+            Name: "Secret Victim Recipe",
+            Description: "Private",
+            BeerStyle: "IPA",
+            BatchSizeLiters: 20m,
+            BoilTimeMinutes: 60,
+            EfficiencyPercent: 75m,
+            IsPublic: false,
+            Ingredients: [],
+            MashSteps: [],
+            FermentationSteps: []));
+        victimRecipeRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var victimRecipe = (await victimRecipeRes.Content.ReadFromJsonAsync<ApiResponse<RecipeDetailDto>>())!.Data!;
+
+        var victimBatchRes = await victimClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-VIC-{Guid.NewGuid():N}"[..16], "Victim Batch", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.055m, 1.012m, 5.6m, 40m, 8m, 60, 75m,
+            null, null));
+        victimBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var victimBatch = (await victimBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // Attacker user has their own paired BrewLink gateway + boiler
+        var (attackerClient, _, _, attackerSetupId) = await CreateAuthenticatedUserAsync();
+        var pairRes = await attackerClient.PostAsJsonAsync("/api/v1/brewlink/gateways/pair",
+            new PairBrewLinkRequest("192.168.1.211", null, "Attacker Gateway"));
+        var gw = (await pairRes.Content.ReadFromJsonAsync<ApiResponse<BrewLinkGatewayDto>>())!.Data!;
+
+        var provRes = await attackerClient.PostAsJsonAsync($"/api/v1/brewlink/gateways/{gw.Id}/equipment/provision",
+            new ProvisionBrewLinkEquipmentRequest(attackerSetupId,
+            [
+                new ProvisionBrewLinkDeviceItem(1, "AA:BB:CC:DD:EE:11", "G30-ATK", "Grainfather G30 Connect", "boiler")
+            ]));
+        provRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var attackerBoilerId = (await provRes.Content.ReadFromJsonAsync<ApiResponse<ProvisionBrewLinkEquipmentResultDto>>())!
+            .Data!.CreatedEquipment[0].Id;
+
+        // Attacker cannot send victim's batch or private recipe to their BrewLink boiler
+        var sendBatchRes = await attackerClient.PostAsJsonAsync($"/api/v1/inventory/equipment/{attackerBoilerId}/brewlink/send-recipe",
+            new SendBrewLinkRecipeRequest(BatchId: victimBatch.Id, RecipeId: null));
+        sendBatchRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var sendRecipeRes = await attackerClient.PostAsJsonAsync($"/api/v1/inventory/equipment/{attackerBoilerId}/brewlink/send-recipe",
+            new SendBrewLinkRecipeRequest(BatchId: null, RecipeId: victimRecipe.Id));
+        sendRecipeRes.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }

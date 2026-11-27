@@ -12,46 +12,23 @@
 					if (mt) return mt;
 				}
 				if (batch.boilerId) {
-					const b = equipment.find((e) => e.id === batch.boilerId);
-					if (b?.subtype === 'AllInOne') return b;
+					return equipment.find((e) => e.id === batch.boilerId);
 				}
-				return equipment.find(
-					(e) =>
-						e.subtype === 'MashTun' ||
-						e.subtype === 'AllInOne' ||
-						e.subtype === 'LauterTun' ||
-						e.type === 'Boiler'
-				);
+				return undefined;
 			}
 			case 'Boil': {
 				if (batch.boilerId) {
-					const b = equipment.find((e) => e.id === batch.boilerId);
-					if (b) return b;
+					return equipment.find((e) => e.id === batch.boilerId);
 				}
-				return equipment.find(
-					(e) =>
-						e.type === 'Boiler' ||
-						e.subtype === 'Pan' ||
-						e.subtype === 'AllInOne' ||
-						e.subtype === 'HermsRims'
-				);
+				return undefined;
 			}
 			case 'Ferment':
 			case 'Condition':
 			default: {
 				if (batch.fermenterId) {
-					const f = equipment.find((e) => e.id === batch.fermenterId);
-					if (f) return f;
+					return equipment.find((e) => e.id === batch.fermenterId);
 				}
-				return equipment.find(
-					(e) =>
-						e.type === 'Fermenter' ||
-						e.subtype === 'ConicalFermenter' ||
-						e.subtype === 'Carboy' ||
-						e.subtype === 'PressureFermenter' ||
-						e.subtype === 'StainlessBucket' ||
-						e.subtype === 'Bucket'
-				);
+				return undefined;
 			}
 		}
 	}

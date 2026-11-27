@@ -2391,4 +2391,76 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         result.Success.Should().BeFalse();
         result.ErrorMessage.Should().Contain("prohibited");
     }
+
+    [Fact]
+    public async Task FermentationSensor_TakesPrecedenceOverFermenter_ForBothTemperatureAndGravity()
+    {
+        var (client, _, setupId) = await CreateUserAsync();
+
+        var fermRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"Smart Fermenter {Guid.NewGuid():N}",
+            Type: EquipmentType.Fermenter,
+            Capacity: 30m,
+            Subtype: EquipmentSubtype.ConicalFermenter,
+            ConnectionType: EquipmentConnectionType.HttpPush));
+        fermRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var fermenter = (await fermRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var sensorRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            BrewerySetupId: setupId,
+            Name: $"iSpindel Priority {Guid.NewGuid():N}",
+            Type: EquipmentType.Sensor,
+            Capacity: 0m,
+            Subtype: EquipmentSubtype.ISpindel,
+            ConnectionType: EquipmentConnectionType.HttpPush));
+        sensorRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sensor = (await sensorRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var createBatchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-FSG-{Guid.NewGuid():N}"[..16], "Sensor Precedence IPA", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.055m, 1.012m, 5.6m, 45m, 8m, 60, 75m,
+            null, fermenter.Id,
+            SensorAssignments: new List<BatchSensorAssignmentInput> { new(sensor.Id, BrewStage.Ferment, null) }));
+        createBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await createBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var advRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.055m));
+        advRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var publicClient = _factory.CreateClient();
+
+        // 1. Sensor pushes temp + gravity -> batch summary and detail adopt sensor values
+        using (var sensorReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment"))
+        {
+            sensorReq.Headers.Add("X-BrewYou-Device-Token", sensor.ConnectionToken!);
+            sensorReq.Content = JsonContent.Create(new { name = sensor.Name, temperature = 20.6, gravity = 1.018, angle = 42.5, battery = 3.9 });
+            (await publicClient.SendAsync(sensorReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        // 2. Fermenter subsequently pushes different temp + gravity -> must NOT overwrite sensor temp or gravity
+        using (var fermReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment"))
+        {
+            fermReq.Headers.Add("X-BrewYou-Device-Token", fermenter.ConnectionToken!);
+            fermReq.Content = JsonContent.Create(new { temperature = 17.8, gravity = 1.042, unit = "C" });
+            (await publicClient.SendAsync(fermReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var listRes = await client.GetAsync("/api/v1/batches");
+        listRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var summaries = (await listRes.Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        summaries.Should().ContainSingle(b =>
+            b.Id == batch.Id &&
+            b.VesselTempC == 20.6m &&
+            b.CurrentGravity == 1.018m &&
+            b.FermentationSensorId == sensor.Id);
+
+        var detailRes = await client.GetAsync($"/api/v1/batches/{batch.Id}");
+        detailRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detail = (await detailRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        detail.CurrentGravity.Should().Be(1.018m);
+        detail.FermentationSteps.Should().NotBeEmpty();
+        detail.FermentationSteps.First().ActualTemperatureC.Should().Be(20.6m);
+    }
 }

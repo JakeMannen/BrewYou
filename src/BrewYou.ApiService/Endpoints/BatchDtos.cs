@@ -34,7 +34,9 @@ public record BatchSummaryDto(
     string? MashTunName = null,
     Guid? BoilerId = null,
     string? BoilerName = null,
-    string? RecipeName = null
+    string? RecipeName = null,
+    Guid? FermentationSensorId = null,
+    string? FermentationSensorName = null
 );
 
 public record BatchReadingDto(

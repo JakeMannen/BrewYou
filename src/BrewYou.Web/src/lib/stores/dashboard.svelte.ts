@@ -4,6 +4,7 @@ import { brewery, DEFAULT_BREWERY_ID } from '$lib/stores/brewery.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { calculateActualAbv } from '$lib/calculators/brewing';
+import { shouldApplyTelemetryToBatch } from '$lib/utils/batchTelemetry';
 import { sortEquipmentByName } from '$lib/utils/equipment-order';
 import type {
 	BatchSummaryDto,
@@ -452,18 +453,21 @@ class DashboardStore {
 		const idx = this.batches.findIndex((b) => b.id === batchId);
 		if (idx >= 0) {
 			const batch = this.batches[idx];
-			const nextGravity = reading.specificGravity ?? batch.currentGravity;
+			const allowTelemetry = shouldApplyTelemetryToBatch(batch, reading.equipmentId);
+			const nextGravity = allowTelemetry
+				? (reading.specificGravity ?? batch.currentGravity)
+				: batch.currentGravity;
 			let nextAbv = batch.alcoholByVolume;
 			const og = batch.measuredOg ?? batch.targetOg;
 
-			if (nextGravity && og && og > nextGravity) {
+			if (allowTelemetry && nextGravity && og && og > nextGravity) {
 				nextAbv = Number(calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2));
 			}
 
 			// Reactive array update triggers Svelte 5 derived runes
 			this.batches[idx] = {
 				...batch,
-				vesselTempC: reading.temperatureC,
+				vesselTempC: allowTelemetry ? reading.temperatureC : batch.vesselTempC,
 				currentGravity: nextGravity,
 				alcoholByVolume: nextAbv
 			};
@@ -646,15 +650,20 @@ class DashboardStore {
 			const bIdx = this.batches.findIndex((b) => b.id === reading.batchId);
 			if (bIdx >= 0) {
 				const batch = this.batches[bIdx];
-				const nextGravity = reading.specificGravity ?? batch.currentGravity;
+				const allowTelemetry = shouldApplyTelemetryToBatch(batch, reading.equipmentId);
+				const nextGravity = allowTelemetry
+					? (reading.specificGravity ?? batch.currentGravity)
+					: batch.currentGravity;
 				let nextAbv = batch.alcoholByVolume;
 				const og = batch.measuredOg ?? batch.targetOg;
-				if (nextGravity && og && og > nextGravity) {
+				if (allowTelemetry && nextGravity && og && og > nextGravity) {
 					nextAbv = Number(calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2));
 				}
 				this.batches[bIdx] = {
 					...batch,
-					vesselTempC: reading.temperatureC ?? batch.vesselTempC,
+					vesselTempC: allowTelemetry
+						? (reading.temperatureC ?? batch.vesselTempC)
+						: batch.vesselTempC,
 					currentGravity: nextGravity,
 					alcoholByVolume: nextAbv
 				};

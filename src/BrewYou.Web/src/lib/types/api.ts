@@ -1066,6 +1066,8 @@ export interface BatchSummaryDto {
 	boilerName?: string | null;
 	fermenterId?: string | null;
 	fermenterName?: string | null;
+	fermentationSensorId?: string | null;
+	fermentationSensorName?: string | null;
 	targetBatchSizeLiters: number;
 	measuredBatchSizeLiters?: number | null;
 	createdAt: string;
