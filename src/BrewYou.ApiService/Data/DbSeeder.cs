@@ -41,6 +41,13 @@ public static class DbSeeder
                         "UpdatedAt" timestamp with time zone NOT NULL
                     );
 
+                    CREATE TABLE IF NOT EXISTS "SystemSettings" (
+                        "Key" character varying(100) PRIMARY KEY,
+                        "Value" character varying(4096) NOT NULL,
+                        "CreatedAt" timestamp with time zone NOT NULL,
+                        "UpdatedAt" timestamp with time zone NOT NULL
+                    );
+
                     CREATE TABLE IF NOT EXISTS "RecipeLabels" (
                         "Id" uuid PRIMARY KEY,
                         "RecipeId" uuid NOT NULL,

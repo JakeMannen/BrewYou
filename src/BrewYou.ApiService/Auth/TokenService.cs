@@ -11,10 +11,12 @@ namespace BrewYou.ApiService.Auth;
 public class TokenService : ITokenService
 {
     private readonly JwtOptions _options;
+    private readonly IJwtSigningKeyProvider? _signingKeyProvider;
 
-    public TokenService(IOptions<JwtOptions> options)
+    public TokenService(IOptions<JwtOptions> options, IJwtSigningKeyProvider? signingKeyProvider = null)
     {
         _options = options.Value;
+        _signingKeyProvider = signingKeyProvider;
     }
 
     public string GenerateAccessToken(ApplicationUser user, IEnumerable<string>? roles = null)
@@ -37,7 +39,7 @@ public class TokenService : ITokenService
             }
         }
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SecretKey));
+        var key = GetSigningKey();
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
@@ -68,7 +70,8 @@ public class TokenService : ITokenService
             ValidateIssuer = true,
             ValidIssuer = _options.Issuer,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SecretKey)),
+            IssuerSigningKey = GetSigningKey(),
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
             ValidateLifetime = false // Critical to allow reading claims from expired access token
         };
 
@@ -77,7 +80,7 @@ public class TokenService : ITokenService
         {
             var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out var securityToken);
             if (securityToken is not JwtSecurityToken jwtSecurityToken ||
-                !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+                !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.Ordinal))
             {
                 return null;
             }
@@ -88,5 +91,20 @@ public class TokenService : ITokenService
         {
             return null;
         }
+    }
+
+    private SymmetricSecurityKey GetSigningKey()
+    {
+        if (_signingKeyProvider is not null)
+        {
+            return _signingKeyProvider.GetSigningKey();
+        }
+
+        if (string.IsNullOrWhiteSpace(_options.SecretKey) || Encoding.UTF8.GetByteCount(_options.SecretKey) < 32)
+        {
+            throw new InvalidOperationException("Jwt:SecretKey must be configured and at least 256 bits (32 bytes) long.");
+        }
+
+        return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SecretKey));
     }
 }

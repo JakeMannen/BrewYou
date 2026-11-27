@@ -15,6 +15,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
 
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<SystemAsset> SystemAssets => Set<SystemAsset>();
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<RecipeLabel> RecipeLabels => Set<RecipeLabel>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<IngredientStock> IngredientStocks => Set<IngredientStock>();
@@ -262,6 +263,13 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.Property(a => a.Key).HasMaxLength(100);
             entity.Property(a => a.ContentType).HasMaxLength(50).IsRequired();
             entity.Property(a => a.Sha256).HasMaxLength(64).IsRequired();
+        });
+
+        builder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasKey(s => s.Key);
+            entity.Property(s => s.Key).HasMaxLength(100);
+            entity.Property(s => s.Value).HasMaxLength(4096).IsRequired();
         });
 
         builder.Entity<RecipeLabel>(entity =>

@@ -19,7 +19,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
-using System.Text;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,7 +31,8 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 // Configure EF Core & Database (PostgreSQL via Aspire or fallback in-memory for testing/local fallback)
-if (builder.Configuration.GetConnectionString("brewyou-db") != null)
+var hasDatabaseConnectionString = builder.Configuration.GetConnectionString("brewyou-db") != null;
+if (hasDatabaseConnectionString)
 {
     builder.AddNpgsqlDbContext<BrewYouDbContext>("brewyou-db");
 }
@@ -54,6 +54,12 @@ if (!string.IsNullOrWhiteSpace(dataProtectionCertPath))
     var cert = string.IsNullOrEmpty(dataProtectionCertPassword)
         ? X509CertificateLoader.LoadPkcs12FromFile(dataProtectionCertPath, password: null)
         : X509CertificateLoader.LoadPkcs12FromFile(dataProtectionCertPath, dataProtectionCertPassword);
+    if (!cert.HasPrivateKey)
+    {
+        cert.Dispose();
+        throw new InvalidOperationException("Fatal security error: The configured DataProtection certificate must include a private key.");
+    }
+
     dataProtectionBuilder.ProtectKeysWithCertificate(cert);
 }
 
@@ -79,34 +85,13 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 // JWT Authentication & Token Service
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
-var jwtSecret = builder.Configuration["Jwt:SecretKey"];
-const string KnownDevelopmentSecret = "SuperSecretBrewYouKey_AtLeast32BytesLong!";
-
-if (string.IsNullOrEmpty(jwtSecret))
+var configuredJwtSecret = builder.Configuration["Jwt:SecretKey"];
+if (!string.IsNullOrWhiteSpace(configuredJwtSecret))
 {
-    if (!builder.Environment.IsDevelopment())
-    {
-        throw new InvalidOperationException("Fatal security error: Jwt:SecretKey must be configured in non-development environments.");
-    }
-    jwtSecret = KnownDevelopmentSecret;
-}
-else if (!builder.Environment.IsDevelopment() && string.Equals(jwtSecret, KnownDevelopmentSecret, StringComparison.Ordinal))
-{
-    throw new InvalidOperationException("Fatal security error: The default development JWT secret must not be used in non-development environments.");
+    JwtSigningKeyProvider.ValidateConfiguredSecret(configuredJwtSecret, builder.Environment.IsDevelopment());
 }
 
-if (Encoding.UTF8.GetByteCount(jwtSecret) < 32)
-{
-    throw new InvalidOperationException("Fatal security error: Jwt:SecretKey must be at least 256 bits (32 bytes) long.");
-}
-
-builder.Services.PostConfigure<JwtOptions>(options =>
-{
-    if (string.IsNullOrEmpty(options.SecretKey))
-    {
-        options.SecretKey = jwtSecret;
-    }
-});
+builder.Services.AddSingleton<IJwtSigningKeyProvider, JwtSigningKeyProvider>();
 
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "BrewYou";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "BrewYouApp";
@@ -116,20 +101,24 @@ builder.Services.AddAuthentication(options =>
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+.AddJwtBearer();
+
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IJwtSigningKeyProvider>((options, keyProvider) =>
     {
-        ValidateIssuer = true,
-        ValidIssuer = jwtIssuer,
-        ValidateAudience = true,
-        ValidAudience = jwtAudience,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-        ValidateLifetime = true,
-        ClockSkew = TimeSpan.FromMinutes(1)
-    };
-});
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtIssuer,
+            ValidateAudience = true,
+            ValidAudience = jwtAudience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = keyProvider.GetSigningKey(),
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
 
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<ITokenService, TokenService>();
@@ -431,9 +420,14 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
+if (!app.Environment.IsDevelopment() && !hasDatabaseConnectionString)
+{
+    app.Logger.LogCritical("ConnectionStrings:brewyou-db is not configured in a non-development environment. Falling back to an ephemeral in-memory database; all data and auto-generated signing keys will be lost on restart.");
+}
+
 if (!app.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(dataProtectionCertPath))
 {
-    app.Logger.LogWarning("DataProtection:CertificatePath is not configured. Data Protection keys in PostgreSQL are not encrypted at rest.");
+    app.Logger.LogWarning("DataProtection:CertificatePath is not configured. Data Protection keys and auto-persisted JWT signing keys in PostgreSQL are not encrypted at rest with an external certificate.");
 }
 
 app.UseForwardedHeaders();
@@ -485,6 +479,9 @@ catch (Exception ex)
 {
     app.Logger.LogWarning(ex, "Could not run initial database migration/seeding on startup.");
 }
+
+// Initialize JWT signing key (configured env var first, otherwise auto-generated & persisted in DB)
+await app.Services.GetRequiredService<IJwtSigningKeyProvider>().InitializeAsync();
 
 app.Run();
 
