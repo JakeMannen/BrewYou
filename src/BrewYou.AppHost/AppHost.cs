@@ -12,6 +12,8 @@ var googleClientId = builder.Configuration["Authentication:Google:ClientId"]
     ?? builder.Configuration["GOOGLE_CLIENT_ID"];
 var publicGoogleClientId = builder.Configuration["PUBLIC_GOOGLE_CLIENT_ID"]
     ?? googleClientId;
+var jwtSecret = builder.Configuration["Jwt:SecretKey"]
+    ?? builder.Configuration["JWT_SECRET"];
 
 var apiService = builder.AddDotnetProject("apiservice", "../BrewYou.ApiService/BrewYou.ApiService.csproj")
     .WithReference(db)
@@ -26,6 +28,11 @@ var apiService = builder.AddDotnetProject("apiservice", "../BrewYou.ApiService/B
 if (!string.IsNullOrWhiteSpace(googleClientId))
 {
     apiService.WithEnvironment("Authentication__Google__ClientId", googleClientId);
+}
+
+if (!string.IsNullOrWhiteSpace(jwtSecret))
+{
+    apiService.WithEnvironment("Jwt__SecretKey", jwtSecret);
 }
 
 var web = builder.AddNpmApp("web", "../BrewYou.Web", "dev")

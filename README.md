@@ -52,8 +52,8 @@ docker compose up --build
 # Optional profiles: mqtt, pgadmin, tools
 docker compose --profile mqtt --profile tools up --build
 
-# Server / Portainer deployment (pre-built GHCR images + MQTT)
-JWT_SECRET="your-32+-char-secret" docker compose -f docker-compose.server.yml up -d
+# Server / Portainer deployment (pre-built GHCR images + MQTT; JWT secret auto-generated on first boot unless JWT_SECRET is set)
+docker compose -f docker-compose.server.yml up -d
 ```
 
 ### Option C: Manual Local Run
@@ -86,11 +86,12 @@ cd src/BrewYou.Web && npm install && npm run dev
 | Scope | Variable | Purpose / Default |
 | :--- | :--- | :--- |
 | **Backend** | `ConnectionStrings__brewyou-db` | PostgreSQL connection string |
-| **Backend** | `Jwt__SecretKey` | Signing key (>= 32 bytes; required outside `Development`) |
+| **Backend** | `Jwt__SecretKey` | Optional signing key (>= 32 bytes); auto-generated and persisted in PostgreSQL on first boot if unset (configure `DataProtection__CertificatePath` or set `Jwt__SecretKey` explicitly for at-rest protection against DB dumps) |
 | **Backend** | `Cors__AllowedOrigins__0` | Allowed frontend origin (`http://localhost:3000`) |
 | **Backend** | `Authentication__Google__ClientId` | Optional Google OAuth client ID |
 | **Backend** | `NetworkSecurity__AllowPrivateNetworks` | Allow LAN/private MQTT brokers (`false` default; `true` in Docker Compose via `ALLOW_PRIVATE_NETWORKS`) |
-| **Backend** | `DataProtection__CertificatePath` | Optional PKCS#12 certificate path to encrypt ASP.NET Core Data Protection keys at rest |
+| **Backend** | `DataProtection__CertificatePath` | Optional PKCS#12 certificate path (with private key) to encrypt ASP.NET Core Data Protection keys and persisted secrets at rest |
+| **Backend** | `DataProtection__CertificatePassword` | Optional password for the PKCS#12 certificate at `DataProtection__CertificatePath` |
 | **Frontend** | `PUBLIC_API_URL` | Browser API base URL (`http://localhost:5000`) |
 | **Frontend** | `PUBLIC_APP_URL` | Public app URL for QR cellar labels (`http://localhost:3000`) |
 | **Frontend** | `PUBLIC_GOOGLE_CLIENT_ID` | Optional Google OAuth client ID (set via `GOOGLE_CLIENT_ID` in Docker Compose) |

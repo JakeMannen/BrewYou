@@ -15,29 +15,34 @@ public interface ILabelUrlSigner
 
 public class LabelUrlSigner : ILabelUrlSigner
 {
-    private readonly byte[] _signingKey;
+    private readonly Lazy<byte[]> _signingKey;
 
-    public LabelUrlSigner(IOptions<JwtOptions> jwtOptions)
+    public LabelUrlSigner(IOptions<JwtOptions> jwtOptions, IJwtSigningKeyProvider? signingKeyProvider = null)
     {
-        var secret = jwtOptions.Value.SecretKey;
-        if (string.IsNullOrEmpty(secret))
+        _signingKey = new Lazy<byte[]>(() =>
         {
-            throw new InvalidOperationException("Jwt:SecretKey must be configured to sign label URLs.");
-        }
+            var secret = signingKeyProvider is not null
+                ? signingKeyProvider.GetSecretKey()
+                : jwtOptions.Value.SecretKey;
+            if (string.IsNullOrWhiteSpace(secret) || Encoding.UTF8.GetByteCount(secret) < 32)
+            {
+                throw new InvalidOperationException("Jwt:SecretKey must be configured and at least 256 bits (32 bytes) long to sign label URLs.");
+            }
 
-        // Derive dedicated signing key using HKDF-SHA256
-        _signingKey = HKDF.DeriveKey(
-            HashAlgorithmName.SHA256,
-            ikm: Encoding.UTF8.GetBytes(secret),
-            outputLength: 32,
-            salt: "BrewYou.LabelUrlSigner.Salt"u8.ToArray(),
-            info: "BrewYou.LabelUrlSigner.HmacKey"u8.ToArray());
+            // Derive dedicated signing key using HKDF-SHA256
+            return HKDF.DeriveKey(
+                HashAlgorithmName.SHA256,
+                ikm: Encoding.UTF8.GetBytes(secret),
+                outputLength: 32,
+                salt: "BrewYou.LabelUrlSigner.Salt"u8.ToArray(),
+                info: "BrewYou.LabelUrlSigner.HmacKey"u8.ToArray());
+        }, LazyThreadSafetyMode.PublicationOnly);
     }
 
     public string GenerateSignature(Guid recipeId, string variant, int size, int version, long expiresAtEpoch)
     {
         var payload = FormattableString.Invariant($"{recipeId:D}:{variant.ToLowerInvariant()}:{size}:{version}:{expiresAtEpoch}");
-        using var hmac = new HMACSHA256(_signingKey);
+        using var hmac = new HMACSHA256(_signingKey.Value);
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
