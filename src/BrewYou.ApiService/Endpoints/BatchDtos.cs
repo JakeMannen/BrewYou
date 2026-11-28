@@ -343,7 +343,9 @@ public record AdvanceBatchStageRequest(
     decimal? MeasuredPreBoilGravity = null,
     decimal? MeasuredPostBoilVolumeLiters = null,
     decimal? MeasuredPackagedVolumeLiters = null,
-    bool Force = false
+    bool Force = false,
+    Guid? FermenterId = null,
+    Guid? FermentationSensorId = null
 );
 
 [method: JsonConstructor]

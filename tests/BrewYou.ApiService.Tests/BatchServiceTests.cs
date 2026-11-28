@@ -1750,6 +1750,10 @@ public class BatchServiceTests
         dtoOffline!.BoilerSyncStatus.Should().Be("OfflineFallback");
         dtoOffline.BoilerSyncWarning.Should().Contain("Boiler is offline");
 
+        // Advance the first batch out of hot-side so the boiler is free for the second batch
+        (await svcOffline.AdvanceStageAsync(dtoOffline.Id, new AdvanceBatchStageRequest(BrewStage.Ferment, Force: true), userId)).Result
+            .Should().Be(BatchAccessResult.Success);
+
         var sentService = new StubBrewLinkService(BrewLinkSendResult.Success, null);
         var svcSent = new BatchService(_db, new TelemetryBroadcastService(NullLogger<TelemetryBroadcastService>.Instance), NullLogger<BatchService>.Instance, sentService);
 
@@ -2227,6 +2231,253 @@ public class BatchServiceTests
         batch.IsHistorical = true;
         BatchLifecycle.OccupiesLiveEquipment(batch).Should().BeFalse();
         BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task StageTransitionMatrix_UpdateBatchAsyncAndAdvanceStageAsync_ProduceIdenticalVolumesStageAndHistory()
+    {
+        var userId = $"matrix_user_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Matrix Rig", IsDefault = true };
+        _db.BrewerySetups.Add(setup);
+
+        Equipment MakeEq(string name, EquipmentType type, decimal cap) => new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setup.Id,
+            BrewerySetup = setup,
+            Name = name,
+            Type = type,
+            Subtype = type == EquipmentType.Boiler ? EquipmentSubtype.AllInOne : EquipmentService.ResolveDefaultSubtype(type, null),
+            Capacity = cap,
+            CapacityLiters = cap,
+            Unit = VolumeUnit.Liters
+        };
+
+        // Two identical sets of vessels so AdvanceStageAsync and UpdateBatchAsync can run in parallel paths
+        var boilerAdv = MakeEq("Boiler Adv", EquipmentType.Boiler, 40m);
+        var fermAdv = MakeEq("Ferm Adv", EquipmentType.Fermenter, 30m);
+        var kegAdv = MakeEq("Keg Adv", EquipmentType.Keg, 19m);
+
+        var boilerUpd = MakeEq("Boiler Upd", EquipmentType.Boiler, 40m);
+        var fermUpd = MakeEq("Ferm Upd", EquipmentType.Fermenter, 30m);
+        var kegUpd = MakeEq("Keg Upd", EquipmentType.Keg, 19m);
+
+        _db.Equipment.AddRange(boilerAdv, fermAdv, kegAdv, boilerUpd, fermUpd, kegUpd);
+        await _db.SaveChangesAsync();
+
+        var (_, batchAdv, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-MX-ADV", "Advance Path", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 7m, 60, 75m, boilerAdv.Id, fermAdv.Id, PackagingVesselId: kegAdv.Id), userId);
+        var (_, batchUpd, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-MX-UPD", "Update Path", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 7m, 60, 75m, boilerUpd.Id, fermUpd.Id, PackagingVesselId: kegUpd.Id), userId);
+
+        // 1. Brewing -> Fermenting
+        var (_, advFerm, _) = await _batchService.AdvanceStageAsync(batchAdv!.Id, new AdvanceBatchStageRequest(BrewStage.Ferment), userId);
+        var (_, updFerm, _) = await _batchService.UpdateBatchAsync(batchUpd!.Id, new UpdateBatchRequest(Status: BatchStatus.Fermenting), userId);
+
+        updFerm!.Status.Should().Be(advFerm!.Status);
+        updFerm.CurrentStage.Should().Be(advFerm.CurrentStage);
+        boilerUpd.CurrentVolumeLiters.Should().Be(boilerAdv.CurrentVolumeLiters).And.Be(0m);
+        fermUpd.CurrentVolumeLiters.Should().Be(fermAdv.CurrentVolumeLiters).And.Be(20m);
+        updFerm.StageHistory.Select(h => (h.Stage, h.Status)).Should().BeEquivalentTo(advFerm.StageHistory.Select(h => (h.Stage, h.Status)));
+
+        // 2. Fermenting -> Conditioning
+        var (_, advCond, _) = await _batchService.AdvanceStageAsync(batchAdv.Id, new AdvanceBatchStageRequest(BrewStage.Condition), userId);
+        var (_, updCond, _) = await _batchService.UpdateBatchAsync(batchUpd.Id, new UpdateBatchRequest(Status: BatchStatus.Conditioning), userId);
+
+        updCond!.Status.Should().Be(advCond!.Status);
+        updCond.CurrentStage.Should().Be(advCond.CurrentStage);
+        fermUpd.CurrentVolumeLiters.Should().Be(fermAdv.CurrentVolumeLiters).And.Be(20m);
+        updCond.StageHistory.Select(h => (h.Stage, h.Status)).Should().BeEquivalentTo(advCond.StageHistory.Select(h => (h.Stage, h.Status)));
+
+        // 3. Conditioning -> Completed (Package)
+        var (_, advDone, _) = await _batchService.AdvanceStageAsync(batchAdv.Id, new AdvanceBatchStageRequest(BrewStage.Package), userId);
+        var (_, updDone, _) = await _batchService.UpdateBatchAsync(batchUpd.Id, new UpdateBatchRequest(Status: BatchStatus.Completed), userId);
+
+        updDone!.Status.Should().Be(advDone!.Status).And.Be(BatchStatus.Completed);
+        updDone.CurrentStage.Should().Be(advDone.CurrentStage).And.Be(BrewStage.Package);
+        fermUpd.CurrentVolumeLiters.Should().Be(fermAdv.CurrentVolumeLiters).And.Be(0m);
+        kegUpd.CurrentVolumeLiters.Should().Be(kegAdv.CurrentVolumeLiters).And.BeGreaterThan(0m);
+        kegUpd.AssignedBatchId.Should().Be(batchUpd.Id);
+        kegAdv.AssignedBatchId.Should().Be(batchAdv.Id);
+        updDone.StageHistory.Select(h => (h.Stage, h.Status)).Should().BeEquivalentTo(advDone.StageHistory.Select(h => (h.Stage, h.Status)));
+
+        // 4. Reopen Completed -> Brewing (Mash), then Brewing -> Planned resets vessel volumes
+        var (reopenRes, reopened, _) = await _batchService.UpdateBatchAsync(batchUpd.Id, new UpdateBatchRequest(Status: BatchStatus.Brewing), userId);
+        reopenRes.Should().Be(BatchAccessResult.Success);
+        reopened!.CurrentStage.Should().Be(BrewStage.Mash);
+        kegUpd.AssignedBatchId.Should().BeNull();
+        kegUpd.CurrentVolumeLiters.Should().Be(0m);
+        boilerUpd.CurrentVolumeLiters.Should().Be(20m);
+
+        var (planRes, planned, _) = await _batchService.UpdateBatchAsync(batchUpd.Id, new UpdateBatchRequest(Status: BatchStatus.Planned), userId);
+        planRes.Should().Be(BatchAccessResult.Success);
+        planned!.Status.Should().Be(BatchStatus.Planned);
+        boilerUpd.CurrentVolumeLiters.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task UpdateBatchAsync_AioBoilerSwapAndVesselSwaps_SyncsMashTunRefreshesVolumeProfileClearsStaleManualAndUpdatesSetup()
+    {
+        var userId = $"swap_user_{Guid.NewGuid():N}";
+        var setupA = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Setup A", IsDefault = true };
+        var setupB = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Setup B", IsDefault = false };
+        _db.BrewerySetups.AddRange(setupA, setupB);
+
+        var aio1 = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setupA.Id,
+            BrewerySetup = setupA,
+            Name = "AIO 1",
+            Type = EquipmentType.Boiler,
+            Subtype = EquipmentSubtype.AllInOne,
+            Capacity = 35m,
+            CapacityLiters = 35m,
+            BoilOffRatePerHour = 3.0m,
+            TrubLossLiters = 1.5m,
+            MashTunDeadSpaceLiters = 2.0m,
+            CurrentTemperatureC = 66.5m,
+            CurrentSpecificGravity = 1.045m,
+            ConnectionType = EquipmentConnectionType.None
+        };
+        var aio2 = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setupB.Id,
+            BrewerySetup = setupB,
+            Name = "AIO 2",
+            Type = EquipmentType.Boiler,
+            Subtype = EquipmentSubtype.AllInOne,
+            Capacity = 45m,
+            CapacityLiters = 45m,
+            BoilOffRatePerHour = 5.0m,
+            TrubLossLiters = 3.5m,
+            MashTunDeadSpaceLiters = 4.0m
+        };
+        var bottlingBucket1 = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setupA.Id,
+            BrewerySetup = setupA,
+            Name = "Bottling Bucket 1",
+            Type = EquipmentType.Other,
+            Subtype = EquipmentSubtype.Other,
+            Capacity = 25m,
+            CapacityLiters = 25m,
+            PackagingLossLiters = 0.5m
+        };
+        var bottlingBucket2 = new Equipment
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            BrewerySetupId = setupB.Id,
+            BrewerySetup = setupB,
+            Name = "Bottling Bucket 2",
+            Type = EquipmentType.Other,
+            Subtype = EquipmentSubtype.Other,
+            Capacity = 25m,
+            CapacityLiters = 25m,
+            PackagingLossLiters = 2.0m
+        };
+        _db.Equipment.AddRange(aio1, aio2, bottlingBucket1, bottlingBucket2);
+        await _db.SaveChangesAsync();
+
+        var (_, created, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-SWAP-01", "AIO Swap IPA", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 7m, 60, 75m, aio1.Id, null, PackagingVesselId: bottlingBucket1.Id), userId);
+
+        var initialTotalWater = created!.VolumeProfile!.TotalWaterLiters;
+        var initialTargetPackaged = created.VolumeProfile.TargetPackagedVolumeLiters;
+
+        // Swap BoilerId aio1 -> aio2 during Mash without explicitly passing MashTunId
+        var (swapRes, swapped, swapErr) = await _batchService.UpdateBatchAsync(created.Id, new UpdateBatchRequest(
+            BoilerId: aio2.Id,
+            PackagingVesselId: bottlingBucket2.Id), userId);
+        swapRes.Should().Be(BatchAccessResult.Success, swapErr);
+
+        // AIO MashTunId synced with BoilerId; aio1 emptied & stale manual temp/SG cleared (BE-M4); aio2 occupied via OccupyInitialMashVessels (BE-L1)
+        swapped!.BoilerId.Should().Be(aio2.Id);
+        swapped.MashTunId.Should().Be(aio2.Id);
+        aio1.CurrentVolumeLiters.Should().Be(0m);
+        aio1.CurrentTemperatureC.Should().BeNull();
+        aio1.CurrentSpecificGravity.Should().BeNull();
+        aio2.CurrentVolumeLiters.Should().Be(20m);
+
+        // VolumeProfile losses & downstream targets refreshed (BE-H4)
+        swapped.VolumeProfile!.BoilOffRatePerHour.Should().Be(5.0m);
+        swapped.VolumeProfile.KettleTrubLossLiters.Should().Be(3.5m);
+        swapped.VolumeProfile.PackagingLossLiters.Should().Be(2.0m);
+        swapped.VolumeProfile.TotalWaterLiters.Should().BeGreaterThan(initialTotalWater);
+        swapped.VolumeProfile.TargetPackagedVolumeLiters.Should().BeLessThan(initialTargetPackaged);
+
+        // Batch.BrewerySetupId updated to setupB (BE-H4)
+        var dbBatch = await _db.Batches.FindAsync(created.Id);
+        dbBatch!.BrewerySetupId.Should().Be(setupB.Id);
+
+        // Complete into bottlingBucket2 then swap packaging vessel back to bottlingBucket1 -> non-Keg oldPackagingVessel volume resets to 0 (BE-H2)
+        (await _batchService.AdvanceStageAsync(created.Id, new AdvanceBatchStageRequest(BrewStage.Package, MeasuredPackagedVolumeLiters: 17.5m), userId)).Result
+            .Should().Be(BatchAccessResult.Success);
+        bottlingBucket2.CurrentVolumeLiters.Should().Be(17.5m);
+
+        (await _batchService.UpdateBatchAsync(created.Id, new UpdateBatchRequest(PackagingVesselId: bottlingBucket1.Id), userId)).Result
+            .Should().Be(BatchAccessResult.Success);
+        bottlingBucket2.CurrentVolumeLiters.Should().Be(0m);
+        bottlingBucket1.CurrentVolumeLiters.Should().Be(17.5m);
+
+        // BE-L2: Sensor edits on Completed batch return 409 Conflict
+        var (sensorRes, _, _) = await _batchService.UpdateBatchSensorsAsync(created.Id, [], userId);
+        sensorRes.Should().Be(BatchAccessResult.Conflict);
+    }
+
+    [Fact]
+    public async Task SameUserOccupancy_AndAdvanceStageWithOptionalFermenterAndSensor_EnforceConsistentPolicy()
+    {
+        var userId = $"occ_same_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup { Id = Guid.NewGuid(), UserId = userId, Name = "Single User Rig", IsDefault = true };
+        var boiler = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Main Boiler", Type = EquipmentType.Boiler, Subtype = EquipmentSubtype.AllInOne, Capacity = 40m, CapacityLiters = 40m };
+        var ferm1 = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "FV 1", Type = EquipmentType.Fermenter, Capacity = 30m, CapacityLiters = 30m };
+        var ferm2 = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "FV 2", Type = EquipmentType.Fermenter, Capacity = 30m, CapacityLiters = 30m };
+        var sensor = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "iSpindel 1", Type = EquipmentType.Sensor, Subtype = EquipmentSubtype.ISpindel };
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.AddRange(boiler, ferm1, ferm2, sensor);
+        await _db.SaveChangesAsync();
+
+        // Batch 1 occupies boiler in Mash
+        var (res1, b1, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-SU-01", "Batch 1", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 7m, 60, 75m, boiler.Id, ferm1.Id), userId);
+        res1.Should().Be(BatchAccessResult.Success);
+
+        // Same user trying to start Batch 2 on the same active boiler gets Conflict
+        var (res2Conflict, _, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-SU-02", "Batch 2 Conflict", "Stout", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 30m, 60, 75m, boiler.Id, ferm2.Id), userId);
+        res2Conflict.Should().Be(BatchAccessResult.Conflict);
+
+        // Advance Batch 1 to Ferment while selecting ferm2 and sensor via AdvanceBatchStageRequest (FE-M3 backend support)
+        var (adv1Res, b1Ferm, adv1Err) = await _batchService.AdvanceStageAsync(b1!.Id, new AdvanceBatchStageRequest(
+            BrewStage.Ferment, FermenterId: ferm2.Id, FermentationSensorId: sensor.Id), userId);
+        adv1Res.Should().Be(BatchAccessResult.Success, adv1Err);
+        b1Ferm!.FermenterId.Should().Be(ferm2.Id);
+        b1Ferm.SensorAssignments.Should().ContainSingle(sa => sa.EquipmentId == sensor.Id && sa.Stage == BrewStage.Ferment);
+        ferm2.CurrentVolumeLiters.Should().Be(20m);
+        boiler.CurrentVolumeLiters.Should().Be(0m);
+
+        // Now Boiler is FREE so same user CAN start Batch 2 on boiler
+        var (res2Ok, b2, res2Err) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-SU-02", "Batch 2", "Stout", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 30m, 60, 75m, boiler.Id, ferm2.Id), userId);
+        res2Ok.Should().Be(BatchAccessResult.Success, res2Err);
+
+        // Advancing Batch 2 into Ferment on occupied ferm2 returns Conflict for same user too
+        var (adv2Conflict, _, _) = await _batchService.AdvanceStageAsync(b2!.Id, new AdvanceBatchStageRequest(BrewStage.Ferment), userId);
+        adv2Conflict.Should().Be(BatchAccessResult.Conflict);
     }
 
     private sealed class MutableTimeProvider(DateTimeOffset initialUtc) : TimeProvider

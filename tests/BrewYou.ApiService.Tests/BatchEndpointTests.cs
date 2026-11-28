@@ -1671,7 +1671,7 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         var batchB = (await (await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
             null, "B-P1-B", "Batch B", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
-            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, boilerId, fermenterId
+            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, fermenterId
         ))).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
 
         // 1. Cross-batch BatchMashStepId on PUT /sensors and PUT /batches/{id} -> 400 BadRequest

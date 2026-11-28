@@ -209,16 +209,9 @@ internal static partial class BrewLinkLifecycleHelper
             .Select(e => e.AssignedBatchId!.Value)
             .ToHashSet();
 
-        return await db.Batches.AsNoTracking().AnyAsync(b =>
-            (b.BoilerId.HasValue && allIds.Contains(b.BoilerId.Value) ||
-             b.FermenterId.HasValue && allIds.Contains(b.FermenterId.Value) ||
-             b.PackagingVesselId.HasValue && allIds.Contains(b.PackagingVesselId.Value) ||
-             b.HltId.HasValue && allIds.Contains(b.HltId.Value) ||
-             b.MashTunId.HasValue && allIds.Contains(b.MashTunId.Value) ||
-             assignedBatchIds.Contains(b.Id) ||
-             b.SensorAssignments.Any(sa => allIds.Contains(sa.EquipmentId))) &&
-            b.Status != BatchStatus.Completed &&
-            b.Status != BatchStatus.Archived, ct);
+        return await db.Batches
+            .AsNoTracking()
+            .AnyAsync(BatchLifecycle.UsesAnyEquipmentInActiveStage(allIds, assignedBatchIds), ct);
     }
 
     internal static async Task CleanEquipmentGroupRelationsAndRemoveAsync(

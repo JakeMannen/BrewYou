@@ -175,25 +175,28 @@ public class EquipmentAdversarialTests : IClassFixture<WebApplicationFactory<Pro
 
         var allEquipment = new[] { kettleA, kettleB, fv1, fv2, mashA, mashB, hlt1, hlt2, tilt1, tilt2 };
 
-        // 3. Create recipe and 6 interlocking active batches
+        // 3. Create recipe and 6 interlocking batches across non-overlapping live stages so all 10 items are actively occupied
         var recipe = await CreateSampleRecipeAsync(client, "Interlocking Cascade Recipe");
 
-        var b1 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-1", boilerId: kettleA.Id, fermenterId: fv1.Id, hltId: hlt1.Id, mashTunId: mashA.Id);
-        var b2 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-2", boilerId: kettleB.Id, fermenterId: fv2.Id, hltId: hlt2.Id, mashTunId: mashB.Id);
-        var b3 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-3", boilerId: kettleA.Id, fermenterId: fv1.Id, hltId: hlt2.Id, mashTunId: mashB.Id);
-        var b4 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-4", boilerId: kettleB.Id, fermenterId: fv2.Id, hltId: hlt1.Id, mashTunId: mashA.Id);
-        var b5 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-5", boilerId: kettleA.Id, fermenterId: fv2.Id);
-        var b6 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-6", boilerId: kettleB.Id, fermenterId: fv1.Id);
+        // Completed batches created first so hot-side vessels are free for active Mash batches b1 and b2
+        var b5 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-5", boilerId: kettleA.Id, fermenterId: fv2.Id, status: BatchStatus.Completed, stage: BrewStage.Package);
+        var b6 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-6", boilerId: kettleB.Id, fermenterId: fv1.Id, status: BatchStatus.Completed, stage: BrewStage.Package);
+        // Fermenting batches occupy fv1 and fv2 (releasing hot-side vessels for subsequent Mash batches)
+        var b3 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-3", boilerId: kettleA.Id, fermenterId: fv1.Id, hltId: hlt2.Id, mashTunId: mashB.Id, status: BatchStatus.Fermenting, stage: BrewStage.Ferment);
+        var b4 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-4", boilerId: kettleB.Id, fermenterId: fv2.Id, hltId: hlt1.Id, mashTunId: mashA.Id, status: BatchStatus.Conditioning, stage: BrewStage.Condition);
+        // Active Mash batches occupy kettleA, mashA, hlt1 and kettleB, mashB, hlt2
+        var b1 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-1", boilerId: kettleA.Id, fermenterId: fv1.Id, hltId: hlt1.Id, mashTunId: mashA.Id, status: BatchStatus.Brewing, stage: BrewStage.Mash);
+        var b2 = await CreateSampleBatchAsync(client, recipe.Id, "Batch-2", boilerId: kettleB.Id, fermenterId: fv2.Id, hltId: hlt2.Id, mashTunId: mashB.Id, status: BatchStatus.Brewing, stage: BrewStage.Mash);
 
         var allBatches = new[] { b1, b2, b3, b4, b5, b6 };
 
-        // Assign sensors across batches
+        // Assign sensors to active stages across batches
         var assignRes1 = await client.PutAsJsonAsync($"/api/v1/batches/{b1.Id}/sensors",
             new List<BatchSensorAssignmentInput> { new(tilt1.Id, BrewStage.Mash) });
         assignRes1.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var assignRes2 = await client.PutAsJsonAsync($"/api/v1/batches/{b2.Id}/sensors",
-            new List<BatchSensorAssignmentInput> { new(tilt2.Id, BrewStage.Boil) });
+        var assignRes2 = await client.PutAsJsonAsync($"/api/v1/batches/{b3.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(tilt2.Id, BrewStage.Ferment) });
         assignRes2.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // 4. Act Part A: Unforced deletions must all be rejected with 409 Conflict (EQUIPMENT_IN_USE)
@@ -273,29 +276,25 @@ public class EquipmentAdversarialTests : IClassFixture<WebApplicationFactory<Pro
 
         var recipe = await CreateSampleRecipeAsync(client, "Multipurpose Rig Ale");
 
-        // 3. Create Batch 1: Rig is used as Hlt, MashTun, AND Boiler simultaneously
-        var b1 = await CreateSampleBatchAsync(client, recipe.Id, "Triple-Vessel Batch",
-            boilerId: rig.Id, hltId: rig.Id, mashTunId: rig.Id,
-            status: BatchStatus.Brewing, stage: BrewStage.Mash);
-
-        // 4. Create Batch 2: Rig is used as MashTun AND Boiler
-        var b2 = await CreateSampleBatchAsync(client, recipe.Id, "Dual-Vessel Batch",
-            boilerId: rig.Id, mashTunId: rig.Id,
-            status: BatchStatus.Brewing, stage: BrewStage.Boil);
-
-        // 5. Create Batch 3: Rig is used as Boiler AND PackagingVessel (e.g. bottling bucket)
+        // 3. Create Batch 3 (Fermenting) and Batch 2 (Completed) first so hot-side rig is free for active Batch 1
         var b3 = await CreateSampleBatchAsync(client, recipe.Id, "Boil-and-Package Batch",
             boilerId: rig.Id, packagingVesselId: rig.Id,
             status: BatchStatus.Fermenting, stage: BrewStage.Ferment);
 
-        // 6. Inspect Active Batches API for multi-vessel assignment
+        var b2 = await CreateSampleBatchAsync(client, recipe.Id, "Dual-Vessel Batch",
+            boilerId: rig.Id, mashTunId: rig.Id,
+            status: BatchStatus.Completed, stage: BrewStage.Package);
+
+        // 4. Create Batch 1: Rig is actively used as Hlt, MashTun, AND Boiler simultaneously in Mash
+        var b1 = await CreateSampleBatchAsync(client, recipe.Id, "Triple-Vessel Batch",
+            boilerId: rig.Id, hltId: rig.Id, mashTunId: rig.Id,
+            status: BatchStatus.Brewing, stage: BrewStage.Mash);
+
+        // 6. Inspect Active Batches API for multi-vessel assignment (strictly stage-aware: only b1 actively uses rig in Mash)
         var activeRes = await client.GetAsync($"/api/v1/inventory/equipment/{rig.Id}/active-batches");
         activeRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var activeList = (await activeRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>())!.Data!;
-        activeList.Should().HaveCount(3);
-        activeList.Should().Contain(b => b.Id == b1.Id);
-        activeList.Should().Contain(b => b.Id == b2.Id);
-        activeList.Should().Contain(b => b.Id == b3.Id);
+        activeList.Should().ContainSingle(b => b.Id == b1.Id);
 
         // 7. Act: Delete equipment with ?force=true
         var deleteRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{rig.Id}?force=true");

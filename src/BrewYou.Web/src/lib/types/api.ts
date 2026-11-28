@@ -1365,6 +1365,8 @@ export interface AdvanceBatchStageRequest {
 	measuredPostBoilVolumeLiters?: number | null;
 	measuredPackagedVolumeLiters?: number | null;
 	force?: boolean | null;
+	fermenterId?: string | null;
+	fermentationSensorId?: string | null;
 }
 
 export interface AddBatchReadingRequest {
