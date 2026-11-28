@@ -2157,8 +2157,10 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         throttler.ShouldPersist(fermEquipmentId, t0.AddSeconds(2), 20.1m, stage: BrewStage.Ferment, batchId: batchId)
             .Should().BeFalse();
 
-        // Readings with no batch context never trigger the batch update rule
+        // Detaching from a batch (batchId -> null, stage -> null) persists immediately, then subsequent idle readings throttle
         throttler.ShouldPersist(fermEquipmentId, t0.AddSeconds(4), 20.2m)
+            .Should().BeTrue();
+        throttler.ShouldPersist(fermEquipmentId, t0.AddSeconds(6), 20.3m)
             .Should().BeFalse();
     }
 
