@@ -319,7 +319,7 @@
 
 		if (isBatchInProgress(updated)) {
 			startLiveTelemetryStream();
-			if (!isPastBatch) {
+			if (!isHistoricalBatch) {
 				startBrewLinkAutoSync();
 				const nextBrewLink = activeStageBrewLinkEquipment;
 				if (nextBrewLink && nextBrewLink.id !== prevBrewLinkId) {
@@ -409,13 +409,7 @@
 		return equipmentList.find((e) => e.id === b.hltId) ?? null;
 	});
 
-	let isPastBatch = $derived.by<boolean>(() => {
-		if (!batch?.brewDate) return false;
-		const datePart = batch.brewDate.slice(0, 10);
-		const now = new Date();
-		const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-		return datePart < todayStr;
-	});
+	let isHistoricalBatch = $derived(Boolean(batch?.isHistorical));
 
 	let activeStageBrewLinkEquipment = $derived.by<EquipmentDto | null>(() => {
 		if (!batch || equipmentList.length === 0) return null;
@@ -823,13 +817,13 @@
 		if (
 			brewLinkSyncTimer ||
 			!batch ||
-			isPastBatch ||
+			isHistoricalBatch ||
 			batch.status === 'Completed' ||
 			batch.status === 'Archived'
 		)
 			return;
 		brewLinkSyncTimer = setInterval(async () => {
-			if (document.visibilityState === 'hidden' || !batch || isPastBatch) return;
+			if (document.visibilityState === 'hidden' || !batch || isHistoricalBatch) return;
 			const targetEq = activeStageBrewLinkEquipment;
 			if (targetEq) {
 				try {
@@ -864,7 +858,7 @@
 					for (const r of latest) {
 						handleNewTelemetryReading(r);
 					}
-					if (!isPastBatch && activeStageBrewLinkEquipment) {
+					if (!isHistoricalBatch && activeStageBrewLinkEquipment) {
 						const res = await api.equipment.syncBrewLinkState(activeStageBrewLinkEquipment.id);
 						if (res && (res.temperatureC != null || res.metricsJson)) {
 							handleEquipmentUpdate({
@@ -881,7 +875,7 @@
 					// Transient gap recovery error ignored
 				}
 				startLiveTelemetryStream();
-				if (!isPastBatch) {
+				if (!isHistoricalBatch) {
 					startBrewLinkAutoSync();
 				}
 			}
@@ -895,7 +889,7 @@
 		await loadBatch();
 		if (batch && batch.status !== 'Completed' && batch.status !== 'Archived') {
 			startLiveTelemetryStream();
-			if (!isPastBatch) {
+			if (!isHistoricalBatch) {
 				startBrewLinkAutoSync();
 			}
 		}
@@ -1270,7 +1264,7 @@
 
 	let isBrewLinkOnline = $derived(
 		Boolean(
-			!isPastBatch &&
+			!isHistoricalBatch &&
 			activeStageBrewLinkEquipment &&
 			activeStageBrewLinkMetrics !== null &&
 			activeStageBrewLinkMetrics.connected !== false

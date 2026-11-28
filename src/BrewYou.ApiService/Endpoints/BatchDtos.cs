@@ -36,7 +36,8 @@ public record BatchSummaryDto(
     string? BoilerName = null,
     string? RecipeName = null,
     Guid? FermentationSensorId = null,
-    string? FermentationSensorName = null
+    string? FermentationSensorName = null,
+    bool IsHistorical = false
 );
 
 public record BatchReadingDto(
@@ -225,7 +226,8 @@ public record BatchDetailDto(
     BatchVolumeProfileDto? VolumeProfile,
     BatchDeviationsDto? Deviations = null,
     string? BoilerSyncStatus = null,
-    string? BoilerSyncWarning = null
+    string? BoilerSyncWarning = null,
+    bool IsHistorical = false
 );
 
 public record BatchDeviationsDto(
@@ -277,7 +279,8 @@ public record CreateBatchRequest(
     decimal? FermenterLossLiters = null,
     bool? SpargeEnabled = null,
     List<BatchSensorAssignmentInput>? SensorAssignments = null,
-    bool SendRecipeToBoiler = false
+    bool SendRecipeToBoiler = false,
+    bool? IsHistorical = null
 );
 
 public record BatchMashStepInputDto(
@@ -384,7 +387,8 @@ public record UpdateBatchRequest(
     decimal? PlumbingLossLiters = null,
     string? SpargeMethod = null,
     DateOnly? BrewDate = null,
-    BatchStatus? Status = null
+    BatchStatus? Status = null,
+    bool? IsHistorical = null
 );
 
 public record NextBatchCodeResponse(string BatchCode);

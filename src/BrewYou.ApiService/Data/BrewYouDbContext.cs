@@ -351,6 +351,7 @@ public class BrewYouDbContext : IdentityDbContext<ApplicationUser>, IDataProtect
             entity.Property(b => b.BeerStyle).HasMaxLength(100).IsRequired();
             entity.Property(b => b.Status).HasConversion<string>().HasMaxLength(30).IsRequired();
             entity.Property(b => b.CurrentStage).HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(b => b.IsHistorical).HasDefaultValue(false);
 
             entity.Property(b => b.TargetOg).HasPrecision(5, 4);
             entity.Property(b => b.TargetFg).HasPrecision(5, 4);

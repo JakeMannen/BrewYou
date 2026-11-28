@@ -106,6 +106,7 @@ test.describe('Post-Finish Batch Record Editing (R2)', () => {
 					beerStyle: (lastUpdateRequest.beerStyle ?? mockCompletedBatch.beerStyle) || '',
 					brewDate: lastUpdateRequest.brewDate ?? mockCompletedBatch.brewDate,
 					status: lastUpdateRequest.status ?? mockCompletedBatch.status,
+					isHistorical: lastUpdateRequest.isHistorical ?? mockCompletedBatch.isHistorical,
 					sensorAssignments: mockCompletedBatch.sensorAssignments,
 					updatedAt: new Date().toISOString()
 				};

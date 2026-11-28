@@ -2084,7 +2084,8 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             [
                 new(1, "Protein Rest", MashStepType.Temperature, 52.0m, 15),
                 new(2, "Saccharification", MashStepType.Temperature, 66.0m, 60)
-            ]
+            ],
+            IsHistorical: true
         ));
         batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
@@ -2147,7 +2148,8 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             EfficiencyPercent: null,
             BoilerId: boiler.Id,
             FermenterId: null,
-            CustomMashSteps: [new(1, "Single Infusion", MashStepType.Temperature, 66.0m, 60)]
+            CustomMashSteps: [new(1, "Single Infusion", MashStepType.Temperature, 66.0m, 60)],
+            IsHistorical: true
         ));
         autoBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var autoBatch = (await autoBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
@@ -2191,7 +2193,8 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             EfficiencyPercent: null,
             BoilerId: null,
             FermenterId: null,
-            CustomMashSteps: [new(1, "Single Infusion", MashStepType.Temperature, 67.0m, 60)]
+            CustomMashSteps: [new(1, "Single Infusion", MashStepType.Temperature, 67.0m, 60)],
+            IsHistorical: true
         ));
         noEqBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var noEqBatch = (await noEqBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
@@ -2323,7 +2326,8 @@ public class BatchEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             EfficiencyPercent: 70m,
             BoilerId: boilerId,
             FermenterId: fermenterId,
-            PackagingVesselId: kegId
+            PackagingVesselId: kegId,
+            IsHistorical: true
         ));
         pastCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var pastBatch = (await pastCreateRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;

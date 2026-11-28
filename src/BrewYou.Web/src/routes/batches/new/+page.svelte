@@ -67,10 +67,20 @@
 	let batchCodeManuallyEdited = $state(false);
 	let batchName = $state('');
 	let beerStyle = $state('American IPA');
-	let brewDate = $state(new Date().toISOString().split('T')[0]);
-	let isPastBrewDate = $derived(
-		Boolean(brewDate && brewDate < new Date().toISOString().split('T')[0])
-	);
+	function getLocalTodayIso(): string {
+		const now = new Date();
+		return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+	}
+
+	let brewDate = $state(getLocalTodayIso());
+	let isHistorical = $state(false);
+	let isHistoricalManuallyToggled = $state(false);
+
+	$effect(() => {
+		if (!isHistoricalManuallyToggled) {
+			isHistorical = Boolean(brewDate && brewDate < getLocalTodayIso());
+		}
+	});
 	let targetBatchSizeLiters = $state(20.0);
 	type BrewhouseTopology = '1V' | '2V_AIO_HLT' | '2V_MLT_BK' | '3V';
 
@@ -382,7 +392,7 @@
 	);
 
 	let isFermenterOccupied = $derived(
-		!isPastBrewDate && selectedFermenter !== null && selectedFermenter.currentVolumeLiters > 0
+		!isHistorical && selectedFermenter !== null && selectedFermenter.currentVolumeLiters > 0
 	);
 
 	let targetMashTempC = $derived.by(() => {
@@ -459,7 +469,7 @@
 
 	$effect(() => {
 		if (
-			isPastBrewDate ||
+			isHistorical ||
 			(selectedBoiler?.connectionType === 'BrewLink' && !isEquipmentOnline(selectedBoiler))
 		) {
 			sendRecipeToBoiler = false;
@@ -643,7 +653,7 @@
 				sendRecipeToBoiler &&
 				selectedBoiler &&
 				selectedBoiler.connectionType === 'BrewLink' &&
-				!isPastBrewDate &&
+				!isHistorical &&
 				isEquipmentOnline(selectedBoiler)
 			) {
 				brewLinkConfirmModalOpen = true;
@@ -731,9 +741,10 @@
 					sendRecipeToBoiler &&
 					selectedBoiler &&
 					selectedBoiler.connectionType === 'BrewLink' &&
-					!isPastBrewDate &&
+					!isHistorical &&
 					isEquipmentOnline(selectedBoiler)
-				)
+				),
+				isHistorical
 			};
 
 			const created = await api.batches.create(req);
@@ -742,7 +753,7 @@
 				selectedBoiler &&
 				selectedBoiler.connectionType === 'BrewLink' &&
 				!created.boilerSyncStatus &&
-				!isPastBrewDate &&
+				!isHistorical &&
 				isEquipmentOnline(selectedBoiler)
 			) {
 				try {
@@ -1047,7 +1058,31 @@
 							onchange={() => void refreshBatchCodeForDate(brewDate)}
 							class="h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
-						{#if isPastBrewDate}
+						<label
+							for="historical-batch-toggle"
+							class="mt-2 flex cursor-pointer items-start gap-2.5 rounded-xl border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 text-xs transition-colors hover:border-amber-500/40 dark:border-white/10 dark:bg-zinc-900/60"
+						>
+							<input
+								id="historical-batch-toggle"
+								data-testid="historical-batch-toggle"
+								type="checkbox"
+								checked={isHistorical}
+								onchange={(e) => {
+									isHistoricalManuallyToggled = true;
+									isHistorical = (e.currentTarget as HTMLInputElement).checked;
+								}}
+								class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500 dark:border-zinc-700 dark:bg-zinc-800"
+							/>
+							<span class="space-y-0.5">
+								<span class="block font-semibold text-zinc-800 dark:text-zinc-200">
+									{t('batches.wizard.historical_batch_toggle')}
+								</span>
+								<span class="block text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+									{t('batches.wizard.historical_batch_desc')}
+								</span>
+							</span>
+						</label>
+						{#if isHistorical}
 							<p
 								data-testid="past-brew-date-notice"
 								class="mt-1 flex items-start gap-1.5 rounded-lg border border-sky-500/25 bg-sky-500/10 px-2.5 py-1.5 text-[11px] leading-snug text-sky-800 dark:text-sky-200"
@@ -1260,7 +1295,7 @@
 							<option value="">-- {t('batches.equipment.select_hlt_placeholder')} --</option>
 							{#each hlts as h}
 								<option value={h.id}>
-									{h.name} [{getSubtypeName(h.subtype)}] ({h.capacityLiters}L){!isPastBrewDate &&
+									{h.name} [{getSubtypeName(h.subtype)}] ({h.capacityLiters}L){!isHistorical &&
 									h.currentVolumeLiters > 0
 										? ` ${t('batches.equipment.in_use_suffix')}`
 										: ''}
@@ -1304,7 +1339,7 @@
 							<option value="">-- {t('batches.equipment.select_mash_tun_placeholder')} --</option>
 							{#each mashTuns as m}
 								<option value={m.id}>
-									{m.name} [{getSubtypeName(m.subtype)}] ({m.capacityLiters}L){!isPastBrewDate &&
+									{m.name} [{getSubtypeName(m.subtype)}] ({m.capacityLiters}L){!isHistorical &&
 									m.currentVolumeLiters > 0
 										? ` ${t('batches.equipment.in_use_suffix')}`
 										: ''}
@@ -1350,7 +1385,7 @@
 						<option value="">-- {t('batches.equipment.select_boiler_placeholder')} --</option>
 						{#each boilers as b}
 							<option value={b.id}>
-								{b.name} [{getSubtypeName(b.subtype)}] ({b.capacityLiters}L){!isPastBrewDate &&
+								{b.name} [{getSubtypeName(b.subtype)}] ({b.capacityLiters}L){!isHistorical &&
 								b.currentVolumeLiters > 0
 									? ` ${t('batches.equipment.in_use_suffix')}`
 									: ''}
@@ -1372,7 +1407,7 @@
 							>
 								{t('batches.equipment.capacity', { liters: selectedBoiler.capacityLiters })}
 							</span>
-							{#if !isPastBrewDate && selectedBoiler.currentVolumeLiters > 0}
+							{#if !isHistorical && selectedBoiler.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 								>
@@ -1414,7 +1449,7 @@
 									id="brewlink-send-toggle"
 									data-testid="brewlink-send-toggle"
 									type="checkbox"
-									disabled={isPastBrewDate || !isEquipmentOnline(selectedBoiler)}
+									disabled={isHistorical || !isEquipmentOnline(selectedBoiler)}
 									bind:checked={sendRecipeToBoiler}
 									class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800"
 								/>
@@ -1508,7 +1543,7 @@
 						<option value="">-- {t('batches.equipment.select_fermenter_placeholder')} --</option>
 						{#each fermenters as f}
 							<option value={f.id}>
-								{f.name} [{getSubtypeName(f.subtype)}] ({f.capacityLiters}L){!isPastBrewDate &&
+								{f.name} [{getSubtypeName(f.subtype)}] ({f.capacityLiters}L){!isHistorical &&
 								f.currentVolumeLiters > 0
 									? ` ${t('batches.equipment.occupied_suffix')}`
 									: ''}
@@ -1542,7 +1577,7 @@
 									{t('batches.equipment.headspace', { headspace: fermenterHeadspacePercent })}
 								</span>
 							{/if}
-							{#if !isPastBrewDate && selectedFermenter.currentVolumeLiters > 0}
+							{#if !isHistorical && selectedFermenter.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 								>
@@ -1669,7 +1704,7 @@
 						>
 						{#each packagingVessels as p}
 							<option value={p.id}>
-								{p.name} [{getSubtypeName(p.subtype)}] ({p.capacityLiters}L){!isPastBrewDate &&
+								{p.name} [{getSubtypeName(p.subtype)}] ({p.capacityLiters}L){!isHistorical &&
 								p.currentVolumeLiters > 0
 									? ` ${t('batches.equipment.in_use_suffix')}`
 									: ''}
@@ -1696,7 +1731,7 @@
 									liters: selectedPackagingVessel.capacityLiters
 								})}
 							</span>
-							{#if !isPastBrewDate && selectedPackagingVessel.currentVolumeLiters > 0}
+							{#if !isHistorical && selectedPackagingVessel.currentVolumeLiters > 0}
 								<span
 									class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
 								>

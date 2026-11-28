@@ -2463,4 +2463,116 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         detail.FermentationSteps.Should().NotBeEmpty();
         detail.FermentationSteps.First().ActualTemperatureC.Should().Be(20.6m);
     }
+
+    [Fact]
+    public async Task IngestTelemetry_CrossMidnightMashAndCollaboratorMismatchedSetup_AssociatesWithLiveBatchesOnly()
+    {
+        var (ownerClient, ownerId, sharedSetupId) = await CreateUserAsync();
+        var (collabClient, collabId, collabPersonalSetupId) = await CreateUserAsync();
+
+        // Add collaborator as Brewer on owner's shared setup
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            db.BreweryMembers.Add(new BreweryMember
+            {
+                BrewerySetupId = sharedSetupId,
+                UserId = collabId,
+                Role = BreweryRole.Brewer
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Cross-midnight Mash: Owner has a live batch started yesterday (e.g. evening west of UTC) still in Mash
+        var boilerRes = await ownerClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            sharedSetupId, $"Midnight Kettle {Guid.NewGuid():N}", EquipmentType.Boiler, 40m,
+            Subtype: EquipmentSubtype.AllInOne, ConnectionType: EquipmentConnectionType.HttpPush));
+        boilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await boilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var yesterdayUtc = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var mashBatchRes = await ownerClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-MID-{Guid.NewGuid():N}"[..16], "Evening Cross-Midnight Mash", "IPA",
+            yesterdayUtc, 20m, 1.055m, 1.012m, 5.6m, 40m, 8m, 60, 75m, boiler.Id, null,
+            IsHistorical: false));
+        mashBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var mashBatch = (await mashBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var publicClient = _factory.CreateClient();
+        using (var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment"))
+        {
+            req.Headers.Add("X-BrewYou-Device-Token", boiler.ConnectionToken!);
+            req.Content = JsonContent.Create(new { temperature = 66.2, unit = "C" });
+            (await publicClient.SendAsync(req)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var mashReadings = (await (await ownerClient.GetAsync($"/api/v1/batches/{mashBatch.Id}/equipment-readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        mashReadings.Should().Contain(r => r.EquipmentId == boiler.Id && r.TemperatureC == 66.2m && r.Stage == BrewStage.Mash);
+
+        // 2. Collaborator setup mismatch: Collaborator starts a batch with personal Boiler (setup P) + shared Fermenter & Sensor (setup S)
+        var personalBoilerRes = await collabClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            collabPersonalSetupId, $"Collab Personal Kettle {Guid.NewGuid():N}", EquipmentType.Boiler, 35m));
+        personalBoilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var personalBoiler = (await personalBoilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var sharedFermRes = await ownerClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            sharedSetupId, $"Shared Conical {Guid.NewGuid():N}", EquipmentType.Fermenter, 30m,
+            Subtype: EquipmentSubtype.ConicalFermenter));
+        sharedFermRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sharedFerm = (await sharedFermRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var sharedSensorRes = await ownerClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            sharedSetupId, $"Shared iSpindel {Guid.NewGuid():N}", EquipmentType.Sensor, 0m,
+            Subtype: EquipmentSubtype.ISpindel, ConnectionType: EquipmentConnectionType.HttpPush));
+        sharedSensorRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sharedSensor = (await sharedSensorRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var collabBatchRes = await collabClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-COL-{Guid.NewGuid():N}"[..16], "Cross-Setup Collab Brew", "Pale Ale",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.052m, 1.010m, 5.5m, 35m, 6m, 60, 75m,
+            personalBoiler.Id, sharedFerm.Id,
+            SensorAssignments: [new BatchSensorAssignmentInput(sharedSensor.Id, BrewStage.Ferment, null)]));
+        collabBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var collabBatch = (await collabBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var advCollabRes = await collabClient.PatchAsJsonAsync($"/api/v1/batches/{collabBatch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.052m));
+        advCollabRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var sensorReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment"))
+        {
+            sensorReq.Headers.Add("X-BrewYou-Device-Token", sharedSensor.ConnectionToken!);
+            sensorReq.Content = JsonContent.Create(new { name = sharedSensor.Name, temperature = 19.8, gravity = 1.024, angle = 45.0, battery = 4.0 });
+            (await publicClient.SendAsync(sensorReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var collabReadings = (await (await collabClient.GetAsync($"/api/v1/batches/{collabBatch.Id}/equipment-readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        collabReadings.Should().Contain(r => r.EquipmentId == sharedSensor.Id && r.TemperatureC == 19.8m && r.SpecificGravity == 1.024m);
+
+        // 3. Historical batch must NOT capture live telemetry
+        var histBoilerRes = await ownerClient.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            sharedSetupId, $"Hist Kettle {Guid.NewGuid():N}", EquipmentType.Boiler, 35m,
+            ConnectionType: EquipmentConnectionType.HttpPush));
+        var histBoiler = (await histBoilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        var histBatchRes = await ownerClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-HTL-{Guid.NewGuid():N}"[..16], "Historical Telemetry Ignored", "Stout",
+            yesterdayUtc, 20m, 1.055m, 1.012m, 5.6m, 40m, 30m, 60, 75m, histBoiler.Id, null,
+            IsHistorical: true));
+        histBatchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var histBatch = (await histBatchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        using (var histReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/telemetry/equipment"))
+        {
+            histReq.Headers.Add("X-BrewYou-Device-Token", histBoiler.ConnectionToken!);
+            histReq.Content = JsonContent.Create(new { temperature = 67.5, unit = "C" });
+            (await publicClient.SendAsync(histReq)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var histReadings = (await (await ownerClient.GetAsync($"/api/v1/batches/{histBatch.Id}/equipment-readings"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
+        histReadings.Should().BeEmpty();
+    }
 }

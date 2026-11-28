@@ -882,28 +882,29 @@ public class TelemetryService : ITelemetryService
         decimal? targetTempC = null;
         decimal? recordedGravity = gravity;
 
-        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
-
         var isEligibleTelemetrySensor = BatchService.IsEligibleBatchTelemetrySensor(equipment);
 
-        // Check if this equipment is currently in use for the active stage of an in-progress batch
+        if (equipment.BrewerySetup == null && equipment.BrewerySetupId != Guid.Empty)
+        {
+            equipment.BrewerySetup = await _db.BrewerySetups
+                .AsNoTracking()
+                .Include(s => s.Members)
+                .FirstOrDefaultAsync(s => s.Id == equipment.BrewerySetupId);
+        }
+
+        var authorizedUserIds = EquipmentAccessHelper.GetAuthorizedSetupUserIds(equipment).ToList();
+
+        // Check if this equipment is currently in use for the active stage of an in-progress live batch
         var activeBatch = await _db.Batches
             .Include(b => b.MashSteps)
             .Include(b => b.FermentationSteps)
             .Include(b => b.Readings)
             .Include(b => b.SensorAssignments)
+            .Where(BatchLifecycle.UsesEquipmentOrSensorInActiveStage(equipment.Id, isEligibleTelemetrySensor))
             .Where(b =>
-                (b.UserId == equipment.UserId || (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId)) &&
-                (b.Status == BatchStatus.Brewing || b.Status == BatchStatus.Fermenting || b.Status == BatchStatus.Conditioning) &&
-                (
-                    ((equipment.Id == b.MashTunId || equipment.Id == b.BoilerId || equipment.Id == b.HltId) && b.CurrentStage == BrewStage.Mash && b.BrewDate >= todayUtc) ||
-                    (equipment.Id == b.BoilerId && b.CurrentStage == BrewStage.Boil && b.BrewDate >= todayUtc) ||
-                    (equipment.Id == b.FermenterId && (b.CurrentStage == BrewStage.Ferment || b.CurrentStage == BrewStage.Condition)) ||
-                    (equipment.Id == b.PackagingVesselId && b.CurrentStage == BrewStage.Package) ||
-                    (isEligibleTelemetrySensor && b.SensorAssignments.Any(sa =>
-                        sa.EquipmentId == equipment.Id &&
-                        (sa.Stage == null || sa.Stage == b.CurrentStage)))
-                ))
+                b.UserId == equipment.UserId ||
+                authorizedUserIds.Contains(b.UserId) ||
+                (b.BrewerySetupId != null && b.BrewerySetupId == equipment.BrewerySetupId))
             .OrderByDescending(b => b.UpdatedAt)
             .ThenByDescending(b => b.CreatedAt)
             .FirstOrDefaultAsync();

@@ -19,18 +19,24 @@ public class BatchService : IBatchService
     private readonly ITelemetryBroadcastService _broadcastService;
     private readonly ILogger<BatchService> _logger;
     private readonly IBrewLinkService? _brewLinkService;
+    private readonly TimeProvider _timeProvider;
 
     public BatchService(
         BrewYouDbContext db,
         ITelemetryBroadcastService broadcastService,
         ILogger<BatchService> logger,
-        IBrewLinkService? brewLinkService = null)
+        IBrewLinkService? brewLinkService = null,
+        TimeProvider? timeProvider = null)
     {
         _db = db;
         _broadcastService = broadcastService;
         _logger = logger;
         _brewLinkService = brewLinkService;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
+
+    private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
+    private DateOnly TodayUtc => DateOnly.FromDateTime(UtcNow);
 
     private IQueryable<Equipment> GetAccessibleEquipment(string userId)
     {
@@ -126,7 +132,7 @@ public class BatchService : IBatchService
                 .ToDictionary(g => g.Key, g => (IReadOnlyList<EquipmentReadingSummary>)g.ToList())
             : new Dictionary<Guid, IReadOnlyList<EquipmentReadingSummary>>();
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = TodayUtc;
         var items = batches.Select(b =>
         {
             equipmentReadingsByBatch.TryGetValue(b.Id, out var eqReadings);
@@ -183,7 +189,8 @@ public class BatchService : IBatchService
                 b.Boiler?.Name,
                 b.Recipe?.Name ?? b.RecipeName,
                 fermentationSensor?.Id,
-                fermentationSensor?.Name
+                fermentationSensor?.Name,
+                b.IsHistorical
             );
         }).ToList();
 
@@ -518,7 +525,7 @@ public class BatchService : IBatchService
 
     public async Task<string> GetNextBatchCodeAsync(string userId, DateOnly? date = null)
     {
-        var targetDate = date ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var targetDate = date ?? TodayUtc;
         var prefix = $"B-{targetDate:yyyy-MM-dd}-";
 
         var existingCodes = await _db.Batches
@@ -656,10 +663,10 @@ public class BatchService : IBatchService
         }
 
         var plannedVolume = request.TargetBatchSizeLiters ?? recipe?.BatchSizeLiters ?? 20.0m;
-        var brewDate = request.BrewDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var isPastBatch = IsPastBatch(brewDate);
+        var brewDate = request.BrewDate ?? TodayUtc;
+        var isHistorical = request.IsHistorical ?? false;
 
-        if (!isPastBatch)
+        if (!isHistorical)
         {
             foreach (var candidate in new[] { hlt, mashTun, boiler }.Where(e => e != null).DistinctBy(e => e!.Id))
             {
@@ -728,6 +735,7 @@ public class BatchService : IBatchService
             Status = BatchStatus.Brewing,
             CurrentStage = BrewStage.Mash,
             BrewDate = brewDate,
+            IsHistorical = isHistorical,
             TargetBatchSizeLiters = plannedVolume,
             BoilTimeMinutes = request.BoilTimeMinutes ?? recipe?.BoilTimeMinutes ?? 60,
             EfficiencyPercent = request.EfficiencyPercent ?? recipe?.EfficiencyPercent ?? 72.0m,
@@ -999,10 +1007,10 @@ public class BatchService : IBatchService
 
         // 7.5 Baseline telemetry: log the primary vessel's live temperature against mash step 1 for live batches only
         var primaryVessel = mashTun ?? boiler;
-        if (!IsPastBatch(brewDate) && primaryVessel?.CurrentTemperatureC != null && batch.MashSteps.Count > 0)
+        if (!isHistorical && primaryVessel?.CurrentTemperatureC != null && batch.MashSteps.Count > 0)
         {
             var firstStep = batch.MashSteps.OrderBy(s => s.StepOrder).First();
-            var nowUtc = DateTime.UtcNow;
+            var nowUtc = UtcNow;
             firstStep.ActualTemperatureC = primaryVessel.CurrentTemperatureC.Value;
 
             batch.EquipmentReadings.Add(new EquipmentReading
@@ -1022,9 +1030,9 @@ public class BatchService : IBatchService
         // 8. Transactional Equipment Occupancy
         if (_db.Database.IsInMemory())
         {
-            if (!isPastBatch)
+            if (!isHistorical)
             {
-                OccupyInitialMashVessels(hlt, mashTun, boiler, plannedVolume, volumeResult, DateTime.UtcNow);
+                OccupyInitialMashVessels(hlt, mashTun, boiler, plannedVolume, volumeResult, UtcNow);
             }
 
             _db.Batches.Add(batch);
@@ -1038,9 +1046,9 @@ public class BatchService : IBatchService
                 await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
                 try
                 {
-                    if (!isPastBatch)
+                    if (!isHistorical)
                     {
-                        OccupyInitialMashVessels(hlt, mashTun, boiler, plannedVolume, volumeResult, DateTime.UtcNow);
+                        OccupyInitialMashVessels(hlt, mashTun, boiler, plannedVolume, volumeResult, UtcNow);
                     }
 
                     _db.Batches.Add(batch);
@@ -1059,7 +1067,7 @@ public class BatchService : IBatchService
         string? boilerSyncStatus = null;
         string? boilerSyncWarning = null;
 
-        if (request.SendRecipeToBoiler && batch.BoilerId.HasValue && _brewLinkService != null)
+        if (!isHistorical && request.SendRecipeToBoiler && batch.BoilerId.HasValue && _brewLinkService != null)
         {
             if (boiler?.ConnectionType == EquipmentConnectionType.BrewLink)
             {
@@ -1103,9 +1111,6 @@ public class BatchService : IBatchService
         return (BatchAccessResult.Success, MapToDetailDto(batch, boilerSyncStatus, boilerSyncWarning), null);
     }
 
-    private static bool IsPastBatch(DateOnly brewDate) =>
-        brewDate < DateOnly.FromDateTime(DateTime.UtcNow);
-
     public async Task<(BatchAccessResult Result, BatchDetailDto? Batch, string? ErrorMessage)> AdvanceStageAsync(
         Guid id, AdvanceBatchStageRequest request, string userId)
     {
@@ -1132,7 +1137,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.Conflict, null, "Cannot move batch backward to a previous stage.");
             }
 
-            var isPastBatch = IsPastBatch(batch.BrewDate);
+            var isHistorical = batch.IsHistorical;
 
             if (oldStage == BrewStage.Mash && newStage > BrewStage.Mash)
             {
@@ -1141,7 +1146,7 @@ public class BatchService : IBatchService
                 var isMashControlledByBrewLink = (mashTun != null && mashTun.ConnectionType == EquipmentConnectionType.BrewLink) ||
                                                  (boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink);
 
-                if (!isPastBatch && !request.Force && isMashControlledByBrewLink && batch.MashSteps.Count > 0 && batch.MashSteps.Any(s => !s.IsCompleted))
+                if (!isHistorical && !request.Force && isMashControlledByBrewLink && batch.MashSteps.Count > 0 && batch.MashSteps.Any(s => !s.IsCompleted))
                 {
                     return (BatchAccessResult.Conflict, null,
                         "Cannot advance stage: BrewLink mash process is still in progress with incomplete mash steps.");
@@ -1152,7 +1157,7 @@ public class BatchService : IBatchService
                 var boiler = batch.Boiler;
                 var isBoilControlledByBrewLink = boiler != null && boiler.ConnectionType == EquipmentConnectionType.BrewLink;
 
-                if (!isPastBatch && isBoilControlledByBrewLink && !request.Force && !string.IsNullOrWhiteSpace(boiler?.LatestMetricsJson))
+                if (!isHistorical && isBoilControlledByBrewLink && !request.Force && !string.IsNullOrWhiteSpace(boiler?.LatestMetricsJson))
                 {
                     var canonical = BrewLinkTelemetryParser.FromMetricsJson(boiler.LatestMetricsJson);
                     if (canonical?.Timer != null && (canonical.Timer.Active || (canonical.Timer.RemainingSeconds.HasValue && canonical.Timer.RemainingSeconds.Value > 0)))
@@ -1185,7 +1190,7 @@ public class BatchService : IBatchService
                 }
             }
 
-            if (!isPastBatch)
+            if (!isHistorical)
             {
                 if (newStage == BrewStage.Boil && batch.Boiler != null &&
                     await IsEquipmentOccupiedByOtherBatchAsync(batch.Boiler, batch.Id, userId))
@@ -1212,7 +1217,7 @@ public class BatchService : IBatchService
                 }
             }
 
-            var now = DateTime.UtcNow;
+            var now = UtcNow;
 
             // Complete old stage in history
             var currentHistory = batch.StageHistory.FirstOrDefault(sh => sh.Stage == oldStage);
@@ -1320,7 +1325,7 @@ public class BatchService : IBatchService
             // Handle Equipment Volumetric Transitions & Status Updates
             if (newStage == BrewStage.Boil)
             {
-                if (!isPastBatch)
+                if (!isHistorical)
                 {
                     if (batch.MashTun != null && batch.MashTun.Id != batch.BoilerId)
                     {
@@ -1346,7 +1351,7 @@ public class BatchService : IBatchService
             }
             else if (oldStage is BrewStage.Mash or BrewStage.Boil && newStage is BrewStage.Ferment or BrewStage.Condition)
             {
-                if (!isPastBatch)
+                if (!isHistorical)
                 {
                     // Free Hot-Side Vessels only when not occupied by another active batch
                     await TryResetEquipmentVolumeIfOwnedAsync(batch.MashTun, batch.Id, now);
@@ -1393,7 +1398,7 @@ public class BatchService : IBatchService
             }
             else if (newStage == BrewStage.Package)
             {
-                if (!isPastBatch)
+                if (!isHistorical)
                 {
                     await TryResetEquipmentVolumeIfOwnedAsync(batch.MashTun, batch.Id, now);
                     await TryResetEquipmentVolumeIfOwnedAsync(batch.Hlt, batch.Id, now);
@@ -1410,36 +1415,34 @@ public class BatchService : IBatchService
                     batch.PackagingVessel = selectedPackagingVessel;
                 }
 
-                if (!isPastBatch)
+                // Always decouple replaced/cleared Keg when this batch owned it (never gated on historical)
+                if (oldPackagingVessel != null &&
+                    oldPackagingVessel.Id != batch.PackagingVesselId &&
+                    oldPackagingVessel.Type == EquipmentType.Keg &&
+                    oldPackagingVessel.AssignedBatchId == batch.Id)
                 {
-                    if (oldPackagingVessel != null &&
-                        oldPackagingVessel.Id != batch.PackagingVesselId &&
-                        oldPackagingVessel.Type == EquipmentType.Keg &&
-                        oldPackagingVessel.AssignedBatchId == batch.Id)
-                    {
-                        oldPackagingVessel.AssignedBatchId = null;
-                        oldPackagingVessel.AssignedBatch = null;
-                        oldPackagingVessel.AssignedAt = null;
-                        oldPackagingVessel.CurrentVolume = 0m;
-                        oldPackagingVessel.CurrentVolumeLiters = 0m;
-                        oldPackagingVessel.UpdatedAt = now;
-                    }
+                    oldPackagingVessel.AssignedBatchId = null;
+                    oldPackagingVessel.AssignedBatch = null;
+                    oldPackagingVessel.AssignedAt = null;
+                    oldPackagingVessel.CurrentVolume = 0m;
+                    oldPackagingVessel.CurrentVolumeLiters = 0m;
+                    oldPackagingVessel.UpdatedAt = now;
+                }
 
-                    if (batch.PackagingVessel != null)
-                    {
-                        var vol = request.MeasuredPackagedVolumeLiters
-                            ?? batch.VolumeProfile?.MeasuredPackagedVolumeLiters
-                            ?? batch.VolumeProfile?.TargetPackagedVolumeLiters
-                            ?? batch.MeasuredBatchSizeLiters
-                            ?? batch.TargetBatchSizeLiters;
-                        SetEquipmentVolume(batch.PackagingVessel, vol, now);
+                if (!isHistorical && batch.PackagingVessel != null)
+                {
+                    var vol = request.MeasuredPackagedVolumeLiters
+                        ?? batch.VolumeProfile?.MeasuredPackagedVolumeLiters
+                        ?? batch.VolumeProfile?.TargetPackagedVolumeLiters
+                        ?? batch.MeasuredBatchSizeLiters
+                        ?? batch.TargetBatchSizeLiters;
+                    SetEquipmentVolume(batch.PackagingVessel, vol, now);
 
-                        if (batch.PackagingVessel.Type == EquipmentType.Keg)
-                        {
-                            batch.PackagingVessel.AssignedBatchId = batch.Id;
-                            batch.PackagingVessel.AssignedBatch = batch;
-                            batch.PackagingVessel.AssignedAt = now;
-                        }
+                    if (batch.PackagingVessel.Type == EquipmentType.Keg)
+                    {
+                        batch.PackagingVessel.AssignedBatchId = batch.Id;
+                        batch.PackagingVessel.AssignedBatch = batch;
+                        batch.PackagingVessel.AssignedAt = now;
                     }
                 }
 
@@ -1594,8 +1597,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.ValidationFailed, null, "Taps and BrewLink gateways cannot be used for batch telemetry readings.");
             }
 
-            if (!IsPastBatch(batch.BrewDate) &&
-                batch.Status != BatchStatus.Completed &&
+            if (BatchLifecycle.OccupiesLiveEquipment(batch) &&
                 await IsEquipmentOccupiedByOtherBatchAsync(targetEquipment, batch.Id, userId))
             {
                 return (BatchAccessResult.Conflict, null, "Specified equipment is currently occupied by another active batch.");
@@ -1665,10 +1667,9 @@ public class BatchService : IBatchService
             }
         }
 
-        var nowUtc = DateTime.UtcNow;
+        var nowUtc = UtcNow;
         if (targetEquipment != null &&
-            !IsPastBatch(batch.BrewDate) &&
-            batch.Status != BatchStatus.Completed &&
+            BatchLifecycle.OccupiesLiveEquipment(batch) &&
             (IsEquipmentLinkedToBatch(batch, targetEquipment.Id) || targetEquipment.AssignedBatchId == batch.Id) &&
             !await IsEquipmentOccupiedByOtherBatchAsync(targetEquipment, batch.Id))
         {
@@ -1878,7 +1879,7 @@ public class BatchService : IBatchService
         {
             var primaryVessel = step.Batch.MashTun ?? step.Batch.Boiler;
             var interactionRequired = false;
-            if (!IsPastBatch(step.Batch.BrewDate) && !string.IsNullOrWhiteSpace(primaryVessel?.LatestMetricsJson))
+            if (!step.Batch.IsHistorical && !string.IsNullOrWhiteSpace(primaryVessel?.LatestMetricsJson))
             {
                 var canonical = BrewLinkTelemetryParser.FromMetricsJson(primaryVessel.LatestMetricsJson);
                 interactionRequired = canonical?.Interaction?.Required == true;
@@ -1986,6 +1987,40 @@ public class BatchService : IBatchService
     public async Task<(BatchAccessResult Result, BatchDetailDto? Batch, string? ErrorMessage)> UpdateBatchAsync(
         Guid id, UpdateBatchRequest request, string userId)
     {
+        if (_db.Database.IsInMemory())
+        {
+            return await ExecuteUpdateBatchCoreAsync(id, request, userId);
+        }
+
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            try
+            {
+                var result = await ExecuteUpdateBatchCoreAsync(id, request, userId);
+                if (result.Result == BatchAccessResult.Success)
+                {
+                    await tx.CommitAsync();
+                }
+                else
+                {
+                    await tx.RollbackAsync();
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                _logger.LogError(ex, "Failed to update batch {BatchId}", id);
+                throw;
+            }
+        });
+    }
+
+    private async Task<(BatchAccessResult Result, BatchDetailDto? Batch, string? ErrorMessage)> ExecuteUpdateBatchCoreAsync(
+        Guid id, UpdateBatchRequest request, string userId)
+    {
         var batch = await QueryBatchWithDetails()
             .FirstOrDefaultAsync(b => b.Id == id && b.UserId == userId);
 
@@ -1999,8 +2034,19 @@ public class BatchService : IBatchService
             return (BatchAccessResult.Conflict, null, "Archived batches cannot be modified.");
         }
 
-        var now = DateTime.UtcNow;
+        var now = UtcNow;
         var oldStatus = batch.Status;
+        var oldIsHistorical = batch.IsHistorical;
+        var effectiveStatus = request.Status ?? oldStatus;
+        var targetIsHistorical = request.IsHistorical ?? oldIsHistorical;
+
+        if (!oldIsHistorical && targetIsHistorical &&
+            BatchLifecycle.IsLiveStatus(oldStatus) &&
+            BatchLifecycle.IsLiveStatus(effectiveStatus))
+        {
+            return (BatchAccessResult.Conflict, null, "Cannot mark an active in-progress batch as historical. Complete, archive, or move it to Planned first.");
+        }
+
         var oldHlt = batch.Hlt;
         var oldMashTun = batch.MashTun;
         var oldBoiler = batch.Boiler;
@@ -2082,13 +2128,38 @@ public class BatchService : IBatchService
         if (request.SensorAssignments != null)
         {
             var (sensorResult, assignments, sensorErr) = await ValidateAndBuildSensorAssignmentsAsync(
-                batch, request.SensorAssignments, userId);
+                batch,
+                request.SensorAssignments,
+                userId,
+                checkOccupancyOverride: !targetIsHistorical && BatchLifecycle.IsLiveStatus(effectiveStatus));
 
             if (sensorResult != BatchAccessResult.Success)
             {
                 return (sensorResult, null, sensorErr);
             }
             validatedSensorAssignments = assignments;
+        }
+        else if (oldIsHistorical && !targetIsHistorical && BatchLifecycle.IsLiveStatus(effectiveStatus) && batch.SensorAssignments.Count > 0)
+        {
+            foreach (var existingSa in batch.SensorAssignments)
+            {
+                var occupiedByOtherBatch = await _db.BatchSensorAssignments
+                    .AsNoTracking()
+                    .AnyAsync(existing =>
+                        existing.EquipmentId == existingSa.EquipmentId &&
+                        existing.BatchId != batch.Id &&
+                        !existing.Batch.IsHistorical &&
+                        (existing.Batch.Status == BatchStatus.Brewing ||
+                         existing.Batch.Status == BatchStatus.Fermenting ||
+                         existing.Batch.Status == BatchStatus.Conditioning) &&
+                        (existing.Stage == null || existingSa.Stage == null || existing.Stage == existingSa.Stage));
+
+                if (occupiedByOtherBatch)
+                {
+                    var sensorName = existingSa.Equipment?.Name ?? "Sensor";
+                    return (BatchAccessResult.Conflict, null, $"Sensor '{sensorName}' is currently assigned to another active batch.");
+                }
+            }
         }
 
         var isReopeningFromCompleted = oldStatus == BatchStatus.Completed &&
@@ -2107,9 +2178,6 @@ public class BatchService : IBatchService
             }
         }
 
-        var effectiveBrewDate = request.BrewDate ?? batch.BrewDate;
-        var willBePastBatch = IsPastBatch(effectiveBrewDate);
-        var effectiveStatus = request.Status ?? oldStatus;
         var effectiveStage = batch.CurrentStage;
         if (request.Status.HasValue && request.Status.Value != oldStatus && request.Status.Value is not (BatchStatus.Completed or BatchStatus.Archived))
         {
@@ -2131,7 +2199,9 @@ public class BatchService : IBatchService
             }
         }
 
-        if (!willBePastBatch && effectiveStatus != BatchStatus.Archived)
+        var isRevivingFromHistorical = oldIsHistorical && !targetIsHistorical;
+
+        if (!targetIsHistorical && effectiveStatus != BatchStatus.Archived && effectiveStatus != BatchStatus.Planned)
         {
             var effectiveHlt = request.HltId.HasValue ? (request.HltId.Value == Guid.Empty ? null : newHlt) : batch.Hlt;
             var effectiveMashTun = request.MashTunId.HasValue ? (request.MashTunId.Value == Guid.Empty ? null : newMashTun) : batch.MashTun;
@@ -2177,18 +2247,19 @@ public class BatchService : IBatchService
 
             if ((effectiveStage == BrewStage.Package || effectiveStatus == BatchStatus.Completed) &&
                 effectivePackagingVessel != null &&
-                (effectivePackagingVessel.Id != batch.PackagingVesselId || request.MeasuredPackagedVolumeLiters.HasValue || (oldStatus != BatchStatus.Completed && effectiveStatus == BatchStatus.Completed)) &&
+                (isRevivingFromHistorical || effectivePackagingVessel.Id != batch.PackagingVesselId || request.MeasuredPackagedVolumeLiters.HasValue || (oldStatus != BatchStatus.Completed && effectiveStatus == BatchStatus.Completed)) &&
                 await IsEquipmentOccupiedByOtherBatchAsync(effectivePackagingVessel, batch.Id, userId))
             {
                 return (BatchAccessResult.Conflict, null, $"Equipment '{effectivePackagingVessel.Name}' is currently assigned to or occupied by another batch.");
             }
         }
 
-        // Apply scalar updates (persist BrewDate early before !IsPastBatch checks)
+        // Apply scalar updates
         if (!string.IsNullOrWhiteSpace(request.Name)) batch.Name = request.Name.Trim();
         if (!string.IsNullOrWhiteSpace(request.BeerStyle)) batch.BeerStyle = request.BeerStyle.Trim();
         if (request.Notes != null) batch.Notes = request.Notes.Trim();
         if (request.BrewDate.HasValue) batch.BrewDate = request.BrewDate.Value;
+        batch.IsHistorical = targetIsHistorical;
         if (request.MeasuredOg.HasValue) batch.MeasuredOg = request.MeasuredOg.Value;
         if (request.MeasuredFg.HasValue)
         {
@@ -2284,7 +2355,6 @@ public class BatchService : IBatchService
         }
 
         // Handle Status transitions & stage/equipment reconciliation
-        var isPastBatch = IsPastBatch(batch.BrewDate);
         if (request.Status.HasValue && request.Status.Value != oldStatus)
         {
             var targetStatus = request.Status.Value;
@@ -2292,7 +2362,7 @@ public class BatchService : IBatchService
             {
                 batch.Status = BatchStatus.Completed;
                 batch.CompletedAt ??= now;
-                if (!isPastBatch)
+                if (!oldIsHistorical)
                 {
                     if (batch.Hlt != null && batch.HltId != batch.PackagingVesselId) await TryResetEquipmentVolumeIfOwnedAsync(batch.Hlt, batch.Id, now);
                     if (batch.MashTun != null && batch.MashTunId != batch.PackagingVesselId) await TryResetEquipmentVolumeIfOwnedAsync(batch.MashTun, batch.Id, now);
@@ -2304,7 +2374,7 @@ public class BatchService : IBatchService
             {
                 batch.Status = BatchStatus.Archived;
                 batch.CompletedAt ??= now;
-                if (!isPastBatch)
+                if (!oldIsHistorical)
                 {
                     await TryResetEquipmentVolumeIfOwnedAsync(batch.Hlt, batch.Id, now);
                     await TryResetEquipmentVolumeIfOwnedAsync(batch.MashTun, batch.Id, now);
@@ -2372,7 +2442,7 @@ public class BatchService : IBatchService
                     await DecoupleAssignedEquipmentAsync(batch.Id, now);
                 }
 
-                if (!isPastBatch)
+                if (!batch.IsHistorical)
                 {
                     if (targetStatus == BatchStatus.Fermenting && batch.Fermenter != null)
                     {
@@ -2501,11 +2571,11 @@ public class BatchService : IBatchService
             oldPackagingVessel.UpdatedAt = now;
         }
 
-        // Live PackagingVessel occupancy updates (strictly guarded by !isPastBatch)
-        if (!isPastBatch && batch.Status != BatchStatus.Archived && (batch.CurrentStage == BrewStage.Package || batch.Status == BatchStatus.Completed))
+        // Live PackagingVessel occupancy updates (strictly guarded by !batch.IsHistorical)
+        if (!batch.IsHistorical && batch.Status != BatchStatus.Archived && (batch.CurrentStage == BrewStage.Package || batch.Status == BatchStatus.Completed))
         {
             if (batch.PackagingVessel != null &&
-                (packagingVesselChanged || request.MeasuredPackagedVolumeLiters.HasValue || (oldStatus != BatchStatus.Completed && batch.Status == BatchStatus.Completed)))
+                (isRevivingFromHistorical || packagingVesselChanged || request.MeasuredPackagedVolumeLiters.HasValue || (oldStatus != BatchStatus.Completed && batch.Status == BatchStatus.Completed)))
             {
                 var vol = request.MeasuredPackagedVolumeLiters
                     ?? batch.VolumeProfile?.MeasuredPackagedVolumeLiters
@@ -2524,8 +2594,8 @@ public class BatchService : IBatchService
             }
         }
 
-        // Live active vessel replacement/clearing volume reconciliation (strictly guarded by !isPastBatch)
-        if (!isPastBatch && batch.Status is BatchStatus.Brewing or BatchStatus.Fermenting or BatchStatus.Conditioning)
+        // Live active vessel replacement/clearing volume reconciliation (strictly guarded by !batch.IsHistorical)
+        if (BatchLifecycle.OccupiesLiveEquipment(batch))
         {
             if (hltChanged && oldHlt != null && !IsEquipmentStillReferencedOnBatch(batch, oldHlt.Id))
             {
@@ -2546,28 +2616,28 @@ public class BatchService : IBatchService
 
             if (batch.CurrentStage == BrewStage.Mash)
             {
-                if (mashTunChanged && batch.MashTun != null)
+                if ((mashTunChanged || isRevivingFromHistorical) && batch.MashTun != null)
                 {
                     var mashVol = batch.VolumeProfile?.StrikeWaterLiters > 0m ? batch.VolumeProfile.StrikeWaterLiters : batch.TargetBatchSizeLiters;
                     SetEquipmentVolume(batch.MashTun, mashVol, now);
                 }
-                if (boilerChanged && batch.Boiler != null && batch.BoilerId != batch.MashTunId && batch.MashTunId == null)
+                if ((boilerChanged || isRevivingFromHistorical) && batch.Boiler != null && batch.BoilerId != batch.MashTunId && batch.MashTunId == null)
                 {
                     SetEquipmentVolume(batch.Boiler, batch.TargetBatchSizeLiters, now);
                 }
-                if (hltChanged && batch.Hlt != null && batch.HltId != batch.MashTunId && batch.HltId != batch.BoilerId)
+                if ((hltChanged || isRevivingFromHistorical) && batch.Hlt != null && batch.HltId != batch.MashTunId && batch.HltId != batch.BoilerId)
                 {
                     SetEquipmentVolume(batch.Hlt, batch.VolumeProfile?.SpargeWaterLiters ?? 0m, now);
                 }
             }
-            else if (batch.CurrentStage == BrewStage.Boil && boilerChanged && batch.Boiler != null)
+            else if (batch.CurrentStage == BrewStage.Boil && (boilerChanged || isRevivingFromHistorical) && batch.Boiler != null)
             {
                 var boilVol = batch.VolumeProfile?.MeasuredPreBoilVolumeLiters
                     ?? batch.VolumeProfile?.TargetPreBoilVolumeLiters
                     ?? batch.TargetBatchSizeLiters;
                 SetEquipmentVolume(batch.Boiler, boilVol, now);
             }
-            else if (batch.CurrentStage is BrewStage.Ferment or BrewStage.Condition && fermenterChanged && batch.Fermenter != null)
+            else if (batch.CurrentStage is BrewStage.Ferment or BrewStage.Condition && (fermenterChanged || isRevivingFromHistorical) && batch.Fermenter != null)
             {
                 var fermVol = batch.MeasuredBatchSizeLiters ?? batch.TargetBatchSizeLiters;
                 SetEquipmentVolume(batch.Fermenter, fermVol, now);
@@ -2627,10 +2697,10 @@ public class BatchService : IBatchService
             return BatchAccessResult.NotFound;
         }
 
-        var now = DateTime.UtcNow;
+        var now = UtcNow;
         await DecoupleAssignedEquipmentAsync(batch.Id, now);
 
-        if (!IsPastBatch(batch.BrewDate) && batch.Status != BatchStatus.Completed && batch.Status != BatchStatus.Archived)
+        if (BatchLifecycle.OccupiesLiveEquipment(batch))
         {
             // Free associated active equipment only when not actively occupied by another batch
             await TryResetEquipmentVolumeIfOwnedAsync(batch.Hlt, batch.Id, now);
@@ -2792,11 +2862,12 @@ public class BatchService : IBatchService
         Batch batch,
         IEnumerable<BatchSensorAssignmentInput> inputs,
         string userId,
-        bool allowRecipeMashStepFallback = false)
+        bool allowRecipeMashStepFallback = false,
+        bool? checkOccupancyOverride = null)
     {
         var assignments = new List<BatchSensorAssignment>();
         var seenKeys = new HashSet<(Guid EquipmentId, BrewStage? Stage, Guid? BatchMashStepId)>();
-        var checkOccupancy = batch.Status is BatchStatus.Brewing or BatchStatus.Fermenting or BatchStatus.Conditioning;
+        var checkOccupancy = checkOccupancyOverride ?? BatchLifecycle.OccupiesLiveEquipment(batch);
 
         foreach (var sa in inputs)
         {
@@ -2846,6 +2917,7 @@ public class BatchService : IBatchService
                     .AnyAsync(existing =>
                         existing.EquipmentId == sensorEq.Id &&
                         existing.BatchId != batch.Id &&
+                        !existing.Batch.IsHistorical &&
                         (existing.Batch.Status == BatchStatus.Brewing ||
                          existing.Batch.Status == BatchStatus.Fermenting ||
                          existing.Batch.Status == BatchStatus.Conditioning) &&
@@ -2871,9 +2943,9 @@ public class BatchService : IBatchService
         return (BatchAccessResult.Success, assignments, null);
     }
 
-    private static BatchDetailDto MapToDetailDto(Batch b, string? boilerSyncStatus = null, string? boilerSyncWarning = null, decimal? resolvedCurrentGravity = null)
+    private BatchDetailDto MapToDetailDto(Batch b, string? boilerSyncStatus = null, string? boilerSyncWarning = null, decimal? resolvedCurrentGravity = null)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = TodayUtc;
         var latestReading = b.Readings.OrderByDescending(r => r.Timestamp).FirstOrDefault();
         var effectiveReadingOg = b.MeasuredOg ?? (b.TargetOg > 1.000m ? b.TargetOg : (decimal?)null);
 
@@ -3065,7 +3137,8 @@ public class BatchService : IBatchService
             ) : null,
             Deviations: deviations,
             BoilerSyncStatus: boilerSyncStatus,
-            BoilerSyncWarning: boilerSyncWarning
+            BoilerSyncWarning: boilerSyncWarning,
+            IsHistorical: b.IsHistorical
         );
     }
 
@@ -3168,8 +3241,7 @@ public class BatchService : IBatchService
         string equipmentName = "Manual";
 
         var timestamp = ClampReadingTimestamp(request.Timestamp, batch.BrewDate);
-        var canUpdateLiveEquipment = !IsPastBatch(batch.BrewDate) &&
-                                     batch.Status != BatchStatus.Completed &&
+        var canUpdateLiveEquipment = BatchLifecycle.OccupiesLiveEquipment(batch) &&
                                      stage == batch.CurrentStage;
 
         if (request.EquipmentId.HasValue)
@@ -3186,8 +3258,7 @@ public class BatchService : IBatchService
                 return (BatchAccessResult.ValidationFailed, null, "Taps and BrewLink gateways cannot be used for batch telemetry readings.");
             }
 
-            if (!IsPastBatch(batch.BrewDate) &&
-                batch.Status != BatchStatus.Completed &&
+            if (BatchLifecycle.OccupiesLiveEquipment(batch) &&
                 await IsEquipmentOccupiedByOtherBatchAsync(eq, batch.Id, userId))
             {
                 return (BatchAccessResult.Conflict, null, "Specified equipment is currently occupied by another active batch.");
@@ -3752,9 +3823,9 @@ public class BatchService : IBatchService
         _ => DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)
     };
 
-    private static DateTime ClampReadingTimestamp(DateTime? requestedTimestamp, DateOnly brewDate)
+    private DateTime ClampReadingTimestamp(DateTime? requestedTimestamp, DateOnly brewDate)
     {
-        var now = DateTime.UtcNow;
+        var now = UtcNow;
         if (!requestedTimestamp.HasValue)
         {
             return now;
@@ -3787,21 +3858,14 @@ public class BatchService : IBatchService
             return true;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var eqId = equipment.Id;
 
         return await _db.Batches
             .AsNoTracking()
+            .Where(BatchLifecycle.UsesEquipmentInActiveStage(eqId))
             .AnyAsync(b =>
                 (!excludeBatchId.HasValue || b.Id != excludeBatchId.Value) &&
-                (restrictToOtherUsersThan == null || b.UserId != restrictToOtherUsersThan) &&
-                b.BrewDate >= today &&
-                b.Status != BatchStatus.Completed &&
-                b.Status != BatchStatus.Archived &&
-                ((b.CurrentStage == BrewStage.Mash && (b.HltId == eqId || b.MashTunId == eqId || b.BoilerId == eqId)) ||
-                 (b.CurrentStage == BrewStage.Boil && b.BoilerId == eqId) ||
-                 ((b.CurrentStage == BrewStage.Ferment || b.CurrentStage == BrewStage.Condition) && b.FermenterId == eqId) ||
-                 (b.CurrentStage == BrewStage.Package && b.PackagingVesselId == eqId)));
+                (restrictToOtherUsersThan == null || b.UserId != restrictToOtherUsersThan));
     }
 
     private async Task TryResetEquipmentVolumeIfOwnedAsync(Equipment? equipment, Guid batchId, DateTime now)

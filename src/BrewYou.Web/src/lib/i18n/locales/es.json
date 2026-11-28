@@ -536,7 +536,9 @@
 			"brewlink_sent_toast": "¡Receta enviada a {name} mediante BrewLink!",
 			"brewlink_failed_toast": "Se creó el lote, pero no se pudo enviar la receta a {name} mediante BrewLink: {error}",
 			"confirm_transfer_message": "¿Seguro que deseas transferir esta receta a {boiler} al iniciar el lote? Esto sobrescribirá el programa actual en el equipo.",
-			"past_brew_date_notice": "Fecha de elaboración pasada seleccionada — el envío automático al equipo está desactivado para que puedas registrar los pasos y mediciones retroactivamente."
+			"past_brew_date_notice": "Fecha de elaboración pasada seleccionada — el envío automático al equipo está desactivado para que puedas registrar los pasos y mediciones retroactivamente.",
+			"historical_batch_toggle": "Registrar como lote histórico",
+			"historical_batch_desc": "Registra este lote de forma retroactiva sin ocupar recipientes activos, sincronizar hardware ni asociar telemetría en vivo."
 		},
 		"equipment": {
 			"select_boiler": "Seleccionar olla de cocción",

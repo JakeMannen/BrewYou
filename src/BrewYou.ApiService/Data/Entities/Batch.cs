@@ -46,6 +46,7 @@ public class Batch
     public BrewStage CurrentStage { get; set; } = BrewStage.Mash;
 
     public DateOnly BrewDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public bool IsHistorical { get; set; }
 
     // Target specifications snapshotted at creation
     public decimal TargetOg { get; set; } = 1.050m;

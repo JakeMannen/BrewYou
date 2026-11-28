@@ -1468,7 +1468,7 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
         var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
         exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
-        envelope.SchemaVersion.Should().Be(3);
+        envelope.SchemaVersion.Should().Be(BackupSchemaConstants.CurrentSchemaVersion);
 
         var (targetClient, _, _) = await CreateAuthenticatedUserAsync("V3 Fermentable Target");
         var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
@@ -1836,5 +1836,86 @@ public class BackupEndpointsTests : IClassFixture<WebApplicationFactory<Program>
             .Content.ReadFromJsonAsync<ApiResponse<List<EquipmentDto>>>())!.Data!;
         equipList.Should().Contain(e => e.Name == "Hijacked G30" && e.ConnectionType == EquipmentConnectionType.None && e.ConnectionConfigJson == null);
         equipList.Should().Contain(e => e.Name == "HardwareId Spoof G30" && e.ConnectionType == EquipmentConnectionType.None && e.ConnectionConfigJson == null);
+    }
+
+    [Fact]
+    public async Task BackupRoundTrip_V4IsHistorical_PreservesFlagAndUpcastsLegacyV3WithoutDateInference()
+    {
+        // Part A: Export & restore v4 backup preserving IsHistorical=true and IsHistorical=false
+        var (sourceClient, _, _) = await CreateAuthenticatedUserAsync("V4 Historical Source");
+
+        var liveCreateRes = await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-V4-LIVE-01", "Live Multi-Day Batch", "IPA", new DateOnly(2025, 11, 1),
+            20m, 1.055m, 1.012m, 5.6m, 40m, 8m, 60, 75m, null, null, IsHistorical: false));
+        liveCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var histCreateRes = await sourceClient.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, "B-V4-HIST-01", "Retroactive Historical Batch", "Porter", new DateOnly(2025, 10, 1),
+            20m, 1.056m, 1.014m, 5.5m, 30m, 25m, 60, 75m, null, null, IsHistorical: true));
+        histCreateRes.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var exportRes = await sourceClient.PostAsJsonAsync("/api/v1/backup/export", new ExportBackupRequest());
+        exportRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var envelope = (await exportRes.Content.ReadFromJsonAsync<ApiResponse<BrewYouBackupEnvelope>>())!.Data!;
+        envelope.SchemaVersion.Should().Be(4);
+
+        var (targetClient, _, _) = await CreateAuthenticatedUserAsync("V4 Historical Target");
+        var restoreRes = await targetClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(envelope, new RestoreOptionsDto(ConflictResolution: RestoreConflictResolutionMode.ReplaceAll)));
+        restoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var restoredList = (await (await targetClient.GetAsync("/api/v1/batches"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        restoredList.Should().ContainSingle(b => b.BatchCode == "B-V4-LIVE-01" && !b.IsHistorical);
+        restoredList.Should().ContainSingle(b => b.BatchCode == "B-V4-HIST-01" && b.IsHistorical);
+
+        // Part B: Legacy v3 backup without isHistorical upcasts cleanly to v4 with IsHistorical = false (no date inference)
+        var (legacyClient, _, _) = await CreateAuthenticatedUserAsync("Legacy V3 Batch Migrator");
+        var v3BatchId = Guid.NewGuid();
+        var v3DataJson = $$"""
+        {
+          "batches": [
+            {
+              "id": "{{v3BatchId}}",
+              "batchCode": "B-V3-LEGACY-01",
+              "name": "Legacy V3 Fermenting Batch",
+              "beerStyle": "Saison",
+              "status": "Fermenting",
+              "currentStage": "Ferment",
+              "brewDate": "2024-01-15",
+              "targetOg": 1.052,
+              "targetFg": 1.008,
+              "targetAbv": 5.8,
+              "targetIbu": 28.0,
+              "targetColorSrm": 5.0,
+              "targetBatchSizeLiters": 20.0,
+              "boilTimeMinutes": 60,
+              "efficiencyPercent": 75.0
+            }
+          ]
+        }
+        """;
+        var v3Elem = JsonSerializer.Deserialize<JsonElement>(v3DataJson);
+        var v3Envelope = new BrewYouBackupEnvelope(
+            Format: BackupSchemaConstants.FormatIdentifier,
+            SchemaVersion: 3,
+            AppVersion: "1.7.0",
+            ExportedAtUtc: DateTime.UtcNow.AddDays(-5),
+            ChecksumSha256: BackupMigrationPipeline.ComputeChecksumSha256(v3Elem),
+            Data: v3Elem);
+
+        var previewRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/preview", new PreviewRestoreRequest(v3Envelope));
+        previewRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewData = (await previewRes.Content.ReadFromJsonAsync<ApiResponse<RestorePreviewReportDto>>())!.Data!;
+        previewData.WasUpgraded.Should().BeTrue();
+        previewData.MigrationNotes.Should().Contain(n => n.Contains("v3 -> v4"));
+
+        var legacyRestoreRes = await legacyClient.PostAsJsonAsync("/api/v1/backup/restore",
+            new ExecuteRestoreRequest(v3Envelope, new RestoreOptionsDto()));
+        legacyRestoreRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var migratedBatches = (await (await legacyClient.GetAsync("/api/v1/batches"))
+            .Content.ReadFromJsonAsync<ApiResponse<List<BatchSummaryDto>>>())!.Data!;
+        migratedBatches.Should().ContainSingle(b => b.BatchCode == "B-V3-LEGACY-01" && !b.IsHistorical);
     }
 }
