@@ -702,16 +702,29 @@ public class EquipmentEndpointTests : IClassFixture<WebApplicationFactory<Progra
         var batchRes = await client.PostAsJsonAsync("/api/v1/batches", batchReq);
         batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        // Query active batches for boiler
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        // In Mash stage: boiler is actively occupied, fermenter is NOT occupied yet (stage-aware)
         var activeRes = await client.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}/active-batches");
         activeRes.StatusCode.Should().Be(HttpStatusCode.OK);
-
         var activeEnv = await activeRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>();
-        activeEnv.Should().NotBeNull();
         activeEnv!.Success.Should().BeTrue();
         activeEnv.Data.Should().ContainSingle(b => b.Name == "Hop Storm IPA");
 
-        // Query active batches for fermenter
+        var fermMashRes = await client.GetAsync($"/api/v1/inventory/equipment/{fermenter.Id}/active-batches");
+        fermMashRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fermMashEnv = await fermMashRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>();
+        fermMashEnv!.Data.Should().BeEmpty();
+
+        // Advance to Ferment: boiler is released, fermenter becomes actively occupied
+        var advRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment));
+        advRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var boilerAfterFermentRes = await client.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}/active-batches");
+        boilerAfterFermentRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await boilerAfterFermentRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>())!.Data.Should().BeEmpty();
+
         var fermActiveRes = await client.GetAsync($"/api/v1/inventory/equipment/{fermenter.Id}/active-batches");
         fermActiveRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var fermActiveEnv = await fermActiveRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>();

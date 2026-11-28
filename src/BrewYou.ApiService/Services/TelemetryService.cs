@@ -578,13 +578,15 @@ public class TelemetryService : ITelemetryService
             ? Math.Round(Math.Clamp((equipment.CurrentVolumeLiters / equipment.CapacityLiters) * 100m, 0m, 100m), 1)
             : 0m;
 
+        var activeBatchId = await BatchLifecycle.ResolveActiveBatchIdForEquipmentAsync(_db, equipment, ct);
+
         var update = new EquipmentTelemetryUpdateDto(
             EquipmentId: equipment.Id,
             EquipmentName: equipment.Name,
             TemperatureC: equipment.CurrentTemperatureC,
             Timestamp: DateTime.UtcNow,
             Source: source,
-            BatchId: equipment.AssignedBatchId,
+            BatchId: activeBatchId,
             SpecificGravity: equipment.CurrentSpecificGravity,
             CurrentVolumeLiters: equipment.CurrentVolumeLiters,
             FillPercentage: fillPercentage,
@@ -598,6 +600,30 @@ public class TelemetryService : ITelemetryService
         );
 
         BroadcastEquipmentUpdateToSetup(equipment, update);
+
+        if (activeBatchId.HasValue)
+        {
+            _broadcastService.BroadcastReading(new BatchEquipmentReadingDto(
+                Id: Guid.NewGuid(),
+                EquipmentId: equipment.Id,
+                EquipmentName: equipment.Name,
+                BatchId: activeBatchId.Value,
+                Stage: null,
+                BatchMashStepId: null,
+                StepName: null,
+                TemperatureC: equipment.CurrentTemperatureC ?? 0m,
+                Timestamp: update.Timestamp,
+                Source: source,
+                TargetTemperatureC: null,
+                Notes: null,
+                SpecificGravity: equipment.CurrentSpecificGravity,
+                PressureBar: equipment.CurrentPressureBar,
+                BatteryPercent: equipment.CurrentBatteryPercent,
+                BatteryVoltage: equipment.CurrentBatteryVoltage,
+                TiltDegrees: null,
+                Rssi: existingCanonical?.Rssi,
+                MetricsJson: equipment.LatestMetricsJson));
+        }
     }
 
     public async Task<(bool Found, List<EquipmentReadingDto>? Readings)> GetEquipmentReadingsAsync(

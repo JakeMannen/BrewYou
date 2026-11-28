@@ -1596,7 +1596,7 @@ public partial class BrewLinkService : IBrewLinkService
 
                     await _db.SaveChangesAsync(ct);
 
-                    BroadcastEquipmentState(equipment, newMetricsJson, "BrewLinkControl");
+                    await BroadcastEquipmentStateAsync(equipment, newMetricsJson, "BrewLinkControl", ct);
 
                     return (BrewLinkSendResult.Success, new BrewLinkCommandResultDto(
                         Status: reportedStatus,
@@ -1775,7 +1775,7 @@ public partial class BrewLinkService : IBrewLinkService
 
             await _db.SaveChangesAsync(ct);
 
-            BroadcastEquipmentState(equipment, metricsJson, "BrewLinkSync");
+            await BroadcastEquipmentStateAsync(equipment, metricsJson, "BrewLinkSync", ct);
 
             var syncResult = new BrewLinkSyncResultDto(
                 Status: "ok",
@@ -1909,7 +1909,7 @@ public partial class BrewLinkService : IBrewLinkService
         return default;
     }
 
-    private void BroadcastEquipmentState(Equipment equipment, string metricsJson, string source)
+    private async Task BroadcastEquipmentStateAsync(Equipment equipment, string metricsJson, string source, CancellationToken ct = default)
     {
         if (_broadcastService == null) return;
 
@@ -1918,6 +1918,7 @@ public partial class BrewLinkService : IBrewLinkService
             : 0m;
 
         var canonical = BrewLinkTelemetryParser.FromMetricsJson(metricsJson);
+        var activeBatchId = await BatchLifecycle.ResolveActiveBatchIdForEquipmentAsync(_db, equipment, ct);
 
         var update = new EquipmentTelemetryUpdateDto(
             EquipmentId: equipment.Id,
@@ -1925,7 +1926,7 @@ public partial class BrewLinkService : IBrewLinkService
             TemperatureC: equipment.CurrentTemperatureC,
             Timestamp: DateTime.UtcNow,
             Source: source,
-            BatchId: equipment.AssignedBatchId,
+            BatchId: activeBatchId,
             SpecificGravity: equipment.CurrentSpecificGravity,
             CurrentVolumeLiters: equipment.CurrentVolumeLiters,
             FillPercentage: fillPercentage,
@@ -1943,13 +1944,13 @@ public partial class BrewLinkService : IBrewLinkService
             _broadcastService.BroadcastEquipmentReading(uid, update);
         }
 
-        if (equipment.AssignedBatchId.HasValue)
+        if (activeBatchId.HasValue)
         {
             var batchReading = new BatchEquipmentReadingDto(
                 Id: Guid.NewGuid(),
                 EquipmentId: equipment.Id,
                 EquipmentName: equipment.Name,
-                BatchId: equipment.AssignedBatchId.Value,
+                BatchId: activeBatchId.Value,
                 Stage: null,
                 BatchMashStepId: null,
                 StepName: null,

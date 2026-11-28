@@ -51,8 +51,8 @@ public class BatchProcessE2ETests_Tier1_FeatureCoverage : BatchProcessE2ETestBas
             FermenterId: fermenterId
         ));
 
-        // Act 2: Recipe-based batch
-        var recipeBatch = await CreateRecipeBatchAsync(client, recipe.Id, batchSize: 20m, boilerId: boilerId, fermenterId: fermenterId);
+        // Act 2: Recipe-based batch (uses a separate boiler since adHocBatch occupies boilerId in Mash)
+        var recipeBatch = await CreateRecipeBatchAsync(client, recipe.Id, batchSize: 20m, boilerId: null, fermenterId: fermenterId);
 
         // Assert
         adHocBatch.CurrentStage.Should().Be(BrewStage.Mash);

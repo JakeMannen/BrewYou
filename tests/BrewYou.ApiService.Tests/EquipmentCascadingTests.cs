@@ -160,18 +160,21 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         var sensor = await CreateEquipmentAsync(
             client, setupId, "Tilt Hydrometer Yellow", EquipmentType.Sensor, EquipmentSubtype.Tilt, 0m);
 
-        // 3. Create a recipe and completed batch
+        // 3. Create a recipe and active batch, assign sensor, then complete batch
         var recipe = await CreateSampleRecipeAsync(client, "Sensor Decoupling Test Ale");
         var batch = await CreateSampleBatchAsync(
-            client, recipe.Id, status: BatchStatus.Completed, stage: BrewStage.Package);
+            client, recipe.Id, status: BatchStatus.Fermenting, stage: BrewStage.Ferment);
 
-        // 4. Assign sensor to the batch
+        // 4. Assign sensor to the batch while active, then complete
         var sensorInput = new List<BatchSensorAssignmentInput>
         {
             new(sensor.Id, BrewStage.Ferment)
         };
         var assignRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors", sensorInput);
         assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var completeRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(Status: BatchStatus.Completed));
+        completeRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Verify assignment exists in database prior to delete
         using (var scope = _factory.Services.CreateScope())
@@ -392,10 +395,10 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         var sensor = await CreateEquipmentAsync(
             client, secondSetup.Id, "Tilt Hydrometer Green", EquipmentType.Sensor, EquipmentSubtype.Tilt, 0m);
 
-        // 4. Create recipe and batch, assign the sensor
+        // 4. Create recipe and active batch, assign the sensor, then complete
         var recipe = await CreateSampleRecipeAsync(client, "Garage Setup Recipe");
         var batch = await CreateSampleBatchAsync(
-            client, recipe.Id, status: BatchStatus.Completed, stage: BrewStage.Package);
+            client, recipe.Id, status: BatchStatus.Fermenting, stage: BrewStage.Ferment);
 
         var sensorInput = new List<BatchSensorAssignmentInput>
         {
@@ -403,6 +406,9 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         };
         var assignRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors", sensorInput);
         assignRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var completeRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(Status: BatchStatus.Completed));
+        completeRes.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Verify assignment exists in DB
         using (var scope = _factory.Services.CreateScope())
@@ -440,7 +446,6 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Theory]
-    [InlineData(BatchStatus.Planned)]
     [InlineData(BatchStatus.Brewing)]
     [InlineData(BatchStatus.Fermenting)]
     [InlineData(BatchStatus.Conditioning)]
@@ -449,15 +454,20 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         // 1. Arrange: User and setup
         var (client, _, _, setupId) = await CreateAuthenticatedUserAsync($"active_status_{activeStatus}".ToLowerInvariant());
 
-        // 2. Create Boiler equipment
-        var kettle = await CreateEquipmentAsync(
-            client, setupId, $"Kettle for {activeStatus}", EquipmentType.Boiler, EquipmentSubtype.AllInOne, 30m);
+        // 2. Create stage-appropriate equipment (Boiler for Brewing, Fermenter for Fermenting/Conditioning)
+        var isCellarStage = activeStatus is BatchStatus.Fermenting or BatchStatus.Conditioning;
+        var vessel = await CreateEquipmentAsync(
+            client,
+            setupId,
+            $"Vessel for {activeStatus}",
+            isCellarStage ? EquipmentType.Fermenter : EquipmentType.Boiler,
+            isCellarStage ? EquipmentSubtype.ConicalFermenter : EquipmentSubtype.AllInOne,
+            30m);
 
         // 3. Create recipe and batch with active status
         var recipe = await CreateSampleRecipeAsync(client, $"Recipe for {activeStatus}");
         var stage = activeStatus switch
         {
-            BatchStatus.Planned => BrewStage.Mash,
             BatchStatus.Brewing => BrewStage.Boil,
             BatchStatus.Fermenting => BrewStage.Ferment,
             BatchStatus.Conditioning => BrewStage.Condition,
@@ -465,10 +475,15 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         };
 
         var batch = await CreateSampleBatchAsync(
-            client, recipe.Id, boilerId: kettle.Id, status: activeStatus, stage: stage);
+            client,
+            recipe.Id,
+            boilerId: isCellarStage ? null : vessel.Id,
+            fermenterId: isCellarStage ? vessel.Id : null,
+            status: activeStatus,
+            stage: stage);
 
         // 4. Act: Attempt delete without force
-        var deleteRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{kettle.Id}");
+        var deleteRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{vessel.Id}");
 
         // 5. Assert: 409 Conflict with EQUIPMENT_IN_USE
         deleteRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -480,15 +495,19 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
-            var exists = await db.Equipment.AnyAsync(e => e.Id == kettle.Id);
+            var exists = await db.Equipment.AnyAsync(e => e.Id == vessel.Id);
             exists.Should().BeTrue();
 
             var b = await db.Batches.FindAsync(batch.Id);
-            b!.BoilerId.Should().Be(kettle.Id);
+            if (isCellarStage)
+                b!.FermenterId.Should().Be(vessel.Id);
+            else
+                b!.BoilerId.Should().Be(vessel.Id);
         }
     }
 
     [Theory]
+    [InlineData(BatchStatus.Planned)]
     [InlineData(BatchStatus.Completed)]
     [InlineData(BatchStatus.Archived)]
     public async Task DeleteEquipment_InactiveBatchStatuses_DoNotBlockDeletion(BatchStatus inactiveStatus)
@@ -660,12 +679,14 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
             new List<BatchSensorAssignmentInput> { new(sensor1.Id, BrewStage.Ferment) });
         assignRes1.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // 5. Batch 2: Completed (Historical) with Sensor 2
+        // 5. Batch 2: Completed (Historical) with Sensor 2 (assigned while active, then completed)
         var batch2 = await CreateSampleBatchAsync(
-            client, recipe.Id, status: BatchStatus.Completed, stage: BrewStage.Package);
+            client, recipe.Id, status: BatchStatus.Fermenting, stage: BrewStage.Ferment);
         var assignRes2 = await client.PutAsJsonAsync($"/api/v1/batches/{batch2.Id}/sensors",
             new List<BatchSensorAssignmentInput> { new(sensor2.Id, BrewStage.Ferment) });
         assignRes2.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PutAsJsonAsync($"/api/v1/batches/{batch2.Id}", new UpdateBatchRequest(Status: BatchStatus.Completed)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
 
         // 6. Batch 3: Historical batch with both Sensor 1 and Sensor 2, subsequently Archived
         var batch3 = await CreateSampleBatchAsync(
@@ -907,6 +928,103 @@ public class EquipmentCascadingTests : IClassFixture<WebApplicationFactory<Progr
         var dbKeg = await db.Equipment.FindAsync(keg.Id);
         dbKeg!.Name.Should().Be("Keg Beta");
         dbKeg.AssignedBatchId.Should().Be(batch.Id);
+    }
+
+    [Fact]
+    public async Task UpdateEquipment_SetupMoveOrIncompatibleTypeChange_GuardsActiveLiveBatchesWith409_AndForceDecouplesCleanly()
+    {
+        var (client, _, _, setupAId) = await CreateAuthenticatedUserAsync("eq_update_guard");
+        var setupBRes = await client.PostAsJsonAsync("/api/v1/brewery-setups", new CreateBrewerySetupRequest("Second Rig", "Target setup", false));
+        setupBRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var setupB = (await setupBRes.Content.ReadFromJsonAsync<ApiResponse<BrewerySetupDto>>())!.Data!;
+
+        var boiler = await CreateEquipmentAsync(client, setupAId, "Active Kettle", EquipmentType.Boiler, EquipmentSubtype.AllInOne, 40m);
+        var sensor = await CreateEquipmentAsync(client, setupAId, "Active iSpindel", EquipmentType.Sensor, EquipmentSubtype.ISpindel, 0m);
+        var recipe = await CreateSampleRecipeAsync(client, "Guard Test Ale");
+
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, boilerId: boiler.Id, status: BatchStatus.Brewing, stage: BrewStage.Mash);
+        (await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}/sensors",
+            new List<BatchSensorAssignmentInput> { new(sensor.Id, BrewStage.Mash) })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 1. Moving active boiler to Setup B without force -> 409 EQUIPMENT_IN_USE
+        var moveRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}", new UpdateEquipmentRequest(
+            Name: boiler.Name, Type: EquipmentType.Boiler, Capacity: 40m, Subtype: EquipmentSubtype.AllInOne, BrewerySetupId: setupB.Id));
+        moveRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await moveRes.Content.ReadFromJsonAsync<ApiResponse>())!.Error!.Code.Should().Be("EQUIPMENT_IN_USE");
+
+        // 2. Retyping active boiler to Sensor without force -> 409 EQUIPMENT_IN_USE
+        var retypeBoilerRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}", new UpdateEquipmentRequest(
+            Name: boiler.Name, Type: EquipmentType.Sensor, Capacity: 0m, Subtype: EquipmentSubtype.GenericSensor));
+        retypeBoilerRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await retypeBoilerRes.Content.ReadFromJsonAsync<ApiResponse>())!.Error!.Code.Should().Be("EQUIPMENT_IN_USE");
+
+        // 3. Retyping active sensor to Boiler without force -> 409 EQUIPMENT_IN_USE
+        var retypeSensorRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{sensor.Id}", new UpdateEquipmentRequest(
+            Name: sensor.Name, Type: EquipmentType.Boiler, Capacity: 30m, Subtype: EquipmentSubtype.AllInOne));
+        retypeSensorRes.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await retypeSensorRes.Content.ReadFromJsonAsync<ApiResponse>())!.Error!.Code.Should().Be("EQUIPMENT_IN_USE");
+
+        // 4. Force move boiler -> 200 OK and decouples batch BoilerId & MashTunId cleanly
+        var forceMoveRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}?force=true", new UpdateEquipmentRequest(
+            Name: boiler.Name, Type: EquipmentType.Boiler, Capacity: 40m, Subtype: EquipmentSubtype.AllInOne, BrewerySetupId: setupB.Id));
+        forceMoveRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 5. Force retype sensor -> 200 OK and removes BatchSensorAssignment cleanly (zero orphans)
+        var forceSensorRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{sensor.Id}?force=true", new UpdateEquipmentRequest(
+            Name: sensor.Name, Type: EquipmentType.Boiler, Capacity: 30m, Subtype: EquipmentSubtype.AllInOne));
+        forceSensorRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var dbBatch = await db.Batches.Include(b => b.SensorAssignments).FirstAsync(b => b.Id == batch.Id);
+            dbBatch.BoilerId.Should().BeNull();
+            dbBatch.MashTunId.Should().BeNull();
+            dbBatch.SensorAssignments.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task BoilerOnFermentingBatch_IsNotOccupied_AllowsEmptyActiveBatchesUnforcedMoveRetypeAndDelete_AndSwapEnablesTapAssign()
+    {
+        var (client, _, _, setupAId) = await CreateAuthenticatedUserAsync("boiler_free_ferment");
+        var setupBRes = await client.PostAsJsonAsync("/api/v1/brewery-setups", new CreateBrewerySetupRequest("Cellar Setup B", "Target", false));
+        var setupB = (await setupBRes.Content.ReadFromJsonAsync<ApiResponse<BrewerySetupDto>>())!.Data!;
+
+        var boiler = await CreateEquipmentAsync(client, setupAId, "Freed Boiler", EquipmentType.Boiler, EquipmentSubtype.AllInOne, 40m);
+        var fermA = await CreateEquipmentAsync(client, setupAId, "FV Setup A", EquipmentType.Fermenter, EquipmentSubtype.ConicalFermenter, 30m);
+        var fermB = await CreateEquipmentAsync(client, setupB.Id, "FV Setup B", EquipmentType.Fermenter, EquipmentSubtype.ConicalFermenter, 30m);
+        var tapB = await CreateEquipmentAsync(client, setupB.Id, "Tap Setup B", EquipmentType.Tap, EquipmentSubtype.StandardTap, 0m);
+        var recipe = await CreateSampleRecipeAsync(client, "Stage Free IPA");
+
+        var batch = await CreateSampleBatchAsync(client, recipe.Id, boilerId: boiler.Id, fermenterId: fermA.Id, status: BatchStatus.Fermenting, stage: BrewStage.Ferment);
+
+        // 1. Active batches for Boiler while batch is Fermenting -> empty
+        var activeRes = await client.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}/active-batches");
+        activeRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await activeRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>())!.Data.Should().BeEmpty();
+
+        // 2. Unforced setup move of Boiler succeeds without 409 and keeps historical BoilerId reference
+        var moveRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{boiler.Id}", new UpdateEquipmentRequest(
+            Name: boiler.Name, Type: EquipmentType.Boiler, Capacity: 40m, Subtype: EquipmentSubtype.AllInOne, BrewerySetupId: setupB.Id));
+        moveRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var batchAfterMove = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}")).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        batchAfterMove.BoilerId.Should().Be(boiler.Id);
+
+        // 3. Unforced delete of Boiler while batch is Fermenting succeeds without force and nulls BoilerId
+        var delRes = await client.DeleteAsync($"/api/v1/inventory/equipment/{boiler.Id}");
+        delRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var batchAfterDel = (await (await client.GetAsync($"/api/v1/batches/{batch.Id}")).Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+        batchAfterDel.BoilerId.Should().BeNull();
+
+        // 4. BE-H4: Swap batch fermenter to Setup B and move to Conditioning -> assigning Tap in Setup B succeeds (200 OK instead of 403)
+        var swapRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}", new UpdateBatchRequest(
+            FermenterId: fermB.Id, Status: BatchStatus.Conditioning));
+        swapRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var tapAssignRes = await client.PutAsJsonAsync($"/api/v1/inventory/equipment/{tapB.Id}/tap-assignment",
+            new AssignTapRequest(BatchId: batch.Id));
+        tapAssignRes.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     #endregion

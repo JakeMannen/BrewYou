@@ -381,7 +381,65 @@ public class EquipmentService : IEquipmentService
     }
 
     public async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> UpdateEquipmentAsync(
-        Guid id, UpdateEquipmentRequest request, string userId)
+        Guid id, UpdateEquipmentRequest request, string userId, bool force = false)
+    {
+        if (_db.Database.IsInMemory())
+        {
+            return await ExecuteUpdateEquipmentCoreAsync(id, request, userId, force);
+        }
+
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted);
+            try
+            {
+                var result = await ExecuteUpdateEquipmentCoreAsync(id, request, userId, force);
+                if (result.Result == EquipmentAccessResult.Success)
+                {
+                    await tx.CommitAsync();
+                }
+                else
+                {
+                    await tx.RollbackAsync();
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                _logger.LogError(ex, "Failed to update equipment {EquipmentId}", id);
+                throw;
+            }
+        });
+    }
+
+    private static bool IsVesselRoleIncompatible(EquipmentType newType, EquipmentSubtype newSubtype, BatchVesselSlot slot)
+    {
+        if (newType is EquipmentType.Sensor or EquipmentType.Tap ||
+            newSubtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor or EquipmentSubtype.BrewLink)
+        {
+            return true;
+        }
+
+        return slot switch
+        {
+            BatchVesselSlot.Hlt or BatchVesselSlot.MashTun or BatchVesselSlot.Boiler =>
+                newType is not (EquipmentType.Boiler or EquipmentType.Other),
+            BatchVesselSlot.Fermenter =>
+                newType is not (EquipmentType.Fermenter or EquipmentType.Other),
+            BatchVesselSlot.PackagingVessel =>
+                newType is not (EquipmentType.Keg or EquipmentType.Other),
+            _ => false
+        };
+    }
+
+    private static bool IsEligibleTelemetrySensorRole(EquipmentType type, EquipmentSubtype subtype) =>
+        type == EquipmentType.Sensor &&
+        subtype is EquipmentSubtype.ISpindel or EquipmentSubtype.Tilt or EquipmentSubtype.GenericSensor;
+
+    private async Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> ExecuteUpdateEquipmentCoreAsync(
+        Guid id, UpdateEquipmentRequest request, string userId, bool force)
     {
         var equipment = await _db.Equipment
             .Include(e => e.BrewerySetup)
@@ -482,6 +540,142 @@ public class EquipmentService : IEquipmentService
         var currentVolumeLiters = isSensorOrTap ? 0.0m : ToLiters(currentVolume, inputUnit);
 
         var previousType = equipment.Type;
+        var previousSubtype = equipment.Subtype;
+        var typeOrSubtypeChanged = request.Type != previousType || subtype != previousSubtype;
+
+        // BE-H5 (Rule K): Guard active live batches when moving equipment across setups or changing Type/Subtype into an incompatible role
+        if (setupChanged || typeOrSubtypeChanged)
+        {
+            var assignedBatchIds = equipment.AssignedBatchId.HasValue
+                ? new HashSet<Guid> { equipment.AssignedBatchId.Value }
+                : new HashSet<Guid>();
+            var targetIds = new HashSet<Guid> { id };
+
+            var activeBatches = await _db.Batches
+                .Include(b => b.SensorAssignments)
+                .Where(BatchLifecycle.UsesAnyEquipmentInActiveStage(targetIds, assignedBatchIds))
+                .ToListAsync();
+
+            var conflictingActiveBatches = new List<Batch>();
+            foreach (var b in activeBatches)
+            {
+                if (setupChanged)
+                {
+                    conflictingActiveBatches.Add(b);
+                    continue;
+                }
+
+                var vesselConflict =
+                    (b.CurrentStage == BrewStage.Mash &&
+                     ((b.HltId == id && IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Hlt)) ||
+                      (b.MashTunId == id && IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.MashTun)) ||
+                      (b.BoilerId == id && IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Boiler)))) ||
+                    (b.CurrentStage == BrewStage.Boil &&
+                     b.BoilerId == id && IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Boiler)) ||
+                    (b.CurrentStage is BrewStage.Ferment or BrewStage.Condition &&
+                     b.FermenterId == id && IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Fermenter)) ||
+                    (b.CurrentStage == BrewStage.Package &&
+                     b.PackagingVesselId == id && IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.PackagingVessel));
+
+                var sensorConflict =
+                    b.SensorAssignments.Any(sa => sa.EquipmentId == id && (sa.Stage == null || sa.Stage == b.CurrentStage)) &&
+                    !IsEligibleTelemetrySensorRole(request.Type, subtype);
+
+                var assignedKegTapConflict =
+                    assignedBatchIds.Contains(b.Id) && request.Type != previousType;
+
+                if (vesselConflict || sensorConflict || assignedKegTapConflict)
+                {
+                    conflictingActiveBatches.Add(b);
+                }
+            }
+
+            if (conflictingActiveBatches.Count > 0 && !force)
+            {
+                return (EquipmentAccessResult.ActiveBatchConflict, null,
+                    "Equipment is currently in use by an active batch. Confirm force update to decouple it from active batches.");
+            }
+
+            var cleanupNow = DateTime.UtcNow;
+            if (conflictingActiveBatches.Count > 0)
+            {
+                foreach (var b in conflictingActiveBatches)
+                {
+                    if (b.HltId == id) b.HltId = null;
+                    if (b.MashTunId == id) b.MashTunId = null;
+                    if (b.BoilerId == id) b.BoilerId = null;
+                    if (b.FermenterId == id) b.FermenterId = null;
+                    if (b.PackagingVesselId == id) b.PackagingVesselId = null;
+
+                    var activeSensorsToRemove = b.SensorAssignments
+                        .Where(sa => sa.EquipmentId == id)
+                        .ToList();
+                    if (activeSensorsToRemove.Count > 0)
+                    {
+                        _db.BatchSensorAssignments.RemoveRange(activeSensorsToRemove);
+                        foreach (var sa in activeSensorsToRemove)
+                        {
+                            b.SensorAssignments.Remove(sa);
+                        }
+                    }
+
+                    b.UpdatedAt = cleanupNow;
+                }
+
+                if (equipment.AssignedBatchId.HasValue && conflictingActiveBatches.Any(b => b.Id == equipment.AssignedBatchId.Value))
+                {
+                    equipment.AssignedBatchId = null;
+                    equipment.AssignedBatch = null;
+                    equipment.AssignedAt = null;
+                }
+
+                currentVolume = 0m;
+                currentVolumeLiters = 0m;
+            }
+
+            // Reconcile past-stage / inactive batch references only when the new type/subtype makes the slot invalid (Rule K)
+            if (typeOrSubtypeChanged)
+            {
+                var hltInvalid = IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Hlt);
+                var mashTunInvalid = IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.MashTun);
+                var boilerInvalid = IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Boiler);
+                var fermenterInvalid = IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.Fermenter);
+                var packagingInvalid = IsVesselRoleIncompatible(request.Type, subtype, BatchVesselSlot.PackagingVessel);
+
+                if (hltInvalid || mashTunInvalid || boilerInvalid || fermenterInvalid || packagingInvalid)
+                {
+                    var referencingBatches = await _db.Batches
+                        .Where(b => (hltInvalid && b.HltId == id) ||
+                                    (mashTunInvalid && b.MashTunId == id) ||
+                                    (boilerInvalid && b.BoilerId == id) ||
+                                    (fermenterInvalid && b.FermenterId == id) ||
+                                    (packagingInvalid && b.PackagingVesselId == id))
+                        .ToListAsync();
+
+                    foreach (var b in referencingBatches)
+                    {
+                        if (hltInvalid && b.HltId == id) b.HltId = null;
+                        if (mashTunInvalid && b.MashTunId == id) b.MashTunId = null;
+                        if (boilerInvalid && b.BoilerId == id) b.BoilerId = null;
+                        if (fermenterInvalid && b.FermenterId == id) b.FermenterId = null;
+                        if (packagingInvalid && b.PackagingVesselId == id) b.PackagingVesselId = null;
+                        b.UpdatedAt = cleanupNow;
+                    }
+                }
+
+                if (!IsEligibleTelemetrySensorRole(request.Type, subtype))
+                {
+                    var invalidSensorAssignments = await _db.BatchSensorAssignments
+                        .Where(sa => sa.EquipmentId == id)
+                        .ToListAsync();
+                    if (invalidSensorAssignments.Count > 0)
+                    {
+                        _db.BatchSensorAssignments.RemoveRange(invalidSensorAssignments);
+                    }
+                }
+            }
+        }
+
         equipment.Name = normalizedName;
         equipment.Type = request.Type;
         equipment.Subtype = subtype;
@@ -835,15 +1029,7 @@ public class EquipmentService : IEquipmentService
             .ToHashSet();
 
         var batchList = await _db.Batches.AsNoTracking()
-            .Where(b => (b.BoilerId.HasValue && targetIds.Contains(b.BoilerId.Value) ||
-                         b.FermenterId.HasValue && targetIds.Contains(b.FermenterId.Value) ||
-                         b.PackagingVesselId.HasValue && targetIds.Contains(b.PackagingVesselId.Value) ||
-                         b.HltId.HasValue && targetIds.Contains(b.HltId.Value) ||
-                         b.MashTunId.HasValue && targetIds.Contains(b.MashTunId.Value) ||
-                         assignedBatchIds.Contains(b.Id) ||
-                         b.SensorAssignments.Any(sa => targetIds.Contains(sa.EquipmentId))) &&
-                        b.Status != BatchStatus.Completed &&
-                        b.Status != BatchStatus.Archived)
+            .Where(BatchLifecycle.UsesAnyEquipmentInActiveStage(targetIds, assignedBatchIds))
             .OrderByDescending(b => b.BrewDate)
             .ThenByDescending(b => b.CreatedAt)
             .Select(b => new
@@ -853,12 +1039,12 @@ public class EquipmentService : IEquipmentService
                 b.Name,
                 b.Status,
                 b.CurrentStage,
-                IsBoiler = b.BoilerId.HasValue && targetIds.Contains(b.BoilerId.Value),
-                IsFermenter = b.FermenterId.HasValue && targetIds.Contains(b.FermenterId.Value),
-                IsHlt = b.HltId.HasValue && targetIds.Contains(b.HltId.Value),
-                IsMashTun = b.MashTunId.HasValue && targetIds.Contains(b.MashTunId.Value),
-                IsPackaging = b.PackagingVesselId.HasValue && targetIds.Contains(b.PackagingVesselId.Value),
-                IsSensor = b.SensorAssignments.Any(sa => targetIds.Contains(sa.EquipmentId)),
+                IsBoiler = (b.CurrentStage == BrewStage.Mash || b.CurrentStage == BrewStage.Boil) && b.BoilerId.HasValue && targetIds.Contains(b.BoilerId.Value),
+                IsFermenter = (b.CurrentStage == BrewStage.Ferment || b.CurrentStage == BrewStage.Condition) && b.FermenterId.HasValue && targetIds.Contains(b.FermenterId.Value),
+                IsHlt = b.CurrentStage == BrewStage.Mash && b.HltId.HasValue && targetIds.Contains(b.HltId.Value),
+                IsMashTun = b.CurrentStage == BrewStage.Mash && b.MashTunId.HasValue && targetIds.Contains(b.MashTunId.Value),
+                IsPackaging = b.CurrentStage == BrewStage.Package && b.PackagingVesselId.HasValue && targetIds.Contains(b.PackagingVesselId.Value),
+                IsSensor = b.SensorAssignments.Any(sa => targetIds.Contains(sa.EquipmentId) && (sa.Stage == null || sa.Stage == b.CurrentStage)),
                 IsAssigned = assignedBatchIds.Contains(b.Id)
             })
             .ToListAsync();

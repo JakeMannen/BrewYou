@@ -222,7 +222,8 @@ public static class EquipmentEndpoints
             [FromBody] UpdateEquipmentRequest request,
             IValidator<UpdateEquipmentRequest> validator,
             ClaimsPrincipal principal,
-            IEquipmentService equipmentService) =>
+            IEquipmentService equipmentService,
+            [FromQuery] bool force = false) =>
         {
             var validation = await validator.ValidateAsync(request);
             if (!validation.IsValid)
@@ -237,7 +238,7 @@ public static class EquipmentEndpoints
                 return Results.Json(ApiResponse.Fail("UNAUTHORIZED", "Authentication required."), statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var (result, updated, errorMessage) = await equipmentService.UpdateEquipmentAsync(id, request, userId);
+            var (result, updated, errorMessage) = await equipmentService.UpdateEquipmentAsync(id, request, userId, force);
             if (result == EquipmentAccessResult.Forbidden)
             {
                 return Results.Json(ApiResponse.Fail("FORBIDDEN", errorMessage ?? "Viewers cannot edit equipment."), statusCode: StatusCodes.Status403Forbidden);
@@ -246,6 +247,11 @@ public static class EquipmentEndpoints
             if (result == EquipmentAccessResult.NotFound)
             {
                 return Results.NotFound(ApiResponse.Fail("NOT_FOUND", errorMessage ?? "Equipment not found."));
+            }
+
+            if (result == EquipmentAccessResult.ActiveBatchConflict)
+            {
+                return Results.Conflict(ApiResponse.Fail("EQUIPMENT_IN_USE", errorMessage ?? "Equipment is currently in use by an active batch."));
             }
 
             if (result == EquipmentAccessResult.Conflict)

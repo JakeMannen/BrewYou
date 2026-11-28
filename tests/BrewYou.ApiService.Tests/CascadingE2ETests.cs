@@ -324,17 +324,22 @@ public class CascadingE2ETests : IClassFixture<WebApplicationFactory<Program>>
             }
         );
 
-        // Check active batches for HLT
+        // Check active batches for HLT (active in Mash)
         var hltActiveRes = await client.GetAsync($"/api/v1/inventory/equipment/{hlt.Id}/active-batches");
         hltActiveRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var hltBatches = (await hltActiveRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>())!.Data!;
-        hltBatches.Should().Contain(b => b.Id == batch.Id, "HLT must be reported as active when assigned to an in-progress batch");
+        hltBatches.Should().Contain(b => b.Id == batch.Id, "HLT must be reported as active when assigned to a Mash-stage batch");
 
-        // Check active batches for Sensor
+        // Advance to Ferment so the Ferment-scoped sensor becomes active (and HLT is released)
+        var advRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
+            new AdvanceBatchStageRequest(BrewStage.Ferment));
+        advRes.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Check active batches for Sensor (active in Ferment)
         var sensorActiveRes = await client.GetAsync($"/api/v1/inventory/equipment/{sensor.Id}/active-batches");
         sensorActiveRes.StatusCode.Should().Be(HttpStatusCode.OK);
         var sensorBatches = (await sensorActiveRes.Content.ReadFromJsonAsync<ApiResponse<List<EquipmentActiveBatchDto>>>())!.Data!;
-        sensorBatches.Should().Contain(b => b.Id == batch.Id, "Sensors must be reported as active when assigned to an in-progress batch");
+        sensorBatches.Should().Contain(b => b.Id == batch.Id, "Sensors must be reported as active when assigned to the active stage of an in-progress batch");
     }
 
     [Fact]

@@ -757,7 +757,8 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
             .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
         eqAfterRetro.CurrentTemperatureC.Should().Be(99.5m);
 
-        // Complete batch -> manual log still succeeds without overwriting live equipment temp
+        // Complete batch -> empties non-IoT boiler (clearing stale manual temp per BE-M4),
+        // and retrospective manual log still succeeds without mutating live equipment temp
         var completeRes = await client.PatchAsJsonAsync($"/api/v1/batches/{batch.Id}/stage",
             new AdvanceBatchStageRequest(BrewStage.Package));
         completeRes.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -768,7 +769,7 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
 
         var eqAfterCompleted = (await (await client.GetAsync($"/api/v1/inventory/equipment/{boiler.Id}"))
             .Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
-        eqAfterCompleted.CurrentTemperatureC.Should().Be(99.5m);
+        eqAfterCompleted.CurrentTemperatureC.Should().BeNull();
 
         // Archive batch -> 409 Conflict
         var archiveRes = await client.PutAsJsonAsync($"/api/v1/batches/{batch.Id}",
@@ -2574,5 +2575,55 @@ public class TelemetryTests : IClassFixture<WebApplicationFactory<Program>>
         var histReadings = (await (await ownerClient.GetAsync($"/api/v1/batches/{histBatch.Id}/equipment-readings"))
             .Content.ReadFromJsonAsync<ApiResponse<List<BatchEquipmentReadingDto>>>())!.Data!;
         histReadings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SetBrewLinkConnectionState_OnActiveBoilerWithoutAssignedBatchId_BroadcastsToActiveBatchStream()
+    {
+        var (client, userId, setupId) = await CreateUserAsync();
+
+        var boilerRes = await client.PostAsJsonAsync("/api/v1/inventory/equipment", new CreateEquipmentRequest(
+            setupId, $"BrewLink G30 {Guid.NewGuid():N}", EquipmentType.Boiler, 30m,
+            Subtype: EquipmentSubtype.AllInOne));
+        boilerRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var boiler = (await boilerRes.Content.ReadFromJsonAsync<ApiResponse<EquipmentDto>>())!.Data!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BrewYouDbContext>();
+            var eq = await db.Equipment.FindAsync(boiler.Id);
+            eq!.ConnectionType = EquipmentConnectionType.BrewLink;
+            eq.AssignedBatchId.Should().BeNull();
+            await db.SaveChangesAsync();
+        }
+
+        var batchRes = await client.PostAsJsonAsync("/api/v1/batches", new CreateBatchRequest(
+            null, $"B-BLSSE-{Guid.NewGuid():N}"[..16], "BrewLink Batch SSE", "IPA",
+            DateOnly.FromDateTime(DateTime.UtcNow), 20m, 1.055m, 1.012m, 5.6m, 40m, 7m, 60, 75m,
+            boiler.Id, null));
+        batchRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var batch = (await batchRes.Content.ReadFromJsonAsync<ApiResponse<BatchDetailDto>>())!.Data!;
+
+        var broadcastService = _factory.Services.GetRequiredService<ITelemetryBroadcastService>();
+        using var batchSub = broadcastService.Subscribe(batch.Id)!;
+        using var eqSub = broadcastService.SubscribeEquipment(userId)!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            await telemetryService.SetBrewLinkConnectionStateAsync(boiler.Id, isConnected: false, source: "BrewLinkStatus");
+        }
+
+        var eqHasData = await eqSub.Reader.WaitToReadAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        eqHasData.Should().BeTrue();
+        eqSub.Reader.TryRead(out var eqUpdate).Should().BeTrue();
+        eqUpdate!.BatchId.Should().Be(batch.Id);
+        eqUpdate.Connected.Should().BeFalse();
+
+        var batchHasData = await batchSub.Reader.WaitToReadAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        batchHasData.Should().BeTrue();
+        batchSub.Reader.TryRead(out var batchUpdate).Should().BeTrue();
+        batchUpdate!.BatchId.Should().Be(batch.Id);
+        batchUpdate.EquipmentId.Should().Be(boiler.Id);
     }
 }

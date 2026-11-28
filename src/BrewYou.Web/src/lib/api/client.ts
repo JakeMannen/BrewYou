@@ -504,8 +504,9 @@ export const api = {
 			});
 		},
 
-		async update(id: string, req: UpdateEquipmentRequest): Promise<EquipmentDto> {
-			return request<EquipmentDto>(`/api/v1/inventory/equipment/${id}`, {
+		async update(id: string, req: UpdateEquipmentRequest, force = false): Promise<EquipmentDto> {
+			const query = force ? '?force=true' : '';
+			return request<EquipmentDto>(`/api/v1/inventory/equipment/${id}${query}`, {
 				method: 'PUT',
 				body: JSON.stringify(req)
 			});

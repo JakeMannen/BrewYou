@@ -119,6 +119,8 @@
 	let gatewayDevices = $state<BrewLinkEquipmentDeviceDto[]>([]);
 	let isLoadingGatewayDevices = $state(false);
 	let gatewayDevicesError = $state<string | null>(null);
+	let showForceUpdateModal = $state(false);
+	let forceUpdateMessage = $state('');
 
 	function handleGatewaysChanged(newGateways: BrewLinkGatewayDto[]) {
 		gateways = newGateways;
@@ -821,6 +823,15 @@
 
 	async function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
+		await submitEquipment(false);
+	}
+
+	async function handleConfirmForceUpdate() {
+		showForceUpdateModal = false;
+		await submitEquipment(true);
+	}
+
+	async function submitEquipment(force: boolean) {
 		errorMessage = null;
 
 		let numCapacity = typeof capacity === 'number' ? capacity : parseFloat(String(capacity));
@@ -939,44 +950,48 @@
 
 			let savedItem: EquipmentDto;
 			if (activeEquipment) {
-				savedItem = await api.equipment.update(activeEquipment.id, {
-					name: name.trim(),
-					type,
-					subtype,
-					capacity: numCapacity,
-					currentVolume: numCurrent,
-					unit,
-					description: description.trim() || null,
-					notes: legacyNotes,
-					boilOffRatePerHour:
-						type === 'Sensor' || type === 'Tap' || boilOffRatePerHour === ''
-							? null
-							: Number(boilOffRatePerHour),
-					trubLossLiters:
-						type === 'Sensor' || type === 'Tap' || trubLossLiters === ''
-							? null
-							: Number(trubLossLiters),
-					mashTunDeadSpaceLiters:
-						type === 'Sensor' || type === 'Tap' || mashTunDeadSpaceLiters === ''
-							? null
-							: Number(mashTunDeadSpaceLiters),
-					packagingLossLiters:
-						type === 'Sensor' || type === 'Tap' || packagingLossLiters === ''
-							? null
-							: Number(packagingLossLiters),
-					displayWidthPx:
-						type === 'Tap' && displayWidthPx !== '' && !isNaN(Number(displayWidthPx))
-							? Number(displayWidthPx)
-							: null,
-					displayHeightPx:
-						type === 'Tap' && displayHeightPx !== '' && !isNaN(Number(displayHeightPx))
-							? Number(displayHeightPx)
-							: null,
-					displayOrientation: type === 'Tap' ? displayOrientation : null,
-					currentTemperatureC: numTemperatureC,
-					connectionType,
-					connectionConfigJson: configJson
-				});
+				savedItem = await api.equipment.update(
+					activeEquipment.id,
+					{
+						name: name.trim(),
+						type,
+						subtype,
+						capacity: numCapacity,
+						currentVolume: numCurrent,
+						unit,
+						description: description.trim() || null,
+						notes: legacyNotes,
+						boilOffRatePerHour:
+							type === 'Sensor' || type === 'Tap' || boilOffRatePerHour === ''
+								? null
+								: Number(boilOffRatePerHour),
+						trubLossLiters:
+							type === 'Sensor' || type === 'Tap' || trubLossLiters === ''
+								? null
+								: Number(trubLossLiters),
+						mashTunDeadSpaceLiters:
+							type === 'Sensor' || type === 'Tap' || mashTunDeadSpaceLiters === ''
+								? null
+								: Number(mashTunDeadSpaceLiters),
+						packagingLossLiters:
+							type === 'Sensor' || type === 'Tap' || packagingLossLiters === ''
+								? null
+								: Number(packagingLossLiters),
+						displayWidthPx:
+							type === 'Tap' && displayWidthPx !== '' && !isNaN(Number(displayWidthPx))
+								? Number(displayWidthPx)
+								: null,
+						displayHeightPx:
+							type === 'Tap' && displayHeightPx !== '' && !isNaN(Number(displayHeightPx))
+								? Number(displayHeightPx)
+								: null,
+						displayOrientation: type === 'Tap' ? displayOrientation : null,
+						currentTemperatureC: numTemperatureC,
+						connectionType,
+						connectionConfigJson: configJson
+					},
+					force
+				);
 			} else {
 				if (brewery.activeSetupId === DEFAULT_BREWERY_ID) {
 					await brewery.syncFromBackend();
@@ -1061,7 +1076,16 @@
 			}
 		} catch (err: unknown) {
 			if (
-				(err instanceof ApiClientError && (err.code === 'DUPLICATE_NAME' || err.status === 409)) ||
+				err instanceof ApiClientError &&
+				err.code === 'EQUIPMENT_IN_USE' &&
+				activeEquipment &&
+				!force
+			) {
+				errorMessage = err.message || t('equipment.err_in_use_conflict');
+				forceUpdateMessage = errorMessage;
+				showForceUpdateModal = true;
+			} else if (
+				(err instanceof ApiClientError && err.code === 'DUPLICATE_NAME') ||
 				(err instanceof Error &&
 					(err.message.includes('DUPLICATE_NAME') ||
 						err.message.toLowerCase().includes('already exists')))
@@ -1076,7 +1100,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (!open || showRegenerateTokenModal) return;
+		if (!open || showRegenerateTokenModal || showForceUpdateModal) return;
 
 		if (e.key === 'Escape') {
 			onClose();
@@ -2590,4 +2614,17 @@
 	cancelTestId="cancel-regenerate-token-btn"
 	onClose={() => (showRegenerateTokenModal = false)}
 	onConfirm={handleConfirmRegenerateToken}
+/>
+
+<ConfirmModal
+	open={showForceUpdateModal}
+	title={t('equipment.force_update_title')}
+	message={forceUpdateMessage || t('equipment.force_update_desc')}
+	confirmText={t('equipment.force_update_confirm')}
+	variant="warning"
+	loading={isSubmitting}
+	confirmTestId="confirm-force-update-equipment-btn"
+	cancelTestId="cancel-force-update-equipment-btn"
+	onClose={() => (showForceUpdateModal = false)}
+	onConfirm={handleConfirmForceUpdate}
 />

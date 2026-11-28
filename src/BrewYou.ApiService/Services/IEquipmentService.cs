@@ -132,7 +132,8 @@ public enum EquipmentAccessResult
     QuotaExceeded,
     DuplicateName,
     InvalidTapAssignment,
-    Conflict
+    Conflict,
+    ActiveBatchConflict
 }
 
 public interface IEquipmentService
@@ -146,7 +147,7 @@ public interface IEquipmentService
         CreateEquipmentRequest request, string userId);
 
     Task<(EquipmentAccessResult Result, EquipmentDto? Equipment, string? ErrorMessage)> UpdateEquipmentAsync(
-        Guid id, UpdateEquipmentRequest request, string userId);
+        Guid id, UpdateEquipmentRequest request, string userId, bool force = false);
 
     Task<EquipmentAccessResult> DeleteEquipmentAsync(Guid id, string userId, bool force = false);
 
