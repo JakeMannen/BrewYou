@@ -1072,6 +1072,7 @@ export interface BatchSummaryDto {
 	measuredBatchSizeLiters?: number | null;
 	createdAt: string;
 	updatedAt: string;
+	isHistorical?: boolean;
 }
 
 export interface BatchReadingDto {
@@ -1270,6 +1271,7 @@ export interface BatchDetailDto {
 	deviations?: BatchDeviationsDto | null;
 	boilerSyncStatus?: string | null;
 	boilerSyncWarning?: string | null;
+	isHistorical?: boolean;
 }
 
 export interface BatchVolumeProfileDto {
@@ -1347,6 +1349,7 @@ export interface CreateBatchRequest {
 	packagingLossLiters?: number | null;
 	sensorAssignments?: BatchSensorAssignmentInput[] | null;
 	sendRecipeToBoiler?: boolean;
+	isHistorical?: boolean | null;
 }
 
 export interface AdvanceBatchStageRequest {
@@ -1399,6 +1402,7 @@ export interface UpdateBatchRequest {
 	measuredPostBoilVolumeLiters?: number | null;
 	measuredPackagedVolumeLiters?: number | null;
 	sensorAssignments?: BatchSensorAssignmentInput[] | null;
+	isHistorical?: boolean | null;
 }
 
 export interface NextBatchCodeResponse {

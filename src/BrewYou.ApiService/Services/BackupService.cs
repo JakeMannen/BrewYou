@@ -1624,6 +1624,7 @@ public class BackupService : IBackupService
                             existingBatch.Status = batchDto.Status;
                             existingBatch.CurrentStage = batchDto.CurrentStage;
                             existingBatch.BrewDate = batchDto.BrewDate == default ? DateOnly.FromDateTime(DateTime.UtcNow) : batchDto.BrewDate;
+                            existingBatch.IsHistorical = batchDto.IsHistorical ?? false;
                             existingBatch.TargetOg = batchDto.TargetOg;
                             existingBatch.TargetFg = batchDto.TargetFg;
                             existingBatch.TargetAbv = batchDto.TargetAbv;
@@ -1704,6 +1705,7 @@ public class BackupService : IBackupService
                             Status = batchDto.Status,
                             CurrentStage = batchDto.CurrentStage,
                             BrewDate = batchDto.BrewDate == default ? DateOnly.FromDateTime(DateTime.UtcNow) : batchDto.BrewDate,
+                            IsHistorical = batchDto.IsHistorical ?? false,
                             TargetOg = batchDto.TargetOg,
                             TargetFg = batchDto.TargetFg,
                             TargetAbv = batchDto.TargetAbv,
@@ -2271,7 +2273,8 @@ public class BackupService : IBackupService
                 sa.BatchMashStepId,
                 sa.CreatedAt
             )).ToList(),
-            RecipeName: b.Recipe?.Name ?? b.RecipeName
+            RecipeName: b.Recipe?.Name ?? b.RecipeName,
+            IsHistorical: b.IsHistorical
         );
     }
 

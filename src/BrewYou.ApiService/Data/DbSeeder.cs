@@ -109,6 +109,7 @@ public static class DbSeeder
                     ALTER TABLE "Ingredients" ADD COLUMN IF NOT EXISTS "FermentabilityPercent" numeric(5,2);
                     ALTER TABLE "BatchIngredients" ADD COLUMN IF NOT EXISTS "FermentableCategory" character varying(20);
                     ALTER TABLE "BatchIngredients" ADD COLUMN IF NOT EXISTS "FermentabilityPercent" numeric(5,2);
+                    ALTER TABLE "Batches" ADD COLUMN IF NOT EXISTS "IsHistorical" boolean NOT NULL DEFAULT false;
                     """);
             }
 

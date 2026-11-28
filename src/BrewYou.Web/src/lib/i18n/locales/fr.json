@@ -536,7 +536,9 @@
 			"brewlink_sent_toast": "Recette envoyée à {name} via BrewLink !",
 			"brewlink_failed_toast": "Brassin créé, mais l'envoi de la recette à {name} via BrewLink a échoué : {error}",
 			"confirm_transfer_message": "Êtes-vous sûr de vouloir transférer cette recette vers {boiler} au démarrage du brassin ? Cela écrasera le programme actuel sur l'équipement.",
-			"past_brew_date_notice": "Date de brassage passée sélectionnée — l'envoi automatique vers le matériel est désactivé afin que vous puissiez saisir rétroactivement les étapes et mesures."
+			"past_brew_date_notice": "Date de brassage passée sélectionnée — l'envoi automatique vers le matériel est désactivé afin que vous puissiez saisir rétroactivement les étapes et mesures.",
+			"historical_batch_toggle": "Enregistrer comme brassin historique",
+			"historical_batch_desc": "Enregistre ce brassin rétroactivement sans occuper les cuves actives, synchroniser le matériel ni associer la télémétrie en direct."
 		},
 		"equipment": {
 			"select_boiler": "Sélectionner la cuve d'ébullition",

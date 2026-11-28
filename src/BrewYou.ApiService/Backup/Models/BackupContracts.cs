@@ -31,7 +31,7 @@ public enum CollaboratorRestoreMode
 public static class BackupSchemaConstants
 {
     public const string FormatIdentifier = "brewyou-user-backup";
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
     public const string CurrentAppVersion = "1.7.0";
 }
 
@@ -436,7 +436,8 @@ public record BatchBackupDto(
     List<BatchStageHistoryBackupDto>? StageHistory = null,
     List<BatchReadingBackupDto>? Readings = null,
     List<BatchSensorAssignmentBackupDto>? SensorAssignments = null,
-    string? RecipeName = null
+    string? RecipeName = null,
+    bool? IsHistorical = null
 );
 
 public record EquipmentReadingBackupDto(

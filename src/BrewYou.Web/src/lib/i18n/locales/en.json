@@ -532,7 +532,9 @@
 			"brewlink_sent_toast": "Recipe sent to {name} via BrewLink.",
 			"brewlink_failed_toast": "Batch created, but recipe could not be sent to {name}: {error}",
 			"confirm_transfer_message": "Are you sure you want to transfer this recipe to {boiler} on batch start? This will overwrite the current program schedule on the equipment.",
-			"past_brew_date_notice": "Past brew date selected — hardware auto-push is disabled so you can log your completed or in-progress brew day steps and measurements retroactively."
+			"past_brew_date_notice": "Past brew date selected — hardware auto-push is disabled so you can log your completed or in-progress brew day steps and measurements retroactively.",
+			"historical_batch_toggle": "Log as historical batch",
+			"historical_batch_desc": "Records this brew retroactively without occupying live vessels, syncing hardware, or capturing live telemetry."
 		},
 		"equipment": {
 			"select_boiler": "Brew Kettle / All-In-One",

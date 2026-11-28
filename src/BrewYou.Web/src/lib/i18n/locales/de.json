@@ -536,7 +536,9 @@
 			"brewlink_sent_toast": "Rezept über BrewLink an {name} gesendet!",
 			"brewlink_failed_toast": "Sud wurde erstellt, aber das Rezept konnte nicht über BrewLink an {name} gesendet werden: {error}",
 			"confirm_transfer_message": "Sind Sie sicher, dass Sie dieses Rezept bei Chargenstart an {boiler} übertragen möchten? Dadurch wird der aktuelle Ablaufplan auf dem Gerät überschrieben.",
-			"past_brew_date_notice": "Vergangenes Braudatum gewählt — automatische Übertragung an die Hardware ist deaktiviert, sodass Sie abgeschlossene oder laufende Schritte und Messwerte nachträglich erfassen können."
+			"past_brew_date_notice": "Vergangenes Braudatum gewählt — automatische Übertragung an die Hardware ist deaktiviert, sodass Sie abgeschlossene oder laufende Schritte und Messwerte nachträglich erfassen können.",
+			"historical_batch_toggle": "Als historischen Sud protokollieren",
+			"historical_batch_desc": "Erfasst diesen Sud nachträglich, ohne aktive Gefäße zu belegen, Hardware zu synchronisieren oder Live-Telemetrie zuzuordnen."
 		},
 		"equipment": {
 			"select_boiler": "Sudwerk / Kessel auswählen",

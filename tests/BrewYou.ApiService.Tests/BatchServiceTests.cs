@@ -2039,6 +2039,203 @@ public class BatchServiceTests
         byId[plannedBatch.Id].VesselTempC.Should().BeNull();
     }
 
+    [Fact]
+    public async Task MultiDayLiveBatch_OnDayThreeAndFive_PreservesOccupancyMovesVolumesAndDecouplesKegs_WhileBoilerFreesAtFerment()
+    {
+        var startUtc = new DateTimeOffset(2026, 6, 1, 10, 0, 0, TimeSpan.Zero);
+        var clock = new MutableTimeProvider(startUtc);
+        var broadcast = new TelemetryBroadcastService(NullLogger<TelemetryBroadcastService>.Instance);
+        var service = new BatchService(_db, broadcast, NullLogger<BatchService>.Instance, timeProvider: clock);
+
+        var ownerId = $"multiday_owner_{Guid.NewGuid():N}";
+        var collabId = $"multiday_collab_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup
+        {
+            Id = Guid.NewGuid(),
+            UserId = ownerId,
+            Name = "Shared Multi-Day Rig",
+            IsDefault = true,
+            Members = [new BreweryMember { UserId = collabId, Role = BreweryRole.Brewer }]
+        };
+        var boiler = new Equipment { Id = Guid.NewGuid(), UserId = ownerId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Boiler 1", Type = EquipmentType.Boiler, Subtype = EquipmentSubtype.AllInOne, Capacity = 40m, CapacityLiters = 40m, Unit = VolumeUnit.Liters };
+        var fermA = new Equipment { Id = Guid.NewGuid(), UserId = ownerId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Fermenter A", Type = EquipmentType.Fermenter, Capacity = 30m, CapacityLiters = 30m, Unit = VolumeUnit.Liters };
+        var fermB = new Equipment { Id = Guid.NewGuid(), UserId = ownerId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Fermenter B", Type = EquipmentType.Fermenter, Capacity = 30m, CapacityLiters = 30m, Unit = VolumeUnit.Liters };
+        var keg1 = new Equipment { Id = Guid.NewGuid(), UserId = ownerId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Keg 1", Type = EquipmentType.Keg, Capacity = 19m, CapacityLiters = 19m, Unit = VolumeUnit.Liters };
+        var keg2 = new Equipment { Id = Guid.NewGuid(), UserId = ownerId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Keg 2", Type = EquipmentType.Keg, Capacity = 19m, CapacityLiters = 19m, Unit = VolumeUnit.Liters };
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.AddRange(boiler, fermA, fermB, keg1, keg2);
+        await _db.SaveChangesAsync();
+
+        // Day 0: Start live batch in Mash
+        var (createRes, created, err) = await service.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-MD-01", "Multi-Day IPA", "IPA", DateOnly.FromDateTime(startUtc.UtcDateTime),
+            20m, 1.055m, 1.012m, 5.6m, 45m, 7m, 60, 75m, boiler.Id, fermA.Id), ownerId);
+        createRes.Should().Be(BatchAccessResult.Success, err);
+        created!.IsHistorical.Should().BeFalse();
+
+        // Advance Mash -> Boil -> Ferment on Day 0
+        (await service.AdvanceStageAsync(created.Id, new AdvanceBatchStageRequest(BrewStage.Boil), ownerId)).Result
+            .Should().Be(BatchAccessResult.Success);
+        (await service.AdvanceStageAsync(created.Id, new AdvanceBatchStageRequest(BrewStage.Ferment, MeasuredOg: 1.056m, MeasuredBatchSizeLiters: 20.5m), ownerId)).Result
+            .Should().Be(BatchAccessResult.Success);
+
+        // Stage-aware occupancy: Boiler is now FREE and can be claimed by another live batch while Batch 1 ferments
+        boiler.CurrentVolumeLiters.Should().Be(0m);
+        fermA.CurrentVolumeLiters.Should().Be(20.5m);
+        var (secondBoilerRes, _, secondErr) = await service.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-MD-02", "Second Brew On Freed Boiler", "Pilsner", DateOnly.FromDateTime(startUtc.UtcDateTime),
+            20m, 1.048m, 1.010m, 5.0m, 30m, 4m, 60, 75m, boiler.Id, null), collabId);
+        secondBoilerRes.Should().Be(BatchAccessResult.Success, secondErr);
+
+        // Advance clock to Day 3 (past UTC midnight; BrewDate is 3 days earlier)
+        clock.Advance(TimeSpan.FromDays(3));
+
+        // Collaborator trying to claim Fermenter A on Day 3 must hit 409 Conflict
+        var (collabFermRes, _, _) = await service.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-MD-03", "Conflicting Batch", "Stout", DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime),
+            20m, 1.055m, 1.014m, 5.4m, 35m, 30m, 60, 75m, null, fermA.Id), collabId);
+        collabFermRes.Should().Be(BatchAccessResult.Success); // Mash doesn't claim fermenter yet
+        var collabBatchId = (await _db.Batches.FirstAsync(b => b.BatchCode == "B-MD-03")).Id;
+        var (collabAdvRes, _, _) = await service.AdvanceStageAsync(collabBatchId, new AdvanceBatchStageRequest(BrewStage.Ferment), collabId);
+        collabAdvRes.Should().Be(BatchAccessResult.Conflict);
+
+        // Day 3: Swap Fermenter A -> Fermenter B on Batch 1 moves live volume
+        var (swapRes, _, swapErr) = await service.UpdateBatchAsync(created.Id, new UpdateBatchRequest(FermenterId: fermB.Id), ownerId);
+        swapRes.Should().Be(BatchAccessResult.Success, swapErr);
+        fermA.CurrentVolumeLiters.Should().Be(0m);
+        fermB.CurrentVolumeLiters.Should().Be(20.5m);
+
+        // Day 4: Package into Keg 1 fills keg and sets AssignedBatchId
+        clock.Advance(TimeSpan.FromDays(1));
+        var (pkgRes, _, pkgErr) = await service.AdvanceStageAsync(created.Id, new AdvanceBatchStageRequest(
+            BrewStage.Package, MeasuredFg: 1.011m, PackagingVesselId: keg1.Id, MeasuredPackagedVolumeLiters: 18.5m), ownerId);
+        pkgRes.Should().Be(BatchAccessResult.Success, pkgErr);
+        fermB.CurrentVolumeLiters.Should().Be(0m);
+        keg1.CurrentVolumeLiters.Should().Be(18.5m);
+        keg1.AssignedBatchId.Should().Be(created.Id);
+
+        // Day 5: Swap Keg 1 -> Keg 2 unconditionally decouples Keg 1 and assigns Keg 2
+        clock.Advance(TimeSpan.FromDays(1));
+        var (kegSwapRes, _, kegSwapErr) = await service.UpdateBatchAsync(created.Id, new UpdateBatchRequest(
+            PackagingVesselId: keg2.Id, MeasuredPackagedVolumeLiters: 18.0m), ownerId);
+        kegSwapRes.Should().Be(BatchAccessResult.Success, kegSwapErr);
+        keg1.AssignedBatchId.Should().BeNull();
+        keg1.CurrentVolumeLiters.Should().Be(0m);
+        keg2.AssignedBatchId.Should().Be(created.Id);
+        keg2.CurrentVolumeLiters.Should().Be(18.0m);
+    }
+
+    [Fact]
+    public async Task HistoricalBatch_GuardsLiveToggleAndEnforcesRevivalOccupancyChecks()
+    {
+        var userId = $"hist_owner_{Guid.NewGuid():N}";
+        var otherUserId = $"hist_other_{Guid.NewGuid():N}";
+        var setup = new BrewerySetup
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "Historical Guard Rig",
+            IsDefault = true,
+            Members = [new BreweryMember { UserId = otherUserId, Role = BreweryRole.Brewer }]
+        };
+        var fermenter = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "FV-1", Type = EquipmentType.Fermenter, Capacity = 30m, CapacityLiters = 30m, Unit = VolumeUnit.Liters };
+        var sensor = new Equipment { Id = Guid.NewGuid(), UserId = userId, BrewerySetupId = setup.Id, BrewerySetup = setup, Name = "Tilt Blue", Type = EquipmentType.Sensor, Subtype = EquipmentSubtype.Tilt };
+        _db.BrewerySetups.Add(setup);
+        _db.Equipment.AddRange(fermenter, sensor);
+        await _db.SaveChangesAsync();
+
+        // 1. Live batch occupies Fermenter + Sensor in Ferment stage
+        var (_, liveBatch, _) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-HIST-LIVE", "Live Batch", "IPA", DateOnly.FromDateTime(DateTime.UtcNow),
+            20m, 1.050m, 1.010m, 5.2m, 35m, 6m, 60, 75m, null, fermenter.Id,
+            SensorAssignments: [new BatchSensorAssignmentInput(sensor.Id, BrewStage.Ferment, null)]), userId);
+        await _batchService.AdvanceStageAsync(liveBatch!.Id, new AdvanceBatchStageRequest(BrewStage.Ferment), userId);
+
+        // Cannot flip an active live batch directly to historical without completing/archiving/planning first
+        var (flipLiveRes, _, _) = await _batchService.UpdateBatchAsync(liveBatch.Id, new UpdateBatchRequest(IsHistorical: true), userId);
+        flipLiveRes.Should().Be(BatchAccessResult.Conflict);
+
+        // 2. Historical batch using the same occupied fermenter & sensor succeeds without mutating live volume
+        var (histCreateRes, histBatch, histErr) = await _batchService.CreateBatchAsync(new CreateBatchRequest(
+            null, "B-HIST-OLD", "Historical Log", "Porter", new DateOnly(2025, 3, 1),
+            18m, 1.054m, 1.014m, 5.2m, 30m, 25m, 60, 75m, null, fermenter.Id,
+            SensorAssignments: [new BatchSensorAssignmentInput(sensor.Id, BrewStage.Ferment, null)],
+            IsHistorical: true), otherUserId);
+        histCreateRes.Should().Be(BatchAccessResult.Success, histErr);
+        histBatch!.IsHistorical.Should().BeTrue();
+        fermenter.CurrentVolumeLiters.Should().Be(20m);
+
+        // Move historical batch to Ferment (still historical, no conflict)
+        (await _batchService.AdvanceStageAsync(histBatch.Id, new AdvanceBatchStageRequest(BrewStage.Ferment), otherUserId)).Result
+            .Should().Be(BatchAccessResult.Success);
+
+        // 3. Reviving historical batch while live batch holds sensor/fermenter returns Conflict
+        var (reviveConflictRes, _, _) = await _batchService.UpdateBatchAsync(histBatch.Id, new UpdateBatchRequest(IsHistorical: false), otherUserId);
+        reviveConflictRes.Should().Be(BatchAccessResult.Conflict);
+
+        // 4. Complete the live batch (which frees fermenter & sensor), then revival succeeds and fills fermenter
+        (await _batchService.UpdateBatchAsync(liveBatch.Id, new UpdateBatchRequest(Status: BatchStatus.Completed), userId)).Result
+            .Should().Be(BatchAccessResult.Success);
+
+        var (reviveOkRes, revived, reviveErr) = await _batchService.UpdateBatchAsync(histBatch.Id, new UpdateBatchRequest(IsHistorical: false), otherUserId);
+        reviveOkRes.Should().Be(BatchAccessResult.Success, reviveErr);
+        revived!.IsHistorical.Should().BeFalse();
+        fermenter.CurrentVolumeLiters.Should().Be(18m);
+    }
+
+    [Fact]
+    public void BatchLifecycle_ActiveStageVesselIds_RespectsStageStatusAndHistorical()
+    {
+        var hltId = Guid.NewGuid();
+        var mashTunId = Guid.NewGuid();
+        var boilerId = Guid.NewGuid();
+        var fermId = Guid.NewGuid();
+        var pkgId = Guid.NewGuid();
+
+        var batch = new Batch
+        {
+            UserId = "u1",
+            BatchCode = "B-LC-1",
+            Name = "Lifecycle Test",
+            Status = BatchStatus.Brewing,
+            CurrentStage = BrewStage.Mash,
+            HltId = hltId,
+            MashTunId = mashTunId,
+            BoilerId = boilerId,
+            FermenterId = fermId,
+            PackagingVesselId = pkgId
+        };
+
+        BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEquivalentTo([hltId, mashTunId, boilerId]);
+
+        batch.CurrentStage = BrewStage.Boil;
+        BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEquivalentTo([boilerId]);
+
+        batch.Status = BatchStatus.Fermenting;
+        batch.CurrentStage = BrewStage.Ferment;
+        BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEquivalentTo([fermId]);
+
+        batch.Status = BatchStatus.Conditioning;
+        batch.CurrentStage = BrewStage.Condition;
+        BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEquivalentTo([fermId]);
+
+        batch.Status = BatchStatus.Planned;
+        BatchLifecycle.OccupiesLiveEquipment(batch).Should().BeFalse();
+        BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEmpty();
+
+        batch.Status = BatchStatus.Fermenting;
+        batch.IsHistorical = true;
+        BatchLifecycle.OccupiesLiveEquipment(batch).Should().BeFalse();
+        BatchLifecycle.ActiveStageVesselIds(batch).Should().BeEmpty();
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset initialUtc) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = initialUtc;
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+        public void Advance(TimeSpan delta) => _utcNow = _utcNow.Add(delta);
+    }
+
     private sealed class StubBrewLinkService(BrewLinkSendResult result, string? errorMessage) : IBrewLinkService
     {
         public Task<(BrewLinkSendResult Result, BrewLinkCommandResultDto? CommandResult, string? ErrorMessage)> SendRecipeToEquipmentAsync(

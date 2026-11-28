@@ -795,7 +795,9 @@
 			"brewlink_sent_toast": "Recept skickat till {name} via BrewLink.",
 			"brewlink_failed_toast": "Batchen skapades, men receptet kunde inte skickas till {name}: {error}",
 			"confirm_transfer_message": "Är du säker på att du vill överföra detta recept till {boiler} vid batchstart? Detta skriver över befintligt programschema på utrustningen.",
-			"past_brew_date_notice": "Tidigare bryggdatum valt — automatisk sändning till hårdvara är inaktiverad så att du kan logga dina bryggdagssteg och mätvärden i efterhand."
+			"past_brew_date_notice": "Tidigare bryggdatum valt — automatisk sändning till hårdvara är inaktiverad så att du kan logga dina bryggdagssteg och mätvärden i efterhand.",
+			"historical_batch_toggle": "Logga som historisk batch",
+			"historical_batch_desc": "Registrerar bryggningen i efterhand utan att reservera aktiva kärl, synka hårdvara eller koppla live-telemetri."
 		},
 		"equipment": {
 			"select_boiler": "Bryggverk / Kokgryta",
