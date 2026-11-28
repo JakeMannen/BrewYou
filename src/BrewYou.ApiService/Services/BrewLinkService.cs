@@ -1759,23 +1759,28 @@ public partial class BrewLinkService : IBrewLinkService
 
             canonical = canonical with { Connected = true };
             var metricsJson = BrewLinkTelemetryParser.ToMetricsJson(canonical);
-            equipment.CurrentTemperatureC = canonical.CurrentTempC.Value;
-            equipment.TemperatureUpdatedAt = canonical.UpdatedAt;
-            equipment.LastTelemetryAt = DateTime.UtcNow;
-            equipment.LatestMetricsJson = metricsJson;
 
+            var ingestedViaTelemetry = false;
             if (_serviceProvider != null)
             {
                 var telemetryService = _serviceProvider.GetService<ITelemetryService>();
                 if (telemetryService != null)
                 {
-                    await telemetryService.IngestBrewLinkTelemetryAsync(equipment.Id, doc.RootElement, source: "BrewLinkSync");
+                    var ingestResult = await telemetryService.IngestBrewLinkTelemetryAsync(equipment.Id, doc.RootElement, source: "BrewLinkSync");
+                    ingestedViaTelemetry = ingestResult.Status == TelemetryIngestStatus.Success;
                 }
             }
 
-            await _db.SaveChangesAsync(ct);
+            if (!ingestedViaTelemetry)
+            {
+                equipment.CurrentTemperatureC = canonical.CurrentTempC.Value;
+                equipment.TemperatureUpdatedAt = canonical.UpdatedAt;
+                equipment.LastTelemetryAt = DateTime.UtcNow;
+                equipment.LatestMetricsJson = metricsJson;
+                await _db.SaveChangesAsync(ct);
 
-            await BroadcastEquipmentStateAsync(equipment, metricsJson, "BrewLinkSync", ct);
+                await BroadcastEquipmentStateAsync(equipment, metricsJson, "BrewLinkSync", ct);
+            }
 
             var syncResult = new BrewLinkSyncResultDto(
                 Status: "ok",

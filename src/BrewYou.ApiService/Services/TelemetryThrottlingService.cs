@@ -115,15 +115,15 @@ public sealed class TelemetryThrottlingService : ITelemetryThrottlingService
                 }
             }
 
-            // 4f. Active brew stage transition
-            if (stage.HasValue && stage != last.Stage)
+            // 4f. Active brew stage transition (including clearing to null when leaving a batch/stage)
+            if (stage != last.Stage)
             {
                 _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                 return true;
             }
 
-            // 4h. Batch or mash step transition (guarantees immediate persistence for a new mash step or new batch)
-            if (batchId.HasValue && (batchId != last.BatchId || batchMashStepId != last.BatchMashStepId))
+            // 4h. Batch or mash step transition (guarantees immediate persistence for a new mash step, new batch, or detaching from a batch)
+            if (batchId != last.BatchId || (batchId.HasValue && batchMashStepId != last.BatchMashStepId))
             {
                 _snapshots[equipmentId] = CreateSnapshot(timestampUtc, temperatureC, metrics, specificGravity, stage, batchId, batchMashStepId);
                 return true;

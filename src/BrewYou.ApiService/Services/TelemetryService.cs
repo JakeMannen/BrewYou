@@ -1043,8 +1043,10 @@ public class TelemetryService : ITelemetryService
             }
             else if (equipment.Id == activeBatch.FermenterId && (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition))
             {
-                var fermenterSupersededBySensor = activeBatch.CurrentStage == BrewStage.Ferment &&
-                    activeBatch.SensorAssignments.Any(sa => sa.Stage == BrewStage.Ferment || sa.Stage == null);
+                var fermenterSupersededBySensor = BatchTelemetryResolver.IsEquipmentSupersededBySensor(
+                    activeBatch,
+                    activeBatch.CurrentStage,
+                    equipment.Id);
 
                 reading.BatchId = activeBatch.Id;
                 reading.Stage = activeBatch.CurrentStage;
@@ -1078,14 +1080,11 @@ public class TelemetryService : ITelemetryService
             }
 
             // If reading is associated with a fermentation or conditioning stage batch and carries gravity,
-            // update live metrics and persist throttled BatchReading — respecting fermentation sensor precedence during Ferment.
-            var hasAssignedFermentationSensor = activeBatch.CurrentStage == BrewStage.Ferment &&
-                activeBatch.SensorAssignments.Any(sa => sa.Stage == BrewStage.Ferment || sa.Stage == null);
-            var isAssignedFermentationSensor = hasAssignedFermentationSensor &&
-                activeBatch.SensorAssignments.Any(sa =>
-                    sa.EquipmentId == equipment.Id &&
-                    (sa.Stage == BrewStage.Ferment || sa.Stage == null));
-            var allowGravityUpdate = !hasAssignedFermentationSensor || isAssignedFermentationSensor;
+            // update live metrics and persist throttled BatchReading — respecting sensor precedence during Ferment and Condition.
+            var allowGravityUpdate = !BatchTelemetryResolver.IsEquipmentSupersededBySensor(
+                activeBatch,
+                activeBatch.CurrentStage,
+                equipment.Id);
 
             if (reading.BatchId.HasValue &&
                 (activeBatch.CurrentStage == BrewStage.Ferment || activeBatch.CurrentStage == BrewStage.Condition) &&

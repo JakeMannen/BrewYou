@@ -228,4 +228,78 @@ describe('batchTelemetry helpers', () => {
 		const syncedFerm = applyBrewLinkSyncTempToBatches(syncedBoiler, 'ferm-sensor-backed', 17.5);
 		expect(syncedFerm[1].vesselTempC).toBe(20.5);
 	});
+
+	it('applies fermentation sensor precedence consistently in Condition stage as well as Ferment', () => {
+		const conditionWithSensor = makeBatch({
+			id: 'batch-cond-sensor',
+			status: 'Conditioning',
+			currentStage: 'Condition',
+			measuredOg: 1.054,
+			currentGravity: 1.012,
+			alcoholByVolume: 5.51,
+			fermenterId: 'ferm-1',
+			fermentationSensorId: 'ispindel-cond',
+			vesselTempC: 3.5
+		});
+		const conditionWithoutSensor = makeBatch({
+			id: 'batch-cond-ferm',
+			status: 'Conditioning',
+			currentStage: 'Condition',
+			fermenterId: 'ferm-2',
+			fermentationSensorId: null,
+			vesselTempC: 4.0
+		});
+
+		expect(isActiveStageVessel(conditionWithSensor, 'ispindel-cond')).toBe(true);
+		expect(isActiveStageVessel(conditionWithSensor, 'ferm-1')).toBe(false);
+		expect(shouldApplyTemperatureToBatch(conditionWithSensor, 'ispindel-cond')).toBe(true);
+		expect(shouldApplyTemperatureToBatch(conditionWithSensor, 'ferm-1')).toBe(false);
+
+		expect(isActiveStageVessel(conditionWithoutSensor, 'ferm-2')).toBe(true);
+		expect(shouldApplyTemperatureToBatch(conditionWithoutSensor, 'ferm-2')).toBe(true);
+
+		expect(getActiveStageVesselIds([conditionWithSensor, conditionWithoutSensor])).toEqual([
+			'ferm-2'
+		]);
+
+		// Fermenter telemetry with matching batchId must NOT overwrite sensor temp/gravity/ABV during Condition
+		const fermenterReading: EquipmentTelemetryUpdateDto = {
+			equipmentId: 'ferm-1',
+			equipmentName: 'Glycol Conical',
+			batchId: 'batch-cond-sensor',
+			temperatureC: 1.0,
+			specificGravity: 1.02,
+			timestamp: '2026-11-28T12:00:00Z'
+		};
+		const afterFermenter = applyEquipmentTelemetryToBatches(
+			[conditionWithSensor],
+			fermenterReading,
+			'Linear'
+		);
+		expect(afterFermenter[0].vesselTempC).toBe(3.5);
+		expect(afterFermenter[0].currentGravity).toBe(1.012);
+		expect(afterFermenter[0].alcoholByVolume).toBe(5.51);
+
+		// Sensor telemetry updates temp, gravity, and ABV during Condition
+		const sensorReading: EquipmentTelemetryUpdateDto = {
+			equipmentId: 'ispindel-cond',
+			equipmentName: 'iSpindel Cond',
+			batchId: 'batch-cond-sensor',
+			temperatureC: 2.2,
+			specificGravity: 1.01,
+			timestamp: '2026-11-28T12:05:00Z'
+		};
+		const afterSensor = applyEquipmentTelemetryToBatches(afterFermenter, sensorReading, 'Linear');
+		expect(afterSensor[0].vesselTempC).toBe(2.2);
+		expect(afterSensor[0].currentGravity).toBe(1.01);
+		expect(afterSensor[0].alcoholByVolume).toBeGreaterThan(5.51);
+
+		// BrewLink sync temp from fermenter must not overwrite sensor-backed Condition batch
+		const synced = applyBrewLinkSyncTempToBatches(
+			[conditionWithSensor, conditionWithoutSensor],
+			'ferm-1',
+			0.5
+		);
+		expect(synced[0].vesselTempC).toBe(3.5);
+	});
 });

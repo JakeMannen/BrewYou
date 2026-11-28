@@ -23,11 +23,10 @@ export function isActiveStageVessel(
 		case 'Boil':
 			return batch.boilerId === equipmentId;
 		case 'Ferment':
+		case 'Condition':
 			if (batch.fermentationSensorId) {
 				return batch.fermentationSensorId === equipmentId;
 			}
-			return batch.fermenterId === equipmentId;
-		case 'Condition':
 			return batch.fermenterId === equipmentId;
 		default:
 			return false;
@@ -38,7 +37,10 @@ export function shouldApplyTelemetryToBatch(
 	batch: Pick<BatchSummaryDto, 'currentStage' | 'fermentationSensorId'>,
 	equipmentId: string | null | undefined
 ): boolean {
-	if (batch.currentStage === 'Ferment' && batch.fermentationSensorId) {
+	if (
+		(batch.currentStage === 'Ferment' || batch.currentStage === 'Condition') &&
+		batch.fermentationSensorId
+	) {
 		return Boolean(equipmentId) && equipmentId === batch.fermentationSensorId;
 	}
 	return true;
@@ -66,12 +68,10 @@ export function getActiveStageVesselIds(batches: BatchSummaryDto[]): string[] {
 				addUnique(batch.boilerId);
 				break;
 			case 'Ferment':
+			case 'Condition':
 				if (!batch.fermentationSensorId) {
 					addUnique(batch.fermenterId);
 				}
-				break;
-			case 'Condition':
-				addUnique(batch.fermenterId);
 				break;
 			default:
 				break;
