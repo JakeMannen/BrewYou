@@ -389,6 +389,14 @@
 		"volume": "Volumen",
 		"status_brewing": "Día de elaboración",
 		"status_archived": "Archivado",
+		"status_filter_aria": "Filtro de estado de lotes",
+		"edit_validation": {
+			"name_required": "El nombre del lote es obligatorio.",
+			"og_range": "La DI medida debe estar entre 1,000 y 1,250.",
+			"fg_range": "La DF medida debe estar entre 0,980 y 1,200.",
+			"fg_lower_than_og": "La DF medida debe ser inferior a la DI medida.",
+			"volume_non_negative": "El volumen del lote no puede ser negativo."
+		},
 		"filter_brewing": "En elaboración",
 		"err_load_failed": "Error al cargar los lotes.",
 		"not_found": "Lote no encontrado.",
@@ -725,6 +733,8 @@
 			"packaging_vessel": "Depósito de envasado",
 			"none_assigned": "Ningún equipo asignado",
 			"no_fermenter_assigned": "Ningún fermentador asignado",
+			"fermentation_sensor_badge": "Sensor",
+			"brewing_progress_aria": "Progreso de elaboración",
 			"no_notes_recorded": "No hay notas registradas.",
 			"advance_stage_notes_placeholder": "Notas sobre el avance de etapa...",
 			"reading_notes_placeholder": "Notas sensoriales, cata...",
@@ -2504,7 +2514,16 @@
 		"tap_pouring": "Sirviendo",
 		"tap_empty": "Grifo vacío",
 		"tap_no_batch": "Ningún lote asignado",
-		"tap_assign_action": "Asignar lote"
+		"tap_assign_action": "Asignar lote",
+		"view_all_equipment": "Ver todo el equipo",
+		"milestone_dryhop": "{batch}: Añadir dry hop (Día {day})",
+		"milestone_gravity": "{batch}: Medir densidad final y comprobar diacetilo",
+		"milestone_package": "{batch}: Preparar barriles o botellas para envasado",
+		"activity_logged_reading": "Lectura registrada: {details}",
+		"activity_advanced_stage": "Avanzado a la etapa {stage}",
+		"invalid_gravity_error": "Introduce una lectura de densidad válida.",
+		"gravity_range_error": "La densidad está fuera del rango normal de elaboración (0,980 - 1,250 SG).",
+		"notes_placeholder": "Aromas, claridad, burbujeo activo, aroma de dry hop..."
 	},
 	"fermentation_profile": {
 		"title": "Perfil y etapas de fermentación",

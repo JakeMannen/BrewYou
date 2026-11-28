@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import type { BatchDetailDto, BatchStatus, UpdateBatchRequest } from '$lib/types/api';
+import { describe, expect, it, vi } from 'vitest';
+import { render } from 'svelte/server';
+import BatchEditModal from './BatchEditModal.svelte';
+import { settings } from '$lib/stores/settings.svelte';
+import type {
+	BatchDetailDto,
+	BatchStatus,
+	BatchSummaryDto,
+	EquipmentDto,
+	UpdateBatchRequest
+} from '$lib/types/api';
 import {
 	EMPTY_GUID,
 	buildEquipmentIdUpdate,
@@ -411,6 +420,64 @@ describe('BatchEditModal — Post-Finish Batch Record Editing Logic (R2)', () =>
 			expect(isPackagingVesselEquipment({ type: 'Fermenter', subtype: 'ConicalFermenter' })).toBe(
 				false
 			);
+		});
+	});
+
+	describe('Rendered Equipment Annotations & Volume Formatting (FE-M4)', () => {
+		it('annotates occupied vessels and formats capacities using user volume unit', () => {
+			const prevUnit = settings.volumeUnit;
+			settings.volumeUnit = 'Gallons';
+			try {
+				const busyFerm: EquipmentDto = {
+					id: 'ferm-busy',
+					brewerySetupId: 's1',
+					name: 'Busy Conical',
+					type: 'Fermenter',
+					subtype: 'ConicalFermenter',
+					capacity: 30,
+					unit: 'Liters',
+					capacityLiters: 30,
+					currentVolume: 20,
+					currentVolumeLiters: 20,
+					fillPercentage: 67,
+					createdAt: '',
+					updatedAt: ''
+				};
+				const otherBatch: BatchSummaryDto = {
+					id: 'other-batch',
+					batchCode: 'B-OTHER',
+					name: 'Other IPA',
+					beerStyle: 'IPA',
+					status: 'Fermenting',
+					currentStage: 'Ferment',
+					brewDate: '2026-11-28',
+					daysActive: 2,
+					targetOg: 1.06,
+					targetFg: 1.012,
+					colorSrm: 6,
+					targetBatchSizeLiters: 20,
+					fermenterId: 'ferm-busy',
+					createdAt: '',
+					updatedAt: ''
+				};
+
+				const { body } = render(BatchEditModal, {
+					props: {
+						open: true,
+						batch: mockCompletedBatch,
+						equipmentList: [busyFerm],
+						activeBatches: [otherBatch],
+						onClose: vi.fn(),
+						onSave: vi.fn()
+					}
+				});
+
+				expect(body).toContain('Busy Conical');
+				expect(body).toContain('gal');
+				expect(body).toContain('Occupied');
+			} finally {
+				settings.volumeUnit = prevUnit;
+			}
 		});
 	});
 });

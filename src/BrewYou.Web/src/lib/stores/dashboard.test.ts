@@ -73,6 +73,7 @@ describe('Dashboard Store (dashboard.svelte.ts)', () => {
 			colorSrm: 5.5,
 			targetBatchSizeLiters: 20,
 			measuredBatchSizeLiters: 21,
+			fermenterId: 'eq1',
 			createdAt: '',
 			updatedAt: ''
 		},
@@ -162,13 +163,33 @@ describe('Dashboard Store (dashboard.svelte.ts)', () => {
 		expect(dashboard.activeBatches.some((b) => b.id === 'b3')).toBe(false);
 	});
 
-	it('computes fermenters and cellarUtilizationPercent correctly', () => {
-		dashboard.batches = [...mockBatches];
-		dashboard.equipment = [...mockEquipment];
+	it('computes fermenters and cellarUtilizationPercent from distinct active-setup fermenters', () => {
+		const secondFermenter: EquipmentDto = {
+			...mockEquipment[0],
+			id: 'eq3',
+			name: 'FV 2'
+		};
+		const otherSetupBatch: BatchSummaryDto = {
+			...mockBatches[1],
+			id: 'b-other-setup',
+			fermenterId: 'ferm-in-another-setup'
+		};
+		const historicalBatch: BatchSummaryDto = {
+			...mockBatches[0],
+			id: 'b-hist',
+			fermenterId: 'eq3',
+			isHistorical: true
+		};
 
-		expect(dashboard.fermenters.length).toBe(1);
-		expect(dashboard.fermenters[0].id).toBe('eq1');
-		// 2 active cellar batches with 1 fermenter => 100% cap
+		dashboard.batches = [mockBatches[0], otherSetupBatch, historicalBatch];
+		dashboard.equipment = [mockEquipment[0], secondFermenter, mockEquipment[1]];
+
+		expect(dashboard.fermenters.length).toBe(2);
+		// Only eq1 is occupied by a live cellar batch in the active setup -> 1/2 = 50%
+		expect(dashboard.cellarUtilizationPercent).toBe(50);
+
+		// When only 1 fermenter exists and it is occupied -> 100%
+		dashboard.equipment = [...mockEquipment];
 		expect(dashboard.cellarUtilizationPercent).toBe(100);
 	});
 
@@ -438,5 +459,85 @@ describe('Dashboard Store (dashboard.svelte.ts)', () => {
 		expect(offItem?.temperatureUpdatedAt).toBeUndefined();
 		expect(prevItem?.currentTemperatureC).toBe(65.4);
 		expect(prevItem?.temperatureUpdatedAt).toBe('2026-11-14T18:00:00Z');
+	});
+
+	it('respects fermentationSensorId precedence in logReading', async () => {
+		const sensorBackedBatch: BatchSummaryDto = {
+			...mockBatches[0],
+			id: 'b-sensor',
+			fermenterId: 'eq1',
+			fermentationSensorId: 'ispindel-1',
+			vesselTempC: 20.4,
+			currentGravity: 1.022
+		};
+		dashboard.batches = [sensorBackedBatch];
+
+		vi.mocked(api.batches.addReading).mockResolvedValue({
+			id: 'r-ferm',
+			batchId: 'b-sensor',
+			timestamp: '2026-11-28T12:00:00Z',
+			specificGravity: 1.03,
+			temperatureC: 17.5,
+			createdAt: '2026-11-28T12:00:00Z'
+		} as unknown as BatchReadingDto);
+
+		// Logging against the fermenter must not overwrite live sensor temp/gravity
+		await dashboard.logReading('b-sensor', {
+			equipmentId: 'eq1',
+			specificGravity: 1.03,
+			temperatureC: 17.5
+		});
+		expect(dashboard.batches[0].vesselTempC).toBe(20.4);
+		expect(dashboard.batches[0].currentGravity).toBe(1.022);
+
+		// Logging against the assigned sensor updates temp and gravity
+		await dashboard.logReading('b-sensor', {
+			equipmentId: 'ispindel-1',
+			specificGravity: 1.015,
+			temperatureC: 21.0
+		});
+		expect(dashboard.batches[0].vesselTempC).toBe(21.0);
+		expect(dashboard.batches[0].currentGravity).toBe(1.015);
+	});
+
+	it('re-fetches batches and restarts equipment streams on advanceStage', async () => {
+		auth.user = {
+			id: 'u1',
+			email: 'test@brewyou.local',
+			displayName: 'Brewer',
+			preferredLanguage: 'en',
+			preferredVolumeUnit: 'Liters'
+		};
+		dashboard.batches = [...mockBatches];
+		const updatedDetail = {
+			...mockBatches[0],
+			currentStage: 'Condition',
+			status: 'Conditioning'
+		};
+		const refreshedSummary: BatchSummaryDto[] = [
+			{
+				...mockBatches[0],
+				currentStage: 'Condition',
+				status: 'Conditioning',
+				fermenterName: 'FV 1'
+			}
+		];
+
+		vi.mocked(api.batches.advanceStage).mockResolvedValueOnce(
+			updatedDetail as unknown as BatchDetailDto
+		);
+		vi.mocked(api.batches.list).mockResolvedValueOnce(refreshedSummary);
+		vi.mocked(api.equipment.list).mockResolvedValueOnce(mockEquipment);
+
+		await dashboard.advanceStage('b1', 'Condition', { fermenterId: 'eq1' });
+
+		expect(api.batches.advanceStage).toHaveBeenCalledWith('b1', {
+			fermenterId: 'eq1',
+			targetStage: 'Condition'
+		});
+		expect(api.batches.list).toHaveBeenCalledTimes(1);
+		expect(api.equipment.list).toHaveBeenCalledTimes(1);
+		expect(api.equipment.streamTelemetry).toHaveBeenCalled();
+		expect(dashboard.batches[0].currentStage).toBe('Condition');
 	});
 });

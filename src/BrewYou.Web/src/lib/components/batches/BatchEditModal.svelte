@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { tick, untrack } from 'svelte';
+	import { ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
 	import { settings, celsiusToFahrenheit, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
+	import { modalA11y } from '$lib/actions/modalA11y';
 	import { isBatchTelemetrySensor } from '$lib/components/inventory/vessel-geometry';
 	import {
 		buildEquipmentIdUpdate,
@@ -8,6 +11,7 @@
 		getPrimaryFermentationSensorAssignment,
 		isPackagingVesselEquipment
 	} from '$lib/utils/batchEdit';
+	import { isEquipmentOccupied, type BatchOccupancySummary } from '$lib/utils/batchEquipment';
 	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import type {
 		BatchDetailDto,
@@ -21,11 +25,12 @@
 		open: boolean;
 		batch: BatchDetailDto | null;
 		equipmentList?: EquipmentDto[];
+		activeBatches?: BatchOccupancySummary[];
 		onClose: () => void;
 		onSave: (req: UpdateBatchRequest) => Promise<void>;
 	}
 
-	let { open, batch, equipmentList = [], onClose, onSave }: Props = $props();
+	let { open, batch, equipmentList = [], activeBatches = [], onClose, onSave }: Props = $props();
 
 	let draftName = $state('');
 	let draftBeerStyle = $state('');
@@ -46,6 +51,9 @@
 
 	let saving = $state(false);
 	let errorMessage = $state<string | null>(null);
+	let errorDetails = $state<string[]>([]);
+	let errorBannerEl = $state<HTMLDivElement | null>(null);
+	let snapshottedBatchId: string | null = null;
 
 	let fermenters = $derived(equipmentList.filter((e) => e.type === 'Fermenter'));
 	let fermentationSensors = $derived(equipmentList.filter((e) => isBatchTelemetrySensor(e)));
@@ -58,6 +66,19 @@
 		return t(`equipment.subtypes.${subtype}`) || subtype;
 	}
 
+	function formatEquipmentOptionLabel(eq: EquipmentDto, includeCapacity = true): string {
+		const base = includeCapacity
+			? `${eq.name} (${settings.formatVolume(eq.capacityLiters)})`
+			: `${eq.name} [${getSubtypeName(eq.subtype)}]`;
+		const occupied = isEquipmentOccupied(eq.id, activeBatches, eq, batch?.id ?? null);
+		return occupied ? `${base} — ${t('dashboard.status_occupied')}` : base;
+	}
+
+	async function revealErrorBanner() {
+		await tick();
+		errorBannerEl?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+	}
+
 	const editableStatuses: BatchStatus[] = [
 		'Planned',
 		'Brewing',
@@ -67,28 +88,39 @@
 		'Archived'
 	];
 
+	// Snapshot draft only on open transition (or when editing a different batch ID)
+	// so background SSE / polling updates never wipe unsaved user edits.
 	$effect(() => {
-		if (open && batch) {
-			draftName = batch.name ?? '';
-			draftBeerStyle = batch.beerStyle ?? '';
-			draftBrewDate = batch.brewDate ? batch.brewDate.slice(0, 10) : '';
-			draftStatus = batch.status;
-			draftMeasuredOgStr = formatDecimalInput(batch.measuredOg, 3);
-			draftMeasuredFgStr = formatDecimalInput(batch.measuredFg, 3);
-			draftMeasuredBatchSizeStr = formatDecimalInput(batch.measuredBatchSizeLiters, 1);
-			const initialPitchDisplay =
-				batch.pitchTemperatureC !== null && batch.pitchTemperatureC !== undefined
-					? settings.temperatureUnit === 'Fahrenheit'
-						? Number(celsiusToFahrenheit(batch.pitchTemperatureC).toFixed(1))
-						: batch.pitchTemperatureC
-					: null;
-			draftPitchTempDisplayStr = formatDecimalInput(initialPitchDisplay, 1);
-			draftFermenterId = batch.fermenterId ?? '';
-			draftFermentationSensorId = getPrimaryFermentationSensorAssignment(batch)?.equipmentId ?? '';
-			draftPackagingVesselId = batch.packagingVesselId ?? '';
-			draftNotes = batch.notes ?? '';
-			saving = false;
-			errorMessage = null;
+		const currentId = open && batch ? batch.id : null;
+		if (currentId && snapshottedBatchId !== currentId) {
+			snapshottedBatchId = currentId;
+			untrack(() => {
+				if (!batch) return;
+				draftName = batch.name ?? '';
+				draftBeerStyle = batch.beerStyle ?? '';
+				draftBrewDate = batch.brewDate ? batch.brewDate.slice(0, 10) : '';
+				draftStatus = batch.status;
+				draftMeasuredOgStr = formatDecimalInput(batch.measuredOg, 3);
+				draftMeasuredFgStr = formatDecimalInput(batch.measuredFg, 3);
+				draftMeasuredBatchSizeStr = formatDecimalInput(batch.measuredBatchSizeLiters, 1);
+				const initialPitchDisplay =
+					batch.pitchTemperatureC !== null && batch.pitchTemperatureC !== undefined
+						? settings.temperatureUnit === 'Fahrenheit'
+							? Number(celsiusToFahrenheit(batch.pitchTemperatureC).toFixed(1))
+							: batch.pitchTemperatureC
+						: null;
+				draftPitchTempDisplayStr = formatDecimalInput(initialPitchDisplay, 1);
+				draftFermenterId = batch.fermenterId ?? '';
+				draftFermentationSensorId =
+					getPrimaryFermentationSensorAssignment(batch)?.equipmentId ?? '';
+				draftPackagingVesselId = batch.packagingVesselId ?? '';
+				draftNotes = batch.notes ?? '';
+				saving = false;
+				errorMessage = null;
+				errorDetails = [];
+			});
+		} else if (!open) {
+			snapshottedBatchId = null;
 		}
 	});
 
@@ -111,22 +143,22 @@
 
 	function validateForm(): string | null {
 		if (!draftName || draftName.trim().length === 0) {
-			return 'Batch name is required.';
+			return t('batches.edit_validation.name_required');
 		}
 		if (draftMeasuredOgStr.trim() !== '' && draftMeasuredOg === null) {
-			return 'Measured OG must be between 1.000 and 1.250.';
+			return t('batches.edit_validation.og_range');
 		}
 		if (draftMeasuredOg !== null && draftMeasuredOg !== undefined) {
 			if (Number.isNaN(draftMeasuredOg) || draftMeasuredOg < 1.0 || draftMeasuredOg > 1.25) {
-				return 'Measured OG must be between 1.000 and 1.250.';
+				return t('batches.edit_validation.og_range');
 			}
 		}
 		if (draftMeasuredFgStr.trim() !== '' && draftMeasuredFg === null) {
-			return 'Measured FG must be between 0.980 and 1.200.';
+			return t('batches.edit_validation.fg_range');
 		}
 		if (draftMeasuredFg !== null && draftMeasuredFg !== undefined) {
 			if (Number.isNaN(draftMeasuredFg) || draftMeasuredFg < 0.98 || draftMeasuredFg > 1.2) {
-				return 'Measured FG must be between 0.980 and 1.200.';
+				return t('batches.edit_validation.fg_range');
 			}
 		}
 		if (
@@ -136,14 +168,14 @@
 			draftMeasuredFg !== undefined &&
 			draftMeasuredFg >= draftMeasuredOg
 		) {
-			return 'Measured FG must be lower than measured OG.';
+			return t('batches.edit_validation.fg_lower_than_og');
 		}
 		if (draftMeasuredBatchSizeStr.trim() !== '' && draftMeasuredBatchSize === null) {
-			return 'Batch volume must be non-negative.';
+			return t('batches.edit_validation.volume_non_negative');
 		}
 		if (draftMeasuredBatchSize !== null && draftMeasuredBatchSize !== undefined) {
 			if (Number.isNaN(draftMeasuredBatchSize) || draftMeasuredBatchSize < 0) {
-				return 'Batch volume must be non-negative.';
+				return t('batches.edit_validation.volume_non_negative');
 			}
 		}
 		if (draftPitchTempDisplayStr.trim() !== '' && draftPitchTempDisplay === null) {
@@ -159,11 +191,14 @@
 		const validationError = validateForm();
 		if (validationError) {
 			errorMessage = validationError;
+			errorDetails = [];
+			void revealErrorBanner();
 			return;
 		}
 
 		saving = true;
 		errorMessage = null;
+		errorDetails = [];
 		try {
 			const pitchTempC =
 				draftPitchTempDisplay !== null &&
@@ -233,20 +268,19 @@
 			await onSave(req);
 			onClose();
 		} catch (err: unknown) {
-			errorMessage = (err as Error).message || t('common.error_generic');
+			if (err instanceof ApiClientError && err.details && err.details.length > 0) {
+				errorMessage = err.message || t('common.error_generic');
+				errorDetails = err.details.map((d) => (d.field ? `${d.field}: ${d.issue}` : d.issue));
+			} else {
+				errorMessage = (err as Error).message || t('common.error_generic');
+				errorDetails = [];
+			}
+			void revealErrorBanner();
 		} finally {
 			saving = false;
 		}
 	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && open && !saving) {
-			onClose();
-		}
-	}
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#if open && batch}
 	<div
@@ -265,6 +299,7 @@
 		></div>
 
 		<div
+			use:modalA11y={{ onClose, disabled: saving }}
 			class="relative z-10 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
 		>
 			<div
@@ -299,11 +334,22 @@
 
 			{#if errorMessage}
 				<div
+					bind:this={errorBannerEl}
 					role="alert"
+					data-testid="batch-edit-error-banner"
 					class="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
 				>
 					<AlertTriangle class="h-4 w-4 shrink-0 text-red-500" />
-					<span>{errorMessage}</span>
+					<div class="space-y-1">
+						<p class="font-semibold">{errorMessage}</p>
+						{#if errorDetails.length > 0}
+							<ul class="list-disc space-y-0.5 pl-4">
+								{#each errorDetails as detail (detail)}
+									<li>{detail}</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
 				</div>
 			{/if}
 
@@ -471,7 +517,7 @@
 							{/if}
 							<option value="">{t('batches.workspace.no_fermenter_assigned')}</option>
 							{#each fermenters as fermenter (fermenter.id)}
-								<option value={fermenter.id}>{fermenter.name} ({fermenter.capacity}L)</option>
+								<option value={fermenter.id}>{formatEquipmentOptionLabel(fermenter, true)}</option>
 							{/each}
 						</select>
 					</div>
@@ -500,7 +546,7 @@
 							<option value="">{t('batches.workspace.none_assigned')}</option>
 							{#each fermentationSensors as sensor (sensor.id)}
 								<option value={sensor.id}>
-									{sensor.name} [{getSubtypeName(sensor.subtype)}]
+									{formatEquipmentOptionLabel(sensor, false)}
 								</option>
 							{/each}
 						</select>
@@ -528,7 +574,7 @@
 							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
 							{#each packagingVessels as keg (keg.id)}
-								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
+								<option value={keg.id}>{formatEquipmentOptionLabel(keg, true)}</option>
 							{/each}
 						</select>
 					</div>

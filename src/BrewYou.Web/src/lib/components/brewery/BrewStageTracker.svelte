@@ -64,6 +64,7 @@
 		PackageCheck
 	} from '@lucide/svelte';
 	import VesselIcon from '$lib/components/inventory/VesselIcon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		stages?: BrewStage[];
@@ -126,7 +127,7 @@
 </script>
 
 <nav
-	aria-label="Brewing Progress"
+	aria-label={t('batches.workspace.brewing_progress_aria')}
 	data-testid="brew-stage-tracker"
 	class="w-full px-2 py-4 {className}"
 >

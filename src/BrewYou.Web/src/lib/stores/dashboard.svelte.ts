@@ -4,9 +4,14 @@ import { brewery, DEFAULT_BREWERY_ID } from '$lib/stores/brewery.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { calculateActualAbv } from '$lib/calculators/brewing';
-import { shouldApplyTelemetryToBatch } from '$lib/utils/batchTelemetry';
+import { t } from '$lib/i18n/index.svelte';
+import {
+	applyEquipmentTelemetryToBatches,
+	shouldApplyTelemetryToBatch
+} from '$lib/utils/batchTelemetry';
 import { sortEquipmentByName } from '$lib/utils/equipment-order';
 import type {
+	AdvanceBatchStageRequest,
 	BatchSummaryDto,
 	EquipmentDto,
 	BrewStage,
@@ -67,10 +72,12 @@ class DashboardStore {
 	private handleVisibilityChange: (() => void) | null = null;
 	private isInitialized = false;
 
-	// Active batches: in cellar or active brewhouse
+	// Active batches: in cellar or active brewhouse (excluding historical records)
 	activeBatches = $derived.by(() => {
 		return this.batches.filter(
-			(b) => b.status === 'Brewing' || b.status === 'Fermenting' || b.status === 'Conditioning'
+			(b) =>
+				!b.isHistorical &&
+				(b.status === 'Brewing' || b.status === 'Fermenting' || b.status === 'Conditioning')
 		);
 	});
 
@@ -104,14 +111,19 @@ class DashboardStore {
 		);
 	});
 
-	// Cellar utilization %
+	// Cellar utilization %: distinct active-setup fermenters occupied by cellar batches / active-setup fermenters
 	cellarUtilizationPercent = $derived.by(() => {
 		const totalFermenters = this.fermenters.length;
 		if (totalFermenters === 0) {
-			return this.activeCellarBatches.length > 0 ? 100 : 0;
+			return 0;
 		}
-		const occupiedCount = Math.min(this.activeCellarBatches.length, totalFermenters);
-		return Math.min(100, Math.round((occupiedCount / totalFermenters) * 100));
+		const activeFermenterIds = new Set(this.fermenters.map((f) => f.id));
+		const occupiedFermenterIds = new Set(
+			this.activeCellarBatches
+				.map((batch) => batch.fermenterId)
+				.filter((id): id is string => typeof id === 'string' && activeFermenterIds.has(id))
+		);
+		return Math.min(100, Math.round((occupiedFermenterIds.size / totalFermenters) * 100));
 	});
 
 	// Total volume currently under fermentation/conditioning
@@ -136,7 +148,7 @@ class DashboardStore {
 						id,
 						batchId: batch.id,
 						batchCode: batch.batchCode,
-						text: `${batchLabel}: Add dry hop additions (Day ${batch.daysActive})`,
+						text: t('dashboard.milestone_dryhop', { batch: batchLabel, day: batch.daysActive }),
 						completed: this.completedMilestoneIds.includes(id),
 						isMilestone: true
 					});
@@ -148,7 +160,7 @@ class DashboardStore {
 						id,
 						batchId: batch.id,
 						batchCode: batch.batchCode,
-						text: `${batchLabel}: Measure terminal gravity & test diacetyl`,
+						text: t('dashboard.milestone_gravity', { batch: batchLabel }),
 						completed: this.completedMilestoneIds.includes(id),
 						isMilestone: true
 					});
@@ -159,7 +171,7 @@ class DashboardStore {
 					id,
 					batchId: batch.id,
 					batchCode: batch.batchCode,
-					text: `${batchLabel}: Prepare kegs or bottles for packaging`,
+					text: t('dashboard.milestone_package', { batch: batchLabel }),
 					completed: this.completedMilestoneIds.includes(id),
 					isMilestone: true
 				});
@@ -645,43 +657,22 @@ class DashboardStore {
 			}
 		}
 
-		// Also update batch telemetry if reading is linked to a batch
-		if (reading.batchId) {
-			const bIdx = this.batches.findIndex((b) => b.id === reading.batchId);
-			if (bIdx >= 0) {
-				const batch = this.batches[bIdx];
-				const allowTelemetry = shouldApplyTelemetryToBatch(batch, reading.equipmentId);
-				const nextGravity = allowTelemetry
-					? (reading.specificGravity ?? batch.currentGravity)
-					: batch.currentGravity;
-				let nextAbv = batch.alcoholByVolume;
-				const og = batch.measuredOg ?? batch.targetOg;
-				if (allowTelemetry && nextGravity && og && og > nextGravity) {
-					nextAbv = Number(calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2));
-				}
-				this.batches[bIdx] = {
-					...batch,
-					vesselTempC: allowTelemetry
-						? (reading.temperatureC ?? batch.vesselTempC)
-						: batch.vesselTempC,
-					currentGravity: nextGravity,
-					alcoholByVolume: nextAbv
-				};
-			}
-		}
+		// Also update batch telemetry using shared sensor-precedence helper
+		this.batches = applyEquipmentTelemetryToBatches(this.batches, reading, settings.abvFormula);
 
 		// Optionally prepend to activity feed if temperature is present
 		if (reading.temperatureC !== undefined && reading.temperatureC !== null) {
 			const matchedBatch = reading.batchId
 				? this.batches.find((b) => b.id === reading.batchId)
 				: undefined;
+			const formattedTemp = settings.formatTemperature(reading.temperatureC);
 			const feedItem: ActivityFeedItem = {
 				id: `iot-${Date.now()}-${reading.equipmentId}`,
 				type: 'reading',
 				batchId: reading.batchId ?? undefined,
 				batchCode: matchedBatch?.batchCode,
 				batchName: eqName,
-				message: `${eqName}: ${reading.temperatureC.toFixed(1)}°C${reading.specificGravity ? ` | ${reading.specificGravity.toFixed(3)} SG` : ''}`,
+				message: `${eqName}: ${formattedTemp}${reading.specificGravity ? ` | ${reading.specificGravity.toFixed(3)} SG` : ''}`,
 				timestamp: reading.timestamp || new Date().toISOString(),
 				tempC: reading.temperatureC,
 				gravity: reading.specificGravity ?? undefined
@@ -750,31 +741,45 @@ class DashboardStore {
 	async logReading(batchId: string, req: AddBatchReadingRequest): Promise<BatchReadingDto> {
 		const reading = await api.batches.addReading(batchId, req);
 
-		// Update batch in local state immediately
+		// Update batch in local state immediately while respecting sensor precedence
 		const idx = this.batches.findIndex((b) => b.id === batchId);
 		if (idx >= 0) {
 			const targetBatch = this.batches[idx];
-			const nextGravity = req.specificGravity ?? targetBatch.currentGravity;
-			let nextAbv = reading.alcoholByVolume ?? targetBatch.alcoholByVolume;
+			const allowTelemetry = shouldApplyTelemetryToBatch(targetBatch, req.equipmentId);
+			const nextGravity = allowTelemetry
+				? (req.specificGravity ?? targetBatch.currentGravity)
+				: targetBatch.currentGravity;
+			let nextAbv = allowTelemetry
+				? (reading.alcoholByVolume ?? targetBatch.alcoholByVolume)
+				: targetBatch.alcoholByVolume;
 			const og = targetBatch.measuredOg ?? targetBatch.targetOg;
-			if (nextAbv == null && nextGravity && og && og > nextGravity) {
+			if (allowTelemetry && nextAbv == null && nextGravity && og && og > nextGravity) {
 				nextAbv = Number(calculateActualAbv(og, nextGravity, settings.abvFormula).toFixed(2));
 			}
 			this.batches[idx] = {
 				...targetBatch,
 				currentGravity: nextGravity,
 				alcoholByVolume: nextAbv,
-				vesselTempC: req.temperatureC ?? targetBatch.vesselTempC
+				vesselTempC: allowTelemetry
+					? (req.temperatureC ?? targetBatch.vesselTempC)
+					: targetBatch.vesselTempC
 			};
 
-			// Prepend to activity feed
+			// Prepend localized message to activity feed
+			const detailParts: string[] = [];
+			if (req.specificGravity) {
+				detailParts.push(`${req.specificGravity.toFixed(3)} SG`);
+			}
+			if (req.temperatureC !== undefined && req.temperatureC !== null) {
+				detailParts.push(settings.formatTemperature(req.temperatureC));
+			}
 			const feedItem: ActivityFeedItem = {
 				id: reading.id || `feed-${Date.now()}`,
 				type: 'reading',
 				batchId: targetBatch.id,
 				batchCode: targetBatch.batchCode,
 				batchName: targetBatch.name,
-				message: `Logged reading: ${req.specificGravity ? `${req.specificGravity.toFixed(3)} SG` : ''} ${req.temperatureC !== undefined && req.temperatureC !== null ? `${req.temperatureC.toFixed(1)}°C` : ''}`,
+				message: t('dashboard.activity_logged_reading', { details: detailParts.join(' ') }),
 				timestamp: new Date().toISOString(),
 				tempC: req.temperatureC,
 				gravity: req.specificGravity
@@ -787,29 +792,60 @@ class DashboardStore {
 	}
 
 	// In-dashboard stage advancement
-	async advanceStage(batchId: string, targetStage: BrewStage) {
-		const updated = await api.batches.advanceStage(batchId, { targetStage });
+	async advanceStage(
+		batchId: string,
+		targetStage: BrewStage,
+		extra?: Omit<AdvanceBatchStageRequest, 'targetStage'>
+	) {
+		const updated = await api.batches.advanceStage(batchId, { ...extra, targetStage });
 
 		const idx = this.batches.findIndex((b) => b.id === batchId);
 		if (idx >= 0) {
 			this.batches[idx] = {
 				...this.batches[idx],
 				currentStage: updated.currentStage,
-				status: updated.status
+				status: updated.status,
+				fermenterId: updated.fermenterId ?? this.batches[idx].fermenterId,
+				fermenterName: updated.fermenterName ?? this.batches[idx].fermenterName
 			};
 
+			const localizedStage = t(`batches.stages.${updated.currentStage.toLowerCase()}`);
 			const feedItem: ActivityFeedItem = {
 				id: `stage-${Date.now()}`,
 				type: 'stage',
 				batchId: updated.id,
 				batchCode: updated.batchCode,
 				batchName: updated.name,
-				message: `Advanced to ${updated.currentStage} stage`,
+				message: t('dashboard.activity_advanced_stage', { stage: localizedStage }),
 				timestamp: new Date().toISOString()
 			};
 
 			this.recentActivity = [feedItem, ...this.recentActivity.slice(0, 19)];
 		}
+
+		// Re-fetch batch summary & equipment and restart equipment streams to reflect new stage/vessels
+		try {
+			const setupIdFilter =
+				brewery.activeSetupId && brewery.activeSetupId !== DEFAULT_BREWERY_ID
+					? brewery.activeSetupId
+					: undefined;
+			const [batchesRes, equipmentRes] = await Promise.all([
+				api.batches.list({ limit: 50 }),
+				api.equipment.list(undefined, undefined, undefined, undefined, setupIdFilter)
+			]);
+			if (Array.isArray(batchesRes)) {
+				this.batches = batchesRes;
+			}
+			if (Array.isArray(equipmentRes)) {
+				this.equipment = equipmentRes;
+			}
+			this.lastUpdated = new Date();
+		} catch {
+			// Preserve optimistic update if refresh fails
+		}
+
+		this.stopEquipmentTelemetry();
+		this.syncEventStreams();
 
 		return updated;
 	}

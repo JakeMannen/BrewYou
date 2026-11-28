@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { modalA11y } from '$lib/actions/modalA11y';
+	import { resolveLogTempEquipmentMode } from '$lib/utils/batchEquipment';
 	import type {
 		BatchBoilStep,
 		BatchMashStepDto,
@@ -42,6 +45,8 @@
 	}: Props = $props();
 
 	let selectedEquipmentId = $state<string>('');
+	let lockEquipmentDisplay = $state(false);
+	let lockedEquipmentName = $state<string | null>(null);
 	let selectedMashStepId = $state<string>('');
 	let selectedBoilStepName = $state<string>('');
 	let tempInputStr = $state('');
@@ -50,19 +55,10 @@
 	let timestampLocal = $state<string>('');
 	let saving = $state(false);
 	let error = $state<string | null>(null);
+	let wasOpen = false;
 
-	let resolvedEquipment = $derived.by(() => {
-		if (selectedEquipmentId) {
-			return equipmentList.find((e) => e.id === selectedEquipmentId) ?? null;
-		}
-		return null;
-	});
-
-	let resolvedEquipmentName = $derived(
-		resolvedEquipment?.name ??
-			equipmentName ??
-			(defaultEquipmentId ? equipmentList.find((e) => e.id === defaultEquipmentId)?.name : null) ??
-			null
+	let eligibleEquipment = $derived(
+		equipmentList.filter((e) => e.subtype !== 'BrewLink' && e.type !== 'Tap')
 	);
 
 	let resolvedStep = $derived.by(() => {
@@ -79,33 +75,42 @@
 		return null;
 	});
 
-	// Sync defaults on open
+	// Sync defaults once on open transition so read-only vs <select> stays stable while open
 	$effect(() => {
-		if (isOpen) {
-			selectedEquipmentId = defaultEquipmentId ?? '';
-			selectedMashStepId = defaultMashStepId ?? (mashSteps.length > 0 ? mashSteps[0].id : '');
-			selectedBoilStepName = defaultBoilStepName ?? (boilSteps.length > 0 ? boilSteps[0].name : '');
-			const matchedStep =
-				stage === 'Mash' && selectedMashStepId
-					? mashSteps.find((s) => s.id === selectedMashStepId)
-					: null;
-			const matchedBoil =
-				stage === 'Boil' && selectedBoilStepName
-					? boilSteps.find((s) => s.name === selectedBoilStepName)
-					: null;
-			const target =
-				targetTemperatureC ??
-				matchedStep?.targetTemperatureC ??
-				matchedBoil?.targetTemperatureC ??
-				(stage === 'Boil' ? 100 : stage === 'Ferment' ? 20 : 65);
-			const initialTemp =
-				settings.temperatureUnit === 'Fahrenheit'
-					? Number(((target * 9) / 5 + 32).toFixed(1))
-					: target;
-			tempInputStr = formatNumber(initialTemp, 1);
-			notes = '';
-			timestampLocal = '';
-			error = null;
+		if (isOpen && !wasOpen) {
+			wasOpen = true;
+			untrack(() => {
+				const eqMode = resolveLogTempEquipmentMode(defaultEquipmentId, equipmentList);
+				lockEquipmentDisplay = eqMode.locked;
+				lockedEquipmentName = eqMode.locked ? (eqMode.equipmentName ?? equipmentName) : null;
+				selectedEquipmentId = eqMode.equipmentId;
+				selectedMashStepId = defaultMashStepId ?? (mashSteps.length > 0 ? mashSteps[0].id : '');
+				selectedBoilStepName =
+					defaultBoilStepName ?? (boilSteps.length > 0 ? boilSteps[0].name : '');
+				const matchedStep =
+					stage === 'Mash' && selectedMashStepId
+						? mashSteps.find((s) => s.id === selectedMashStepId)
+						: null;
+				const matchedBoil =
+					stage === 'Boil' && selectedBoilStepName
+						? boilSteps.find((s) => s.name === selectedBoilStepName)
+						: null;
+				const target =
+					targetTemperatureC ??
+					matchedStep?.targetTemperatureC ??
+					matchedBoil?.targetTemperatureC ??
+					(stage === 'Boil' ? 100 : stage === 'Ferment' ? 20 : 65);
+				const initialTemp =
+					settings.temperatureUnit === 'Fahrenheit'
+						? Number(((target * 9) / 5 + 32).toFixed(1))
+						: target;
+				tempInputStr = formatNumber(initialTemp, 1);
+				notes = '';
+				timestampLocal = '';
+				error = null;
+			});
+		} else if (!isOpen) {
+			wasOpen = false;
 		}
 	});
 
@@ -167,13 +172,23 @@
 
 {#if isOpen}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center p-4"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="log-temp-modal-title"
 	>
+		<button
+			type="button"
+			class="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+			onclick={() => {
+				if (!saving) onClose();
+			}}
+			tabindex="-1"
+			aria-label={t('common.close_dialog')}
+		></button>
 		<div
-			class="glass-panel relative w-full max-w-md rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900"
+			use:modalA11y={{ onClose, disabled: saving }}
+			class="glass-panel relative z-10 w-full max-w-md rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900"
 		>
 			<!-- Header -->
 			<div
@@ -309,18 +324,22 @@
 							<span class="block text-[10px] font-semibold tracking-wider text-zinc-400 uppercase">
 								{t('batches.telemetry.equipment')}
 							</span>
-							{#if resolvedEquipmentName}
-								<span class="mt-0.5 block font-bold text-zinc-800 dark:text-zinc-200">
-									{resolvedEquipmentName}
+							{#if lockEquipmentDisplay && lockedEquipmentName}
+								<span
+									data-testid="log-temp-locked-equipment"
+									class="mt-0.5 block font-bold text-zinc-800 dark:text-zinc-200"
+								>
+									{lockedEquipmentName}
 								</span>
-							{:else if equipmentList.length > 0}
+							{:else if eligibleEquipment.length > 0}
 								<select
 									id="equipment-select"
+									data-testid="log-temp-equipment-select"
 									bind:value={selectedEquipmentId}
 									class="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
 								>
 									<option value="">{t('batches.workspace.no_vessel_assigned')}</option>
-									{#each equipmentList.filter((e) => e.subtype !== 'BrewLink' && e.type !== 'Tap') as eq (eq.id)}
+									{#each eligibleEquipment as eq (eq.id)}
 										<option value={eq.id}>{eq.name}</option>
 									{/each}
 								</select>

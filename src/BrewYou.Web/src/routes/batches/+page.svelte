@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Activity, Plus, Search, ArrowUpRight, Loader2, QrCode, Printer } from '@lucide/svelte';
+	import {
+		Activity,
+		Plus,
+		Search,
+		ArrowUpRight,
+		Loader2,
+		QrCode,
+		Printer,
+		Radio
+	} from '@lucide/svelte';
 	import { api } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { t } from '$lib/i18n/index.svelte';
@@ -21,6 +30,7 @@
 	let statusFilter = $state<'all' | BatchStatus>('all');
 	let searchQuery = $state('');
 	let batches = $state<BatchSummaryDto[]>([]);
+	let brewLinkEquipmentIds = $state<string[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -90,7 +100,9 @@
 		if (brewLinkSyncInterval || isUnmounted || !auth.isAuthenticated) return;
 		brewLinkSyncInterval = setInterval(async () => {
 			if (document.visibilityState === 'hidden' || !auth.isAuthenticated || isUnmounted) return;
-			const eqIds = getActiveStageVesselIds(batches);
+			const eqIds = getActiveStageVesselIds(batches).filter((id) =>
+				brewLinkEquipmentIds.includes(id)
+			);
 			if (eqIds.length === 0) return;
 
 			for (const eqId of eqIds) {
@@ -100,7 +112,7 @@
 						batches = applyBrewLinkSyncTempToBatches(batches, eqId, res.temperatureC);
 					}
 				} catch {
-					// Equipment not BrewLink or gateway offline
+					// Gateway offline or transient sync error
 				}
 			}
 		}, 4000);
@@ -126,7 +138,12 @@
 		loading = true;
 		error = null;
 		try {
-			batches = await api.batches.list();
+			const [batchList, eqList] = await Promise.all([
+				api.batches.list(),
+				api.equipment.list().catch(() => [])
+			]);
+			batches = batchList;
+			brewLinkEquipmentIds = eqList.filter((e) => e.connectionType === 'BrewLink').map((e) => e.id);
 		} catch (err: unknown) {
 			error = (err as Error).message || t('batches.err_load_failed');
 		} finally {
@@ -174,6 +191,12 @@
 
 	function getStatusBadge(status: BatchStatus) {
 		switch (status) {
+			case 'Planned':
+				return {
+					class: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+					dot: 'bg-indigo-500',
+					label: t('batches.status_planned')
+				};
 			case 'Brewing':
 				return {
 					class: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
@@ -198,6 +221,12 @@
 					dot: 'bg-zinc-400',
 					label: t('batches.status_completed')
 				};
+			case 'Archived':
+				return {
+					class: 'border-zinc-500/30 bg-zinc-500/10 text-zinc-500 dark:text-zinc-500',
+					dot: 'bg-zinc-400',
+					label: t('batches.status_archived')
+				};
 			default:
 				return {
 					class: 'border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400',
@@ -212,6 +241,7 @@
 		status: BatchStatus,
 		b?: BatchSummaryDto
 	): UiBrewStage[] {
+		const hasFermenter = Boolean(b?.fermenterId);
 		const stages: UiBrewStage[] = [
 			{
 				id: 'mash',
@@ -232,7 +262,7 @@
 				label: t('batches.stages.ferment'),
 				status: 'pending',
 				equipmentSubtype: 'ConicalFermenter',
-				fillPercent: 80,
+				fillPercent: hasFermenter ? 80 : 0,
 				equipmentName: b?.fermenterName ?? undefined
 			},
 			{
@@ -240,7 +270,7 @@
 				label: t('batches.stages.condition'),
 				status: 'pending',
 				equipmentSubtype: 'Carboy',
-				fillPercent: 80
+				fillPercent: hasFermenter ? 80 : 0
 			},
 			{
 				id: 'package',
@@ -301,7 +331,7 @@
 		<!-- Accessible Status Filter Tabs -->
 		<div
 			role="tablist"
-			aria-label="Batch status filter"
+			aria-label={t('batches.status_filter_aria')}
 			class="flex gap-1.5 overflow-x-auto rounded-xl border border-zinc-200/80 bg-zinc-100/70 p-1 dark:border-white/5 dark:bg-zinc-900/60"
 		>
 			{#each ['all', 'brewing', 'fermenting', 'conditioning', 'completed'] as filterKey}
@@ -508,10 +538,19 @@
 					<div
 						class="mt-4 flex items-center justify-between border-t border-zinc-200/60 pt-3 text-xs text-zinc-500 dark:border-white/5 dark:text-zinc-400"
 					>
-						<div class="flex items-center gap-2 truncate">
+						<div class="flex min-w-0 flex-wrap items-center gap-2">
 							<span class="truncate font-medium text-zinc-700 dark:text-zinc-300"
 								>{batch.fermenterName || t('batches.workspace.no_fermenter_assigned')}</span
 							>
+							{#if batch.fermentationSensorName}
+								<span
+									data-testid="batch-card-sensor-badge"
+									class="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-300"
+								>
+									<Radio class="h-3 w-3" aria-hidden="true" />
+									<span class="truncate">{batch.fermentationSensorName}</span>
+								</span>
+							{/if}
 							<span>•</span>
 							<span>{t('batches.days_active', { days: batch.daysActive })}</span>
 						</div>
