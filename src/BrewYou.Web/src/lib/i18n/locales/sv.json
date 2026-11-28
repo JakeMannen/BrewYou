@@ -652,6 +652,14 @@
 		"volume": "Volym",
 		"status_brewing": "Brygger",
 		"status_archived": "Arkiverad",
+		"status_filter_aria": "Filtrera batchstatus",
+		"edit_validation": {
+			"name_required": "Batchnamn krävs.",
+			"og_range": "Uppmätt OG måste vara mellan 1,000 och 1,250.",
+			"fg_range": "Uppmätt FG måste vara mellan 0,980 och 1,200.",
+			"fg_lower_than_og": "Uppmätt FG måste vara lägre än uppmätt OG.",
+			"volume_non_negative": "Batchvolymen kan inte vara negativ."
+		},
 		"filter_brewing": "Brygger",
 		"err_load_failed": "Kunde inte läsa in batcher.",
 		"stages": {
@@ -984,6 +992,8 @@
 			"packaging_vessel": "Tappningskärl",
 			"none_assigned": "Ingen tilldelad",
 			"no_fermenter_assigned": "Inget jäskärl tilldelat",
+			"fermentation_sensor_badge": "Sensor",
+			"brewing_progress_aria": "Bryggförlopp",
 			"no_notes_recorded": "Inga anteckningar registrerade för denna batch.",
 			"advance_stage_notes_placeholder": "Vörtens klarhet, volym i jäskärl, observationer av krausen...",
 			"reading_notes_placeholder": "Arom, krausenstatus, aktivitet i jäsrör...",
@@ -2504,7 +2514,16 @@
 		"tap_pouring": "Serverar",
 		"tap_empty": "Kran tom",
 		"tap_no_batch": "Ingen brygd tilldelad",
-		"tap_assign_action": "Tilldela brygd"
+		"tap_assign_action": "Tilldela brygd",
+		"view_all_equipment": "Visa all utrustning",
+		"milestone_dryhop": "{batch}: Tillsätt torrhumle (Dag {day})",
+		"milestone_gravity": "{batch}: Mät slutdensitet och testa diacetyl",
+		"milestone_package": "{batch}: Förbered fat eller flaskor för förpackning",
+		"activity_logged_reading": "Loggade mätning: {details}",
+		"activity_advanced_stage": "Gick vidare till steget {stage}",
+		"invalid_gravity_error": "Ange ett giltigt densitetsvärde.",
+		"gravity_range_error": "Densiteten ligger utanför normalt bryggintervall (0,980 - 1,250 SG).",
+		"notes_placeholder": "Aromer, klarhet, aktiv jäsning, torrhumlearom..."
 	},
 	"fermentation_profile": {
 		"title": "Jäsningsprofil & steg",

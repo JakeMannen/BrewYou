@@ -4,10 +4,13 @@
 	import { goto } from '$app/navigation';
 	import { api, ApiClientError } from '$lib/api/client';
 	import { t } from '$lib/i18n/index.svelte';
-	import { settings, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
+	import { settings, celsiusToFahrenheit, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
+	import { modalA11y } from '$lib/actions/modalA11y';
+	import { isBatchTelemetrySensor } from '$lib/components/inventory/vessel-geometry';
 	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import type {
 		BatchDetailDto,
+		BatchSummaryDto,
 		BrewStage,
 		BatchStatus,
 		AdvanceBatchStageRequest,
@@ -40,10 +43,17 @@
 	import StageProgressBar from '$lib/components/batches/StageProgressBar.svelte';
 	import { extractInteraction, getInteractionActions } from '$lib/utils/brewlink';
 	import {
+		EMPTY_GUID,
+		buildEquipmentIdUpdate,
 		getPrimaryFermentationSensorAssignment,
 		isPackagingVesselEquipment,
 		resolveActiveStageSensorAssignment
 	} from '$lib/utils/batchEdit';
+	import {
+		isEquipmentOccupied,
+		resolveStageBrewLinkEquipment,
+		resolveStageEquipment
+	} from '$lib/utils/batchEquipment';
 	import { isBatchInProgress, shouldApplyTelemetryToBatch } from '$lib/utils/batchTelemetry';
 	import { batchTimer } from '$lib/stores/batch-timer.svelte';
 	import { sortIngredientsChronologically } from '$lib/utils/ingredient-order';
@@ -160,6 +170,7 @@
 	});
 
 	let equipmentList = $state<EquipmentDto[]>([]);
+	let activeBatches = $state<BatchSummaryDto[]>([]);
 	let batchEquipmentReadings = $state<BatchEquipmentReadingDto[]>([]);
 	let showLogTempModal = $state(false);
 	let showDeleteBatchModal = $state(false);
@@ -317,28 +328,24 @@
 			}
 		}
 
-		if (isBatchInProgress(updated)) {
+		if (isBatchInProgress(updated) && !updated.isHistorical) {
 			startLiveTelemetryStream();
-			if (!isHistoricalBatch) {
-				startBrewLinkAutoSync();
-				const nextBrewLink = activeStageBrewLinkEquipment;
-				if (nextBrewLink && nextBrewLink.id !== prevBrewLinkId) {
-					try {
-						const res = await api.equipment.syncBrewLinkState(nextBrewLink.id);
-						if (res && (res.temperatureC != null || res.metricsJson)) {
-							handleEquipmentUpdate({
-								...nextBrewLink,
-								currentTemperatureC: res.temperatureC ?? nextBrewLink.currentTemperatureC,
-								latestMetricsJson: res.metricsJson ?? nextBrewLink.latestMetricsJson,
-								temperatureUpdatedAt: new Date().toISOString()
-							});
-						}
-					} catch {
-						// Gateway offline or transient sync error
+			startBrewLinkAutoSync();
+			const nextBrewLink = activeStageBrewLinkEquipment;
+			if (nextBrewLink && nextBrewLink.id !== prevBrewLinkId) {
+				try {
+					const res = await api.equipment.syncBrewLinkState(nextBrewLink.id);
+					if (res && (res.temperatureC != null || res.metricsJson)) {
+						handleEquipmentUpdate({
+							...nextBrewLink,
+							currentTemperatureC: res.temperatureC ?? nextBrewLink.currentTemperatureC,
+							latestMetricsJson: res.metricsJson ?? nextBrewLink.latestMetricsJson,
+							temperatureUpdatedAt: new Date().toISOString()
+						});
 					}
+				} catch {
+					// Gateway offline or transient sync error
 				}
-			} else {
-				stopBrewLinkAutoSync();
 			}
 		} else {
 			stopLiveTelemetryStream();
@@ -359,6 +366,8 @@
 	let advanceMeasuredFg = $derived(parseDecimal(advanceMeasuredFgStr));
 	let advanceVolume = $derived(parseDecimal(advanceVolumeStr));
 	let advancePitchTemp = $derived(parseDecimal(advancePitchTempStr));
+	let advanceFermenterId = $state<string>('');
+	let advanceFermentationSensorId = $state<string>('');
 	let advancePackagingVesselId = $state<string>('');
 	let advanceNotes = $state('');
 	let advancePreBoilVolumeStr = $state('');
@@ -401,7 +410,26 @@
 	let fermentorSensorSubtype = $derived(
 		activeFermentorSensor?.subtype ?? activeFermentorSensorAssignment?.equipmentSubtype ?? null
 	);
+	let fermenters = $derived(equipmentList.filter((e) => e.type === 'Fermenter'));
+	let fermentationSensors = $derived(equipmentList.filter((e) => isBatchTelemetrySensor(e)));
 	let packagingVessels = $derived(equipmentList.filter((e) => isPackagingVesselEquipment(e)));
+	let primaryFermentationSensorAssignment = $derived(
+		batch ? getPrimaryFermentationSensorAssignment(batch) : null
+	);
+	let primaryFermentationSensorName = $derived(
+		primaryFermentationSensorAssignment
+			? (equipmentList.find((e) => e.id === primaryFermentationSensorAssignment.equipmentId)
+					?.name ?? primaryFermentationSensorAssignment.equipmentName)
+			: null
+	);
+
+	function formatAdvanceEquipmentOption(eq: EquipmentDto, includeCapacity: boolean): string {
+		const base = includeCapacity
+			? `${eq.name} (${settings.formatVolume(eq.capacityLiters)})`
+			: `${eq.name} [${t(`equipment.subtypes.${eq.subtype}`) || eq.subtype}]`;
+		const occupied = isEquipmentOccupied(eq.id, activeBatches, eq, batch?.id ?? null);
+		return occupied ? `${base} — ${t('dashboard.status_occupied')}` : base;
+	}
 
 	let assignedHlt = $derived.by(() => {
 		const b = batch;
@@ -410,21 +438,13 @@
 	});
 
 	let isHistoricalBatch = $derived(Boolean(batch?.isHistorical));
+	let canStreamLiveTelemetry = $derived(
+		Boolean(batch && isBatchInProgress(batch) && !batch.isHistorical)
+	);
 
-	let activeStageBrewLinkEquipment = $derived.by<EquipmentDto | null>(() => {
-		if (!batch || equipmentList.length === 0) return null;
-		let targetId: string | null = null;
-		if (inspectedStage === 'Mash') {
-			targetId = batch.mashTunId ?? batch.boilerId ?? null;
-		} else if (inspectedStage === 'Boil') {
-			targetId = batch.boilerId ?? null;
-		} else if (inspectedStage === 'Ferment' || inspectedStage === 'Condition') {
-			targetId = batch.fermenterId ?? null;
-		}
-		if (!targetId) return null;
-		const eq = equipmentList.find((e) => e.id === targetId);
-		return eq?.connectionType === 'BrewLink' ? eq : null;
-	});
+	let activeStageBrewLinkEquipment = $derived(
+		resolveStageBrewLinkEquipment(batch, equipmentList, inspectedStage)
+	);
 
 	let brewLinkAutoMode = $derived.by<boolean>(() => {
 		const rawJson = activeStageBrewLinkEquipment?.latestMetricsJson;
@@ -442,40 +462,20 @@
 		message: string;
 		code?: number;
 	} | null>(() => {
-		if (!batch || !isBrewLinkOnline || equipmentList.length === 0) return null;
-
-		// Prioritize inspected stage equipment if available
-		const priorityEq = activeStageBrewLinkEquipment;
-		if (priorityEq?.latestMetricsJson) {
-			const parsed = extractInteraction(priorityEq.latestMetricsJson);
-			if (parsed.required) {
-				return {
-					equipment: priorityEq,
-					message: parsed.message || t('equipment.brewlink_interaction_alert'),
-					code: parsed.code
-				};
-			}
+		if (!batch || !isBrewLinkOnline || !activeStageBrewLinkEquipment?.latestMetricsJson) {
+			return null;
 		}
 
-		// Also check any other equipment assigned to this batch
-		const candidateIds = [batch.boilerId, batch.mashTunId, batch.hltId, batch.fermenterId].filter(
-			(id): id is string => Boolean(id) && id !== priorityEq?.id
-		);
-
-		for (const id of candidateIds) {
-			const eq = equipmentList.find((e) => e.id === id && e.connectionType === 'BrewLink');
-			if (eq?.latestMetricsJson) {
-				const parsed = extractInteraction(eq.latestMetricsJson);
-				if (parsed.required) {
-					return {
-						equipment: eq,
-						message: parsed.message || t('equipment.brewlink_interaction_alert'),
-						code: parsed.code
-					};
-				}
-			}
+		const parsed = extractInteraction(activeStageBrewLinkEquipment.latestMetricsJson);
+		if (!parsed.required) {
+			return null;
 		}
-		return null;
+
+		return {
+			equipment: activeStageBrewLinkEquipment,
+			message: parsed.message || t('equipment.brewlink_interaction_alert'),
+			code: parsed.code
+		};
 	});
 
 	$effect(() => {
@@ -579,90 +579,27 @@
 		}
 	}
 
-	let currentStageEquipment = $derived.by(() => {
-		const currentBatch = batch;
-		if (!currentBatch) return null;
-		// 1. Step-level sensor assignment (Mash step)
-		if (logTempStage === 'Mash' && logTempMashStepId && currentBatch.sensorAssignments?.length) {
-			const stepAssignment = currentBatch.sensorAssignments.find(
-				(sa) => sa.batchMashStepId === logTempMashStepId
-			);
-			if (stepAssignment) {
-				const eq = equipmentList.find((e) => e.id === stepAssignment.equipmentId);
-				return {
-					id: stepAssignment.equipmentId,
-					name: eq?.name ?? stepAssignment.equipmentName
-				};
-			}
-		}
+	let inspectedStageEquipment = $derived(
+		resolveStageEquipment(
+			batch,
+			equipmentList,
+			inspectedStage,
+			inspectedStage === 'Mash'
+				? (selectedMashStepGraphId ??
+						batch?.mashSteps?.find((s) => !s.isCompleted)?.id ??
+						batch?.mashSteps?.[0]?.id ??
+						null)
+				: null
+		)
+	);
+	let inspectedStageEquipmentName = $derived(inspectedStageEquipment?.name || null);
 
-		// 2. Stage-level sensor assignment
-		if (currentBatch.sensorAssignments?.length) {
-			const stageAssignment = currentBatch.sensorAssignments.find(
-				(sa) => sa.stage === logTempStage
-			);
-			if (stageAssignment) {
-				const eq = equipmentList.find((e) => e.id === stageAssignment.equipmentId);
-				return {
-					id: stageAssignment.equipmentId,
-					name: eq?.name ?? stageAssignment.equipmentName
-				};
-			}
-		}
-
-		// 3. Stage vessel from batch profile
-		if (logTempStage === 'Mash') {
-			const mashVesselId = currentBatch.mashTunId ?? currentBatch.boilerId;
-			if (mashVesselId) {
-				const eq = equipmentList.find((e) => e.id === mashVesselId);
-				return {
-					id: mashVesselId,
-					name: eq?.name ?? currentBatch.mashTunName ?? currentBatch.boilerName ?? 'Mash Tun'
-				};
-			}
-		} else if (logTempStage === 'Boil') {
-			if (currentBatch.boilerId) {
-				const eq = equipmentList.find((e) => e.id === currentBatch.boilerId);
-				return {
-					id: currentBatch.boilerId,
-					name: eq?.name ?? currentBatch.boilerName ?? 'Boiler'
-				};
-			}
-		} else if (logTempStage === 'Ferment' || logTempStage === 'Condition') {
-			if (currentBatch.fermenterId) {
-				const eq = equipmentList.find((e) => e.id === currentBatch.fermenterId);
-				return {
-					id: currentBatch.fermenterId,
-					name: eq?.name ?? currentBatch.fermenterName ?? 'Fermenter'
-				};
-			}
-		} else if (logTempStage === 'Package') {
-			if (currentBatch.packagingVesselId) {
-				const eq = equipmentList.find((e) => e.id === currentBatch.packagingVesselId);
-				return {
-					id: currentBatch.packagingVesselId,
-					name: eq?.name ?? currentBatch.packagingVesselName ?? 'Packaging'
-				};
-			}
-		}
-
-		// 4. Global sensor assignment (stage === null)
-		if (currentBatch.sensorAssignments?.length) {
-			const globalAssignment = currentBatch.sensorAssignments.find((sa) => sa.stage === null);
-			if (globalAssignment) {
-				const eq = equipmentList.find((e) => e.id === globalAssignment.equipmentId);
-				return {
-					id: globalAssignment.equipmentId,
-					name: eq?.name ?? globalAssignment.equipmentName
-				};
-			}
-		}
-
-		return null;
-	});
+	let currentStageEquipment = $derived(
+		resolveStageEquipment(batch, equipmentList, logTempStage, logTempMashStepId)
+	);
 
 	let currentStageEquipmentId = $derived(currentStageEquipment?.id ?? null);
-	let currentStageEquipmentName = $derived(currentStageEquipment?.name ?? null);
+	let currentStageEquipmentName = $derived(currentStageEquipment?.name || null);
 
 	const batchId = $derived(page.params.id);
 
@@ -758,7 +695,7 @@
 	}
 
 	async function startLiveTelemetryStream() {
-		if (!batch || batch.status === 'Completed' || batch.status === 'Archived') {
+		if (!batch || !isBatchInProgress(batch) || batch.isHistorical) {
 			isTelemetryLive = false;
 			return;
 		}
@@ -790,11 +727,16 @@
 	}
 
 	function startFallbackPolling() {
-		if (fallbackPollTimer || !batch || batch.status === 'Completed' || batch.status === 'Archived')
-			return;
+		if (fallbackPollTimer || !batch || !isBatchInProgress(batch) || batch.isHistorical) return;
 		isTelemetryLive = true;
 		fallbackPollTimer = setInterval(async () => {
-			if (document.visibilityState === 'hidden' || !batch) return;
+			if (
+				document.visibilityState === 'hidden' ||
+				!batch ||
+				!isBatchInProgress(batch) ||
+				batch.isHistorical
+			)
+				return;
 			try {
 				const latestReadings = await api.batches.getEquipmentReadings(batch.id);
 				for (const r of latestReadings) {
@@ -814,16 +756,15 @@
 	}
 
 	function startBrewLinkAutoSync() {
-		if (
-			brewLinkSyncTimer ||
-			!batch ||
-			isHistoricalBatch ||
-			batch.status === 'Completed' ||
-			batch.status === 'Archived'
-		)
-			return;
+		if (brewLinkSyncTimer || !batch || !isBatchInProgress(batch) || batch.isHistorical) return;
 		brewLinkSyncTimer = setInterval(async () => {
-			if (document.visibilityState === 'hidden' || !batch || isHistoricalBatch) return;
+			if (
+				document.visibilityState === 'hidden' ||
+				!batch ||
+				!isBatchInProgress(batch) ||
+				batch.isHistorical
+			)
+				return;
 			const targetEq = activeStageBrewLinkEquipment;
 			if (targetEq) {
 				try {
@@ -852,13 +793,13 @@
 
 	async function handleVisibilityChange() {
 		if (document.visibilityState === 'visible') {
-			if (batch && batch.status !== 'Completed' && batch.status !== 'Archived') {
+			if (batch && isBatchInProgress(batch) && !batch.isHistorical) {
 				try {
 					const latest = await api.batches.getEquipmentReadings(batch.id);
 					for (const r of latest) {
 						handleNewTelemetryReading(r);
 					}
-					if (!isHistoricalBatch && activeStageBrewLinkEquipment) {
+					if (activeStageBrewLinkEquipment) {
 						const res = await api.equipment.syncBrewLinkState(activeStageBrewLinkEquipment.id);
 						if (res && (res.temperatureC != null || res.metricsJson)) {
 							handleEquipmentUpdate({
@@ -875,9 +816,7 @@
 					// Transient gap recovery error ignored
 				}
 				startLiveTelemetryStream();
-				if (!isHistoricalBatch) {
-					startBrewLinkAutoSync();
-				}
+				startBrewLinkAutoSync();
 			}
 		} else {
 			stopLiveTelemetryStream();
@@ -887,11 +826,9 @@
 
 	onMount(async () => {
 		await loadBatch();
-		if (batch && batch.status !== 'Completed' && batch.status !== 'Archived') {
+		if (batch && isBatchInProgress(batch) && !batch.isHistorical) {
 			startLiveTelemetryStream();
-			if (!isHistoricalBatch) {
-				startBrewLinkAutoSync();
-			}
+			startBrewLinkAutoSync();
 		}
 		if (typeof document !== 'undefined') {
 			document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -915,14 +852,16 @@
 		loading = true;
 		error = null;
 		try {
-			const [batchData, eq, readings] = await Promise.all([
+			const [batchData, eq, readings, batchList] = await Promise.all([
 				api.batches.getById(batchId),
 				api.equipment.list().catch(() => []),
-				api.batches.getEquipmentReadings(batchId).catch(() => [])
+				api.batches.getEquipmentReadings(batchId).catch(() => []),
+				api.batches.list({ limit: 50 }).catch(() => [])
 			]);
 			batch = batchData;
 			equipmentList = eq;
 			batchEquipmentReadings = readings;
+			activeBatches = batchList;
 			inspectedStage = batch.currentStage;
 
 			if (batch.mashSteps && batch.mashSteps.length > 0) {
@@ -1025,7 +964,9 @@
 					batch!.volumeProfile?.measuredFermenterVolumeLiters ??
 					batch!.volumeProfile?.targetFermenterVolumeLiters ??
 					batch!.targetBatchSizeLiters;
-				if (fermenter && fermenter.capacityLiters > 0) {
+				if (!batch!.fermenterId) {
+					fillPercent = 0;
+				} else if (fermenter && fermenter.capacityLiters > 0) {
 					fillPercent = Math.min(100, Math.round((fermVol / fermenter.capacityLiters) * 100));
 				} else {
 					fillPercent = 80;
@@ -1037,7 +978,9 @@
 					batch!.volumeProfile?.measuredFermenterVolumeLiters ??
 					batch!.volumeProfile?.targetFermenterVolumeLiters ??
 					batch!.targetBatchSizeLiters;
-				if (fermenter && fermenter.capacityLiters > 0) {
+				if (!batch!.fermenterId) {
+					fillPercent = 0;
+				} else if (fermenter && fermenter.capacityLiters > 0) {
 					fillPercent = Math.min(100, Math.round((condVol / fermenter.capacityLiters) * 100));
 				} else {
 					fillPercent = 80;
@@ -1826,7 +1769,14 @@
 			batch.volumeProfile?.targetFermenterVolumeLiters ??
 			batch.targetBatchSizeLiters;
 		advanceVolumeStr = formatDecimalInput(resolvedAdvanceVol, 1);
-		advancePitchTempStr = formatDecimalInput(batch.pitchTemperatureC ?? 20.0, 1);
+		const initialPitchC = batch.pitchTemperatureC ?? 20.0;
+		const displayPitch =
+			settings.temperatureUnit === 'Fahrenheit'
+				? celsiusToFahrenheit(initialPitchC)
+				: initialPitchC;
+		advancePitchTempStr = formatDecimalInput(displayPitch, 1);
+		advanceFermenterId = batch.fermenterId ?? '';
+		advanceFermentationSensorId = getPrimaryFermentationSensorAssignment(batch)?.equipmentId ?? '';
 		advancePackagingVesselId = batch.packagingVesselId ?? '';
 		advancePreBoilVolumeStr = formatDecimalInput(
 			batch.volumeProfile?.measuredPreBoilVolumeLiters ??
@@ -1929,18 +1879,39 @@
 		}
 
 		try {
+			const pitchTempC =
+				nextStage === 'Ferment' && advancePitchTemp !== null && !Number.isNaN(advancePitchTemp)
+					? Number(
+							(settings.temperatureUnit === 'Fahrenheit'
+								? fahrenheitToCelsius(advancePitchTemp)
+								: advancePitchTemp
+							).toFixed(2)
+						)
+					: null;
+			const fermenterUpdate =
+				nextStage === 'Ferment'
+					? buildEquipmentIdUpdate(advanceFermenterId, batch.fermenterId)
+					: undefined;
+			const initialSensorId = getPrimaryFermentationSensorAssignment(batch)?.equipmentId ?? null;
+			const sensorUpdate =
+				nextStage === 'Ferment'
+					? buildEquipmentIdUpdate(advanceFermentationSensorId, initialSensorId)
+					: undefined;
+
 			const req: AdvanceBatchStageRequest = {
 				targetStage: nextStage,
 				measuredBatchSizeLiters: nextStage === 'Ferment' ? advanceVolume : null,
 				measuredOg: nextStage === 'Ferment' ? advanceMeasuredOg : null,
-				pitchTemperatureC: nextStage === 'Ferment' ? advancePitchTemp : null,
+				pitchTemperatureC: pitchTempC,
 				measuredFg: nextStage === 'Package' ? advanceMeasuredFg : null,
+				fermenterId: fermenterUpdate ?? null,
+				fermentationSensorId: sensorUpdate ?? null,
 				packagingVesselId:
 					nextStage === 'Package'
 						? advancePackagingVesselId
 							? advancePackagingVesselId
 							: batch.packagingVesselId
-								? '00000000-0000-0000-0000-000000000000'
+								? EMPTY_GUID
 								: null
 						: null,
 				notes: advanceNotes.trim() || null,
@@ -1951,15 +1922,21 @@
 				force: effectiveForce
 			};
 			const previousStage = batch.currentStage;
-			const [updated, eq] = await Promise.all([
+			const [updated, eq, batchList] = await Promise.all([
 				api.batches.advanceStage(batch.id, req),
-				api.equipment.list().catch(() => equipmentList)
+				api.equipment.list().catch(() => equipmentList),
+				api.batches.list({ limit: 50 }).catch(() => activeBatches)
 			]);
 			batchTimer.pauseStage(batch.id, previousStage);
 			batch = updated;
 			equipmentList = eq;
+			activeBatches = batchList;
 			inspectedStage = updated.currentStage;
 			determineNextStage(updated.currentStage);
+			if (!isBatchInProgress(updated) || updated.isHistorical) {
+				stopLiveTelemetryStream();
+				stopBrewLinkAutoSync();
+			}
 			showAdvanceModal = false;
 			showConfirmAdvanceActiveBoilModal = false;
 			hasConfirmedActiveBoil = false;
@@ -2368,6 +2345,30 @@
 				<h1 class="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl dark:text-white">
 					{batch.name}
 				</h1>
+				{#if batch.fermenterName || primaryFermentationSensorName}
+					<div class="flex flex-wrap items-center gap-2 pt-1">
+						{#if batch.fermenterName}
+							<span
+								data-testid="batch-fermenter-badge"
+								class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300"
+							>
+								<Droplets class="h-3.5 w-3.5" aria-hidden="true" />
+								<span>{t('batches.fermenter')}: {batch.fermenterName}</span>
+							</span>
+						{/if}
+						{#if primaryFermentationSensorName}
+							<span
+								data-testid="batch-sensor-badge"
+								class="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-0.5 text-xs font-semibold text-cyan-700 dark:text-cyan-300"
+							>
+								<Radio class="h-3.5 w-3.5" aria-hidden="true" />
+								<span
+									>{t('batches.workspace.fermentation_sensor_badge')}: {primaryFermentationSensorName}</span
+								>
+							</span>
+						{/if}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Advance Stage & Primary CTA -->
@@ -3196,12 +3197,12 @@
 								if (idx !== -1) activeMashStepIndex = idx;
 							}
 						}}
-						isLive={isTelemetryLive && isInspectingActiveStage}
+						isLive={isTelemetryLive && canStreamLiveTelemetry && isInspectingActiveStage}
 						onOpenLogModal={canLogInspectedStage
 							? () =>
 									openLogTempModal('Mash', selectedMashStepGraphId ?? currentSelectedMashStep?.id)
 							: undefined}
-						equipmentName={currentStageEquipmentName}
+						equipmentName={inspectedStageEquipmentName}
 					/>
 
 					<!-- Mash Additions Checklist -->
@@ -3583,7 +3584,7 @@
 								if (idx !== -1) activeBoilStepIndex = idx;
 							}
 						}}
-						isLive={isTelemetryLive && isInspectingActiveStage}
+						isLive={isTelemetryLive && canStreamLiveTelemetry && isInspectingActiveStage}
 						onOpenLogModal={canLogInspectedStage
 							? () =>
 									openLogTempModal(
@@ -3591,7 +3592,7 @@
 										selectedBoilStepGraphName ?? currentSelectedBoilStep?.name
 									)
 							: undefined}
-						equipmentName={currentStageEquipmentName}
+						equipmentName={inspectedStageEquipmentName}
 					/>
 
 					<!-- Boil Checklist -->
@@ -3698,7 +3699,7 @@
 						stage={inspectedStage}
 						equipmentName={fermentorSensorName}
 						sensorSubtype={fermentorSensorSubtype}
-						isLive={isTelemetryLive && isInspectingActiveStage}
+						isLive={isTelemetryLive && canStreamLiveTelemetry && isInspectingActiveStage}
 						daysActive={batch.daysActive}
 						canLog={canLogInspectedStage}
 						onOpenLogReading={openReadingModal}
@@ -4020,18 +4021,41 @@
 <!-- Advance Stage Modal -->
 {#if showAdvanceModal && batch}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center p-4"
 		role="dialog"
 		aria-modal="true"
+		aria-labelledby="advance-stage-modal-title"
 	>
+		<button
+			type="button"
+			class="fixed inset-0 bg-black/60 backdrop-blur-xs"
+			onclick={() => {
+				if (!advancing) {
+					showAdvanceModal = false;
+					hasConfirmedActiveBoil = false;
+				}
+			}}
+			tabindex="-1"
+			aria-label={t('common.close_dialog')}
+		></button>
 		<div
-			class="glass-panel relative w-full max-w-lg rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-950"
+			use:modalA11y={{
+				onClose: () => {
+					showAdvanceModal = false;
+					hasConfirmedActiveBoil = false;
+				},
+				disabled: advancing
+			}}
+			class="glass-panel relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-950"
 		>
 			<div
 				class="flex items-center justify-between border-b border-zinc-200/60 pb-4 dark:border-white/5"
 			>
 				<div>
-					<h2 class="text-lg font-bold text-zinc-900 dark:text-white">
+					<h2
+						id="advance-stage-modal-title"
+						class="text-lg font-bold text-zinc-900 dark:text-white"
+					>
 						{t('batches.workspace.advance_modal_title', {
 							stage: t(`batches.stages.${nextStage.toLowerCase()}`)
 						})}
@@ -4046,6 +4070,7 @@
 						showAdvanceModal = false;
 						hasConfirmedActiveBoil = false;
 					}}
+					disabled={advancing}
 					aria-label={t('common.close_dialog')}
 					class="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
 				>
@@ -4055,6 +4080,7 @@
 
 			{#if advanceError}
 				<div
+					role="alert"
 					class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
 				>
 					{advanceError}
@@ -4317,19 +4343,68 @@
 									<div class="mt-1.5 flex items-center justify-between text-[11px]">
 										<span class="text-zinc-500 dark:text-zinc-400">
 											{t('batches.workspace.target_from_equipment', {
-												target: `${formatNumber(batch.pitchTemperatureC, 1)}°C`
+												target: settings.formatTemperature(batch.pitchTemperatureC)
 											})}
 										</span>
 										<button
 											type="button"
-											onclick={() =>
-												(advancePitchTempStr = formatDecimalInput(batch?.pitchTemperatureC, 1))}
+											onclick={() => {
+												if (batch?.pitchTemperatureC == null) return;
+												const targetPitch =
+													settings.temperatureUnit === 'Fahrenheit'
+														? celsiusToFahrenheit(batch.pitchTemperatureC)
+														: batch.pitchTemperatureC;
+												advancePitchTempStr = formatDecimalInput(targetPitch, 1);
+											}}
 											class="font-medium text-amber-600 hover:underline dark:text-amber-400"
 										>
 											{t('batches.workspace.reset_to_target')}
 										</button>
 									</div>
 								{/if}
+							</div>
+						</div>
+
+						<!-- Optional Fermenter & Fermentation Sensor selection when advancing into Ferment -->
+						<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div>
+								<label
+									for="advance-fermenter-select"
+									class="block font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('batches.equipment.select_fermenter')}
+								</label>
+								<select
+									id="advance-fermenter-select"
+									data-testid="advance-fermenter-select"
+									bind:value={advanceFermenterId}
+									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+								>
+									<option value="">{t('batches.workspace.no_fermenter_assigned')}</option>
+									{#each fermenters as ferm (ferm.id)}
+										<option value={ferm.id}>{formatAdvanceEquipmentOption(ferm, true)}</option>
+									{/each}
+								</select>
+							</div>
+
+							<div>
+								<label
+									for="advance-sensor-select"
+									class="block font-semibold text-zinc-700 dark:text-zinc-300"
+								>
+									{t('batches.equipment.select_fermentation_sensor')}
+								</label>
+								<select
+									id="advance-sensor-select"
+									data-testid="advance-sensor-select"
+									bind:value={advanceFermentationSensorId}
+									class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
+								>
+									<option value="">{t('batches.workspace.none_assigned')}</option>
+									{#each fermentationSensors as sensor (sensor.id)}
+										<option value={sensor.id}>{formatAdvanceEquipmentOption(sensor, false)}</option>
+									{/each}
+								</select>
 							</div>
 						</div>
 					</div>
@@ -4433,7 +4508,7 @@
 								{/if}
 								<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
 								{#each packagingVessels as keg (keg.id)}
-									<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
+									<option value={keg.id}>{formatAdvanceEquipmentOption(keg, true)}</option>
 								{/each}
 							</select>
 						</div>
@@ -4495,24 +4570,36 @@
 <!-- Add Reading Modal -->
 {#if showReadingModal && batch}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center p-4"
 		role="dialog"
 		aria-modal="true"
+		aria-labelledby="add-reading-modal-title"
 	>
+		<button
+			type="button"
+			class="fixed inset-0 bg-black/60 backdrop-blur-xs"
+			onclick={() => {
+				if (!savingReading) showReadingModal = false;
+			}}
+			tabindex="-1"
+			aria-label={t('common.close_dialog')}
+		></button>
 		<div
-			class="glass-panel relative w-full max-w-md rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-950"
+			use:modalA11y={{ onClose: () => (showReadingModal = false), disabled: savingReading }}
+			class="glass-panel relative z-10 w-full max-w-md rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-950"
 		>
 			<div
 				class="flex items-center justify-between border-b border-zinc-200/60 pb-4 dark:border-white/5"
 			>
 				<div>
-					<h2 class="text-lg font-bold text-zinc-900 dark:text-white">
+					<h2 id="add-reading-modal-title" class="text-lg font-bold text-zinc-900 dark:text-white">
 						{t('batches.workspace.log_reading_modal_title')}
 					</h2>
 				</div>
 				<button
 					type="button"
 					onclick={() => (showReadingModal = false)}
+					disabled={savingReading}
 					aria-label={t('common.close_dialog')}
 					class="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
 				>
@@ -4522,6 +4609,7 @@
 
 			{#if readingError}
 				<div
+					role="alert"
 					class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
 				>
 					{readingError}
@@ -4715,6 +4803,7 @@
 	open={showBatchEditModal}
 	{batch}
 	{equipmentList}
+	{activeBatches}
 	onClose={() => (showBatchEditModal = false)}
 	onSave={handleSaveStageMeasurements}
 />

@@ -11,11 +11,17 @@ export function isBatchInProgress(batch: Pick<BatchSummaryDto, 'status'>): boole
 export function isActiveStageVessel(
 	batch: Pick<
 		BatchSummaryDto,
-		'status' | 'currentStage' | 'mashTunId' | 'boilerId' | 'fermenterId' | 'fermentationSensorId'
+		| 'status'
+		| 'currentStage'
+		| 'mashTunId'
+		| 'boilerId'
+		| 'fermenterId'
+		| 'fermentationSensorId'
+		| 'isHistorical'
 	>,
 	equipmentId: string | null | undefined
 ): boolean {
-	if (!equipmentId || !isBatchInProgress(batch)) return false;
+	if (!equipmentId || !isBatchInProgress(batch) || batch.isHistorical) return false;
 
 	switch (batch.currentStage) {
 		case 'Mash':
@@ -57,7 +63,7 @@ export function getActiveStageVesselIds(batches: BatchSummaryDto[]): string[] {
 	};
 
 	for (const batch of batches) {
-		if (!isBatchInProgress(batch)) continue;
+		if (!isBatchInProgress(batch) || batch.isHistorical) continue;
 
 		switch (batch.currentStage) {
 			case 'Mash':
@@ -89,7 +95,10 @@ export function applyEquipmentTelemetryToBatches(
 	let updatedAny = false;
 	const nextBatches = batches.map((batch) => {
 		const isDirectBatchMatch =
-			Boolean(reading.batchId) && batch.id === reading.batchId && isBatchInProgress(batch);
+			Boolean(reading.batchId) &&
+			batch.id === reading.batchId &&
+			isBatchInProgress(batch) &&
+			!batch.isHistorical;
 		const isVesselMatch = !reading.batchId && isActiveStageVessel(batch, reading.equipmentId);
 
 		if (!isDirectBatchMatch && !isVesselMatch) {

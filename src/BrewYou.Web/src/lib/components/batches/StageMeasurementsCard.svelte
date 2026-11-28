@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
+	import { settings, celsiusToFahrenheit, fahrenheitToCelsius } from '$lib/stores/settings.svelte';
 	import { formatDecimalInput, formatNumber, parseDecimal } from '$lib/utils/formatNumber';
 	import { isPackagingVesselEquipment } from '$lib/utils/batchEdit';
 	import { isMashGrain, normalizeFermentableToKg } from '$lib/calculators/brewing';
@@ -127,7 +127,13 @@
 		draftPreBoilGravStr = formatDecimalInput(batch.volumeProfile?.measuredPreBoilGravity, 3);
 		draftPostBoilVolStr = formatDecimalInput(batch.volumeProfile?.measuredPostBoilVolumeLiters, 1);
 		draftMeasuredOgStr = formatDecimalInput(batch.measuredOg, 3);
-		draftPitchTempStr = formatDecimalInput(batch.pitchTemperatureC, 1);
+		const displayPitchTemp =
+			batch.pitchTemperatureC !== null && batch.pitchTemperatureC !== undefined
+				? settings.temperatureUnit === 'Fahrenheit'
+					? celsiusToFahrenheit(batch.pitchTemperatureC)
+					: batch.pitchTemperatureC
+				: null;
+		draftPitchTempStr = formatDecimalInput(displayPitchTemp, 1);
 		draftMeasuredBatchSizeStr = formatDecimalInput(batch.measuredBatchSizeLiters, 1);
 		draftMeasuredFgStr = formatDecimalInput(batch.measuredFg, 3);
 		draftPackagedVolStr = formatDecimalInput(batch.volumeProfile?.measuredPackagedVolumeLiters, 1);
@@ -194,7 +200,15 @@
 				req.measuredOg = draftMeasuredOg;
 			} else if (stage === 'Ferment') {
 				req.measuredOg = draftMeasuredOg;
-				req.pitchTemperatureC = draftPitchTemp;
+				req.pitchTemperatureC =
+					draftPitchTemp !== null && draftPitchTemp !== undefined && !isNaN(draftPitchTemp)
+						? Number(
+								(settings.temperatureUnit === 'Fahrenheit'
+									? fahrenheitToCelsius(draftPitchTemp)
+									: draftPitchTemp
+								).toFixed(2)
+							)
+						: null;
 				req.measuredBatchSizeLiters = draftMeasuredBatchSize;
 			} else if (stage === 'Condition') {
 				req.measuredFg = draftMeasuredFg;
@@ -425,7 +439,7 @@
 					</span>
 					<div class="mt-1 font-mono text-sm font-bold text-zinc-900 dark:text-white">
 						{batch.pitchTemperatureC !== null && batch.pitchTemperatureC !== undefined
-							? `${formatNumber(batch.pitchTemperatureC, 1)}°C`
+							? settings.formatTemperature(batch.pitchTemperatureC)
 							: '—'}
 					</div>
 				</div>
@@ -656,7 +670,7 @@
 							type="text"
 							inputmode="decimal"
 							bind:value={draftPitchTempStr}
-							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(19.0, 1)}`}
+							placeholder={`${t('batches.workspace.example_prefix')} ${formatNumber(settings.temperatureUnit === 'Fahrenheit' ? celsiusToFahrenheit(19.0) : 19.0, 1)}`}
 							class="mt-1 h-10 w-full rounded-xl border border-zinc-200/80 bg-white px-3 font-mono text-sm text-zinc-900 focus:border-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
 						/>
 					</div>
@@ -733,7 +747,9 @@
 							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
 							{#each packagingVessels as keg (keg.id)}
-								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
+								<option value={keg.id}
+									>{keg.name} ({settings.formatVolume(keg.capacityLiters)})</option
+								>
 							{/each}
 						</select>
 					</div>
@@ -793,7 +809,9 @@
 							{/if}
 							<option value="">{t('batches.workspace.bottled_cellared_option')}</option>
 							{#each packagingVessels as keg (keg.id)}
-								<option value={keg.id}>{keg.name} ({keg.capacity}L)</option>
+								<option value={keg.id}
+									>{keg.name} ({settings.formatVolume(keg.capacityLiters)})</option
+								>
 							{/each}
 						</select>
 					</div>

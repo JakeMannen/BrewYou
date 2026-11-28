@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { render } from 'svelte/server';
+import StageMeasurementsCard from './StageMeasurementsCard.svelte';
+import { settings } from '$lib/stores/settings.svelte';
 import type { BatchDetailDto, BrewStage, UpdateBatchRequest } from '$lib/types/api';
 import { formatNumber } from '$lib/utils/formatNumber';
 import { recalculatePostStepMilestones } from '$lib/calculators/volume';
@@ -162,6 +165,24 @@ describe('StageMeasurementsCard Form & Payload Logic', () => {
 
 		expect(payload.pitchTemperatureC).toBe(18.0);
 		expect(payload.notes).toBe('Clean mash conversion.');
+	});
+
+	it('renders pitch temperature in Fahrenheit when user temperature unit is Fahrenheit (FE-M3)', () => {
+		const prevUnit = settings.temperatureUnit;
+		settings.temperatureUnit = 'Fahrenheit';
+		try {
+			const { body } = render(StageMeasurementsCard, {
+				props: {
+					stage: 'Ferment',
+					batch: { ...mockBatch, pitchTemperatureC: 20.0 },
+					equipmentList: [],
+					onSave: vi.fn()
+				}
+			});
+			expect(body).toContain('68.0 °F');
+		} finally {
+			settings.temperatureUnit = prevUnit;
+		}
 	});
 });
 

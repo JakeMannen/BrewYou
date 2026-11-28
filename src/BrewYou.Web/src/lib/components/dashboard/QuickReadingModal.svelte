@@ -8,6 +8,7 @@
 		platoToSg,
 		sgToPlato
 	} from '$lib/stores/settings.svelte';
+	import { modalA11y } from '$lib/actions/modalA11y';
 	import type { BatchSummaryDto } from '$lib/types/api';
 	import { X, Activity, Loader2, Check } from '@lucide/svelte';
 
@@ -61,12 +62,6 @@
 		}
 	});
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && isOpen) {
-			onClose();
-		}
-	}
-
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		if (!selectedBatchId) return;
@@ -74,7 +69,7 @@
 		errorMessage = null;
 		const rawGrav = parseFloat(gravityInput);
 		if (isNaN(rawGrav) || rawGrav <= 0) {
-			errorMessage = 'Please enter a valid gravity reading.';
+			errorMessage = t('dashboard.invalid_gravity_error');
 			return;
 		}
 
@@ -84,7 +79,7 @@
 		}
 
 		if (specificGravity < 0.98 || specificGravity > 1.25) {
-			errorMessage = 'Gravity reading is outside normal brewing range (0.980 - 1.250 SG).';
+			errorMessage = t('dashboard.gravity_range_error');
 			return;
 		}
 
@@ -106,14 +101,12 @@
 			});
 			onClose();
 		} catch (err: unknown) {
-			errorMessage = (err as Error).message || 'Failed to record reading';
+			errorMessage = (err as Error).message || t('batches.errors.save_reading_failed');
 		} finally {
 			isSubmitting = false;
 		}
 	}
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen}
 	<div
@@ -126,13 +119,16 @@
 		<button
 			type="button"
 			class="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
-			onclick={onClose}
+			onclick={() => {
+				if (!isSubmitting) onClose();
+			}}
 			tabindex="-1"
 			aria-label={t('common.close_dialog')}
 		></button>
 
 		<!-- Modal Dialog Box -->
 		<div
+			use:modalA11y={{ onClose, disabled: isSubmitting }}
 			class="glass-panel relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-zinc-200/80 p-6 shadow-2xl sm:p-7 dark:border-white/10"
 		>
 			<div
@@ -151,6 +147,7 @@
 				<button
 					type="button"
 					onclick={onClose}
+					disabled={isSubmitting}
 					class="rounded-xl p-1.5 text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
 					aria-label={t('common.close_dialog')}
 				>
@@ -160,6 +157,7 @@
 
 			{#if errorMessage}
 				<div
+					role="alert"
 					class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400"
 				>
 					{errorMessage}
@@ -182,7 +180,9 @@
 					>
 						{#each batches as batch (batch.id)}
 							<option value={batch.id}>
-								{batch.batchCode} — {batch.name} ({batch.currentStage})
+								{batch.batchCode} — {batch.name} ({t(
+									`batches.stages.${batch.currentStage.toLowerCase()}`
+								)})
 							</option>
 						{/each}
 					</select>
@@ -242,7 +242,7 @@
 						id="reading-notes"
 						bind:value={notesInput}
 						rows="2"
-						placeholder="Aromas, clarity, active bubbling, dry hop aroma..."
+						placeholder={t('dashboard.notes_placeholder')}
 						class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-white/80 p-3 text-xs text-zinc-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none dark:border-white/10 dark:bg-zinc-900/60 dark:text-white"
 					></textarea>
 				</div>

@@ -389,6 +389,14 @@
 		"volume": "Volume",
 		"status_brewing": "Jour de brassage",
 		"status_archived": "Archivé",
+		"status_filter_aria": "Filtre de statut des brassins",
+		"edit_validation": {
+			"name_required": "Le nom du brassin est requis.",
+			"og_range": "La DI mesurée doit être comprise entre 1,000 et 1,250.",
+			"fg_range": "La DF mesurée doit être comprise entre 0,980 et 1,200.",
+			"fg_lower_than_og": "La DF mesurée doit être inférieure à la DI mesurée.",
+			"volume_non_negative": "Le volume du brassin ne peut pas être négatif."
+		},
 		"filter_brewing": "En cours de brassage",
 		"err_load_failed": "Impossible de charger les brassins.",
 		"not_found": "Brassin introuvable.",
@@ -725,6 +733,8 @@
 			"packaging_vessel": "Cuve de conditionnement",
 			"none_assigned": "Aucun équipement assigné",
 			"no_fermenter_assigned": "Aucun fermenteur assigné",
+			"fermentation_sensor_badge": "Capteur",
+			"brewing_progress_aria": "Progression du brassage",
 			"no_notes_recorded": "Aucune note consignée.",
 			"advance_stage_notes_placeholder": "Notes sur le changement d'étape...",
 			"reading_notes_placeholder": "Sensations, notes de dégustation...",
@@ -2504,7 +2514,16 @@
 		"tap_pouring": "En service",
 		"tap_empty": "Robinet vide",
 		"tap_no_batch": "Aucun brassin assigné",
-		"tap_assign_action": "Assigner un brassin"
+		"tap_assign_action": "Assigner un brassin",
+		"view_all_equipment": "Voir tout l'équipement",
+		"milestone_dryhop": "{batch} : Ajouter le houblonnage à cru (Jour {day})",
+		"milestone_gravity": "{batch} : Mesurer la densité finale et tester le diacétyle",
+		"milestone_package": "{batch} : Préparer les fûts ou bouteilles pour le conditionnement",
+		"activity_logged_reading": "Mesure enregistrée : {details}",
+		"activity_advanced_stage": "Passé à l'étape {stage}",
+		"invalid_gravity_error": "Veuillez saisir une mesure de densité valide.",
+		"gravity_range_error": "La densité est hors de la plage normale de brassage (0,980 - 1,250 SG).",
+		"notes_placeholder": "Arômes, limpidité, activité de fermentation, houblonnage à cru..."
 	},
 	"fermentation_profile": {
 		"title": "Profil et étapes de fermentation",

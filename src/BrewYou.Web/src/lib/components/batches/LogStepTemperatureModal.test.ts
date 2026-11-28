@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { render } from 'svelte/server';
+import LogStepTemperatureModal from './LogStepTemperatureModal.svelte';
 import en from '$lib/i18n/locales/en.json';
 import sv from '$lib/i18n/locales/sv.json';
 import type {
@@ -308,6 +310,43 @@ describe('LogStepTemperatureModal & Telemetry Logic', () => {
 			expect(gravityReadingReq.specificGravity).toBe(1.048);
 			expect(gravityReadingReq.temperatureC).toBeNull();
 			expect(gravityReadingReq.notes).toBe('Hydrometer reading at post-boil');
+		});
+	});
+
+	describe('Rendered Equipment Fallback (FE-H5)', () => {
+		const equipmentList: EquipmentDto[] = [
+			{
+				id: 'eq-boiler-1',
+				brewerySetupId: 'setup-1',
+				name: 'Grainfather G40',
+				type: 'Boiler',
+				subtype: 'AllInOne',
+				capacity: 40,
+				unit: 'Liters',
+				capacityLiters: 40,
+				currentVolume: 0,
+				currentVolumeLiters: 0,
+				fillPercentage: 0,
+				createdAt: '',
+				updatedAt: ''
+			}
+		];
+
+		it('falls back to a <select> when defaultEquipmentId points to a deleted vessel', () => {
+			const { body } = render(LogStepTemperatureModal, {
+				props: {
+					isOpen: true,
+					stage: 'Mash',
+					equipmentList,
+					defaultEquipmentId: 'deleted-vessel-guid',
+					equipmentName: 'Deleted Kettle',
+					onClose: vi.fn(),
+					onSubmit: vi.fn()
+				}
+			});
+
+			expect(body).toContain('data-testid="log-temp-equipment-select"');
+			expect(body).not.toContain('data-testid="log-temp-locked-equipment"');
 		});
 	});
 });

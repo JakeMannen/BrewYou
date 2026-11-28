@@ -1,32 +1,7 @@
-<script module lang="ts">
-	import type { BatchSummaryDto, EquipmentDto } from '$lib/types/api';
-
-	export function isEquipmentOccupied(equipId: string, batches: BatchSummaryDto[]): boolean {
-		return batches.some((b) => {
-			if (b.currentStage === 'Mash') {
-				return b.mashTunId === equipId || (b.boilerId === equipId && !b.mashTunId);
-			}
-			if (b.currentStage === 'Boil') {
-				return b.boilerId === equipId;
-			}
-			if (b.currentStage === 'Ferment' || b.currentStage === 'Condition') {
-				return b.fermenterId === equipId;
-			}
-			return false;
-		});
-	}
-
-	export function getOccupiedEquipmentCount(
-		equipment: EquipmentDto[],
-		batches: BatchSummaryDto[]
-	): number {
-		return equipment.filter((eq) => isEquipmentOccupied(eq.id, batches)).length;
-	}
-</script>
-
 <script lang="ts">
 	import { t } from '$lib/i18n/index.svelte';
 	import { dashboard } from '$lib/stores/dashboard.svelte';
+	import { getOccupiedEquipmentCount, isEquipmentOccupied } from '$lib/utils/batchEquipment';
 	import { Wrench, Wifi, ChevronRight, CheckCircle2 } from '@lucide/svelte';
 
 	const totalEquipment = $derived(dashboard.equipment.length);
@@ -48,9 +23,10 @@
 
 			<a
 				href="/inventory/equipment"
+				aria-label={t('dashboard.view_all_equipment')}
 				class="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 transition hover:text-amber-500 dark:text-amber-400"
 			>
-				<ChevronRight class="h-3.5 w-3.5" />
+				<ChevronRight class="h-3.5 w-3.5" aria-hidden="true" />
 			</a>
 		</div>
 
@@ -101,7 +77,7 @@
 		{#if dashboard.equipment.length > 0}
 			<div class="space-y-1.5">
 				{#each dashboard.equipment.slice(0, 4) as equip (equip.id)}
-					{@const isOccupied = isEquipmentOccupied(equip.id, dashboard.activeBatches)}
+					{@const isOccupied = isEquipmentOccupied(equip.id, dashboard.activeBatches, equip)}
 					<div
 						data-testid="equipment-row-{equip.id}"
 						class="flex items-center justify-between rounded-xl border border-zinc-200/60 bg-zinc-100/50 px-2.5 py-1.5 text-xs transition hover:bg-zinc-100 dark:border-white/5 dark:bg-zinc-900/30 dark:hover:bg-zinc-800/50"

@@ -389,6 +389,14 @@
 		"volume": "Volumen",
 		"status_brewing": "Brautag",
 		"status_archived": "Archiviert",
+		"status_filter_aria": "Sudstatus-Filter",
+		"edit_validation": {
+			"name_required": "Sudname ist erforderlich.",
+			"og_range": "Gemessene Stammwürze (OG) muss zwischen 1,000 und 1,250 liegen.",
+			"fg_range": "Gemessener Restextrakt (FG) muss zwischen 0,980 und 1,200 liegen.",
+			"fg_lower_than_og": "Gemessener FG muss niedriger als gemessener OG sein.",
+			"volume_non_negative": "Das Sudvolumen darf nicht negativ sein."
+		},
 		"filter_brewing": "Am Brauen",
 		"err_load_failed": "Sude konnten nicht geladen werden.",
 		"not_found": "Sud nicht gefunden.",
@@ -725,6 +733,8 @@
 			"packaging_vessel": "Abfüllbehälter",
 			"none_assigned": "Kein Gerät zugewiesen",
 			"no_fermenter_assigned": "Kein Gärtank zugewiesen",
+			"fermentation_sensor_badge": "Sensor",
+			"brewing_progress_aria": "Braufortschritt",
 			"no_notes_recorded": "Keine Notizen erfasst.",
 			"advance_stage_notes_placeholder": "Notizen zum Stufenwechsel...",
 			"reading_notes_placeholder": "Sensorische Eindrücke, Probenotizen...",
@@ -2504,7 +2514,16 @@
 		"tap_pouring": "Ausschenken",
 		"tap_empty": "Hahn leer",
 		"tap_no_batch": "Keine Charge zugewiesen",
-		"tap_assign_action": "Charge zuweisen"
+		"tap_assign_action": "Charge zuweisen",
+		"view_all_equipment": "Alle Geräte anzeigen",
+		"milestone_dryhop": "{batch}: Kalthopfung zugeben (Tag {day})",
+		"milestone_gravity": "{batch}: Endvergärungsgrad messen & Diacetyl prüfen",
+		"milestone_package": "{batch}: Fässer oder Flaschen zum Abfüllen vorbereiten",
+		"activity_logged_reading": "Messwert erfasst: {details}",
+		"activity_advanced_stage": "Zur Phase {stage} gewechselt",
+		"invalid_gravity_error": "Bitte einen gültigen Dichtewert eingeben.",
+		"gravity_range_error": "Dichtewert liegt außerhalb des normalen Braubereichs (0,980 - 1,250 SG).",
+		"notes_placeholder": "Aromen, Klarheit, Gäraktivität, Kalthopfenaroma..."
 	},
 	"fermentation_profile": {
 		"title": "Gärprofil & Stufen",

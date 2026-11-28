@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BatchSummaryDto, EquipmentDto, BrewStage } from '$lib/types/api';
 import { getBatchEquipment, getBatchSubtype } from './ActiveCellarCards.svelte';
-import { isEquipmentOccupied, getOccupiedEquipmentCount } from './EquipmentHealthWidget.svelte';
+import { isEquipmentOccupied, getOccupiedEquipmentCount } from '$lib/utils/batchEquipment';
 import { getTapImageUrl } from './DashboardTapsCard.svelte';
 import { sortEquipmentByName } from '$lib/utils/equipment-order';
 

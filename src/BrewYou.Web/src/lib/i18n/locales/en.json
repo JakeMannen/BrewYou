@@ -389,6 +389,14 @@
 		"volume": "Volume",
 		"status_brewing": "Brewing",
 		"status_archived": "Archived",
+		"status_filter_aria": "Batch status filter",
+		"edit_validation": {
+			"name_required": "Batch name is required.",
+			"og_range": "Measured OG must be between 1.000 and 1.250.",
+			"fg_range": "Measured FG must be between 0.980 and 1.200.",
+			"fg_lower_than_og": "Measured FG must be lower than measured OG.",
+			"volume_non_negative": "Batch volume must be non-negative."
+		},
 		"filter_brewing": "Brewing",
 		"err_load_failed": "Failed to load batches.",
 		"stages": {
@@ -721,6 +729,8 @@
 			"packaging_vessel": "Packaging Vessel",
 			"none_assigned": "None assigned",
 			"no_fermenter_assigned": "No Fermenter Assigned",
+			"fermentation_sensor_badge": "Sensor",
+			"brewing_progress_aria": "Brewing progress",
 			"no_notes_recorded": "No notes recorded for this batch.",
 			"advance_stage_notes_placeholder": "Wort clarity, volume into fermenter, krausen observations...",
 			"reading_notes_placeholder": "Aroma, krausen status, airlock activity...",
@@ -2504,7 +2514,16 @@
 		"tap_pouring": "Pouring",
 		"tap_empty": "Tap Empty",
 		"tap_no_batch": "No batch assigned",
-		"tap_assign_action": "Assign Batch"
+		"tap_assign_action": "Assign Batch",
+		"view_all_equipment": "View all equipment",
+		"milestone_dryhop": "{batch}: Add dry hop additions (Day {day})",
+		"milestone_gravity": "{batch}: Measure terminal gravity & test diacetyl",
+		"milestone_package": "{batch}: Prepare kegs or bottles for packaging",
+		"activity_logged_reading": "Logged reading: {details}",
+		"activity_advanced_stage": "Advanced to {stage} stage",
+		"invalid_gravity_error": "Please enter a valid gravity reading.",
+		"gravity_range_error": "Gravity reading is outside normal brewing range (0.980 - 1.250 SG).",
+		"notes_placeholder": "Aromas, clarity, active bubbling, dry hop aroma..."
 	},
 	"fermentation_profile": {
 		"title": "Fermentation Profile & Stages",
